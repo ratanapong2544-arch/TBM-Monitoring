@@ -5592,7 +5592,7 @@ const PrimaryGroutApp = () => {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50/50 font-sans text-slate-800 selection:bg-blue-100 overflow-x-hidden">
+    <div className="min-h-screen bg-slate-50/50 font-sans text-slate-800 selection:bg-blue-100 overflow-x-hidden print:overflow-visible print:bg-white print:min-h-0 print:block">
       {/* Top Header */}
       <header className="sticky top-0 z-30 bg-white/80 backdrop-blur-md border-b border-slate-200/60 shadow-sm transition-all no-print">
         <div className="max-w-7xl mx-auto px-4 py-3 flex flex-col md:flex-row justify-between items-center gap-3">
@@ -5829,20 +5829,45 @@ const PrimaryGroutApp = () => {
 
         /* --- Global Print Styles for all PDF Exports --- */
         @media print {
-          body { 
+          @page { 
+            size: A4 portrait; 
+            margin: 5mm; /* ลดขอบกระดาษลงเพื่อให้มีพื้นที่บรรจุมากขึ้น */
+          }
+          
+          html, body, #root { 
+            background-color: white !important; 
             -webkit-print-color-adjust: exact !important; 
             print-color-adjust: exact !important; 
-            background-color: white !important; 
+            margin: 0 !important;
+            padding: 0 !important;
+            width: 100% !important;
           }
+          
           .no-print { display: none !important; }
           
+          main { 
+            padding: 0 !important; 
+            margin: 0 auto !important; 
+            width: 100% !important;
+            max-width: 100% !important;
+            display: flex !important;
+            justify-content: center !important; /* จัดกึ่งกลางหน้ากระดาษ */
+          }
+          
+          /* บังคับให้เนื้อหาหลักถูกบีบขนาดให้พอดี 1 หน้ากระดาษ (Fit to 1 page) */
+          main > div {
+            width: 100% !important;
+            transform: scale(0.88); /* ย่อขนาดลง 12% ให้พอดี 1 หน้า (ถ้ายังล้น ปรับลดเป็น 0.85 ได้ครับ) */
+            transform-origin: top center; /* ยึดขอบบนและตรงกลาง */
+            page-break-inside: avoid !important;
+          }
+          
+          table, tr, td, th { page-break-inside: avoid !important; }
+
           /* Custom Print inputs for Shift Report */
-          input { border: none !important; border-bottom: 1px dotted black !important; padding: 0 !important; background: transparent !important; }
+          input { border: none !important; border-bottom: 1px dotted black !important; padding: 0 !important; background: transparent !important; color: black !important; }
           input:focus { border-bottom: 1px dotted black !important; outline: none; }
           .grid-input { border-bottom: none !important; text-align: center; }
-          
-          /* Ensure layout covers full page */
-          @page { margin: 10mm; }
         }
 
         /* --- Custom Striped Backgrounds for Shift Report --- */

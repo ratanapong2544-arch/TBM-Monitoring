@@ -4836,8 +4836,9 @@ const ShiftReportView = ({
   };
 
   const getTotalMinutes = (activityName) => {
-    if (!displayEvents[activityName]) return 0;
+    if (!Array.isArray(displayEvents[activityName])) return 0; // ป้องกันแครชหากข้อมูลไม่ใช่ Array
     return displayEvents[activityName].reduce((total, ev) => {
+      if (!ev || !ev.start || !ev.end) return total; // ป้องกันแครชหากข้อมูลใน Array ชำรุดหรือเป็น null
       const { duration } = calculateBarStyles(ev.start, ev.end, meta.shift);
       return total + duration;
     }, 0);

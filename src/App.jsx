@@ -341,7 +341,7 @@ const RingVisualizer = ({ selectedPositions, onTogglePosition, ringKey }) => {
     { id: "C1", label: "C1", start: 12.5, end: 79.5 },
     { id: "B1", label: "B1", start: 79.5, end: 146.5 },
     { id: "A", label: "A", start: 146.5, end: 213.5 },
-    { id: "B2", label: "B2, start: 213.5, end: 280.5 },
+    { id: "B2", label: "B2", start: 213.5, end: 280.5 },
     { id: "C2", label: "C2", start: 280.5, end: 347.5 },
   ];
   const rotation = (parseInt(ringKey) % 16) * 22.5;

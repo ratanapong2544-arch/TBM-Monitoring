@@ -225,7 +225,7 @@ const generateGeminiSummary = async (promptText, systemText) => {
   // ⚠️ สำคัญสำหรับการนำไปใช้งานจริง (Deploy ขึ้น Vercel/GitHub):
   // 1. ไปที่ https://aistudio.google.com/app/apikey เพื่อสร้าง API Key (ฟรี)
   // 2. นำ API Key ที่ได้มาใส่ในเครื่องหมายคำพูดด้านล่าง (เช่น "AIzaSy...")
-  const apiKey = "AIzaSyChH_yehIRl2giFQIzcSVy-t8ZpDwEbh_k"; 
+  const apiKey = "AIzaSyCjGoPy_Ci-LgJTp9yLVDKg5ya0_gdY5gU"; 
   
   const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey.trim()}`;
 

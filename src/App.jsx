@@ -163,12 +163,21 @@ const apiCall = async (action, data) => {
 };
 
 const generateGeminiSummary = async (promptText, systemText) => {
-  // ⚠️ ใส่ API Key ใหม่ตรงนี้
+  // 1. ใช้ API Key เดิมของคุณ
   const apiKey = "AIzaSyCjGoPy_Ci-LgJTp9yLVDKg5ya0_gdY5gU"; 
+  
+  // 2. ใช้ v1 และ flash-latest (ซึ่งคุณพิสูจน์แล้วว่าเชื่อมต่อได้ ไม่ขึ้น 404)
   const url = `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash-latest:generateContent?key=${apiKey.trim()}`;
+
+  // 3. เทคนิค: เอาคำสั่ง System Prompt ไปแปะไว้ข้างบนสุดของเนื้อหาแทน
+  // วิธีนี้ได้ผลลัพธ์เหมือนกันแต่ "ไม่มีทางติด Error 400" เรื่องชื่อช่องคำสั่งครับ
+  const instruction = systemText || "คุณคือผู้ช่วยวิศวกรควบคุมงานก่อสร้างอุโมงค์ TBM หน้าที่ของคุณคือการนำข้อมูลดิบไปจัดเรียงและสรุปใส่ใน Template รายงานที่กำหนดให้อย่างถูกต้องและเป๊ะที่สุด";
+  const fullPrompt = `INSTRUCTION:\n${instruction}\n\nDATA TO SUMMARIZE:\n${promptText}`;
+
   const payload = {
-    contents: [{ parts: [{ text: promptText }] }],
-    system_instruction: { parts: [{ text: systemText || "คุณคือผู้ช่วยวิศวกรควบคุมงานก่อสร้างอุโมงค์ TBM หน้าที่ของคุณคือการนำข้อมูลดิบไปจัดเรียงและสรุปใส่ใน Template รายงานที่กำหนดให้อย่างถูกต้องและเป๊ะที่สุด" }] }
+    contents: [{ 
+      parts: [{ text: fullPrompt }] 
+    }]
   };
 
   const retries = 3;
@@ -181,21 +190,24 @@ const generateGeminiSummary = async (promptText, systemText) => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
+
       if (!response.ok) {
         const errDetails = await response.text();
         throw new Error(`HTTP ${response.status} - ${errDetails}`);
       }
+
       const result = await response.json();
       const text = result.candidates?.[0]?.content?.parts?.[0]?.text;
+      
       if (text) return text;
       throw new Error("No text in response");
+
     } catch (error) {
       if (i === retries - 1) throw error;
       await new Promise(res => setTimeout(res, delays[i]));
     }
   }
 };
-
 // --- Shared Components ---
 const StatCard = ({ label, value, subtext, color, icon: Icon }) => (
   <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm hover:shadow-md transition-shadow relative overflow-hidden flex flex-col justify-between group">

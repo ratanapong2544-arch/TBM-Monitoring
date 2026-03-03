@@ -165,18 +165,15 @@ const apiCall = async (action, data) => {
 const generateGeminiSummary = async (promptText, systemText) => {
   const apiKey = "AIzaSyCjGoPy_Ci-LgJTp9yLVDKg5ya0_gdY5gU"; 
   
-  // 1. เปลี่ยนมาใช้ v1 และโมเดลรุ่นมาตรฐานของปี 2026
-  const url = `https://generativelanguage.googleapis.com/v1/models/gemini-2.0-flash:generateContent?key=${apiKey.trim()}`;
+  // แก้ไขเป็น gemini-2.5-flash ตามหน้า Quota ของคุณ
+  const url = `https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent?key=${apiKey.trim()}`;
 
-  // 2. รวมคำสั่ง (Instruction) เข้ากับเนื้อหา (Data) 
-  // วิธีนี้แก้ปัญหา Error 400 "Unknown name system_instruction" ได้ถาวร
+  // ใช้การรวม Prompt เหมือนเดิมเพื่อความเสถียรของ v1
   const instruction = systemText || "คุณคือผู้ช่วยวิศวกรควบคุมงานก่อสร้างอุโมงค์ TBM หน้าที่ของคุณคือการนำข้อมูลดิบไปจัดเรียงและสรุปใส่ใน Template รายงานที่กำหนดให้อย่างถูกต้องและเป๊ะที่สุด";
-  const combinedPrompt = `คำสั่ง: ${instruction}\n\nข้อมูลดิบที่ต้องสรุป:\n${promptText}`;
+  const finalPrompt = `คำสั่ง: ${instruction}\n\nข้อมูลดิบ:\n${promptText}`;
 
   const payload = {
-    contents: [{ 
-      parts: [{ text: combinedPrompt }] 
-    }]
+    contents: [{ parts: [{ text: finalPrompt }] }]
   };
 
   const retries = 3;

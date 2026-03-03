@@ -165,19 +165,21 @@ const apiCall = async (action, data) => {
 const generateGeminiSummary = async (promptText, systemText) => {
   const apiKey = "AIzaSyCjGoPy_Ci-LgJTp9yLVDKg5ya0_gdY5gU"; 
   
-  // แก้ไขเป็น gemini-2.5-flash ตามหน้า Quota ของคุณ
+  // 1. ต้องใช้รุ่น gemini-2.5-flash เท่านั้นตามสิทธิ์ในหน้า Dashboard ของคุณ
   const url = `https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent?key=${apiKey.trim()}`;
 
-  // ใช้การรวม Prompt เหมือนเดิมเพื่อความเสถียรของ v1
+  // 2. รวมคำสั่งเพื่อให้รองรับ API v1 ได้อย่างสมบูรณ์
   const instruction = systemText || "คุณคือผู้ช่วยวิศวกรควบคุมงานก่อสร้างอุโมงค์ TBM หน้าที่ของคุณคือการนำข้อมูลดิบไปจัดเรียงและสรุปใส่ใน Template รายงานที่กำหนดให้อย่างถูกต้องและเป๊ะที่สุด";
-  const finalPrompt = `คำสั่ง: ${instruction}\n\nข้อมูลดิบ:\n${promptText}`;
+  const finalPrompt = `คำสั่ง: ${instruction}\n\nข้อมูลดิบที่ต้องสรุป:\n${promptText}`;
 
   const payload = {
-    contents: [{ parts: [{ text: finalPrompt }] }]
+    contents: [{ 
+      parts: [{ text: finalPrompt }] 
+    }]
   };
 
   const retries = 3;
-  const delays = [1000, 2000, 4000];
+  const delays = [2000, 4000, 8000]; // เพิ่มเวลาหน่วงเพื่อเลี่ยง Error 429
 
   for (let i = 0; i < retries; i++) {
     try {
@@ -190,18 +192,19 @@ const generateGeminiSummary = async (promptText, systemText) => {
       const result = await response.json();
 
       if (!response.ok) {
-        // แสดงรายละเอียด Error ที่ชัดเจนขึ้นใน Console เพื่อการตรวจสอบ
-        console.error("API Error Details:", result);
-        throw new Error(`HTTP ${response.status} - ${result.error?.message || 'Unknown Error'}`);
+        // ถ้าเจอ 429 ให้รอแล้วลองใหม่
+        if (response.status === 429) {
+          console.warn("เกินขีดจำกัดความถี่ (RPM/RPD) กำลังรอเพื่อลองใหม่...");
+          throw new Error("Quota Exceeded");
+        }
+        throw new Error(result.error?.message || "Unknown API Error");
       }
 
       const text = result.candidates?.[0]?.content?.parts?.[0]?.text;
       if (text) return text;
-      
-      throw new Error("ไม่ได้รับข้อความตอบกลับจาก AI");
+      throw new Error("No content received");
 
     } catch (error) {
-      console.warn(`พยายามครั้งที่ ${i + 1} ล้มเหลว:`, error.message);
       if (i === retries - 1) throw error;
       await new Promise(res => setTimeout(res, delays[i]));
     }

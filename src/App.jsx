@@ -164,7 +164,7 @@ const apiCall = async (action, data) => {
 
 const generateGeminiSummary = async (promptText, systemText) => {
   // ⚠️ ใส่ API Key ใหม่ตรงนี้
-  const apiKey = "AIzaSyChH_yehIRl2giFQIzcSVy-t8ZpDwEbh_k"; 
+  const apiKey = "AIzaSyCjGoPy_Ci-LgJTp9yLVDKg5ya0_gdY5gU"; 
   const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey.trim()}`;
   const payload = {
     contents: [{ parts: [{ text: promptText }] }],

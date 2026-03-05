@@ -1907,7 +1907,6 @@ const ReportView = ({ segmentRecords, groutRecords, projectInfo, shiftReports })
     const promptText = `
 === TEMPLATE ที่ต้องใช้ (ส่งกลับมาเฉพาะข้อความตาม Template นี้เท่านั้น ห้ามอธิบายเพิ่ม) ===
 รายงานประจำวันที่ ${displayDateStr} ${reportShift} Shift
-อาคารรับน้ำตอนถนนรัชดาภิเษก (IS4)
 🪏🪏งานขุดเจาะอุโมงค์ ${projectInfo.tbmNo}
 Drive Shaft : ${projectInfo.location}
 สภาพอากาศ : แจ่มใส

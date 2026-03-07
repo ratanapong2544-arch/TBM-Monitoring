@@ -1,13 +1,13 @@
 import React, { useState, useMemo, useEffect } from "react";
 import {
   AreaChart, Area, BarChart, Bar, LineChart, Line, ComposedChart,
-  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, Legend,
+  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine,
 } from "recharts";
 import {
   Save, Activity, Droplet, Clock, FileText, LayoutDashboard, PlusCircle,
-  ChevronLeft, ChevronRight, BarChart3, Info, Check, MapPin, Search,
-  RefreshCw, X, Calendar, Edit, Trash2, Layers, TrendingUp, Printer,
-  Settings, Image as ImageIcon, Loader2, PlayCircle, CheckCircle2,
+  ChevronLeft, ChevronRight, Info, Check, MapPin,
+  X, Calendar, Edit, Trash2, Layers, TrendingUp, Printer,
+  Settings, Camera, Loader2,
   AlertCircle, Home, Users, Plus, CloudUpload, Sparkles, Copy, Download
 } from "lucide-react";
 
@@ -199,7 +199,7 @@ const generateGeminiSummary = async (promptText, systemText) => {
 const StatCard = ({ label, value, subtext, color, icon: Icon }) => (
   <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm hover:shadow-md transition-shadow relative overflow-hidden flex flex-col justify-between group">
     <div className={`absolute -right-4 -top-4 p-4 opacity-[0.05] transition-transform duration-500 group-hover:scale-110 group-hover:rotate-12 ${color}`}>
-      <Icon size={80} />
+      {Icon && <Icon size={80} />}
     </div>
     <div className="relative z-10">
       <div className="text-[10px] sm:text-xs text-slate-500 uppercase font-extrabold tracking-wider mb-2">{label}</div>
@@ -286,7 +286,7 @@ const RingVisualizer = ({ primaryPositions, secondaryPositions, selectedPosition
             else if (isSec) posState = 'secondary';
             else if (isPrim) posState = 'primary';
 
-            return <RingSegment key={seg.id} cx={cx} cy={cy} r={r} startAngle={seg.start} endAngle={seg.end} label={seg.label} posState={posState} onClick={() => onTogglePosition(seg.id)} />
+            return <RingSegment key={seg.id} cx={cx} cy={cy} r={r} startAngle={seg.start} endAngle={seg.end} label={seg.label} posState={posState} onClick={() => onTogglePosition && onTogglePosition(seg.id)} />
           })}
           <circle cx={cx} cy={cy} r="6" fill="#3B82F6" className="shadow-md" />
           <path d={`M${cx},${cy - r + 25} L${cx},${cy - r + 45}`} stroke="#3B82F6" strokeWidth="3" strokeLinecap="round" />
@@ -635,7 +635,7 @@ const GroutRecordView = ({ projectInfo, handleProjectInfoChange, groutRecords, s
           <div className="bg-white p-4 border border-slate-200 rounded-xl shadow-sm">
             <textarea name="remark" value={formData.remark} onChange={handleInputChange} rows="2" className="w-full bg-slate-50 border border-slate-200 p-3 rounded-lg text-sm outline-none focus:border-blue-500 transition-all" placeholder="Problem / Remark (อุปสรรค)"></textarea>
             <div className="mt-3 pt-3 border-t border-slate-100">
-               <label className="text-[10px] font-bold text-slate-500 mb-2 flex items-center gap-1"><ImageIcon size={12}/> Attach Photo</label>
+               <label className="text-[10px] font-bold text-slate-500 mb-2 flex items-center gap-1"><Camera size={12}/> Attach Photo</label>
                <input type="file" accept="image/*" onChange={(e) => handleFileUpload(e, setFormData)} className="text-xs text-slate-500 w-full file:mr-4 file:py-1.5 file:px-4 file:rounded-full file:border-0 file:bg-blue-50 file:text-blue-700" />
             </div>
           </div>
@@ -811,7 +811,7 @@ const SegmentRecordView = ({ projectInfo, handleProjectInfoChange, segmentRecord
                 <input type="text" name="soilType" value={formData.soilType} onChange={handleInputChange} className="border border-slate-200 rounded-xl p-2.5 w-full outline-none text-sm font-medium text-slate-700 focus:border-orange-400 transition-colors" placeholder="เช่น ดินเหนียวปนทราย, Soft Clay..." />
               </div>
               <div>
-                <label className="text-[10px] font-bold text-slate-500 block mb-1.5 flex items-center gap-1"><ImageIcon size={10}/> ภาพถ่ายชั้นดิน (ไม่มีข้าม)</label>
+                <label className="text-[10px] font-bold text-slate-500 block mb-1.5 flex items-center gap-1"><Camera size={10}/> ภาพถ่ายชั้นดิน (ไม่มีข้าม)</label>
                 <input type="file" accept="image/*" onChange={(e) => handleFileUpload(e, setFormData)} className="text-xs text-slate-500 w-full file:mr-3 file:py-2 file:px-4 file:rounded-xl file:border-0 file:bg-orange-50 file:text-orange-700 file:font-bold hover:file:bg-orange-100 transition-colors cursor-pointer" />
               </div>
             </div>
@@ -997,7 +997,7 @@ const GroutDashboardView = ({ groutRecords, segmentRecords, setGroutRecords }) =
         <StatCard label="Avg. Ratio" value={`${Number((groutRecords.reduce((acc, r) => acc + Number(r.ratio || 0), 0) / (groutRecords.length || 1))).toFixed(1)}%`} subtext="Efficiency" color="text-orange-500" icon={Activity} />
         <div className="bg-gradient-to-br from-indigo-500 to-purple-600 p-5 rounded-3xl shadow-lg text-white relative overflow-hidden flex flex-col justify-between">
           <div className="relative z-10 flex flex-col h-full justify-center">
-            <div className="flex items-center gap-2 font-black text-xl mb-1"><BarChart3 size={24} /> Status</div>
+            <div className="flex items-center gap-2 font-black text-xl mb-1"><Activity size={24} /> Status</div>
             <div className="text-sm opacity-90 font-medium">Data Synced Successfully</div>
           </div>
           <div className="absolute -bottom-4 -right-4 w-32 h-32 bg-white/20 rounded-full blur-2xl"></div>
@@ -1137,7 +1137,7 @@ const GroutDashboardView = ({ groutRecords, segmentRecords, setGroutRecords }) =
               </div>
               <div className="flex items-center gap-2">
                 {selectedRecord.imageUrl && selectedRecord.imageUrl !== "Attached" && (
-                  <a href={selectedRecord.imageUrl} target="_blank" rel="noreferrer" className="p-2 bg-white/10 hover:bg-white/20 rounded-full transition-colors" title="View Photo"><ImageIcon size={18} /></a>
+                  <a href={selectedRecord.imageUrl} target="_blank" rel="noreferrer" className="p-2 bg-white/10 hover:bg-white/20 rounded-full transition-colors" title="View Photo"><Camera size={18} /></a>
                 )}
                 <button onClick={() => setShowDeleteConfirm(true)} className="p-2 bg-white/10 hover:bg-red-500 rounded-full transition-colors" title="Delete"><Trash2 size={18} /></button>
                 <button onClick={() => { setSelectedRecord(null); setIsEditing(false); }} className="p-2 bg-white/10 hover:bg-white/20 rounded-full transition-colors ml-2"><X size={20} /></button>
@@ -1556,12 +1556,8 @@ const SegmentDashboardView = ({ segmentRecords, setSegmentRecords }) => {
                 <Bar yAxisId="left" dataKey="nightRings" stackId="a" fill="#3b82f6" name="Perm. N/S" radius={[0, 0, 0, 0]} maxBarSize={40} />
                 <Bar yAxisId="left" dataKey="tempRings" stackId="a" fill="#cbd5e1" name="Temporary" radius={[4, 4, 0, 0]} maxBarSize={40} />
 
-                {filterMode !== "daily" && (
-                  <>
-                    <Line yAxisId="right" type="monotone" dataKey="planAcc" stroke="#0f172a" strokeWidth={2} dot={chartData.length === 1 ? { r: 3, fill: "#0f172a" } : { r: 2, fill: "#0f172a" }} name="Plan Acc." />
-                    <Line yAxisId="right" type="monotone" dataKey="actualAcc" stroke="#ef4444" strokeWidth={3} dot={chartData.length === 1 ? { r: 4, fill: "#ef4444" } : { r: 3, fill: "#ef4444" }} name="Actual Acc." label={{ position: "top", fill: "#ef4444", fontSize: 10, fontWeight: "900" }} />
-                  </>
-                )}
+                {filterMode !== "daily" && <Line yAxisId="right" type="monotone" dataKey="planAcc" stroke="#0f172a" strokeWidth={2} dot={chartData.length === 1 ? { r: 3, fill: "#0f172a" } : { r: 2, fill: "#0f172a" }} name="Plan Acc." />}
+                {filterMode !== "daily" && <Line yAxisId="right" type="monotone" dataKey="actualAcc" stroke="#ef4444" strokeWidth={3} dot={chartData.length === 1 ? { r: 4, fill: "#ef4444" } : { r: 3, fill: "#ef4444" }} name="Actual Acc." label={{ position: "top", fill: "#ef4444", fontSize: 10, fontWeight: "900" }} />}
               </ComposedChart>
             </ResponsiveContainer>
           </div>
@@ -1630,7 +1626,7 @@ const SegmentDashboardView = ({ segmentRecords, setSegmentRecords }) => {
               </div>
               <div className="flex items-center gap-2">
                 {selectedRecord.imageUrl && selectedRecord.imageUrl !== "Attached" && (
-                  <a href={selectedRecord.imageUrl} target="_blank" rel="noreferrer" className="p-2 bg-white/10 hover:bg-white/20 rounded-full transition-colors" title="View Photo"><ImageIcon size={18} /></a>
+                  <a href={selectedRecord.imageUrl} target="_blank" rel="noreferrer" className="p-2 bg-white/10 hover:bg-white/20 rounded-full transition-colors" title="View Photo"><Camera size={18} /></a>
                 )}
                 <button onClick={() => setShowDeleteConfirm(true)} className="p-2 bg-white/10 hover:bg-red-500 rounded-full transition-colors" title="Delete"><Trash2 size={18} /></button>
                 <button onClick={() => { setSelectedRecord(null); setShowDeleteConfirm(false); }} className="p-2 bg-white/10 hover:bg-white/20 rounded-full transition-colors ml-2"><X size={20} /></button>
@@ -1751,9 +1747,14 @@ const ReportView = ({ segmentRecords, groutRecords, projectInfo, shiftReports })
   const filteredSegments = useMemo(() => {
     return deduplicatedSegments.filter((r) => {
       const dDate = formatDisplayDate(r.date);
-      if (reportShift !== "All" && r.shift !== reportShift) return false;
       if (reportType === "daily" && dDate !== reportDate) return false;
       if (reportType === "monthly" && !dDate.startsWith(reportMonth)) return false;
+      
+      if (reportShift !== "All") {
+        const exShift = r.excavShift || r.shift;
+        const inShift = r.installShift || r.shift;
+        if (exShift !== reportShift && inShift !== reportShift) return false;
+      }
       return true;
     });
   }, [deduplicatedSegments, reportType, reportDate, reportMonth, reportShift]);
@@ -1780,15 +1781,25 @@ const ReportView = ({ segmentRecords, groutRecords, projectInfo, shiftReports })
   }, [shiftReports, reportType, reportDate, reportMonth, reportShift]);
 
   const summary = useMemo(() => {
-    const completedSegments = filteredSegments.filter((s) => s.status !== "In Progress");
-    const permSegments = completedSegments.filter(s => s.installType !== "Temporary");
-    const tempSegments = completedSegments.filter(s => s.installType === "Temporary");
+    const installedInShift = filteredSegments.filter((s) => {
+      if (s.status === "In Progress") return false;
+      if (reportShift === "All") return true;
+      return (s.installShift || s.shift) === reportShift;
+    });
 
-    const segDay = permSegments.filter((s) => s.shift === "Day").length;
-    const segNight = permSegments.filter((s) => s.shift === "Night").length;
+    const excavatedInShift = filteredSegments.filter((s) => {
+      if (reportShift === "All") return true;
+      return (s.excavShift || s.shift) === reportShift;
+    });
+
+    const permSegments = installedInShift.filter(s => s.installType !== "Temporary");
+    const tempSegments = installedInShift.filter(s => s.installType === "Temporary");
+
+    const segDay = permSegments.filter((s) => (s.installShift || s.shift) === "Day").length;
+    const segNight = permSegments.filter((s) => (s.installShift || s.shift) === "Night").length;
     
     const totalLength = permSegments.reduce((sum, s) => sum + parseFloat(s.length || 0), 0);
-    const totalSoilVol = permSegments.reduce((sum, s) => sum + parseFloat(s.soilVolume || calculateSoilVolume(s.length)), 0);
+    const totalSoilVol = excavatedInShift.reduce((sum, s) => sum + parseFloat(s.soilVolume || calculateSoilVolume(s.length)), 0);
     const totalGroutVol = filteredGrouts.reduce((sum, g) => sum + parseFloat(g.total || 0), 0);
     
     const avgGroutRatio = filteredGrouts.length > 0
@@ -1804,7 +1815,7 @@ const ReportView = ({ segmentRecords, groutRecords, projectInfo, shiftReports })
     return {
       permCount: permSegments.length,
       tempCount: tempSegments.length,
-      totalSegments: completedSegments.length,
+      totalSegments: installedInShift.length,
       segDay,
       segNight,
       totalLength: Number(totalLength || 0).toFixed(2),
@@ -1814,7 +1825,7 @@ const ReportView = ({ segmentRecords, groutRecords, projectInfo, shiftReports })
       uniqueGroutedRings,
       allRemarks,
     };
-  }, [filteredSegments, filteredGrouts]);
+  }, [filteredSegments, filteredGrouts, reportShift]);
 
   const displayDateStr = reportType === "daily"
       ? new Date(reportDate).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })
@@ -1864,17 +1875,20 @@ const ReportView = ({ segmentRecords, groutRecords, projectInfo, shiftReports })
     setAiSummaryText("");
     setCopied(false);
 
-    const sortedSegs = [...filteredSegments].filter(s => s.status !== "In Progress" && s.installType !== "Temporary").sort((a,b) => getRingNumeric(a.ringNo) - getRingNumeric(b.ringNo));
-    const segmentDetails = sortedSegs.map(s => `${s.ringNo} (K${s.keyPos})`).join(', ') || '-';
-    const excavRings = sortedSegs.length > 0 ? (sortedSegs.length === 1 ? sortedSegs[0].ringNo : `${sortedSegs[0].ringNo}-${sortedSegs[sortedSegs.length-1].ringNo}`) : '-';
-    let startCH = sortedSegs.length > 0 ? sortedSegs[0].startCH : '-';
-    let finishCH = sortedSegs.length > 0 ? sortedSegs[sortedSegs.length-1].finishCH : '-';
+    const installedInShift = [...filteredSegments].filter(s => s.status !== "In Progress" && s.installType !== "Temporary" && (reportShift === "All" || (s.installShift || s.shift) === reportShift)).sort((a,b) => getRingNumeric(a.ringNo) - getRingNumeric(b.ringNo));
+    const excavatedInShift = [...filteredSegments].filter(s => (reportShift === "All" || (s.excavShift || s.shift) === reportShift)).sort((a,b) => getRingNumeric(a.ringNo) - getRingNumeric(b.ringNo));
+
+    const segmentDetails = installedInShift.map(s => `${s.ringNo} (K${s.keyPos})`).join(', ') || '-';
+    const excavRings = excavatedInShift.length > 0 ? (excavatedInShift.length === 1 ? excavatedInShift[0].ringNo : `${excavatedInShift[0].ringNo}-${excavatedInShift[excavatedInShift.length-1].ringNo}`) : '-';
+    
+    let startCH = excavatedInShift.length > 0 ? excavatedInShift[0].startCH : '-';
+    let finishCH = excavatedInShift.length > 0 ? excavatedInShift[excavatedInShift.length-1].finishCH : '-';
 
     const sortedGrouts = [...filteredGrouts].sort((a,b) => getRingNumeric(a.ringNo) - getRingNumeric(b.ringNo));
     const groutDetails = sortedGrouts.map(g => `${g.ringNo} = ${Number(g.total || 0).toFixed(3)} m3 (${Number(g.ratio || 0).toFixed(2)}%)`).join(', ') || '-';
     const groutRingRange = sortedGrouts.length > 0 ? (sortedGrouts.length === 1 ? sortedGrouts[0].ringNo : `${sortedGrouts[0].ringNo}-${sortedGrouts[sortedGrouts.length-1].ringNo}`) : '-';
     const latestGroutRing = sortedGrouts.length > 0 ? sortedGrouts[sortedGrouts.length-1].ringNo : '-';
-    const soilTypes = [...new Set(sortedSegs.map(s => s.soilType).filter(Boolean))].join(', ') || '-';
+    const soilTypes = [...new Set(excavatedInShift.map(s => s.soilType).filter(Boolean))].join(', ') || '-';
 
     const targetDate = reportType === 'daily' ? reportDate : `${reportMonth}-31`;
     const allAccumSegments = deduplicatedSegments.filter(s => s.status !== "In Progress" && formatDisplayDate(s.date) <= targetDate);
@@ -1912,7 +1926,7 @@ Drive Shaft : ${projectInfo.location}
 สภาพอากาศ : แจ่มใส
 
 1. ${projectInfo.tbmNo}
--เริ่มต้น CH ${startCH} (Center Shaft IS4) ขุดเจาะถึง CH ${finishCH}
+-เริ่มต้น CH 8+830.488 (Center Shaft IS4) ขุดเจาะถึง CH ${finishCH} = ${totalAccumDist} m
 -ขุดเจาะ ${excavRings} แล้วเสร็จ
 
 2.งานติดตั้งผนังอุโมงค์ (Segment)
@@ -1942,7 +1956,7 @@ Drive Shaft : ${projectInfo.location}
 7.งานอื่นๆ
 -ไม่มี
 
-8. ปัญหาและอุปสรรค
+8. Delay Activities
 ${remarksText}
 === สิ้นสุด TEMPLATE ===
     `;
@@ -2102,7 +2116,7 @@ ${remarksText}
                 [...filteredSegments].reverse().map((r, i) => (
                   <tr key={`${r.id}-${i}`} className="hover:bg-slate-50 transition-colors">
                     <td className="py-3 px-4 sm:px-5">
-                      <div className="font-bold text-slate-800">{formatDisplayDate(r.date)} <span className="text-slate-400 font-medium ml-1">({String(r.shift)})</span></div>
+                      <div className="font-bold text-slate-800">{formatDisplayDate(r.date)} <span className="text-slate-400 font-medium ml-1">({String(r.installShift || r.shift)})</span></div>
                       <div className="text-[10px] sm:text-xs text-slate-500 mt-1 font-mono"><span className="font-bold">EX:</span> {formatDisplayTime(r.excavStartTime)} - {formatDisplayTime(r.excavEndTime)}</div>
                       <div className="text-[10px] sm:text-xs text-slate-500 mt-0.5 font-mono"><span className="font-bold">IN:</span> {formatDisplayTime(r.installStartTime || r.startTime)} - {formatDisplayTime(r.installEndTime || r.endTime)}</div>
                     </td>
@@ -2261,7 +2275,12 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
   }, [segmentRecords]);
 
   const autoResult = useMemo(() => {
-    const shiftSegs = deduplicatedSegments.filter(r => formatDisplayDate(r.date) === meta.date && String(r.shift) === String(meta.shift) && r.status !== "In Progress" && r.installType !== "Temporary");
+    const shiftSegs = deduplicatedSegments.filter(r => 
+      formatDisplayDate(r.date) === meta.date && 
+      (r.installShift === meta.shift || (!r.installShift && r.shift === meta.shift)) && 
+      r.status !== "In Progress" && 
+      r.installType !== "Temporary"
+    );
     if (shiftSegs.length > 0) {
       const sorted = [...shiftSegs].sort((a, b) => getRingNumeric(a.ringNo) - getRingNumeric(b.ringNo));
       const startSta = sorted[0].startCH;
@@ -2315,17 +2334,27 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
 
   const displayEvents = useMemo(() => {
     const merged = { ...events };
-    const filteredSegs = deduplicatedSegments.filter(r => formatDisplayDate(r.date) === meta.date && String(r.shift) === String(meta.shift));
+    const dateSegs = deduplicatedSegments.filter(r => formatDisplayDate(r.date) === meta.date);
     const autoExcav = [];
     const autoInst = [];
-    filteredSegs.forEach(rec => {
-      const extStart = formatDisplayTime(rec.excavStartTime);
-      const extEnd = formatDisplayTime(rec.excavEndTime);
-      const instStart = formatDisplayTime(rec.installStartTime || rec.startTime);
-      const instEnd = formatDisplayTime(rec.installEndTime || rec.endTime);
-      if (extStart && extEnd) autoExcav.push({ id: `auto_ex_${rec.id}`, start: extStart, end: extEnd, label: String(rec.ringNo), isAuto: true });
-      if (instStart && instEnd) autoInst.push({ id: `auto_in_${rec.id}`, start: instStart, end: instEnd, label: String(rec.ringNo), isAuto: true });
+    
+    dateSegs.forEach(rec => {
+      const exShift = rec.excavShift || rec.shift;
+      const inShift = rec.installShift || rec.shift;
+      
+      if (exShift === meta.shift || meta.shift === "All") {
+        const extStart = formatDisplayTime(rec.excavStartTime);
+        const extEnd = formatDisplayTime(rec.excavEndTime);
+        if (extStart && extEnd) autoExcav.push({ id: `auto_ex_${rec.id}`, start: extStart, end: extEnd, label: String(rec.ringNo), isAuto: true });
+      }
+      
+      if (inShift === meta.shift || meta.shift === "All") {
+        const instStart = formatDisplayTime(rec.installStartTime || rec.startTime);
+        const instEnd = formatDisplayTime(rec.installEndTime || rec.endTime);
+        if (instStart && instEnd) autoInst.push({ id: `auto_in_${rec.id}`, start: instStart, end: instEnd, label: String(rec.ringNo), isAuto: true });
+      }
     });
+    
     merged['Excavation'] = [...(merged['Excavation'] || []), ...autoExcav];
     merged['Segment Erection'] = [...(merged['Segment Erection'] || []), ...autoInst];
     return merged;

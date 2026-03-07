@@ -163,23 +163,15 @@ const apiCall = async (action, data) => {
 };
 
 const generateGeminiSummary = async (promptText, systemText) => {
-  const apiKey = "AIzaSyCjGoPy_Ci-LgJTp9yLVDKg5ya0_gdY5gU"; 
-  
-  // 1. ต้องใช้รุ่น gemini-2.5-flash เท่านั้นตามสิทธิ์ในหน้า Dashboard ของคุณ
-  const url = `https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent?key=${apiKey.trim()}`;
-
-  // 2. รวมคำสั่งเพื่อให้รองรับ API v1 ได้อย่างสมบูรณ์
-  const instruction = systemText || "คุณคือผู้ช่วยวิศวกรควบคุมงานก่อสร้างอุโมงค์ TBM หน้าที่ของคุณคือการนำข้อมูลดิบไปจัดเรียงและสรุปใส่ใน Template รายงานที่กำหนดให้อย่างถูกต้องและเป๊ะที่สุด";
-  const finalPrompt = `คำสั่ง: ${instruction}\n\nข้อมูลดิบที่ต้องสรุป:\n${promptText}`;
-
+  const apiKey = "AIzaSyChH_yehIRl2giFQIzcSVy-t8ZpDwEbh_k"; 
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey.trim()}`;
   const payload = {
-    contents: [{ 
-      parts: [{ text: finalPrompt }] 
-    }]
+    contents: [{ parts: [{ text: promptText }] }],
+    systemInstruction: { parts: [{ text: systemText || "คุณคือผู้ช่วยวิศวกรควบคุมงานก่อสร้างอุโมงค์ TBM หน้าที่ของคุณคือการนำข้อมูลดิบไปจัดเรียงและสรุปใส่ใน Template รายงานที่กำหนดให้อย่างถูกต้องและเป๊ะที่สุด" }] }
   };
 
   const retries = 3;
-  const delays = [2000, 4000, 8000]; // เพิ่มเวลาหน่วงเพื่อเลี่ยง Error 429
+  const delays = [1000, 2000, 4000];
 
   for (let i = 0; i < retries; i++) {
     try {
@@ -188,22 +180,14 @@ const generateGeminiSummary = async (promptText, systemText) => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
-
-      const result = await response.json();
-
       if (!response.ok) {
-        // ถ้าเจอ 429 ให้รอแล้วลองใหม่
-        if (response.status === 429) {
-          console.warn("เกินขีดจำกัดความถี่ (RPM/RPD) กำลังรอเพื่อลองใหม่...");
-          throw new Error("Quota Exceeded");
-        }
-        throw new Error(result.error?.message || "Unknown API Error");
+        const errDetails = await response.text();
+        throw new Error(`HTTP ${response.status} - ${errDetails}`);
       }
-
+      const result = await response.json();
       const text = result.candidates?.[0]?.content?.parts?.[0]?.text;
       if (text) return text;
-      throw new Error("No content received");
-
+      throw new Error("No text in response");
     } catch (error) {
       if (i === retries - 1) throw error;
       await new Promise(res => setTimeout(res, delays[i]));
@@ -266,11 +250,11 @@ const RingVisualizer = ({ primaryPositions, secondaryPositions, selectedPosition
   
   const segments = [
     { id: "K", label: "K", start: -12.5, end: 12.5 },
-    { id: "C1", label: "C1", start: 12.5, end: 79.5 },
-    { id: "B1", label: "B1", start: 79.5, end: 146.5 },
+    { id: "C2", label: "C2", start: 12.5, end: 79.5 },
+    { id: "B2", label: "B2", start: 79.5, end: 146.5 },
     { id: "A", label: "A", start: 146.5, end: 213.5 },
-    { id: "B2", label: "B2", start: 213.5, end: 280.5 },
-    { id: "C2", label: "C2", start: 280.5, end: 347.5 },
+    { id: "B1", label: "B1", start: 213.5, end: 280.5 },
+    { id: "C1", label: "C1", start: 280.5, end: 347.5 },
   ];
   const rotation = (parseInt(ringKey) % 16) * 22.5;
 
@@ -292,7 +276,7 @@ const RingVisualizer = ({ primaryPositions, secondaryPositions, selectedPosition
           </pattern>
         </defs>
         <circle cx={cx} cy={cy} r={r + 8} fill="none" stroke="#CBD5E1" strokeWidth="1" strokeDasharray="4,4" />
-        <g transform={`rotate(${rotation || 0}, ${cx}, ${cy})`} className="transition-transform duration-700 cubic-bezier(0.34, 1.56, 0.64, 1)">
+        <g transform={`rotate(${Number(rotation || 0)}, ${cx}, ${cy})`} className="transition-transform duration-700 cubic-bezier(0.34, 1.56, 0.64, 1)">
           {segments.map((seg) => {
             let posState = null;
             const isPrim = prims[seg.id];
@@ -613,7 +597,7 @@ const GroutRecordView = ({ projectInfo, handleProjectInfoChange, groutRecords, s
             <div className="scale-90 transform origin-top mt-2">
               <RingVisualizer 
                 ringKey={formData.keyType} 
-                primaryPositions={isReGrout && existingRecord ? (Object.keys(existingRecord.primaryPositions || {}).length > 0 ? existingRecord.primaryPositions : existingRecord.positions) : formData.positions}
+                primaryPositions={isReGrout && existingRecord ? (Object.values(existingRecord.primaryPositions || {}).some(v => v === true) ? existingRecord.primaryPositions : existingRecord.positions) : formData.positions}
                 secondaryPositions={isReGrout ? formData.positions : null}
                 onTogglePosition={togglePosition} 
               />
@@ -670,8 +654,8 @@ const SegmentRecordView = ({ projectInfo, handleProjectInfoChange, segmentRecord
   const [isSaving, setIsSaving] = useState(false);
   const [formData, setFormData] = useState({
     id: null, ringNo: "", typeRing: "C1", keyPos: "16", startCH: "", finishCH: "", length: "1.40", remark: "",
-    excavStartTime: "", excavEndTime: "", soilType: "", excavImageBase64: "", excavImageName: "",
-    installStartTime: "", installEndTime: "", imageBase64: "", imageName: "", status: "In Progress", installType: "Permanent",
+    excavStartTime: "", excavEndTime: "", soilType: "", excavImageBase64: "", excavImageName: "", excavShift: projectInfo.shift,
+    installStartTime: "", installEndTime: "", imageBase64: "", imageName: "", status: "In Progress", installType: "Permanent", installShift: projectInfo.shift,
   });
 
   const lastRing = useMemo(() => {
@@ -692,15 +676,17 @@ const SegmentRecordView = ({ projectInfo, handleProjectInfoChange, segmentRecord
       if (lastRecord.status === "In Progress") {
         setFormData((prev) => ({
           ...prev, id: lastRecord.id, ringNo: lastRecord.ringNo, typeRing: lastRecord.typeRing || "C1", keyPos: lastRecord.keyPos || "16", startCH: lastRecord.startCH, finishCH: lastRecord.finishCH, length: lastRecord.length || "1.40", status: "In Progress", installType: lastRecord.installType || "Permanent", excavStartTime: lastRecord.excavStartTime || "", excavEndTime: lastRecord.excavEndTime || "", soilType: lastRecord.soilType || "", installStartTime: lastRecord.installStartTime || lastRecord.startTime || "", installEndTime: lastRecord.installEndTime || lastRecord.endTime || "",
+          excavShift: lastRecord.excavShift || projectInfo.shift, installShift: lastRecord.installShift || projectInfo.shift
         }));
       } else {
         const lastFinishRaw = parseCH(lastRecord.finishCH);
         setFormData((prev) => ({
           ...prev, id: null, ringNo: offsetRingNo(lastRecord.ringNo, 1), startCH: formatCH(lastFinishRaw), finishCH: formatCH(lastFinishRaw - parseFloat(prev.length || 0)), status: "In Progress", installType: "Permanent", soilType: "", excavImageBase64: "", excavImageName: "",
+          excavShift: projectInfo.shift, installShift: projectInfo.shift
         }));
       }
     }
-  }, [segmentRecords]);
+  }, [segmentRecords, projectInfo.shift]);
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
@@ -741,6 +727,7 @@ const SegmentRecordView = ({ projectInfo, handleProjectInfoChange, segmentRecord
         const isCompleted = prev.status === "Completed";
         return {
           ...prev, id: isCompleted ? null : recordData.id, ringNo: isCompleted ? offsetRingNo(prev.ringNo, 1) : prev.ringNo, startCH: isCompleted ? prev.finishCH : prev.startCH, finishCH: isCompleted ? formatCH(parseCH(prev.finishCH) - parseFloat(prev.length)) : prev.finishCH, remark: "", excavStartTime: isCompleted ? "" : prev.excavStartTime, excavEndTime: isCompleted ? "" : prev.excavEndTime, soilType: isCompleted ? "" : prev.soilType, excavImageBase64: isCompleted ? "" : prev.excavImageBase64, excavImageName: isCompleted ? "" : prev.excavImageName, installStartTime: isCompleted ? "" : prev.installStartTime, installEndTime: isCompleted ? "" : prev.installEndTime, imageBase64: "", imageName: "", status: isCompleted ? "In Progress" : prev.status, installType: isCompleted ? "Permanent" : prev.installType,
+          excavShift: projectInfo.shift, installShift: projectInfo.shift
         };
       });
     } catch (err) { alert("บันทึกข้อมูลไม่สำเร็จ: " + err.message); }
@@ -799,7 +786,13 @@ const SegmentRecordView = ({ projectInfo, handleProjectInfoChange, segmentRecord
           {/* EXCAVATION PHASE */}
           <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm relative overflow-hidden">
             <div className="absolute left-0 top-0 bottom-0 w-1.5 bg-orange-400"></div>
-            <h3 className="text-xs font-black text-slate-700 mb-4 flex items-center gap-2 uppercase tracking-widest pl-2">Excavation Phase <span className="text-[10px] text-slate-400 font-medium normal-case">(ขุดเจาะ)</span></h3>
+            <div className="flex justify-between items-center mb-4 pl-2">
+              <h3 className="text-xs font-black text-slate-700 flex items-center gap-2 uppercase tracking-widest">Excavation Phase <span className="text-[10px] text-slate-400 font-medium normal-case">(ขุดเจาะ)</span></h3>
+              <select name="excavShift" value={formData.excavShift} onChange={handleInputChange} className="text-[10px] font-bold bg-orange-50 text-orange-700 px-2 py-1 rounded outline-none cursor-pointer border border-orange-100">
+                <option value="Day">☀️ Day Shift</option>
+                <option value="Night">🌙 Night Shift</option>
+              </select>
+            </div>
             
             <div className="grid grid-cols-2 gap-4 mb-4 pl-2">
               <div>
@@ -827,7 +820,13 @@ const SegmentRecordView = ({ projectInfo, handleProjectInfoChange, segmentRecord
           {/* INSTALLATION PHASE */}
           <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm relative overflow-hidden">
             <div className="absolute left-0 top-0 bottom-0 w-1.5 bg-emerald-500"></div>
-            <h3 className="text-xs font-black text-slate-700 mb-4 flex items-center gap-2 uppercase tracking-widest pl-2">Installation Phase <span className="text-[10px] text-slate-400 font-medium normal-case">(ประกอบ)</span></h3>
+            <div className="flex justify-between items-center mb-4 pl-2">
+              <h3 className="text-xs font-black text-slate-700 flex items-center gap-2 uppercase tracking-widest">Installation Phase <span className="text-[10px] text-slate-400 font-medium normal-case">(ประกอบ)</span></h3>
+              <select name="installShift" value={formData.installShift} onChange={handleInputChange} className="text-[10px] font-bold bg-emerald-50 text-emerald-700 px-2 py-1 rounded outline-none cursor-pointer border border-emerald-100">
+                <option value="Day">☀️ Day Shift</option>
+                <option value="Night">🌙 Night Shift</option>
+              </select>
+            </div>
             
             <div className="grid grid-cols-2 gap-4 pl-2 mb-5">
               <div>
@@ -1608,7 +1607,7 @@ const SegmentDashboardView = ({ segmentRecords, setSegmentRecords }) => {
                     <td className="px-6 py-4 text-right font-mono text-slate-800 font-bold text-base">{String(rec.finishCH)}</td>
                     <td className="px-6 py-4 text-right">
                       <div className="text-emerald-600 font-black text-base">{Number(rec.length || 0).toFixed(2)} m</div>
-                      <div className="text-[10px] text-amber-600 font-bold mt-1 bg-amber-50 px-2 py-0.5 rounded inline-block">{Number(rec.soilVolume || calculateSoilVolume(rec.length)).toFixed(2)} m³</div>
+                      <div className="text-[10px] text-slate-500 font-medium mt-0.5">{Number(rec.soilVolume || calculateSoilVolume(rec.length)).toFixed(2)} m³</div>
                     </td>
                   </tr>
                 ))
@@ -1907,6 +1906,7 @@ const ReportView = ({ segmentRecords, groutRecords, projectInfo, shiftReports })
     const promptText = `
 === TEMPLATE ที่ต้องใช้ (ส่งกลับมาเฉพาะข้อความตาม Template นี้เท่านั้น ห้ามอธิบายเพิ่ม) ===
 รายงานประจำวันที่ ${displayDateStr} ${reportShift} Shift
+อาคารรับน้ำตอนถนนรัชดาภิเษก (IS4)
 🪏🪏งานขุดเจาะอุโมงค์ ${projectInfo.tbmNo}
 Drive Shaft : ${projectInfo.location}
 สภาพอากาศ : แจ่มใส
@@ -2102,25 +2102,17 @@ ${remarksText}
                 [...filteredSegments].reverse().map((r, i) => (
                   <tr key={`${r.id}-${i}`} className="hover:bg-slate-50 transition-colors">
                     <td className="py-3 px-4 sm:px-5">
-                    <div className="font-bold text-slate-700 text-xs mb-1">K{String(r.key)}</div>
-                    <div className="flex gap-1 flex-wrap">
-                      {r.groutPass === "Re-Grout" ? (
-                        <>
-                          {Object.entries(Object.keys(r.primaryPositions || {}).length > 0 ? r.primaryPositions : (r.positions || {})).map(([pos, active]) => active && <span key={`p_${pos}`} className="px-1.5 py-0.5 bg-blue-50 text-blue-700 text-[9px] rounded border border-blue-100 font-bold leading-none">{String(pos)}</span>)}
-                          {Object.entries(r.secondaryPositions || {}).map(([pos, active]) => active && <span key={`s_${pos}`} className="px-1.5 py-0.5 bg-orange-50 text-orange-600 text-[9px] rounded border border-orange-200 font-bold leading-none">{String(pos)}</span>)}
-                        </>
-                      ) : (
-                        Object.entries(Object.keys(r.primaryPositions || {}).length > 0 ? r.primaryPositions : (r.positions || {})).map(([pos, active]) => active && <span key={pos} className="px-1.5 py-0.5 bg-blue-50 text-blue-700 text-[9px] rounded border border-blue-100 font-bold leading-none">{String(pos)}</span>)
-                      )}
-                    </div>
-                  </td>
+                      <div className="font-bold text-slate-800">{formatDisplayDate(r.date)} <span className="text-slate-400 font-medium ml-1">({String(r.shift)})</span></div>
+                      <div className="text-[10px] sm:text-xs text-slate-500 mt-1 font-mono"><span className="font-bold">EX:</span> {formatDisplayTime(r.excavStartTime)} - {formatDisplayTime(r.excavEndTime)}</div>
+                      <div className="text-[10px] sm:text-xs text-slate-500 mt-0.5 font-mono"><span className="font-bold">IN:</span> {formatDisplayTime(r.installStartTime || r.startTime)} - {formatDisplayTime(r.installEndTime || r.endTime)}</div>
+                    </td>
                     <td className="py-3 px-4 sm:px-5 font-black text-slate-800 text-base">
                       <span className={r.installType === "Temporary" ? "text-amber-600" : ""}>{String(r.ringNo)}</span>
                       {r.installType === "Temporary" && <span className="text-amber-600 ml-2 font-bold text-[9px] bg-amber-50 px-1.5 py-0.5 rounded">(Temp)</span>}
                       {r.status === "In Progress" && <span className="text-orange-500 ml-2 font-bold text-[9px] bg-orange-50 px-1.5 py-0.5 rounded">(In Prog)</span>}
                     </td>
                     <td className="py-3 px-4 sm:px-5 text-center">
-                      <span className="bg-slate-100 px-2 py-1 rounded text-xs font-bold text-slate-700">{String(r.typeRing)}</span>
+                      <span className="bg-slate-100 px-2 py-1 rounded text-xs font-bold text-slate-600 mr-2">{String(r.typeRing)}</span>
                       <span className="text-xs text-slate-500 font-bold ml-1">K{String(r.keyPos)}</span>
                     </td>
                     <td className="py-3 px-4 sm:px-5 text-right text-slate-500 font-mono font-medium">{String(r.startCH)}</td>

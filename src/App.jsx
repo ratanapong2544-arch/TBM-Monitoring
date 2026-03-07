@@ -62,6 +62,22 @@ const formatDisplayTime = (t) => {
   return String(t);
 };
 
+const getLogicalShiftDate = (timeStr, shift, recordDate) => {
+  if (!timeStr || !recordDate) return formatDisplayDate(recordDate);
+  const [h] = timeStr.split(':').map(Number);
+
+  let inferredShift = shift;
+  if (h >= 7 && h < 19) inferredShift = "Day";
+  else inferredShift = "Night";
+
+  if (inferredShift === "Night" && h >= 0 && h < 7) {
+    const d = new Date(recordDate);
+    d.setDate(d.getDate() - 1);
+    return formatDisplayDate(d);
+  }
+  return formatDisplayDate(recordDate);
+};
+
 const offsetRingNo = (currentRingStr, offset) => {
   if (!currentRingStr) return "";
   const match = String(currentRingStr).match(/^(\D+)(\d+)$/);
@@ -163,7 +179,7 @@ const apiCall = async (action, data) => {
 };
 
 const generateGeminiSummary = async (promptText, systemText) => {
-  const apiKey = "AIzaSyCjGoPy_Ci-LgJTp9yLVDKg5ya0_gdY5gU"; 
+  const apiKey = "AIzaSyCjGoPy_Ci-LgJTp9yLVDKg5ya0_gdY5gU";
   const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey.trim()}`;
   const payload = {
     contents: [{ parts: [{ text: promptText }] }],
@@ -247,7 +263,7 @@ const RingVisualizer = ({ primaryPositions, secondaryPositions, selectedPosition
   const cx = size / 2;
   const cy = size / 2;
   const r = 130;
-  
+
   const segments = [
     { id: "K", label: "K", start: -12.5, end: 12.5 },
     { id: "C2", label: "C2", start: 12.5, end: 79.5 },
@@ -281,7 +297,7 @@ const RingVisualizer = ({ primaryPositions, secondaryPositions, selectedPosition
             let posState = null;
             const isPrim = prims[seg.id];
             const isSec = secs[seg.id];
-            
+
             if (isPrim && isSec) posState = 'both';
             else if (isSec) posState = 'secondary';
             else if (isPrim) posState = 'primary';
@@ -311,7 +327,7 @@ const OverviewView = ({ segmentRecords, groutRecords, setCurrentModule, setActiv
     segmentRecords.forEach(rec => map.set(rec.ringNo, rec));
     const deduped = Array.from(map.values());
     const lastSeg = deduped[deduped.length - 1];
-    
+
     if (lastSeg.status === "In Progress") {
       if (lastSeg.excavStartTime && !lastSeg.excavEndTime) return { state: "EXCAVATING", ring: String(lastSeg.ringNo), desc: `เริ่มขุดเมื่อ ${formatDisplayTime(lastSeg.excavStartTime)} น.`, color: "amber" };
       else if (lastSeg.excavEndTime && !lastSeg.installStartTime) return { state: "WAITING_INSTALL", ring: String(lastSeg.ringNo), desc: `รอติดตั้ง Segment (ขุดเสร็จ ${formatDisplayTime(lastSeg.excavEndTime)} น.)`, color: "slate" };
@@ -329,21 +345,20 @@ const OverviewView = ({ segmentRecords, groutRecords, setCurrentModule, setActiv
     const latestGrout = groutRecords.length > 0 ? String(groutRecords[groutRecords.length - 1].ringNo) : "-";
     let pendingCount = 0;
     if (latestSeg !== "-" && latestGrout !== "-") {
-       const segNum = getRingNumeric(latestSeg);
-       const groutNum = getRingNumeric(latestGrout);
-       pendingCount = Math.max(0, segNum - groutNum);
+      const segNum = getRingNumeric(latestSeg);
+      const groutNum = getRingNumeric(latestGrout);
+      pendingCount = Math.max(0, segNum - groutNum);
     }
     return { pending: pendingCount, latestGrout, latestSeg };
   }, [segmentRecords, groutRecords]);
 
   return (
     <div className="max-w-4xl mx-auto space-y-6 pb-24 animate-fade-in">
-      <div className={`rounded-3xl p-8 sm:p-10 text-white relative overflow-hidden shadow-2xl ${
-        liveStatus.state === "EXCAVATING" ? "bg-gradient-to-br from-amber-500 to-orange-600 shadow-orange-500/20" :
+      <div className={`rounded-3xl p-8 sm:p-10 text-white relative overflow-hidden shadow-2xl ${liveStatus.state === "EXCAVATING" ? "bg-gradient-to-br from-amber-500 to-orange-600 shadow-orange-500/20" :
         liveStatus.state === "INSTALLING" ? "bg-gradient-to-br from-emerald-500 to-teal-600 shadow-emerald-500/20" :
-        liveStatus.state === "WAITING_INSTALL" ? "bg-gradient-to-br from-slate-600 to-slate-800 shadow-slate-500/20" :
-        "bg-gradient-to-br from-blue-600 to-indigo-700 shadow-blue-500/20"
-      }`}>
+          liveStatus.state === "WAITING_INSTALL" ? "bg-gradient-to-br from-slate-600 to-slate-800 shadow-slate-500/20" :
+            "bg-gradient-to-br from-blue-600 to-indigo-700 shadow-blue-500/20"
+        }`}>
         <div className="absolute top-0 right-0 w-64 h-64 bg-white/10 rounded-full blur-3xl -mr-10 -mt-10 pointer-events-none"></div>
         <div className="relative z-10">
           <div className="flex items-center gap-2 mb-3">
@@ -379,7 +394,7 @@ const OverviewView = ({ segmentRecords, groutRecords, setCurrentModule, setActiv
             </div>
             <p className="text-sm text-slate-500 mb-8 font-medium leading-relaxed">เข้าสู่หน้าบันทึกข้อมูลเวลาการขุดเจาะและการประกอบ Segment แบบละเอียด (ขุดเจาะ & ประกอบ)</p>
           </div>
-          <button className="w-full py-4 bg-slate-50 group-hover:bg-emerald-50 text-slate-600 group-hover:text-emerald-700 text-sm font-bold rounded-2xl border border-slate-200 transition-colors flex justify-center items-center gap-2">บันทึกข้อมูล Segment <ChevronRight size={18}/></button>
+          <button className="w-full py-4 bg-slate-50 group-hover:bg-emerald-50 text-slate-600 group-hover:text-emerald-700 text-sm font-bold rounded-2xl border border-slate-200 transition-colors flex justify-center items-center gap-2">บันทึกข้อมูล Segment <ChevronRight size={18} /></button>
         </div>
 
         <div className="bg-white p-6 sm:p-8 rounded-3xl border border-slate-200 shadow-sm hover:shadow-xl transition-all duration-300 cursor-pointer group flex flex-col justify-between" onClick={() => { setCurrentModule("grout"); setActiveTab("record"); }}>
@@ -393,7 +408,7 @@ const OverviewView = ({ segmentRecords, groutRecords, setCurrentModule, setActiv
             </div>
             <p className="text-sm text-slate-500 mb-8 font-medium leading-relaxed">{Number(groutStatus.pending) > 0 ? `วงล่าสุดที่ฉีดคือ ${groutStatus.latestGrout} (ตามหลังอยู่ ${groutStatus.pending} วง)` : `ฉีด Grout ตามติด Segment ล่าสุดเรียบร้อยแล้ว`}</p>
           </div>
-          <button className="w-full py-4 bg-slate-50 group-hover:bg-blue-50 text-slate-600 group-hover:text-blue-700 text-sm font-bold rounded-2xl border border-slate-200 transition-colors flex justify-center items-center gap-2">บันทึกข้อมูล Grout <ChevronRight size={18}/></button>
+          <button className="w-full py-4 bg-slate-50 group-hover:bg-blue-50 text-slate-600 group-hover:text-blue-700 text-sm font-bold rounded-2xl border border-slate-200 transition-colors flex justify-center items-center gap-2">บันทึกข้อมูล Grout <ChevronRight size={18} /></button>
         </div>
       </div>
     </div>
@@ -438,7 +453,7 @@ const GroutRecordView = ({ projectInfo, handleProjectInfoChange, groutRecords, s
 
   const currentTotal = Number(Number(formData.partA || 0) + Number(formData.partB || 0)).toFixed(2);
   let displayRatio = Number((Number(currentTotal) / THEORETICAL_VOL) * 100).toFixed(1);
-  
+
   if (isReGrout && existingRecord) {
     const primTotal = Number(existingRecord.primaryPartA || existingRecord.partA || 0) + Number(existingRecord.primaryPartB || existingRecord.partB || 0);
     const combinedTotal = primTotal + Number(currentTotal);
@@ -483,12 +498,12 @@ const GroutRecordView = ({ projectInfo, handleProjectInfoChange, groutRecords, s
       let newRemark = `Primary วันที่ ${formatDisplayDate(primDate)} ปริมาณ ${Number(primTotal).toFixed(2)}\nSecondary วันที่ ${formatDisplayDate(secDate)} ปริมาณ ${Number(secTotal).toFixed(2)}`;
       if (formData.remark) newRemark += `\nหมายเหตุ: ${formData.remark}`;
 
-      const updatedRecord = { 
-        ...existingRecord, 
-        partA: Number(newPartA).toFixed(2), 
-        partB: Number(newPartB).toFixed(2), 
-        total: Number(newTotal), 
-        ratio: Number(newRatio), 
+      const updatedRecord = {
+        ...existingRecord,
+        partA: Number(newPartA).toFixed(2),
+        partB: Number(newPartB).toFixed(2),
+        total: Number(newTotal),
+        ratio: Number(newRatio),
         primaryPartA: Number(primPartA).toFixed(2),
         primaryPartB: Number(primPartB).toFixed(2),
         primaryDate: primDate,
@@ -497,10 +512,10 @@ const GroutRecordView = ({ projectInfo, handleProjectInfoChange, groutRecords, s
         secondaryPartB: Number(secPartB).toFixed(2),
         secondaryDate: secDate,
         secondaryPositions: secPos,
-        pressure: formData.pressure || existingRecord.pressure, 
-        remark: newRemark, 
-        positions: { ...primPos, ...secPos }, 
-        groutPass: "Re-Grout" 
+        pressure: formData.pressure || existingRecord.pressure,
+        remark: newRemark,
+        positions: { ...primPos, ...secPos },
+        groutPass: "Re-Grout"
       };
       if (formData.imageBase64) { updatedRecord.imageBase64 = formData.imageBase64; updatedRecord.imageName = formData.imageName; }
 
@@ -511,20 +526,20 @@ const GroutRecordView = ({ projectInfo, handleProjectInfoChange, groutRecords, s
           primaryPositions: JSON.stringify(updatedRecord.primaryPositions),
           secondaryPositions: JSON.stringify(updatedRecord.secondaryPositions)
         };
-        await apiCall("updateGrout", payloadRecord); 
+        await apiCall("updateGrout", payloadRecord);
         if (updatedRecord.imageBase64) updatedRecord.imageUrl = "Attached";
         setGroutRecords((prev) => prev.map((r) => (r.id === updatedRecord.id ? updatedRecord : r)));
         resetFormAfterSave(true);
       } catch (err) { alert("อัปเดตข้อมูลไม่สำเร็จ: " + err.message); }
     } else {
-      const newRecord = { 
-        id: `grout_${Date.now()}`, 
-        ...projectInfo, 
-        ...formData, 
-        ringNo: inputRing, 
-        key: formData.keyType, 
-        total: Number(currentTotal), 
-        ratio: Number((Number(currentTotal) / THEORETICAL_VOL) * 100), 
+      const newRecord = {
+        id: `grout_${Date.now()}`,
+        ...projectInfo,
+        ...formData,
+        ringNo: inputRing,
+        key: formData.keyType,
+        total: Number(currentTotal),
+        ratio: Number((Number(currentTotal) / THEORETICAL_VOL) * 100),
         groutPass: "1st Pass",
         primaryPartA: Number(formData.partA || 0).toFixed(2),
         primaryPartB: Number(formData.partB || 0).toFixed(2),
@@ -537,7 +552,7 @@ const GroutRecordView = ({ projectInfo, handleProjectInfoChange, groutRecords, s
           positions: JSON.stringify(newRecord.positions),
           primaryPositions: JSON.stringify(newRecord.primaryPositions)
         };
-        await apiCall("addGrout", payloadRecord); 
+        await apiCall("addGrout", payloadRecord);
         if (newRecord.imageBase64) newRecord.imageUrl = "Attached";
         setGroutRecords((prev) => [...prev, newRecord]);
         resetFormAfterSave(false);
@@ -578,11 +593,11 @@ const GroutRecordView = ({ projectInfo, handleProjectInfoChange, groutRecords, s
           <div className="grid grid-cols-2 gap-4">
             <div className="bg-slate-50 p-4 rounded-xl border border-slate-100 focus-within:border-blue-400 focus-within:ring-2 transition-all">
               <label className="text-[10px] font-bold text-slate-400 block mb-1">Grouting Ring</label>
-              <input type="text" name="ringNo" required value={formData.ringNo} onChange={handleInputChange} onBlur={(e) => setFormData(prev => ({...prev, ringNo: String(e.target.value).trim().toUpperCase()}))} className={`w-full bg-transparent text-2xl font-black outline-none uppercase mt-1 ${isReGrout ? "text-orange-600" : "text-slate-800"}`} placeholder="P-XXXX" />
+              <input type="text" name="ringNo" required value={formData.ringNo} onChange={handleInputChange} onBlur={(e) => setFormData(prev => ({ ...prev, ringNo: String(e.target.value).trim().toUpperCase() }))} className={`w-full bg-transparent text-2xl font-black outline-none uppercase mt-1 ${isReGrout ? "text-orange-600" : "text-slate-800"}`} placeholder="P-XXXX" />
               {isReGrout && <span className="text-[9px] bg-orange-100 text-orange-700 px-2 py-0.5 rounded font-bold mt-2 inline-block">โหมดบันทึก Re-Grout อัตโนมัติ</span>}
             </div>
             <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
-              <label className="text-[10px] font-bold text-slate-400 block mb-1 flex items-center justify-between">Excavation Ring <Activity size={12} className="text-blue-500"/></label>
+              <label className="text-[10px] font-bold text-slate-400 block mb-1 flex items-center justify-between">Excavation Ring <Activity size={12} className="text-blue-500" /></label>
               <input type="text" name="excavRing" value={formData.excavRing} onChange={handleInputChange} className="w-full bg-transparent text-2xl font-black text-slate-800 outline-none uppercase mt-1" />
             </div>
           </div>
@@ -595,51 +610,51 @@ const GroutRecordView = ({ projectInfo, handleProjectInfoChange, groutRecords, s
             <input type="range" min="1" max="16" step="1" name="keyType" value={formData.keyType} onChange={handleInputChange} disabled={isKeyLinked} className="w-full h-2 rounded-full appearance-none bg-slate-200 accent-blue-600 cursor-pointer" />
             <p className="text-[9px] text-slate-400 font-bold mt-3">แตะเลือกตำแหน่งที่ฉีด (สีน้ำเงิน = รูเดิม, สีส้ม = รูที่เลือกใหม่)</p>
             <div className="scale-90 transform origin-top mt-2">
-              <RingVisualizer 
-                ringKey={formData.keyType} 
+              <RingVisualizer
+                ringKey={formData.keyType}
                 primaryPositions={isReGrout && existingRecord ? (Object.values(existingRecord.primaryPositions || {}).some(v => v === true) ? existingRecord.primaryPositions : existingRecord.positions) : formData.positions}
                 secondaryPositions={isReGrout ? formData.positions : null}
-                onTogglePosition={togglePosition} 
+                onTogglePosition={togglePosition}
               />
             </div>
           </div>
 
           <div className="grid grid-cols-3 gap-3">
             <div className="bg-slate-50 p-3 rounded-lg border border-slate-200">
-               <label className={`block text-[10px] font-bold mb-1 ${isReGrout ? 'text-orange-500' : 'text-slate-500'}`}>{isReGrout ? "Sec. Part A" : "Part A"}</label>
-               <input type="number" step="0.01" name="partA" value={formData.partA} onChange={handleInputChange} className="bg-transparent w-full font-mono text-lg font-black text-slate-800 outline-none" placeholder="0.00" />
-               {isReGrout && <div className="text-[9px] text-blue-500 font-bold mt-1 pt-1 border-t border-slate-200">Prim: {String(existingRecord?.primaryPartA || existingRecord?.partA || '0.00')}</div>}
+              <label className={`block text-[10px] font-bold mb-1 ${isReGrout ? 'text-orange-500' : 'text-slate-500'}`}>{isReGrout ? "Sec. Part A" : "Part A"}</label>
+              <input type="number" step="0.01" name="partA" value={formData.partA} onChange={handleInputChange} className="bg-transparent w-full font-mono text-lg font-black text-slate-800 outline-none" placeholder="0.00" />
+              {isReGrout && <div className="text-[9px] text-blue-500 font-bold mt-1 pt-1 border-t border-slate-200">Prim: {String(existingRecord?.primaryPartA || existingRecord?.partA || '0.00')}</div>}
             </div>
             <div className="bg-slate-50 p-3 rounded-lg border border-slate-200">
-               <label className={`block text-[10px] font-bold mb-1 ${isReGrout ? 'text-orange-500' : 'text-slate-500'}`}>{isReGrout ? "Sec. Part B" : "Part B"}</label>
-               <input type="number" step="0.01" name="partB" value={formData.partB} onChange={handleInputChange} className="bg-transparent w-full font-mono text-lg font-black text-slate-800 outline-none" placeholder="0.00" />
-               {isReGrout && <div className="text-[9px] text-blue-500 font-bold mt-1 pt-1 border-t border-slate-200">Prim: {String(existingRecord?.primaryPartB || existingRecord?.partB || '0.00')}</div>}
+              <label className={`block text-[10px] font-bold mb-1 ${isReGrout ? 'text-orange-500' : 'text-slate-500'}`}>{isReGrout ? "Sec. Part B" : "Part B"}</label>
+              <input type="number" step="0.01" name="partB" value={formData.partB} onChange={handleInputChange} className="bg-transparent w-full font-mono text-lg font-black text-slate-800 outline-none" placeholder="0.00" />
+              {isReGrout && <div className="text-[9px] text-blue-500 font-bold mt-1 pt-1 border-t border-slate-200">Prim: {String(existingRecord?.primaryPartB || existingRecord?.partB || '0.00')}</div>}
             </div>
             <div className="bg-slate-50 p-3 rounded-lg border border-slate-200">
-               <label className="block text-[10px] font-bold text-slate-500 mb-1">Pressure (bar)</label>
-               <input type="number" step="0.1" name="pressure" value={formData.pressure} onChange={handleInputChange} className="bg-transparent w-full font-mono text-lg font-black text-slate-800 outline-none" placeholder="0.0" />
+              <label className="block text-[10px] font-bold text-slate-500 mb-1">Pressure (bar)</label>
+              <input type="number" step="0.1" name="pressure" value={formData.pressure} onChange={handleInputChange} className="bg-transparent w-full font-mono text-lg font-black text-slate-800 outline-none" placeholder="0.0" />
             </div>
           </div>
 
           <div className={`p-4 rounded-xl flex justify-between items-center ${isReGrout ? 'bg-orange-50 border border-orange-200' : 'bg-blue-50 border border-blue-200'}`}>
-             <div>
-               <span className={`block text-[10px] font-bold ${isReGrout ? 'text-orange-600' : 'text-blue-600'}`}>{isReGrout ? 'Total (Prim + Sec)' : 'Total Volume'}</span>
-               <div className="text-2xl font-black text-slate-800">{isReGrout && existingRecord ? Number(Number(existingRecord.primaryPartA || existingRecord.partA || 0) + Number(existingRecord.primaryPartB || existingRecord.partB || 0) + Number(currentTotal)).toFixed(2) : String(currentTotal)} m³</div>
-             </div>
-             <div className="text-right">
-               <span className={`block text-[10px] font-bold ${isReGrout ? 'text-orange-600' : 'text-blue-600'}`}>Ratio</span>
-               <div className={`text-2xl font-black ${Number(displayRatio) > 150 ? "text-purple-600" : Number(displayRatio) >= 100 ? "text-emerald-600" : "text-red-600"}`}>{String(displayRatio)}%</div>
-             </div>
+            <div>
+              <span className={`block text-[10px] font-bold ${isReGrout ? 'text-orange-600' : 'text-blue-600'}`}>{isReGrout ? 'Total (Prim + Sec)' : 'Total Volume'}</span>
+              <div className="text-2xl font-black text-slate-800">{isReGrout && existingRecord ? Number(Number(existingRecord.primaryPartA || existingRecord.partA || 0) + Number(existingRecord.primaryPartB || existingRecord.partB || 0) + Number(currentTotal)).toFixed(2) : String(currentTotal)} m³</div>
+            </div>
+            <div className="text-right">
+              <span className={`block text-[10px] font-bold ${isReGrout ? 'text-orange-600' : 'text-blue-600'}`}>Ratio</span>
+              <div className={`text-2xl font-black ${Number(displayRatio) > 150 ? "text-purple-600" : Number(displayRatio) >= 100 ? "text-emerald-600" : "text-red-600"}`}>{String(displayRatio)}%</div>
+            </div>
           </div>
 
           <div className="bg-white p-4 border border-slate-200 rounded-xl shadow-sm">
             <textarea name="remark" value={formData.remark} onChange={handleInputChange} rows="2" className="w-full bg-slate-50 border border-slate-200 p-3 rounded-lg text-sm outline-none focus:border-blue-500 transition-all" placeholder="Problem / Remark (อุปสรรค)"></textarea>
             <div className="mt-3 pt-3 border-t border-slate-100">
-               <label className="text-[10px] font-bold text-slate-500 mb-2 flex items-center gap-1"><Camera size={12}/> Attach Photo</label>
-               <input type="file" accept="image/*" onChange={(e) => handleFileUpload(e, setFormData)} className="text-xs text-slate-500 w-full file:mr-4 file:py-1.5 file:px-4 file:rounded-full file:border-0 file:bg-blue-50 file:text-blue-700" />
+              <label className="text-[10px] font-bold text-slate-500 mb-2 flex items-center gap-1"><Camera size={12} /> Attach Photo</label>
+              <input type="file" accept="image/*" onChange={(e) => handleFileUpload(e, setFormData)} className="text-xs text-slate-500 w-full file:mr-4 file:py-1.5 file:px-4 file:rounded-full file:border-0 file:bg-blue-50 file:text-blue-700" />
             </div>
           </div>
-          
+
           <button type="submit" disabled={isSaving} className={`w-full text-white font-bold py-4 rounded-xl flex justify-center items-center gap-2 shadow-lg transition-transform active:scale-95 ${isSaving ? 'bg-slate-400' : isReGrout ? 'bg-gradient-to-r from-orange-500 to-red-600 shadow-orange-500/30' : 'bg-gradient-to-r from-blue-600 to-indigo-600 shadow-blue-500/30'}`}>
             {isSaving ? <Loader2 size={20} className="animate-spin" /> : <Save size={20} />} {isReGrout ? "Save Re-Grout Data" : "Confirm & Save Record"}
           </button>
@@ -708,7 +723,7 @@ const SegmentRecordView = ({ projectInfo, handleProjectInfoChange, segmentRecord
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!formData.ringNo) return; 
+    if (!formData.ringNo) return;
     setIsSaving(true);
     const cleanRingNo = String(formData.ringNo).trim().toUpperCase();
     const recordData = { ...projectInfo, ...formData, ringNo: cleanRingNo, soilVolume: calculateSoilVolume(formData.length) };
@@ -742,7 +757,7 @@ const SegmentRecordView = ({ projectInfo, handleProjectInfoChange, segmentRecord
         {/* Header */}
         <div className="bg-[#0b8261] px-6 py-5 text-white flex justify-between items-center">
           <div>
-            <h2 className="font-extrabold text-2xl tracking-tight flex items-center gap-2"><Layers size={24}/> Segment Install</h2>
+            <h2 className="font-extrabold text-2xl tracking-tight flex items-center gap-2"><Layers size={24} /> Segment Install</h2>
             <p className="text-emerald-100 text-[10px] sm:text-xs mt-1 opacity-80 font-medium">Record daily segment Installation</p>
           </div>
           <div className="bg-white/20 px-3 py-1.5 rounded-lg text-xs font-bold border border-white/30 shadow-sm">
@@ -772,7 +787,7 @@ const SegmentRecordView = ({ projectInfo, handleProjectInfoChange, segmentRecord
           <div className="grid grid-cols-2 gap-4">
             <div className="bg-white border border-slate-200 p-3 rounded-xl shadow-sm focus-within:ring-2 ring-emerald-100 transition-all">
               <label className="text-[9px] font-extrabold text-slate-400 uppercase tracking-widest block mb-1">Ring No.</label>
-              <input type="text" name="ringNo" required value={formData.ringNo} onChange={handleInputChange} onBlur={(e) => setFormData(prev => ({...prev, ringNo: String(e.target.value).trim().toUpperCase()}))} className="w-full bg-transparent text-xl font-black text-slate-800 outline-none uppercase" placeholder="PXXX" />
+              <input type="text" name="ringNo" required value={formData.ringNo} onChange={handleInputChange} onBlur={(e) => setFormData(prev => ({ ...prev, ringNo: String(e.target.value).trim().toUpperCase() }))} className="w-full bg-transparent text-xl font-black text-slate-800 outline-none uppercase" placeholder="PXXX" />
             </div>
             <div className="bg-white border border-slate-200 p-3 rounded-xl shadow-sm">
               <label className="text-[9px] font-extrabold text-slate-400 uppercase tracking-widest block mb-1">Install Type</label>
@@ -793,14 +808,14 @@ const SegmentRecordView = ({ projectInfo, handleProjectInfoChange, segmentRecord
                 <option value="Night">🌙 Night Shift</option>
               </select>
             </div>
-            
+
             <div className="grid grid-cols-2 gap-4 mb-4 pl-2">
               <div>
-                <label className="text-[10px] font-bold text-slate-500 block mb-1.5 flex items-center gap-1"><Clock size={10} className="text-orange-500"/> Start</label>
+                <label className="text-[10px] font-bold text-slate-500 block mb-1.5 flex items-center gap-1"><Clock size={10} className="text-orange-500" /> Start</label>
                 <input type="time" name="excavStartTime" value={formData.excavStartTime} onChange={handleInputChange} className="border border-slate-200 rounded-xl p-2.5 w-full bg-slate-50 outline-none font-mono font-bold text-slate-700 focus:border-orange-400 transition-colors text-sm" />
               </div>
               <div>
-                <label className="text-[10px] font-bold text-slate-500 block mb-1.5 flex items-center gap-1"><Clock size={10} className="text-orange-500"/> Finish</label>
+                <label className="text-[10px] font-bold text-slate-500 block mb-1.5 flex items-center gap-1"><Clock size={10} className="text-orange-500" /> Finish</label>
                 <input type="time" name="excavEndTime" value={formData.excavEndTime} onChange={handleInputChange} className="border border-slate-200 rounded-xl p-2.5 w-full bg-slate-50 outline-none font-mono font-bold text-slate-700 focus:border-orange-400 transition-colors text-sm" />
               </div>
             </div>
@@ -811,7 +826,7 @@ const SegmentRecordView = ({ projectInfo, handleProjectInfoChange, segmentRecord
                 <input type="text" name="soilType" value={formData.soilType} onChange={handleInputChange} className="border border-slate-200 rounded-xl p-2.5 w-full outline-none text-sm font-medium text-slate-700 focus:border-orange-400 transition-colors" placeholder="เช่น ดินเหนียวปนทราย, Soft Clay..." />
               </div>
               <div>
-                <label className="text-[10px] font-bold text-slate-500 block mb-1.5 flex items-center gap-1"><Camera size={10}/> ภาพถ่ายชั้นดิน (ไม่มีข้าม)</label>
+                <label className="text-[10px] font-bold text-slate-500 block mb-1.5 flex items-center gap-1"><Camera size={10} /> ภาพถ่ายชั้นดิน (ไม่มีข้าม)</label>
                 <input type="file" accept="image/*" onChange={(e) => handleFileUpload(e, setFormData)} className="text-xs text-slate-500 w-full file:mr-3 file:py-2 file:px-4 file:rounded-xl file:border-0 file:bg-orange-50 file:text-orange-700 file:font-bold hover:file:bg-orange-100 transition-colors cursor-pointer" />
               </div>
             </div>
@@ -827,14 +842,14 @@ const SegmentRecordView = ({ projectInfo, handleProjectInfoChange, segmentRecord
                 <option value="Night">🌙 Night Shift</option>
               </select>
             </div>
-            
+
             <div className="grid grid-cols-2 gap-4 pl-2 mb-5">
               <div>
-                <label className="text-[10px] font-bold text-slate-500 block mb-1.5 flex items-center gap-1"><Clock size={10} className="text-emerald-500"/> Start</label>
+                <label className="text-[10px] font-bold text-slate-500 block mb-1.5 flex items-center gap-1"><Clock size={10} className="text-emerald-500" /> Start</label>
                 <input type="time" name="installStartTime" value={formData.installStartTime} onChange={handleInputChange} className="border border-slate-200 rounded-xl p-2.5 w-full bg-slate-50 outline-none font-mono font-bold text-slate-700 focus:border-emerald-500 transition-colors text-sm" />
               </div>
               <div>
-                <label className="text-[10px] font-bold text-slate-500 block mb-1.5 flex items-center gap-1"><Clock size={10} className="text-emerald-500"/> Finish</label>
+                <label className="text-[10px] font-bold text-slate-500 block mb-1.5 flex items-center gap-1"><Clock size={10} className="text-emerald-500" /> Finish</label>
                 <input type="time" name="installEndTime" value={formData.installEndTime} onChange={handleInputChange} className="border border-slate-200 rounded-xl p-2.5 w-full bg-slate-50 outline-none font-mono font-bold text-slate-700 focus:border-emerald-500 transition-colors text-sm" />
               </div>
             </div>
@@ -842,35 +857,35 @@ const SegmentRecordView = ({ projectInfo, handleProjectInfoChange, segmentRecord
             <div className="grid grid-cols-2 gap-6 pl-2">
               <div className="space-y-4">
                 <div className="flex flex-col gap-2">
-                   <div className="flex justify-between items-center">
-                     <label className="text-[8px] font-extrabold text-slate-400 uppercase tracking-widest">Status & Length</label>
-                     <select name="status" value={formData.status} onChange={handleInputChange} className="text-[10px] font-bold bg-orange-100 text-orange-700 px-2 py-0.5 rounded outline-none appearance-none cursor-pointer"><option value="In Progress">⏳ In Progress</option><option value="Completed">✅ Completed</option></select>
-                   </div>
-                   <input type="number" step="0.01" name="length" value={formData.length} onChange={handleInputChange} className="w-full border border-slate-200 rounded-xl p-2.5 text-center font-black text-slate-800 outline-none focus:border-emerald-500 text-base shadow-inner bg-white" placeholder="1.40" />
+                  <div className="flex justify-between items-center">
+                    <label className="text-[8px] font-extrabold text-slate-400 uppercase tracking-widest">Status & Length</label>
+                    <select name="status" value={formData.status} onChange={handleInputChange} className="text-[10px] font-bold bg-orange-100 text-orange-700 px-2 py-0.5 rounded outline-none appearance-none cursor-pointer"><option value="In Progress">⏳ In Progress</option><option value="Completed">✅ Completed</option></select>
+                  </div>
+                  <input type="number" step="0.01" name="length" value={formData.length} onChange={handleInputChange} className="w-full border border-slate-200 rounded-xl p-2.5 text-center font-black text-slate-800 outline-none focus:border-emerald-500 text-base shadow-inner bg-white" placeholder="1.40" />
                 </div>
                 <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-3 text-center">
-                   <label className="text-[9px] font-extrabold text-emerald-600 uppercase tracking-widest block mb-1">Soil Vol. (ดินขุด)</label>
-                   <div className="font-black text-emerald-700 text-lg">{currentSoilVol} <span className="text-xs font-bold">m³</span></div>
+                  <label className="text-[9px] font-extrabold text-emerald-600 uppercase tracking-widest block mb-1">Soil Vol. (ดินขุด)</label>
+                  <div className="font-black text-emerald-700 text-lg">{currentSoilVol} <span className="text-xs font-bold">m³</span></div>
                 </div>
               </div>
 
               <div className="flex flex-col justify-between">
                 <div>
                   <div className="flex justify-between items-center mb-2">
-                     <label className="text-[9px] font-extrabold text-slate-400 uppercase tracking-widest">Key Pos</label>
-                     <span className="bg-emerald-100 text-emerald-700 font-black px-3 py-1 rounded-lg text-sm shadow-sm">K{formData.keyPos}</span>
+                    <label className="text-[9px] font-extrabold text-slate-400 uppercase tracking-widest">Key Pos</label>
+                    <span className="bg-emerald-100 text-emerald-700 font-black px-3 py-1 rounded-lg text-sm shadow-sm">K{formData.keyPos}</span>
                   </div>
                   <input type="range" min="1" max="16" step="1" name="keyPos" value={formData.keyPos} onChange={handleInputChange} className="w-full h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-emerald-600 mb-2" />
                   <div className="flex justify-between text-[9px] text-slate-400 font-bold px-1 mb-4"><span>1</span><span>4</span><span>8</span><span>12</span><span>16</span></div>
                 </div>
-                
+
                 <select name="typeRing" value={formData.typeRing} onChange={handleInputChange} className="w-full border border-slate-200 rounded-xl p-2.5 font-bold text-slate-700 outline-none focus:border-emerald-500 bg-slate-50 text-sm cursor-pointer">
-                   <option value="C1">C1</option>
-                   <option value="C2">C2</option>
-                   <option value="B1">B1</option>
-                   <option value="B2">B2</option>
-                   <option value="A">A</option>
-                   <option value="K">K</option>
+                  <option value="C1">C1</option>
+                  <option value="C2">C2</option>
+                  <option value="B1">B1</option>
+                  <option value="B2">B2</option>
+                  <option value="A">A</option>
+                  <option value="K">K</option>
                 </select>
               </div>
             </div>
@@ -1175,11 +1190,11 @@ const GroutDashboardView = ({ groutRecords, segmentRecords, setGroutRecords }) =
                 <div className="bg-slate-50 rounded-2xl border border-slate-100 p-4 flex flex-col items-center justify-center relative">
                   <span className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2 text-center">Injection Configuration</span>
                   <div className="scale-90 transform origin-top -mt-2">
-                    <RingVisualizer 
-                      ringKey={selectedRecord.key} 
+                    <RingVisualizer
+                      ringKey={selectedRecord.key}
                       primaryPositions={Object.values(selectedRecord.primaryPositions || {}).some(v => v === true) ? selectedRecord.primaryPositions : (selectedRecord.positions || {})}
                       secondaryPositions={selectedRecord.groutPass === "Re-Grout" ? selectedRecord.secondaryPositions : null}
-                      onTogglePosition={() => {}} 
+                      onTogglePosition={() => { }}
                     />
                   </div>
                 </div>
@@ -1187,32 +1202,32 @@ const GroutDashboardView = ({ groutRecords, segmentRecords, setGroutRecords }) =
                 <div className="space-y-4 flex flex-col justify-center">
                   {selectedRecord.groutPass === "Re-Grout" ? (
                     <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm mb-4">
-                       <div className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-3">Volume Breakdown</div>
-                       <div className="grid grid-cols-2 gap-3 mb-3">
-                          <div className="bg-blue-50 p-3 rounded-xl border border-blue-100">
-                             <div className="font-bold text-blue-600 text-[10px] mb-2 uppercase">Primary Grout</div>
-                             <div className="flex justify-between text-xs mb-1"><span className="text-slate-500">Part A</span><span className="font-bold text-slate-700">{Number(selectedRecord.primaryPartA || selectedRecord.partA || 0).toFixed(2)}</span></div>
-                             <div className="flex justify-between text-xs"><span className="text-slate-500">Part B</span><span className="font-bold text-slate-700">{Number(selectedRecord.primaryPartB || selectedRecord.partB || 0).toFixed(2)}</span></div>
-                          </div>
-                          <div className="bg-orange-50 p-3 rounded-xl border border-orange-100">
-                             <div className="font-bold text-orange-600 text-[10px] mb-2 uppercase">Secondary Grout</div>
-                             <div className="flex justify-between text-xs mb-1"><span className="text-slate-500">Part A</span><span className="font-bold text-slate-700">{Number(selectedRecord.secondaryPartA || 0).toFixed(2)}</span></div>
-                             <div className="flex justify-between text-xs"><span className="text-slate-500">Part B</span><span className="font-bold text-slate-700">{Number(selectedRecord.secondaryPartB || 0).toFixed(2)}</span></div>
-                          </div>
-                       </div>
-                       <div className="grid grid-cols-3 gap-2 pt-3 border-t border-slate-200">
-                         <div className="text-center">
-                           <div className="text-[10px] text-slate-500">Total Part A</div>
-                           <div className="font-bold text-slate-800">{(Number(selectedRecord.primaryPartA || selectedRecord.partA || 0) + Number(selectedRecord.secondaryPartA || 0)).toFixed(2)} m³</div>
-                         </div>
-                         <div className="text-center border-l border-r border-slate-200">
-                           <div className="text-[10px] text-slate-500">Total Part B</div>
-                           <div className="font-bold text-slate-800">{(Number(selectedRecord.primaryPartB || selectedRecord.partB || 0) + Number(selectedRecord.secondaryPartB || 0)).toFixed(2)} m³</div>
-                         </div>
-                         <div className="text-center">
-                           <div className="text-[10px] text-slate-500">Total Vol.</div>
-                           <div className="font-black text-blue-600">{Number(selectedRecord.total || 0).toFixed(2)} m³</div>
-                         </div>
+                      <div className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-3">Volume Breakdown</div>
+                      <div className="grid grid-cols-2 gap-3 mb-3">
+                        <div className="bg-blue-50 p-3 rounded-xl border border-blue-100">
+                          <div className="font-bold text-blue-600 text-[10px] mb-2 uppercase">Primary Grout</div>
+                          <div className="flex justify-between text-xs mb-1"><span className="text-slate-500">Part A</span><span className="font-bold text-slate-700">{Number(selectedRecord.primaryPartA || selectedRecord.partA || 0).toFixed(2)}</span></div>
+                          <div className="flex justify-between text-xs"><span className="text-slate-500">Part B</span><span className="font-bold text-slate-700">{Number(selectedRecord.primaryPartB || selectedRecord.partB || 0).toFixed(2)}</span></div>
+                        </div>
+                        <div className="bg-orange-50 p-3 rounded-xl border border-orange-100">
+                          <div className="font-bold text-orange-600 text-[10px] mb-2 uppercase">Secondary Grout</div>
+                          <div className="flex justify-between text-xs mb-1"><span className="text-slate-500">Part A</span><span className="font-bold text-slate-700">{Number(selectedRecord.secondaryPartA || 0).toFixed(2)}</span></div>
+                          <div className="flex justify-between text-xs"><span className="text-slate-500">Part B</span><span className="font-bold text-slate-700">{Number(selectedRecord.secondaryPartB || 0).toFixed(2)}</span></div>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-3 gap-2 pt-3 border-t border-slate-200">
+                        <div className="text-center">
+                          <div className="text-[10px] text-slate-500">Total Part A</div>
+                          <div className="font-bold text-slate-800">{(Number(selectedRecord.primaryPartA || selectedRecord.partA || 0) + Number(selectedRecord.secondaryPartA || 0)).toFixed(2)} m³</div>
+                        </div>
+                        <div className="text-center border-l border-r border-slate-200">
+                          <div className="text-[10px] text-slate-500">Total Part B</div>
+                          <div className="font-bold text-slate-800">{(Number(selectedRecord.primaryPartB || selectedRecord.partB || 0) + Number(selectedRecord.secondaryPartB || 0)).toFixed(2)} m³</div>
+                        </div>
+                        <div className="text-center">
+                          <div className="text-[10px] text-slate-500">Total Vol.</div>
+                          <div className="font-black text-blue-600">{Number(selectedRecord.total || 0).toFixed(2)} m³</div>
+                        </div>
                       </div>
                     </div>
                   ) : (
@@ -1276,7 +1291,7 @@ const SegmentDashboardView = ({ segmentRecords, setSegmentRecords }) => {
   const [filterShift, setFilterShift] = useState("All");
 
   const defaultPlanConfig = { defaultDailyPlan: 4, basePlanAcc: 0, baseActualAcc: 0, planOverrides: [] };
-  
+
   const [planConfig, setPlanConfig] = useState(() => {
     try {
       const saved = localStorage.getItem("tbmPlanConfig");
@@ -1287,7 +1302,7 @@ const SegmentDashboardView = ({ segmentRecords, setSegmentRecords }) => {
         }
         return parsed;
       }
-    } catch (e) {}
+    } catch (e) { }
     return defaultPlanConfig;
   });
 
@@ -1342,7 +1357,7 @@ const SegmentDashboardView = ({ segmentRecords, setSegmentRecords }) => {
     const permRings = new Set(permSegments.map((r) => r.ringNo)).size;
     const tempRings = new Set(tempSegments.map((r) => r.ringNo)).size;
     const totalRings = permRings + tempRings;
-    
+
     const totalDistance = permSegments.reduce((acc, rec) => acc + parseFloat(rec.length || 0), 0);
     const totalSoilVol = permSegments.reduce((acc, rec) => acc + parseFloat(rec.soilVolume || calculateSoilVolume(rec.length)), 0);
 
@@ -1429,7 +1444,7 @@ const SegmentDashboardView = ({ segmentRecords, setSegmentRecords }) => {
       const hourlyData = Array.from({ length: 24 }, (_, i) => ({ displayDate: `${String(i).padStart(2, "0")}:00`, dayRings: 0, nightRings: 0, tempRings: 0, totalRings: 0, plan: currentDayPlan / 24 }));
 
       dayRecords.forEach((rec) => {
-        const timeToUse = rec.installStartTime || rec.startTime; 
+        const timeToUse = rec.installStartTime || rec.startTime;
         if (timeToUse && rec.status !== "In Progress") {
           const hour = parseInt(formatDisplayTime(timeToUse).split(":")[0], 10);
           if (!isNaN(hour) && hour >= 0 && hour <= 23) {
@@ -1669,7 +1684,7 @@ const SegmentDashboardView = ({ segmentRecords, setSegmentRecords }) => {
                 <div className="bg-slate-50 rounded-2xl border border-slate-100 p-4 flex flex-col items-center justify-center relative">
                   <span className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2 text-center">Ring Orientation</span>
                   <div className="scale-90 transform origin-top -mt-2">
-                    <RingVisualizer ringKey={selectedRecord.keyPos} selectedPositions={{ K: true }} onTogglePosition={() => {}} />
+                    <RingVisualizer ringKey={selectedRecord.keyPos} selectedPositions={{ K: true }} onTogglePosition={() => { }} />
                   </div>
                 </div>
 
@@ -1746,16 +1761,35 @@ const ReportView = ({ segmentRecords, groutRecords, projectInfo, shiftReports })
 
   const filteredSegments = useMemo(() => {
     return deduplicatedSegments.filter((r) => {
-      const dDate = formatDisplayDate(r.date);
-      if (reportType === "daily" && dDate !== reportDate) return false;
-      if (reportType === "monthly" && !dDate.startsWith(reportMonth)) return false;
-      
-      if (reportShift !== "All") {
-        const exShift = r.excavShift || r.shift;
-        const inShift = r.installShift || r.shift;
-        if (exShift !== reportShift && inShift !== reportShift) return false;
+      let exShift = r.excavShift;
+      const extStart = formatDisplayTime(r.excavStartTime);
+      if (!exShift && extStart) {
+        const [h] = extStart.split(':').map(Number);
+        exShift = (h >= 7 && h < 19) ? "Day" : "Night";
+      } else if (!exShift) exShift = r.shift;
+
+      let inShift = r.installShift;
+      const instStart = formatDisplayTime(r.installStartTime || r.startTime);
+      if (!inShift && instStart) {
+        const [h] = instStart.split(':').map(Number);
+        inShift = (h >= 7 && h < 19) ? "Day" : "Night";
+      } else if (!inShift) inShift = r.shift;
+
+      const exDate = getLogicalShiftDate(extStart, exShift, r.date);
+      const inDate = getLogicalShiftDate(instStart, inShift, r.date);
+
+      let matchEx = false;
+      let matchIn = false;
+
+      if (reportType === "daily") {
+        matchEx = exDate === reportDate && (reportShift === "All" || exShift === reportShift);
+        matchIn = inDate === reportDate && (reportShift === "All" || inShift === reportShift);
+      } else if (reportType === "monthly") {
+        matchEx = exDate.startsWith(reportMonth) && (reportShift === "All" || exShift === reportShift);
+        matchIn = inDate.startsWith(reportMonth) && (reportShift === "All" || inShift === reportShift);
       }
-      return true;
+
+      return matchEx || matchIn;
     });
   }, [deduplicatedSegments, reportType, reportDate, reportMonth, reportShift]);
 
@@ -1783,13 +1817,33 @@ const ReportView = ({ segmentRecords, groutRecords, projectInfo, shiftReports })
   const summary = useMemo(() => {
     const installedInShift = filteredSegments.filter((s) => {
       if (s.status === "In Progress") return false;
-      if (reportShift === "All") return true;
-      return (s.installShift || s.shift) === reportShift;
+      const instStart = formatDisplayTime(s.installStartTime || s.startTime);
+      let inShift = s.installShift;
+      if (!inShift && instStart) {
+        const [h] = instStart.split(':').map(Number);
+        inShift = (h >= 7 && h < 19) ? "Day" : "Night";
+      } else if (!inShift) inShift = s.shift;
+      const inDate = getLogicalShiftDate(instStart, inShift, s.date);
+
+      if (reportType === "daily" && inDate !== reportDate) return false;
+      if (reportType === "monthly" && !inDate.startsWith(reportMonth)) return false;
+      if (reportShift !== "All" && inShift !== reportShift) return false;
+      return true;
     });
 
     const excavatedInShift = filteredSegments.filter((s) => {
-      if (reportShift === "All") return true;
-      return (s.excavShift || s.shift) === reportShift;
+      const extStart = formatDisplayTime(s.excavStartTime);
+      let exShift = s.excavShift;
+      if (!exShift && extStart) {
+        const [h] = extStart.split(':').map(Number);
+        exShift = (h >= 7 && h < 19) ? "Day" : "Night";
+      } else if (!exShift) exShift = s.shift;
+      const exDate = getLogicalShiftDate(extStart, exShift, s.date);
+
+      if (reportType === "daily" && exDate !== reportDate) return false;
+      if (reportType === "monthly" && !exDate.startsWith(reportMonth)) return false;
+      if (reportShift !== "All" && exShift !== reportShift) return false;
+      return true;
     });
 
     const permSegments = installedInShift.filter(s => s.installType !== "Temporary");
@@ -1797,14 +1851,14 @@ const ReportView = ({ segmentRecords, groutRecords, projectInfo, shiftReports })
 
     const segDay = permSegments.filter((s) => (s.installShift || s.shift) === "Day").length;
     const segNight = permSegments.filter((s) => (s.installShift || s.shift) === "Night").length;
-    
+
     const totalLength = permSegments.reduce((sum, s) => sum + parseFloat(s.length || 0), 0);
     const totalSoilVol = excavatedInShift.reduce((sum, s) => sum + parseFloat(s.soilVolume || calculateSoilVolume(s.length)), 0);
     const totalGroutVol = filteredGrouts.reduce((sum, g) => sum + parseFloat(g.total || 0), 0);
-    
+
     const avgGroutRatio = filteredGrouts.length > 0
-        ? (filteredGrouts.reduce((sum, g) => sum + parseFloat(g.ratio || 0), 0) / filteredGrouts.length)
-        : 0;
+      ? (filteredGrouts.reduce((sum, g) => sum + parseFloat(g.ratio || 0), 0) / filteredGrouts.length)
+      : 0;
     const uniqueGroutedRings = new Set(filteredGrouts.map((g) => g.ringNo)).size;
 
     const allRemarks = [
@@ -1828,8 +1882,8 @@ const ReportView = ({ segmentRecords, groutRecords, projectInfo, shiftReports })
   }, [filteredSegments, filteredGrouts, reportShift]);
 
   const displayDateStr = reportType === "daily"
-      ? new Date(reportDate).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })
-      : new Date(reportMonth + "-01").toLocaleDateString("en-GB", { month: "long", year: "numeric" });
+    ? new Date(reportDate).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })
+    : new Date(reportMonth + "-01").toLocaleDateString("en-GB", { month: "long", year: "numeric" });
 
   const handleDownloadImage = async () => {
     const element = document.getElementById("stats-report-container");
@@ -1840,7 +1894,7 @@ const ReportView = ({ segmentRecords, groutRecords, projectInfo, shiftReports })
     try {
       setIsExportingImage(true);
       const html2canvas = await loadHtml2Canvas();
-      const canvas = await html2canvas(element, { 
+      const canvas = await html2canvas(element, {
         scale: 2, backgroundColor: "#ffffff", useCORS: true, windowWidth: 1024,
         onclone: (clonedDoc) => {
           const clonedContainer = clonedDoc.getElementById("stats-report-container");
@@ -1852,9 +1906,9 @@ const ReportView = ({ segmentRecords, groutRecords, projectInfo, shiftReports })
             const id = input.getAttribute('data-html2canvas-id');
             const val = valuesMap.get(id);
             const div = clonedDoc.createElement("div");
-            div.innerText = val || "\u00A0"; 
+            div.innerText = val || "\u00A0";
             div.className = input.className;
-            div.style.border = "none"; div.style.background = "transparent"; div.style.color = "black"; div.style.fontWeight = "bold"; div.style.display = "inline-flex"; div.style.alignItems = "center"; div.style.minHeight = "24px"; 
+            div.style.border = "none"; div.style.background = "transparent"; div.style.color = "black"; div.style.fontWeight = "bold"; div.style.display = "inline-flex"; div.style.alignItems = "center"; div.style.minHeight = "24px";
             if (input.classList.contains("text-right")) div.style.justifyContent = "flex-end";
             else if (input.classList.contains("text-center")) div.style.justifyContent = "center";
             else div.style.justifyContent = "flex-start";
@@ -1875,19 +1929,19 @@ const ReportView = ({ segmentRecords, groutRecords, projectInfo, shiftReports })
     setAiSummaryText("");
     setCopied(false);
 
-    const installedInShift = [...filteredSegments].filter(s => s.status !== "In Progress" && s.installType !== "Temporary" && (reportShift === "All" || (s.installShift || s.shift) === reportShift)).sort((a,b) => getRingNumeric(a.ringNo) - getRingNumeric(b.ringNo));
-    const excavatedInShift = [...filteredSegments].filter(s => (reportShift === "All" || (s.excavShift || s.shift) === reportShift)).sort((a,b) => getRingNumeric(a.ringNo) - getRingNumeric(b.ringNo));
+    const installedInShift = [...filteredSegments].filter(s => s.status !== "In Progress" && s.installType !== "Temporary" && (reportShift === "All" || (s.installShift || s.shift) === reportShift)).sort((a, b) => getRingNumeric(a.ringNo) - getRingNumeric(b.ringNo));
+    const excavatedInShift = [...filteredSegments].filter(s => (reportShift === "All" || (s.excavShift || s.shift) === reportShift)).sort((a, b) => getRingNumeric(a.ringNo) - getRingNumeric(b.ringNo));
 
     const segmentDetails = installedInShift.map(s => `${s.ringNo} (K${s.keyPos})`).join(', ') || '-';
-    const excavRings = excavatedInShift.length > 0 ? (excavatedInShift.length === 1 ? excavatedInShift[0].ringNo : `${excavatedInShift[0].ringNo}-${excavatedInShift[excavatedInShift.length-1].ringNo}`) : '-';
-    
-    let startCH = excavatedInShift.length > 0 ? excavatedInShift[0].startCH : '-';
-    let finishCH = excavatedInShift.length > 0 ? excavatedInShift[excavatedInShift.length-1].finishCH : '-';
+    const excavRings = excavatedInShift.length > 0 ? (excavatedInShift.length === 1 ? excavatedInShift[0].ringNo : `${excavatedInShift[0].ringNo}-${excavatedInShift[excavatedInShift.length - 1].ringNo}`) : '-';
 
-    const sortedGrouts = [...filteredGrouts].sort((a,b) => getRingNumeric(a.ringNo) - getRingNumeric(b.ringNo));
+    let startCH = excavatedInShift.length > 0 ? excavatedInShift[0].startCH : '-';
+    let finishCH = excavatedInShift.length > 0 ? excavatedInShift[excavatedInShift.length - 1].finishCH : '-';
+
+    const sortedGrouts = [...filteredGrouts].sort((a, b) => getRingNumeric(a.ringNo) - getRingNumeric(b.ringNo));
     const groutDetails = sortedGrouts.map(g => `${g.ringNo} = ${Number(g.total || 0).toFixed(3)} m3 (${Number(g.ratio || 0).toFixed(2)}%)`).join(', ') || '-';
-    const groutRingRange = sortedGrouts.length > 0 ? (sortedGrouts.length === 1 ? sortedGrouts[0].ringNo : `${sortedGrouts[0].ringNo}-${sortedGrouts[sortedGrouts.length-1].ringNo}`) : '-';
-    const latestGroutRing = sortedGrouts.length > 0 ? sortedGrouts[sortedGrouts.length-1].ringNo : '-';
+    const groutRingRange = sortedGrouts.length > 0 ? (sortedGrouts.length === 1 ? sortedGrouts[0].ringNo : `${sortedGrouts[0].ringNo}-${sortedGrouts[sortedGrouts.length - 1].ringNo}`) : '-';
+    const latestGroutRing = sortedGrouts.length > 0 ? sortedGrouts[sortedGrouts.length - 1].ringNo : '-';
     const soilTypes = [...new Set(excavatedInShift.map(s => s.soilType).filter(Boolean))].join(', ') || '-';
 
     const targetDate = reportType === 'daily' ? reportDate : `${reportMonth}-31`;
@@ -1997,7 +2051,7 @@ ${remarksText}
       });
     });
 
-    const delayDetails = Object.entries(delaySummary).length > 0 ? Object.entries(delaySummary).map(([k,v]) => `- ${k}: ${v} นาที`).join('\n') : '- ไม่มีบันทึกเวลาหยุดชะงัก (Delay)';
+    const delayDetails = Object.entries(delaySummary).length > 0 ? Object.entries(delaySummary).map(([k, v]) => `- ${k}: ${v} นาที`).join('\n') : '- ไม่มีบันทึกเวลาหยุดชะงัก (Delay)';
     const remarksText = summary.allRemarks.length > 0 ? summary.allRemarks.map(r => `- [${r.module} วงที่ ${r.ring}] ${String(r.text)}`).join('\n') : '- ไม่มีปัญหาอุปสรรคที่ถูกบันทึก';
 
     const promptText = `ข้อมูลอ้างอิงสำหรับวิเคราะห์ความล่าช้า/อุปสรรค:
@@ -2216,12 +2270,12 @@ ${remarksText}
           <div className="bg-white rounded-[2rem] w-full max-w-2xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh] sm:max-h-[90vh] transform transition-all border border-white/20">
             <div className={`px-6 py-5 text-white flex justify-between items-center shrink-0 ${aiModalType === 'executive' ? 'bg-gradient-to-r from-purple-600 to-indigo-600' : 'bg-gradient-to-r from-orange-500 to-red-600'}`}>
               <h3 className="font-black text-lg sm:text-xl flex items-center gap-3 tracking-tight">
-                {aiModalType === 'executive' ? <Sparkles size={24} className="text-purple-200" /> : <AlertCircle size={24} className="text-orange-200" />} 
+                {aiModalType === 'executive' ? <Sparkles size={24} className="text-purple-200" /> : <AlertCircle size={24} className="text-orange-200" />}
                 {aiModalType === 'executive' ? 'AI Executive Summary' : 'AI Delay & Issue Analysis'}
               </h3>
               <button onClick={() => setShowAIModal(false)} className="text-white/70 hover:text-white bg-white/10 hover:bg-white/20 rounded-full p-2 transition-colors"><X size={20} /></button>
             </div>
-            
+
             <div className="p-6 sm:p-8 bg-slate-50 relative min-h-[200px] overflow-y-auto flex-1 hide-scrollbar">
               {isGeneratingAI ? (
                 <div className="flex flex-col items-center justify-center py-12 text-indigo-500 h-full gap-4">
@@ -2235,7 +2289,7 @@ ${remarksText}
 
             {!isGeneratingAI && aiSummaryText && (
               <div className="bg-white px-6 py-4 border-t border-slate-100 flex flex-col sm:flex-row justify-between items-center shrink-0 gap-4">
-                <p className="text-[10px] sm:text-xs text-slate-400 font-bold flex items-center gap-1.5 text-center sm:text-left"><Sparkles size={12}/> เนื้อหาสร้างโดย AI โปรดตรวจสอบความถูกต้อง</p>
+                <p className="text-[10px] sm:text-xs text-slate-400 font-bold flex items-center gap-1.5 text-center sm:text-left"><Sparkles size={12} /> เนื้อหาสร้างโดย AI โปรดตรวจสอบความถูกต้อง</p>
                 <button onClick={copyToClipboard} className="flex items-center justify-center gap-2 px-6 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl font-bold text-sm transition-colors shadow-lg active:scale-95 w-full sm:w-auto">
                   {copied ? <Check size={18} className="text-emerald-400" /> : <Copy size={18} />}
                   {copied ? "คัดลอกแล้ว!" : "คัดลอกรายงาน"}
@@ -2275,12 +2329,21 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
   }, [segmentRecords]);
 
   const autoResult = useMemo(() => {
-    const shiftSegs = deduplicatedSegments.filter(r => 
-      formatDisplayDate(r.date) === meta.date && 
-      (r.installShift === meta.shift || (!r.installShift && r.shift === meta.shift)) && 
-      r.status !== "In Progress" && 
-      r.installType !== "Temporary"
-    );
+    const shiftSegs = deduplicatedSegments.filter(r => {
+      const instStart = formatDisplayTime(r.installStartTime || r.startTime);
+      let inShift = r.installShift;
+      if (!inShift && instStart) {
+        const [h] = instStart.split(':').map(Number);
+        inShift = (h >= 7 && h < 19) ? "Day" : "Night";
+      } else if (!inShift) inShift = r.shift;
+
+      const logicalDate = getLogicalShiftDate(instStart, inShift, r.date);
+
+      return logicalDate === meta.date &&
+        (inShift === meta.shift || (!r.installShift && r.shift === meta.shift)) &&
+        r.status !== "In Progress" &&
+        r.installType !== "Temporary";
+    });
     if (shiftSegs.length > 0) {
       const sorted = [...shiftSegs].sort((a, b) => getRingNumeric(a.ringNo) - getRingNumeric(b.ringNo));
       const startSta = sorted[0].startCH;
@@ -2305,7 +2368,7 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
       setManpower(defaultManpower);
       setResult(autoResult);
     }
-  }, [existingReport, meta.date, meta.shift, autoResult]); 
+  }, [existingReport, meta.date, meta.shift, autoResult]);
 
   const handleMetaChange = (e) => setMeta({ ...meta, [e.target.name]: e.target.value });
 
@@ -2334,27 +2397,48 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
 
   const displayEvents = useMemo(() => {
     const merged = { ...events };
-    const dateSegs = deduplicatedSegments.filter(r => formatDisplayDate(r.date) === meta.date);
+
+    // Check all segments to find matching logical dates, not just those matching meta.date tightly
+    const dateSegs = deduplicatedSegments.filter(r => {
+      const exDate = getLogicalShiftDate(formatDisplayTime(r.excavStartTime), r.excavShift || r.shift, r.date);
+      const inDate = getLogicalShiftDate(formatDisplayTime(r.installStartTime || r.startTime), r.installShift || r.shift, r.date);
+      return exDate === meta.date || inDate === meta.date;
+    });
     const autoExcav = [];
     const autoInst = [];
-    
+
     dateSegs.forEach(rec => {
-      const exShift = rec.excavShift || rec.shift;
-      const inShift = rec.installShift || rec.shift;
-      
-      if (exShift === meta.shift || meta.shift === "All") {
-        const extStart = formatDisplayTime(rec.excavStartTime);
-        const extEnd = formatDisplayTime(rec.excavEndTime);
+      const extStart = formatDisplayTime(rec.excavStartTime);
+      const extEnd = formatDisplayTime(rec.excavEndTime);
+      let exShift = rec.excavShift;
+      if (!exShift && extStart) {
+        const [h] = extStart.split(':').map(Number);
+        exShift = (h >= 7 && h < 19) ? "Day" : "Night";
+      } else if (!exShift) {
+        exShift = rec.shift;
+      }
+      const excavLogicalDate = getLogicalShiftDate(extStart, exShift, rec.date);
+
+      const instStart = formatDisplayTime(rec.installStartTime || rec.startTime);
+      const instEnd = formatDisplayTime(rec.installEndTime || rec.endTime);
+      let inShift = rec.installShift;
+      if (!inShift && instStart) {
+        const [h] = instStart.split(':').map(Number);
+        inShift = (h >= 7 && h < 19) ? "Day" : "Night";
+      } else if (!inShift) {
+        inShift = rec.shift;
+      }
+      const installLogicalDate = getLogicalShiftDate(instStart, inShift, rec.date);
+
+      if ((exShift === meta.shift || meta.shift === "All") && excavLogicalDate === meta.date) {
         if (extStart && extEnd) autoExcav.push({ id: `auto_ex_${rec.id}`, start: extStart, end: extEnd, label: String(rec.ringNo), isAuto: true });
       }
-      
-      if (inShift === meta.shift || meta.shift === "All") {
-        const instStart = formatDisplayTime(rec.installStartTime || rec.startTime);
-        const instEnd = formatDisplayTime(rec.installEndTime || rec.endTime);
+
+      if ((inShift === meta.shift || meta.shift === "All") && installLogicalDate === meta.date) {
         if (instStart && instEnd) autoInst.push({ id: `auto_in_${rec.id}`, start: instStart, end: instEnd, label: String(rec.ringNo), isAuto: true });
       }
     });
-    
+
     merged['Excavation'] = [...(merged['Excavation'] || []), ...autoExcav];
     merged['Segment Erection'] = [...(merged['Segment Erection'] || []), ...autoInst];
     return merged;
@@ -2365,9 +2449,9 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
   const currentHours = meta.shift === 'Day' ? hoursDay : hoursNight;
 
   const activityCategories = [
-    { group: 'Main Activities', items: ['Excavation', 'Segment Erection'] }, 
-    { group: 'Delay Activities', items: ['Locomotive / Rail System', 'Survey', 'Power Supply', 'TBM Equipment', 'Clean Area', 'Muck Full', 'Other 1', 'Other 2'] }, 
-    { group: 'TBM Service / Maintenance', items: ['Cleaning Belt conveyor', 'Service / Maintenance', 'Other 3'] } 
+    { group: 'Main Activities', items: ['Excavation', 'Segment Erection'] },
+    { group: 'Delay Activities', items: ['Locomotive / Rail System', 'Survey', 'Power Supply', 'TBM Equipment', 'Clean Area', 'Muck Full', 'Other 1', 'Other 2'] },
+    { group: 'TBM Service / Maintenance', items: ['Cleaning Belt conveyor', 'Service / Maintenance', 'Other 3'] }
   ];
 
   const getMinutesFromShiftStart = (timeStr, shift) => {
@@ -2399,7 +2483,7 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
   };
 
   const getBarColorClasses = (groupIndex) => {
-    switch(groupIndex) {
+    switch (groupIndex) {
       case 0: return 'bg-stripe-blue border-blue-500 text-blue-900';
       case 1: return 'bg-stripe-red border-red-500 text-red-900';
       case 2: return 'bg-stripe-green border-green-500 text-green-900';
@@ -2420,7 +2504,7 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
     try {
       setIsExportingImage(true);
       const html2canvas = await loadHtml2Canvas();
-      const canvas = await html2canvas(element, { 
+      const canvas = await html2canvas(element, {
         scale: 2, backgroundColor: "#ffffff", useCORS: true, windowWidth: 1152,
         onclone: (clonedDoc) => {
           const clonedContainer = clonedDoc.getElementById("shift-report-container");
@@ -2434,7 +2518,7 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
             const div = clonedDoc.createElement("div");
             div.innerText = val || "\u00A0"; div.className = input.className;
             div.style.border = "none"; div.style.borderBottom = input.classList.contains('grid-input') ? "none" : "1px dotted #94a3b8";
-            div.style.background = "transparent"; div.style.color = "black"; div.style.fontWeight = "bold"; div.style.display = "inline-flex"; div.style.alignItems = "center"; div.style.minHeight = "24px"; 
+            div.style.background = "transparent"; div.style.color = "black"; div.style.fontWeight = "bold"; div.style.display = "inline-flex"; div.style.alignItems = "center"; div.style.minHeight = "24px";
             if (input.classList.contains("text-right")) div.style.justifyContent = "flex-end";
             else if (input.classList.contains("text-center") || input.classList.contains("grid-input")) div.style.justifyContent = "center";
             else div.style.justifyContent = "flex-start";
@@ -2516,7 +2600,7 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
               <tr className="bg-slate-100">
                 <th className="border border-slate-300 print:border-black p-2.5 text-left text-slate-700" style={{ width: '22%' }}>Time / Activities</th>
                 {currentHours.map((hour, idx) => <th key={idx} className="border border-slate-300 print:border-black p-1 text-center font-bold text-slate-700" style={{ width: '6%' }}>{hour}</th>)}
-                <th className="border border-slate-300 print:border-black p-1 text-center text-slate-700" style={{ width: '6%' }}>Total Time<br/>(min)</th>
+                <th className="border border-slate-300 print:border-black p-1 text-center text-slate-700" style={{ width: '6%' }}>Total Time<br />(min)</th>
               </tr>
             </thead>
             <tbody>
@@ -2535,13 +2619,13 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
                           <div className="absolute inset-0 flex pointer-events-none">{currentHours.map((h, idx) => <div key={idx} className={`h-full w-[8.333%] ${idx < 11 ? 'border-r border-slate-200 print:border-gray-300' : ''}`} />)}</div>
                           <div className="absolute inset-y-[4px] inset-x-0 px-0.5">
                             {(Array.isArray(displayEvents[item]) ? displayEvents[item] : []).filter(ev => ev != null).map((ev, index) => {
-                                const { left, width } = calculateBarStyles(ev.start, ev.end, meta.shift);
-                                const colorClasses = getBarColorClasses(cIdx);
-                                return (
-                                  <div key={`${ev.id || index}-${index}`} className={`absolute h-[90%] top-[5%] border-[1.5px] rounded-[4px] flex items-center justify-center text-[10px] sm:text-[11px] font-black overflow-visible whitespace-nowrap cursor-pointer z-10 hover:brightness-95 transition-all shadow-sm ${colorClasses}`} style={{ left, width }} onClick={() => !ev?.isAuto && setActiveModal(item)} title={`${ev.start} - ${ev.end}`}>
-                                    <span className="bg-white/90 px-1.5 py-0.5 rounded-[2px] shadow-sm tracking-tight">{String(ev.label || "")}</span>
-                                  </div>
-                                );
+                              const { left, width } = calculateBarStyles(ev.start, ev.end, meta.shift);
+                              const colorClasses = getBarColorClasses(cIdx);
+                              return (
+                                <div key={`${ev.id || index}-${index}`} className={`absolute h-[90%] top-[5%] border-[1.5px] rounded-[4px] flex items-center justify-center text-[10px] sm:text-[11px] font-black overflow-visible whitespace-nowrap cursor-pointer z-10 hover:brightness-95 transition-all shadow-sm ${colorClasses}`} style={{ left, width }} onClick={() => !ev?.isAuto && setActiveModal(item)} title={`${ev.start} - ${ev.end}`}>
+                                  <span className="bg-white/90 px-1.5 py-0.5 rounded-[2px] shadow-sm tracking-tight">{String(ev.label || "")}</span>
+                                </div>
+                              );
                             })}
                           </div>
                         </td>
@@ -2595,10 +2679,10 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
               <button onClick={closeModal} className="text-slate-400 hover:text-red-500 bg-slate-100 hover:bg-red-50 rounded-full p-1.5 transition-colors"><X size={20} /></button>
             </div>
             <div className="flex gap-4 mb-5">
-              <div className="flex-1"><label className="block text-[10px] sm:text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-widest">เวลาเริ่ม (Start)</label><input type="time" value={newEvent.start} onChange={e => setNewEvent({...newEvent, start: e.target.value})} className="w-full border border-slate-300 rounded-xl p-3 text-sm font-bold text-slate-700 outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-500 transition-all" /></div>
-              <div className="flex-1"><label className="block text-[10px] sm:text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-widest">เวลาสิ้นสุด (End)</label><input type="time" value={newEvent.end} onChange={e => setNewEvent({...newEvent, end: e.target.value})} className="w-full border border-slate-300 rounded-xl p-3 text-sm font-bold text-slate-700 outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-500 transition-all" /></div>
+              <div className="flex-1"><label className="block text-[10px] sm:text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-widest">เวลาเริ่ม (Start)</label><input type="time" value={newEvent.start} onChange={e => setNewEvent({ ...newEvent, start: e.target.value })} className="w-full border border-slate-300 rounded-xl p-3 text-sm font-bold text-slate-700 outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-500 transition-all" /></div>
+              <div className="flex-1"><label className="block text-[10px] sm:text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-widest">เวลาสิ้นสุด (End)</label><input type="time" value={newEvent.end} onChange={e => setNewEvent({ ...newEvent, end: e.target.value })} className="w-full border border-slate-300 rounded-xl p-3 text-sm font-bold text-slate-700 outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-500 transition-all" /></div>
             </div>
-            <div className="mb-8"><label className="block text-[10px] sm:text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-widest">ข้อความในกราฟ</label><input type="text" value={newEvent.label} onChange={e => setNewEvent({...newEvent, label: e.target.value})} placeholder="เช่น 108 หรือ K-14" className="w-full border border-slate-300 rounded-xl p-3 text-sm font-bold text-slate-700 outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-500 transition-all" /></div>
+            <div className="mb-8"><label className="block text-[10px] sm:text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-widest">ข้อความในกราฟ</label><input type="text" value={newEvent.label} onChange={e => setNewEvent({ ...newEvent, label: e.target.value })} placeholder="เช่น 108 หรือ K-14" className="w-full border border-slate-300 rounded-xl p-3 text-sm font-bold text-slate-700 outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-500 transition-all" /></div>
             <div className="flex flex-col gap-3 mb-6">
               <button onClick={() => addEvent(activeModal)} className={`w-full text-white rounded-xl p-3.5 font-bold transition-all shadow-md flex items-center justify-center gap-2 active:scale-[0.98] ${editingEventId ? "bg-emerald-600 hover:bg-emerald-700 shadow-emerald-200" : "bg-blue-600 hover:bg-blue-700 shadow-blue-200"}`}>{editingEventId ? <Save size={18} /> : <Plus size={18} />}{editingEventId ? "บันทึกการแก้ไข" : "เพิ่มช่วงเวลาลงกราฟ"}</button>
               {editingEventId && <button onClick={cancelEdit} className="w-full text-slate-500 hover:text-slate-800 text-xs font-bold py-2 underline transition-colors">ยกเลิกการแก้ไข</button>}
@@ -2628,7 +2712,7 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
 // ============================================================================
 const PrimaryGroutApp = () => {
   const [currentModule, setCurrentModule] = useState("segment");
-  const [activeTab, setActiveTab] = useState("overview"); 
+  const [activeTab, setActiveTab] = useState("overview");
   const [isLoadingMain, setIsLoadingMain] = useState(true);
   const [loadError, setLoadError] = useState(null);
   const [projectInfo, setProjectInfo] = useState({ date: new Date().toISOString().split("T")[0], shift: "Day", location: "อุโมงค์จากบ่อ IS4 ถึง บ่อ IS2", tbmNo: "TBM1" });
@@ -2647,11 +2731,11 @@ const PrimaryGroutApp = () => {
           if (result.status === "success") {
             const formattedSegments = (result.segments || []).map(r => ({ ...r, excavStartTime: formatDisplayTime(r.excavStartTime), excavEndTime: formatDisplayTime(r.excavEndTime), installStartTime: formatDisplayTime(r.installStartTime), installEndTime: formatDisplayTime(r.installEndTime), startTime: formatDisplayTime(r.startTime), endTime: formatDisplayTime(r.endTime) }));
             setSegmentRecords(formattedSegments);
-            
+
             const parsePositions = (posStr) => {
               if (typeof posStr === "object" && posStr !== null) return posStr;
               if (!posStr || typeof posStr !== "string") return {};
-              try { return JSON.parse(posStr); } 
+              try { return JSON.parse(posStr); }
               catch (e) {
                 const cleanStr = posStr.replace(/[{}]/g, '').trim();
                 const pairs = cleanStr.split(',');
@@ -2675,23 +2759,23 @@ const PrimaryGroutApp = () => {
               const parsedPos = parsePositions(g.positions);
               const primPos = parsePositions(g.primaryPositions);
               const secPos = parsePositions(g.secondaryPositions);
-              
+
               const partA = g.partA !== undefined && g.partA !== "" ? g.partA : String((Number(g.primaryPartA || 0) + Number(g.secondaryPartA || 0)).toFixed(2));
               const partB = g.partB !== undefined && g.partB !== "" ? g.partB : String((Number(g.primaryPartB || 0) + Number(g.secondaryPartB || 0)).toFixed(2));
 
-              return { 
-                ...g, 
-                positions: parsedPos, 
-                primaryPositions: primPos, 
-                secondaryPositions: secPos, 
+              return {
+                ...g,
+                positions: parsedPos,
+                primaryPositions: primPos,
+                secondaryPositions: secPos,
                 primaryPartA: g.primaryPartA || "",
                 primaryPartB: g.primaryPartB || "",
                 secondaryPartA: g.secondaryPartA || "",
                 secondaryPartB: g.secondaryPartB || "",
                 partA: partA,
                 partB: partB,
-                total: Number(g.total || 0), 
-                ratio: Number(g.ratio || 0) 
+                total: Number(g.total || 0),
+                ratio: Number(g.ratio || 0)
               };
             });
             setGroutRecords(parsedGrouts);
@@ -2715,14 +2799,14 @@ const PrimaryGroutApp = () => {
     segmentRecords.forEach(rec => map.set(rec.ringNo, rec));
     const deduped = Array.from(map.values());
     const lastSeg = deduped[deduped.length - 1];
-    
+
     if (lastSeg.status === "In Progress") {
-      if (lastSeg.excavStartTime && !lastSeg.excavEndTime) return { text: `กำลังขุดเจาะ ${lastSeg.ringNo}`, color: "bg-amber-500", icon: <AlertCircle size={12}/> };
-      if (lastSeg.excavEndTime && !lastSeg.installStartTime) return { text: `ขุดเสร็จ รอประกอบ ${lastSeg.ringNo}`, color: "bg-slate-500", icon: <Clock size={12}/> };
-      if (lastSeg.installStartTime && !lastSeg.installEndTime) return { text: `กำลังประกอบ ${lastSeg.ringNo}`, color: "bg-emerald-500", icon: <Activity size={12}/> };
-      return { text: `กำลังทำงาน ${lastSeg.ringNo}`, color: "bg-blue-500", icon: <Activity size={12}/> };
+      if (lastSeg.excavStartTime && !lastSeg.excavEndTime) return { text: `กำลังขุดเจาะ ${lastSeg.ringNo}`, color: "bg-amber-500", icon: <AlertCircle size={12} /> };
+      if (lastSeg.excavEndTime && !lastSeg.installStartTime) return { text: `ขุดเสร็จ รอประกอบ ${lastSeg.ringNo}`, color: "bg-slate-500", icon: <Clock size={12} /> };
+      if (lastSeg.installStartTime && !lastSeg.installEndTime) return { text: `กำลังประกอบ ${lastSeg.ringNo}`, color: "bg-emerald-500", icon: <Activity size={12} /> };
+      return { text: `กำลังทำงาน ${lastSeg.ringNo}`, color: "bg-blue-500", icon: <Activity size={12} /> };
     }
-    return null; 
+    return null;
   }, [segmentRecords]);
 
   if (isLoadingMain) return (
@@ -2758,7 +2842,7 @@ const PrimaryGroutApp = () => {
 
       <main className="px-3 sm:px-6 py-6 sm:py-10 max-w-7xl mx-auto print:p-0 print:m-0">
         {loadError && <div className="mb-6 bg-red-50 border border-red-200 text-red-700 p-5 rounded-2xl text-center no-print font-bold shadow-sm">{loadError}</div>}
-        {activeTab === "overview" && <OverviewView segmentRecords={segmentRecords} groutRecords={groutRecords} setCurrentModule={setCurrentModule} setActiveTab={setActiveTab}/>}
+        {activeTab === "overview" && <OverviewView segmentRecords={segmentRecords} groutRecords={groutRecords} setCurrentModule={setCurrentModule} setActiveTab={setActiveTab} />}
         {activeTab === "record" && currentModule === "grout" && <GroutRecordView projectInfo={projectInfo} handleProjectInfoChange={handleProjectInfoChange} groutRecords={groutRecords} setGroutRecords={setGroutRecords} segmentRecords={segmentRecords} setCurrentModule={setCurrentModule} setActiveTab={setActiveTab} />}
         {activeTab === "record" && currentModule === "segment" && <SegmentRecordView projectInfo={projectInfo} handleProjectInfoChange={handleProjectInfoChange} segmentRecords={segmentRecords} setSegmentRecords={setSegmentRecords} setCurrentModule={setCurrentModule} setActiveTab={setActiveTab} />}
         {activeTab === "dashboard" && currentModule === "grout" && <GroutDashboardView groutRecords={groutRecords} setGroutRecords={setGroutRecords} segmentRecords={segmentRecords} />}
@@ -2778,8 +2862,9 @@ const PrimaryGroutApp = () => {
           <button onClick={() => setActiveTab("report")} className={`flex-none flex items-center justify-center gap-2 px-4 sm:px-6 py-3 rounded-full text-xs font-bold transition-all ${activeTab === "report" ? "bg-white text-slate-900 shadow-lg" : "text-slate-300 hover:text-white hover:bg-white/10"}`}><FileText size={18} /> <span className="hidden sm:inline tracking-wide">Stats</span><span className="sm:hidden">Stats</span></button>
         </div>
       </nav>
-      
-      <style dangerouslySetInnerHTML={{__html: `
+
+      <style dangerouslySetInnerHTML={{
+        __html: `
         body { font-family: 'Inter', -apple-system, sans-serif; background-color: #F8FAFC; }
         .hide-scrollbar::-webkit-scrollbar { display: none; }
         .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }

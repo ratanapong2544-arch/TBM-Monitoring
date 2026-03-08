@@ -62,20 +62,16 @@ const formatDisplayTime = (t) => {
   return String(t);
 };
 
-const getLogicalShiftDate = (timeStr, shift, recordDate) => {
+const getLogicalShiftDate = (timeStr, activityShift, recordDate, recordShift) => {
   if (!timeStr || !recordDate) return formatDisplayDate(recordDate);
   const [h] = timeStr.split(':').map(Number);
-
-  let inferredShift = shift;
-  if (h >= 7 && h < 19) inferredShift = "Day";
-  else inferredShift = "Night";
-
-  if (inferredShift === "Night" && h >= 0 && h < 7) {
-    const d = new Date(recordDate);
-    d.setDate(d.getDate() - 1);
-    return formatDisplayDate(d);
+  let ad = new Date(recordDate);
+  
+  if (recordShift === "Day" && activityShift === "Night" && h < 7) {
+    ad.setDate(ad.getDate() - 1);
   }
-  return formatDisplayDate(recordDate);
+  
+  return formatDisplayDate(ad);
 };
 
 const offsetRingNo = (currentRingStr, offset) => {
@@ -266,11 +262,11 @@ const RingVisualizer = ({ primaryPositions, secondaryPositions, selectedPosition
 
   const segments = [
     { id: "K", label: "K", start: -12.5, end: 12.5 },
-    { id: "C2", label: "C2", start: 12.5, end: 79.5 },
-    { id: "B2", label: "B2", start: 79.5, end: 146.5 },
+    { id: "C1", label: "C1", start: 12.5, end: 79.5 },
+    { id: "B1", label: "B1", start: 79.5, end: 146.5 },
     { id: "A", label: "A", start: 146.5, end: 213.5 },
-    { id: "B1", label: "B1", start: 213.5, end: 280.5 },
-    { id: "C1", label: "C1", start: 280.5, end: 347.5 },
+    { id: "B2", label: "B2", start: 213.5, end: 280.5 },
+    { id: "C2", label: "C2", start: 280.5, end: 347.5 },
   ];
   const rotation = (parseInt(ringKey) % 16) * 22.5;
 
@@ -1775,8 +1771,8 @@ const ReportView = ({ segmentRecords, groutRecords, projectInfo, shiftReports })
         inShift = (h >= 7 && h < 19) ? "Day" : "Night";
       } else if (!inShift) inShift = r.shift;
 
-      const exDate = getLogicalShiftDate(extStart, exShift, r.date);
-      const inDate = getLogicalShiftDate(instStart, inShift, r.date);
+      const exDate = getLogicalShiftDate(extStart, exShift, r.date, r.shift);
+      const inDate = getLogicalShiftDate(instStart, inShift, r.date, r.shift);
 
       let matchEx = false;
       let matchIn = false;
@@ -1823,7 +1819,7 @@ const ReportView = ({ segmentRecords, groutRecords, projectInfo, shiftReports })
         const [h] = instStart.split(':').map(Number);
         inShift = (h >= 7 && h < 19) ? "Day" : "Night";
       } else if (!inShift) inShift = s.shift;
-      const inDate = getLogicalShiftDate(instStart, inShift, s.date);
+      const inDate = getLogicalShiftDate(instStart, inShift, s.date, s.shift);
 
       if (reportType === "daily" && inDate !== reportDate) return false;
       if (reportType === "monthly" && !inDate.startsWith(reportMonth)) return false;
@@ -1838,7 +1834,7 @@ const ReportView = ({ segmentRecords, groutRecords, projectInfo, shiftReports })
         const [h] = extStart.split(':').map(Number);
         exShift = (h >= 7 && h < 19) ? "Day" : "Night";
       } else if (!exShift) exShift = s.shift;
-      const exDate = getLogicalShiftDate(extStart, exShift, s.date);
+      const exDate = getLogicalShiftDate(extStart, exShift, s.date, s.shift);
 
       if (reportType === "daily" && exDate !== reportDate) return false;
       if (reportType === "monthly" && !exDate.startsWith(reportMonth)) return false;
@@ -1971,6 +1967,8 @@ const ReportView = ({ segmentRecords, groutRecords, projectInfo, shiftReports })
     if (uniqueDelays.length > 0) combinedRemarks.push(...uniqueDelays);
     const remarksText = combinedRemarks.length > 0 ? '-' + combinedRemarks.join('\n-') : '-ไม่มี';
 
+    const calculatedExcavateDist = finishCH !== '-' ? (8830.488 - parseCH(finishCH)).toFixed(3) : "0.000";
+
     const promptText = `
 === TEMPLATE ที่ต้องใช้ (ส่งกลับมาเฉพาะข้อความตาม Template นี้เท่านั้น ห้ามอธิบายเพิ่ม) ===
 รายงานประจำวันที่ ${displayDateStr} ${reportShift} Shift
@@ -1980,7 +1978,7 @@ Drive Shaft : ${projectInfo.location}
 สภาพอากาศ : แจ่มใส
 
 1. ${projectInfo.tbmNo}
--เริ่มต้น CH 8+830.488 (Center Shaft IS4) ขุดเจาะถึง CH ${finishCH} = ${totalAccumDist} m
+-เริ่มต้น CH 8+830.488 (Center Shaft IS4) ขุดเจาะถึง CH ${finishCH} = ${calculatedExcavateDist} m
 -ขุดเจาะ ${excavRings} แล้วเสร็จ
 
 2.งานติดตั้งผนังอุโมงค์ (Segment)
@@ -2337,7 +2335,7 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
         inShift = (h >= 7 && h < 19) ? "Day" : "Night";
       } else if (!inShift) inShift = r.shift;
 
-      const logicalDate = getLogicalShiftDate(instStart, inShift, r.date);
+      const logicalDate = getLogicalShiftDate(instStart, inShift, r.date, r.shift);
 
       return logicalDate === meta.date &&
         (inShift === meta.shift || (!r.installShift && r.shift === meta.shift)) &&
@@ -2400,8 +2398,8 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
 
     // Check all segments to find matching logical dates, not just those matching meta.date tightly
     const dateSegs = deduplicatedSegments.filter(r => {
-      const exDate = getLogicalShiftDate(formatDisplayTime(r.excavStartTime), r.excavShift || r.shift, r.date);
-      const inDate = getLogicalShiftDate(formatDisplayTime(r.installStartTime || r.startTime), r.installShift || r.shift, r.date);
+      const exDate = getLogicalShiftDate(formatDisplayTime(r.excavStartTime), r.excavShift || r.shift, r.date, r.shift);
+      const inDate = getLogicalShiftDate(formatDisplayTime(r.installStartTime || r.startTime), r.installShift || r.shift, r.date, r.shift);
       return exDate === meta.date || inDate === meta.date;
     });
     const autoExcav = [];
@@ -2417,7 +2415,7 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
       } else if (!exShift) {
         exShift = rec.shift;
       }
-      const excavLogicalDate = getLogicalShiftDate(extStart, exShift, rec.date);
+      const excavLogicalDate = getLogicalShiftDate(extStart, exShift, rec.date, rec.shift);
 
       const instStart = formatDisplayTime(rec.installStartTime || rec.startTime);
       const instEnd = formatDisplayTime(rec.installEndTime || rec.endTime);
@@ -2428,7 +2426,7 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
       } else if (!inShift) {
         inShift = rec.shift;
       }
-      const installLogicalDate = getLogicalShiftDate(instStart, inShift, rec.date);
+      const installLogicalDate = getLogicalShiftDate(instStart, inShift, rec.date, rec.shift);
 
       if ((exShift === meta.shift || meta.shift === "All") && excavLogicalDate === meta.date) {
         if (extStart && extEnd) autoExcav.push({ id: `auto_ex_${rec.id}`, start: extStart, end: extEnd, label: String(rec.ringNo), isAuto: true });

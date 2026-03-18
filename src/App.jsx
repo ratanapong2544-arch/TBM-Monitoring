@@ -2447,9 +2447,9 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
   const currentHours = meta.shift === 'Day' ? hoursDay : hoursNight;
 
   const activityCategories = [
-    { group: 'Main Activities', items: ['Excavation', 'Segment Erection'] },
-    { group: 'Delay Activities', items: ['Locomotive / Rail System', 'Survey', 'Power Supply', 'TBM Equipment', 'Clean Area', 'Muck Full', 'Other 1', 'Other 2'] },
-    { group: 'TBM Service / Maintenance', items: ['Cleaning Belt conveyor', 'Service / Maintenance', 'Other 3'] }
+    { group: 'Main Activities', items: ['Excavation', 'Segment Erection', 'Locomotive / Rail System', 'Survey', 'Other 1', 'Other 2'] },
+    { group: 'Delay Activities', items: ['Power Supply', 'TBM Equipment', 'Clean Area', 'Muck Full', 'Other 3'] },
+    { group: 'TBM Service / Maintenance', items: ['Cleaning Belt conveyor', 'Service / Maintenance', 'Other 4'] }
   ];
 
   const getMinutesFromShiftStart = (timeStr, shift) => {

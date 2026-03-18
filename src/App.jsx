@@ -66,11 +66,11 @@ const getLogicalShiftDate = (timeStr, activityShift, recordDate, recordShift) =>
   if (!timeStr || !recordDate) return formatDisplayDate(recordDate);
   const [h] = timeStr.split(':').map(Number);
   let ad = new Date(recordDate);
-  
+
   if (recordShift === "Day" && activityShift === "Night" && h < 7) {
     ad.setDate(ad.getDate() - 1);
   }
-  
+
   return formatDisplayDate(ad);
 };
 
@@ -962,6 +962,17 @@ const GroutDashboardView = ({ groutRecords, segmentRecords, setGroutRecords }) =
     }
   }, [isEditing, editFormData?.ringNo, segmentRecords]);
 
+  const handleTogglePosition = (pos) => {
+    setEditFormData((prev) => {
+      const isReGrout = selectedRecord.groutPass === "Re-Grout";
+      if (isReGrout) {
+        return { ...prev, secondaryPositions: { ...(prev.secondaryPositions || {}), [pos]: !(prev.secondaryPositions || {})[pos] } };
+      } else {
+        return { ...prev, positions: { ...(prev.positions || {}), [pos]: !(prev.positions || {})[pos] }, primaryPositions: { ...(prev.primaryPositions || {}), [pos]: !(prev.primaryPositions || {})[pos] } };
+      }
+    });
+  };
+
   const handleEditChange = (e) => {
     const { name, value } = e.target;
     setEditFormData((prev) => {
@@ -972,7 +983,10 @@ const GroutDashboardView = ({ groutRecords, segmentRecords, setGroutRecords }) =
   };
 
   const handleSaveEdit = async () => {
-    const total = Number(editFormData.partA || 0) + Number(editFormData.partB || 0);
+    const isReGrout = editFormData.groutPass === "Re-Grout";
+    const total = isReGrout
+      ? Number(editFormData.primaryPartA || editFormData.partA || 0) + Number(editFormData.primaryPartB || editFormData.partB || 0) + Number(editFormData.secondaryPartA || 0) + Number(editFormData.secondaryPartB || 0)
+      : Number(editFormData.partA || 0) + Number(editFormData.partB || 0);
     const ratio = (total / THEORETICAL_VOL) * 100;
     const cleanRingNo = String(editFormData.ringNo).trim().toUpperCase();
     const updatedRecord = { ...editFormData, ringNo: cleanRingNo, total: Number(total), ratio: Number(ratio) };
@@ -1150,6 +1164,7 @@ const GroutDashboardView = ({ groutRecords, segmentRecords, setGroutRecords }) =
                 {selectedRecord.imageUrl && selectedRecord.imageUrl !== "Attached" && (
                   <a href={selectedRecord.imageUrl} target="_blank" rel="noreferrer" className="p-2 bg-white/10 hover:bg-white/20 rounded-full transition-colors" title="View Photo"><Camera size={18} /></a>
                 )}
+                {!isEditing && <button onClick={() => { setEditFormData(selectedRecord); setIsEditing(true); }} className="p-2 bg-white/10 hover:bg-white/20 rounded-full transition-colors" title="Edit"><Edit size={18} /></button>}
                 <button onClick={() => setShowDeleteConfirm(true)} className="p-2 bg-white/10 hover:bg-red-500 rounded-full transition-colors" title="Delete"><Trash2 size={18} /></button>
                 <button onClick={() => { setSelectedRecord(null); setIsEditing(false); }} className="p-2 bg-white/10 hover:bg-white/20 rounded-full transition-colors ml-2"><X size={20} /></button>
               </div>
@@ -1170,15 +1185,24 @@ const GroutDashboardView = ({ groutRecords, segmentRecords, setGroutRecords }) =
                 <div>
                   <div className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">Grouting Ring</div>
                   <div className="flex items-center gap-2">
-                    <div className={`text-2xl font-black ${selectedRecord.groutPass === 'Re-Grout' ? 'text-orange-600' : 'text-slate-800'}`}>{String(selectedRecord.ringNo)}</div>
+                    <div className={`text-2xl font-black ${selectedRecord.groutPass === 'Re-Grout' ? 'text-orange-600' : 'text-slate-800'}`}>
+                      {isEditing ? <input type="text" name="ringNo" value={editFormData?.ringNo || ''} onChange={handleEditChange} className="w-32 bg-white border border-slate-200 rounded px-2 outline-none uppercase" /> : String(selectedRecord.ringNo)}
+                    </div>
                     {selectedRecord.groutPass === "Re-Grout" && <span className="bg-orange-100 text-orange-700 px-2 py-0.5 rounded text-[10px] font-bold">Re-Grout</span>}
                   </div>
-                  <div className="text-xs text-slate-500 mt-1 flex items-center gap-1">Excavation: {String(selectedRecord.excavRing)}</div>
+                  <div className="text-xs text-slate-500 mt-1 flex items-center gap-1">Excavation: {isEditing ? <input type="text" name="excavRing" value={editFormData?.excavRing || ''} onChange={handleEditChange} className="w-20 bg-white border border-slate-200 rounded px-1 outline-none uppercase" /> : String(selectedRecord.excavRing)}</div>
                 </div>
                 <div className="text-right">
                   <div className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">Latest Working Date</div>
-                  <div className="text-sm font-bold text-slate-700 flex items-center justify-end gap-1.5"><Calendar size={14} /> {formatDisplayDate(selectedRecord.date)}</div>
-                  <div className="text-xs text-slate-500 mt-1 flex items-center justify-end gap-1"><span className="font-bold text-slate-600">({String(selectedRecord.shift)})</span></div>
+                  <div className="text-sm font-bold text-slate-700 flex items-center justify-end gap-1.5"><Calendar size={14} /> {isEditing ? <input type="date" name="date" value={editFormData?.date || ''} onChange={handleEditChange} className="bg-white border border-slate-200 rounded px-2 outline-none" /> : formatDisplayDate(selectedRecord.date)}</div>
+                  <div className="text-xs text-slate-500 mt-1 flex items-center justify-end gap-1">
+                    {isEditing ? (
+                      <select name="shift" value={editFormData?.shift || ''} onChange={handleEditChange} className="bg-white border border-slate-200 rounded px-1 outline-none cursor-pointer">
+                        <option value="Day">Day</option>
+                        <option value="Night">Night</option>
+                      </select>
+                    ) : <span className="font-bold text-slate-600">({String(selectedRecord.shift)})</span>}
+                  </div>
                 </div>
               </div>
 
@@ -1187,10 +1211,10 @@ const GroutDashboardView = ({ groutRecords, segmentRecords, setGroutRecords }) =
                   <span className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2 text-center">Injection Configuration</span>
                   <div className="scale-90 transform origin-top -mt-2">
                     <RingVisualizer
-                      ringKey={selectedRecord.key}
-                      primaryPositions={Object.values(selectedRecord.primaryPositions || {}).some(v => v === true) ? selectedRecord.primaryPositions : (selectedRecord.positions || {})}
-                      secondaryPositions={selectedRecord.groutPass === "Re-Grout" ? selectedRecord.secondaryPositions : null}
-                      onTogglePosition={() => { }}
+                      ringKey={isEditing ? editFormData?.key : selectedRecord.key}
+                      primaryPositions={isEditing ? (Object.values(editFormData?.primaryPositions || {}).some(v => v === true) ? editFormData?.primaryPositions : (editFormData?.positions || {})) : Object.values(selectedRecord.primaryPositions || {}).some(v => v === true) ? selectedRecord.primaryPositions : (selectedRecord.positions || {})}
+                      secondaryPositions={(isEditing ? editFormData?.groutPass : selectedRecord.groutPass) === "Re-Grout" ? (isEditing ? editFormData?.secondaryPositions : selectedRecord.secondaryPositions) : null}
+                      onTogglePosition={isEditing ? handleTogglePosition : () => { }}
                     />
                   </div>
                 </div>
@@ -1202,27 +1226,27 @@ const GroutDashboardView = ({ groutRecords, segmentRecords, setGroutRecords }) =
                       <div className="grid grid-cols-2 gap-3 mb-3">
                         <div className="bg-blue-50 p-3 rounded-xl border border-blue-100">
                           <div className="font-bold text-blue-600 text-[10px] mb-2 uppercase">Primary Grout</div>
-                          <div className="flex justify-between text-xs mb-1"><span className="text-slate-500">Part A</span><span className="font-bold text-slate-700">{Number(selectedRecord.primaryPartA || selectedRecord.partA || 0).toFixed(2)}</span></div>
-                          <div className="flex justify-between text-xs"><span className="text-slate-500">Part B</span><span className="font-bold text-slate-700">{Number(selectedRecord.primaryPartB || selectedRecord.partB || 0).toFixed(2)}</span></div>
+                          <div className="flex justify-between text-xs items-center mb-1"><span className="text-slate-500">Part A</span><span className="font-bold text-slate-700">{isEditing ? <input type="number" step="0.01" name="primaryPartA" value={editFormData?.primaryPartA || editFormData?.partA || ''} onChange={handleEditChange} className="w-16 bg-white border rounded px-1 text-right outline-none" /> : Number(selectedRecord.primaryPartA || selectedRecord.partA || 0).toFixed(2)}</span></div>
+                          <div className="flex justify-between text-xs items-center"><span className="text-slate-500">Part B</span><span className="font-bold text-slate-700">{isEditing ? <input type="number" step="0.01" name="primaryPartB" value={editFormData?.primaryPartB || editFormData?.partB || ''} onChange={handleEditChange} className="w-16 bg-white border rounded px-1 text-right outline-none" /> : Number(selectedRecord.primaryPartB || selectedRecord.partB || 0).toFixed(2)}</span></div>
                         </div>
                         <div className="bg-orange-50 p-3 rounded-xl border border-orange-100">
                           <div className="font-bold text-orange-600 text-[10px] mb-2 uppercase">Secondary Grout</div>
-                          <div className="flex justify-between text-xs mb-1"><span className="text-slate-500">Part A</span><span className="font-bold text-slate-700">{Number(selectedRecord.secondaryPartA || 0).toFixed(2)}</span></div>
-                          <div className="flex justify-between text-xs"><span className="text-slate-500">Part B</span><span className="font-bold text-slate-700">{Number(selectedRecord.secondaryPartB || 0).toFixed(2)}</span></div>
+                          <div className="flex justify-between text-xs items-center mb-1"><span className="text-slate-500">Part A</span><span className="font-bold text-slate-700">{isEditing ? <input type="number" step="0.01" name="secondaryPartA" value={editFormData?.secondaryPartA || ''} onChange={handleEditChange} className="w-16 bg-white border rounded px-1 text-right outline-none" /> : Number(selectedRecord.secondaryPartA || 0).toFixed(2)}</span></div>
+                          <div className="flex justify-between text-xs items-center"><span className="text-slate-500">Part B</span><span className="font-bold text-slate-700">{isEditing ? <input type="number" step="0.01" name="secondaryPartB" value={editFormData?.secondaryPartB || ''} onChange={handleEditChange} className="w-16 bg-white border rounded px-1 text-right outline-none" /> : Number(selectedRecord.secondaryPartB || 0).toFixed(2)}</span></div>
                         </div>
                       </div>
                       <div className="grid grid-cols-3 gap-2 pt-3 border-t border-slate-200">
                         <div className="text-center">
                           <div className="text-[10px] text-slate-500">Total Part A</div>
-                          <div className="font-bold text-slate-800">{(Number(selectedRecord.primaryPartA || selectedRecord.partA || 0) + Number(selectedRecord.secondaryPartA || 0)).toFixed(2)} m³</div>
+                          <div className="font-bold text-slate-800">{(Number(isEditing ? (editFormData?.primaryPartA || editFormData?.partA || 0) : (selectedRecord.primaryPartA || selectedRecord.partA || 0)) + Number(isEditing ? (editFormData?.secondaryPartA || 0) : (selectedRecord.secondaryPartA || 0))).toFixed(2)} m³</div>
                         </div>
                         <div className="text-center border-l border-r border-slate-200">
                           <div className="text-[10px] text-slate-500">Total Part B</div>
-                          <div className="font-bold text-slate-800">{(Number(selectedRecord.primaryPartB || selectedRecord.partB || 0) + Number(selectedRecord.secondaryPartB || 0)).toFixed(2)} m³</div>
+                          <div className="font-bold text-slate-800">{(Number(isEditing ? (editFormData?.primaryPartB || editFormData?.partB || 0) : (selectedRecord.primaryPartB || selectedRecord.partB || 0)) + Number(isEditing ? (editFormData?.secondaryPartB || 0) : (selectedRecord.secondaryPartB || 0))).toFixed(2)} m³</div>
                         </div>
                         <div className="text-center">
                           <div className="text-[10px] text-slate-500">Total Vol.</div>
-                          <div className="font-black text-blue-600">{Number(selectedRecord.total || 0).toFixed(2)} m³</div>
+                          <div className="font-black text-blue-600">{Number(isEditing ? (Number(editFormData?.primaryPartA || editFormData?.partA || 0) + Number(editFormData?.secondaryPartA || 0) + Number(editFormData?.primaryPartB || editFormData?.partB || 0) + Number(editFormData?.secondaryPartB || 0)) : selectedRecord.total || 0).toFixed(2)} m³</div>
                         </div>
                       </div>
                     </div>
@@ -1232,17 +1256,17 @@ const GroutDashboardView = ({ groutRecords, segmentRecords, setGroutRecords }) =
                       <div className="grid grid-cols-2 gap-4 mb-4">
                         <div>
                           <div className="text-xs text-slate-500 mb-1">Part A</div>
-                          <div className="font-mono text-lg font-bold text-slate-700">{Number(selectedRecord.partA || 0).toFixed(2)} <span className="text-xs font-sans text-slate-400">m³</span></div>
+                          <div className="font-mono text-lg font-bold text-slate-700">{isEditing ? <input type="number" step="0.01" name="partA" value={editFormData?.partA || ''} onChange={handleEditChange} className="w-20 bg-white border border-blue-200 rounded px-2 outline-none" /> : Number(selectedRecord.partA || 0).toFixed(2)} <span className="text-xs font-sans text-slate-400">m³</span></div>
                         </div>
                         <div>
                           <div className="text-xs text-slate-500 mb-1">Part B</div>
-                          <div className="font-mono text-lg font-bold text-slate-700">{Number(selectedRecord.partB || 0).toFixed(2)} <span className="text-xs font-sans text-slate-400">m³</span></div>
+                          <div className="font-mono text-lg font-bold text-slate-700">{isEditing ? <input type="number" step="0.01" name="partB" value={editFormData?.partB || ''} onChange={handleEditChange} className="w-20 bg-white border border-blue-200 rounded px-2 outline-none" /> : Number(selectedRecord.partB || 0).toFixed(2)} <span className="text-xs font-sans text-slate-400">m³</span></div>
                         </div>
                       </div>
                       <div className="border-t border-blue-200/50 pt-3 flex justify-between items-end">
                         <div>
                           <div className="text-xs text-slate-500 mb-1">Total Volume</div>
-                          <div className="text-2xl font-black text-blue-700">{Number(selectedRecord.total || 0).toFixed(2)} <span className="text-sm font-sans font-normal text-blue-500">m³</span></div>
+                          <div className="text-2xl font-black text-blue-700">{Number(isEditing ? (Number(editFormData?.partA || 0) + Number(editFormData?.partB || 0)) : (selectedRecord.total || 0)).toFixed(2)} <span className="text-sm font-sans font-normal text-blue-500">m³</span></div>
                         </div>
                       </div>
                     </div>
@@ -1251,22 +1275,29 @@ const GroutDashboardView = ({ groutRecords, segmentRecords, setGroutRecords }) =
                   <div className="grid grid-cols-2 gap-4">
                     <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm">
                       <div className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">Pressure</div>
-                      <div className="font-mono text-xl font-bold text-slate-700">{String(selectedRecord.pressure || '')} <span className="text-sm font-sans text-slate-400 font-normal">bar</span></div>
+                      <div className="font-mono text-xl font-bold text-slate-700">{isEditing ? <input type="number" step="0.1" name="pressure" value={editFormData?.pressure || ''} onChange={handleEditChange} className="w-20 bg-white border border-slate-200 rounded px-2 outline-none" /> : String(selectedRecord.pressure || '')} <span className="text-sm font-sans text-slate-400 font-normal">bar</span></div>
                     </div>
                     <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm flex flex-col justify-center items-end">
                       <div className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">Final Ratio</div>
-                      <div className={`text-2xl font-black ${Number(selectedRecord.ratio || 0) > 150 ? "text-purple-500" : Number(selectedRecord.ratio || 0) >= 100 ? "text-emerald-500" : "text-red-500"}`}>
-                        {Number(selectedRecord.ratio || 0).toFixed(1)}%
+                      <div className={`text-2xl font-black ${Number(isEditing ? (((Number(editFormData?.partA || editFormData?.primaryPartA || 0) + Number(editFormData?.partB || editFormData?.primaryPartB || 0) + Number(editFormData?.secondaryPartA || 0) + Number(editFormData?.secondaryPartB || 0))) / THEORETICAL_VOL * 100) : selectedRecord.ratio || 0) > 150 ? "text-purple-500" : Number(isEditing ? (((Number(editFormData?.partA || editFormData?.primaryPartA || 0) + Number(editFormData?.partB || editFormData?.primaryPartB || 0) + Number(editFormData?.secondaryPartA || 0) + Number(editFormData?.secondaryPartB || 0))) / THEORETICAL_VOL * 100) : selectedRecord.ratio || 0) >= 100 ? "text-emerald-500" : "text-red-500"}`}>
+                        {Number(isEditing ? (((Number(editFormData?.partA || editFormData?.primaryPartA || 0) + Number(editFormData?.partB || editFormData?.primaryPartB || 0) + Number(editFormData?.secondaryPartA || 0) + Number(editFormData?.secondaryPartB || 0))) / THEORETICAL_VOL * 100) : selectedRecord.ratio || 0).toFixed(1)}%
                       </div>
                     </div>
                   </div>
                 </div>
               </div>
 
-              {selectedRecord.remark && (
+              {(selectedRecord.remark || isEditing) && (
                 <div className="bg-slate-100 rounded-2xl p-4 border border-slate-200">
                   <div className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-2 flex items-center gap-1.5"><Info size={14} /> Remarks (ปัญหา)</div>
-                  <p className="text-sm text-slate-700 whitespace-pre-wrap leading-relaxed">{String(selectedRecord.remark)}</p>
+                  {isEditing ? <textarea name="remark" value={editFormData?.remark || ''} onChange={handleEditChange} className="w-full bg-white border border-slate-200 rounded-lg p-2 text-sm outline-none" rows="2" /> : <p className="text-sm text-slate-700 whitespace-pre-wrap leading-relaxed">{String(selectedRecord.remark)}</p>}
+                </div>
+              )}
+
+              {isEditing && (
+                <div className="flex justify-end gap-2 pt-4 border-t border-slate-100 mt-4">
+                  <button onClick={() => setIsEditing(false)} className="px-4 py-2 bg-slate-100 text-slate-600 rounded-lg font-bold text-sm hover:bg-slate-200">Cancel</button>
+                  <button onClick={handleSaveEdit} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold text-sm flex items-center gap-1"><Save size={16} /> Save Changes</button>
                 </div>
               )}
             </div>
@@ -1322,7 +1353,34 @@ const SegmentDashboardView = ({ segmentRecords, setSegmentRecords }) => {
   };
 
   const [selectedRecord, setSelectedRecord] = useState(null);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editFormData, setEditFormData] = useState(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+
+  const handleEditChange = (e) => {
+    const { name, value } = e.target;
+    setEditFormData((prev) => {
+      let updated = { ...prev, [name]: value };
+      if (name === "typeRing") updated.length = value === "C1" ? "1.40" : "0.90";
+      if (name === "startCH" || name === "length" || name === "typeRing") {
+        const start = parseCH(updated.startCH);
+        const len = parseFloat(updated.length) || 0;
+        if (start !== 0) updated.finishCH = formatCH(start - len);
+      }
+      return updated;
+    });
+  };
+
+  const handleSaveEdit = async () => {
+    const cleanRingNo = String(editFormData.ringNo).trim().toUpperCase();
+    const updatedRecord = { ...editFormData, ringNo: cleanRingNo, soilVolume: calculateSoilVolume(editFormData.length) };
+    try {
+      await apiCall("updateSegment", updatedRecord);
+      setSegmentRecords((prev) => prev.map((r) => (r.id === updatedRecord.id ? updatedRecord : r)));
+      setSelectedRecord(updatedRecord);
+      setIsEditing(false);
+    } catch (e) { alert("อัปเดตข้อมูลล้มเหลว"); }
+  };
 
   const deduplicatedSegments = useMemo(() => {
     const map = new Map();
@@ -1594,7 +1652,7 @@ const SegmentDashboardView = ({ segmentRecords, setSegmentRecords }) => {
             <tbody className="divide-y divide-slate-50">
               {filteredTableRecords.length > 0 ? (
                 [...filteredTableRecords].reverse().map((rec, index) => (
-                  <tr key={`${rec.id}-${index}`} onClick={() => setSelectedRecord(rec)} className="hover:bg-emerald-50/40 transition-colors cursor-pointer group">
+                  <tr key={`${rec.id}-${index}`} onClick={() => { setSelectedRecord(rec); setIsEditing(false); }} className="hover:bg-emerald-50/40 transition-colors cursor-pointer group">
                     <td className="px-6 py-4">
                       <div className="font-bold text-slate-800 text-base">{formatDisplayDate(rec.date)}</div>
                       <div className="text-xs text-slate-500 mt-1.5 font-mono"><span className="font-bold text-slate-400">Excav:</span> {formatDisplayTime(rec.excavStartTime)} - {formatDisplayTime(rec.excavEndTime)}</div>
@@ -1639,8 +1697,9 @@ const SegmentDashboardView = ({ segmentRecords, setSegmentRecords }) => {
                 {selectedRecord.imageUrl && selectedRecord.imageUrl !== "Attached" && (
                   <a href={selectedRecord.imageUrl} target="_blank" rel="noreferrer" className="p-2 bg-white/10 hover:bg-white/20 rounded-full transition-colors" title="View Photo"><Camera size={18} /></a>
                 )}
+                {!isEditing && <button onClick={() => { setEditFormData(selectedRecord); setIsEditing(true); }} className="p-2 bg-white/10 hover:bg-white/20 rounded-full transition-colors" title="Edit"><Edit size={18} /></button>}
                 <button onClick={() => setShowDeleteConfirm(true)} className="p-2 bg-white/10 hover:bg-red-500 rounded-full transition-colors" title="Delete"><Trash2 size={18} /></button>
-                <button onClick={() => { setSelectedRecord(null); setShowDeleteConfirm(false); }} className="p-2 bg-white/10 hover:bg-white/20 rounded-full transition-colors ml-2"><X size={20} /></button>
+                <button onClick={() => { setSelectedRecord(null); setShowDeleteConfirm(false); setIsEditing(false); }} className="p-2 bg-white/10 hover:bg-white/20 rounded-full transition-colors ml-2"><X size={20} /></button>
               </div>
             </div>
 
@@ -1660,28 +1719,74 @@ const SegmentDashboardView = ({ segmentRecords, setSegmentRecords }) => {
                   <div className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">Ring No. & Type</div>
                   <div>
                     <div className="flex items-center gap-2">
-                      <div className={`text-2xl font-black ${selectedRecord.installType === "Temporary" ? "text-amber-600" : "text-slate-800"}`}>{String(selectedRecord.ringNo)}</div>
-                      <span className="bg-slate-200 px-3 py-1 rounded-lg text-sm font-bold text-slate-600">{String(selectedRecord.typeRing)}</span>
+                      <div className={`text-2xl font-black ${selectedRecord.installType === "Temporary" ? "text-amber-600" : "text-slate-800"}`}>
+                        {isEditing ? <input type="text" name="ringNo" value={editFormData?.ringNo || ''} onChange={handleEditChange} className="w-32 bg-white border border-slate-200 rounded px-2 outline-none uppercase" /> : String(selectedRecord.ringNo)}
+                      </div>
+                      {isEditing ? (
+                        <select name="typeRing" value={editFormData?.typeRing || ''} onChange={handleEditChange} className="bg-white border border-slate-200 rounded px-2 py-1 text-sm font-bold text-slate-600 outline-none cursor-pointer">
+                          <option value="C1">C1</option>
+                          <option value="C2">C2</option>
+                          <option value="B1">B1</option>
+                          <option value="B2">B2</option>
+                          <option value="A">A</option>
+                          <option value="K">K</option>
+                        </select>
+                      ) : (
+                        <span className="bg-slate-200 px-3 py-1 rounded-lg text-sm font-bold text-slate-600">{String(selectedRecord.typeRing)}</span>
+                      )}
                     </div>
                     <div className="flex items-center gap-2 mt-1.5">
-                      {selectedRecord.installType === "Temporary" && <span className="bg-amber-100 text-amber-700 px-2 py-0.5 rounded text-[10px] font-bold">Temporary Ring</span>}
-                      {selectedRecord.status === "In Progress" && <span className="bg-orange-100 text-orange-700 px-2 py-0.5 rounded text-[10px] font-bold">In Progress</span>}
+                      {isEditing ? (
+                        <div className="flex gap-2">
+                          <select name="installType" value={editFormData?.installType || ''} onChange={handleEditChange} className="bg-white border rounded text-[10px] font-bold px-1 outline-none text-slate-600">
+                            <option value="Permanent">Permanent</option>
+                            <option value="Temporary">Temporary</option>
+                          </select>
+                          <select name="status" value={editFormData?.status || ''} onChange={handleEditChange} className="bg-white border rounded text-[10px] font-bold px-1 outline-none text-slate-600">
+                            <option value="Completed">Completed</option>
+                            <option value="In Progress">In Progress</option>
+                          </select>
+                        </div>
+                      ) : (
+                        <>
+                          {selectedRecord.installType === "Temporary" && <span className="bg-amber-100 text-amber-700 px-2 py-0.5 rounded text-[10px] font-bold">Temporary Ring</span>}
+                          {selectedRecord.status === "In Progress" && <span className="bg-orange-100 text-orange-700 px-2 py-0.5 rounded text-[10px] font-bold">In Progress</span>}
+                        </>
+                      )}
                     </div>
                   </div>
                 </div>
                 <div className="text-right">
                   <div className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">Working Date & Shift</div>
-                  <div className="text-sm font-bold text-slate-700 flex items-center justify-end gap-1.5"><Calendar size={14} /> {formatDisplayDate(selectedRecord.date)}</div>
-                  <div className="text-xs text-slate-500 mt-1 flex items-center justify-end gap-1"><span className="font-bold text-slate-600">({String(selectedRecord.shift)})</span></div>
+                  <div className="text-sm font-bold text-slate-700 flex items-center justify-end gap-1.5"><Calendar size={14} /> {isEditing ? <input type="date" name="date" value={editFormData?.date || ''} onChange={handleEditChange} className="bg-white border rounded px-1 outline-none" /> : formatDisplayDate(selectedRecord.date)}</div>
+                  <div className="text-xs text-slate-500 mt-1 flex items-center justify-end gap-1">
+                    {isEditing ? (
+                      <select name="shift" value={editFormData?.shift || ''} onChange={handleEditChange} className="bg-white border rounded px-1 font-bold text-slate-600 outline-none">
+                        <option value="Day">Day</option>
+                        <option value="Night">Night</option>
+                      </select>
+                    ) : <span className="font-bold text-slate-600">({String(selectedRecord.shift)})</span>}
+                  </div>
                 </div>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="bg-slate-50 rounded-2xl border border-slate-100 p-4 flex flex-col items-center justify-center relative">
                   <span className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2 text-center">Ring Orientation</span>
-                  <div className="scale-90 transform origin-top -mt-2">
-                    <RingVisualizer ringKey={selectedRecord.keyPos} selectedPositions={{ K: true }} onTogglePosition={() => { }} />
-                  </div>
+                  {isEditing ? (
+                    <div className="flex flex-col items-center w-full max-w-xs mt-2 p-4 bg-white rounded-xl border border-slate-200">
+                      <div className="flex justify-between items-center w-full mb-3">
+                        <label className="text-xs font-bold text-slate-500">Key Position</label>
+                        <span className="bg-emerald-100 text-emerald-700 font-black px-3 py-1 rounded-lg text-sm shadow-sm">K{editFormData?.keyPos || 1}</span>
+                      </div>
+                      <input type="range" min="1" max="16" step="1" name="keyPos" value={editFormData?.keyPos || 1} onChange={handleEditChange} className="w-full h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-emerald-600 mb-2" />
+                      <div className="flex justify-between w-full text-[10px] text-slate-400 font-bold px-1"><span>1</span><span>4</span><span>8</span><span>12</span><span>16</span></div>
+                    </div>
+                  ) : (
+                    <div className="scale-90 transform origin-top -mt-2">
+                      <RingVisualizer ringKey={selectedRecord.keyPos} selectedPositions={{ K: true }} onTogglePosition={() => { }} />
+                    </div>
+                  )}
                 </div>
 
                 <div className="space-y-4 flex flex-col justify-center">
@@ -1690,16 +1795,16 @@ const SegmentDashboardView = ({ segmentRecords, setSegmentRecords }) => {
                     <div className="grid grid-cols-2 gap-4 mb-4">
                       <div>
                         <div className="text-xs text-slate-500 mb-1">Start CH.</div>
-                        <div className="font-mono text-base font-bold text-slate-700">{String(selectedRecord.startCH)}</div>
+                        <div className="font-mono text-base font-bold text-slate-700">{isEditing ? <input type="text" name="startCH" value={editFormData?.startCH || ''} onChange={handleEditChange} onBlur={(e) => setEditFormData(prev => ({ ...prev, startCH: formatCH(prev.startCH) }))} className="w-24 bg-white border border-emerald-200 rounded px-1 outline-none" /> : String(selectedRecord.startCH)}</div>
                       </div>
                       <div>
                         <div className="text-xs text-slate-500 mb-1">Finish CH.</div>
-                        <div className="font-mono text-base font-bold text-slate-700">{String(selectedRecord.finishCH)}</div>
+                        <div className="font-mono text-base font-bold text-slate-700">{isEditing ? <input type="text" name="finishCH" value={editFormData?.finishCH || ''} onChange={handleEditChange} onBlur={(e) => setEditFormData(prev => ({ ...prev, finishCH: formatCH(prev.finishCH) }))} className="w-24 bg-white border border-emerald-200 rounded px-1 outline-none" /> : String(selectedRecord.finishCH)}</div>
                       </div>
                     </div>
                     <div className="border-t border-emerald-200/50 pt-4 flex justify-between items-center">
                       <span className="text-xs text-slate-500">Length</span>
-                      <div className="text-xl font-black text-emerald-600">{Number(selectedRecord.length || 0).toFixed(2)} <span className="text-sm font-normal">m</span></div>
+                      <div className="text-xl font-black text-emerald-600">{Number(isEditing ? editFormData?.length : selectedRecord.length || 0).toFixed(2)} <span className="text-sm font-normal">m</span></div>
                     </div>
                   </div>
 
@@ -1707,24 +1812,47 @@ const SegmentDashboardView = ({ segmentRecords, setSegmentRecords }) => {
                     <div className="flex justify-between items-center gap-2">
                       <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest w-16">Excavate</div>
                       <div className="flex-1 flex items-center justify-end gap-2">
-                        <div className="font-mono text-sm font-bold text-slate-700">{formatDisplayTime(selectedRecord.excavStartTime)} - {formatDisplayTime(selectedRecord.excavEndTime)}</div>
+                        <div className="font-mono text-sm font-bold text-slate-700">
+                          {isEditing ? (
+                            <div className="flex gap-1">
+                              <input type="time" name="excavStartTime" value={editFormData?.excavStartTime?.slice(0, 5) || ''} onChange={handleEditChange} className="bg-white border rounded px-1 outline-none w-20" />
+                              <span>-</span>
+                              <input type="time" name="excavEndTime" value={editFormData?.excavEndTime?.slice(0, 5) || ''} onChange={handleEditChange} className="bg-white border rounded px-1 outline-none w-20" />
+                            </div>
+                          ) : `${formatDisplayTime(selectedRecord.excavStartTime)} - ${formatDisplayTime(selectedRecord.excavEndTime)}`}
+                        </div>
                       </div>
                     </div>
                     <div className="border-t border-slate-100"></div>
                     <div className="flex justify-between items-center gap-2">
                       <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest w-16">Install</div>
                       <div className="flex-1 flex items-center justify-end gap-2">
-                        <div className="font-mono text-sm font-bold text-slate-700">{formatDisplayTime(selectedRecord.installStartTime || selectedRecord.startTime)} - {formatDisplayTime(selectedRecord.installEndTime || selectedRecord.endTime)}</div>
+                        <div className="font-mono text-sm font-bold text-slate-700">
+                          {isEditing ? (
+                            <div className="flex gap-1">
+                              <input type="time" name="installStartTime" value={(editFormData?.installStartTime || editFormData?.startTime || '')?.slice(0, 5)} onChange={handleEditChange} className="bg-white border rounded px-1 outline-none w-20" />
+                              <span>-</span>
+                              <input type="time" name="installEndTime" value={(editFormData?.installEndTime || editFormData?.endTime || '')?.slice(0, 5)} onChange={handleEditChange} className="bg-white border rounded px-1 outline-none w-20" />
+                            </div>
+                          ) : `${formatDisplayTime(selectedRecord.installStartTime || selectedRecord.startTime)} - ${formatDisplayTime(selectedRecord.installEndTime || selectedRecord.endTime)}`}
+                        </div>
                       </div>
                     </div>
                   </div>
                 </div>
               </div>
 
-              {selectedRecord.remark && (
+              {(selectedRecord.remark || isEditing) && (
                 <div className="bg-orange-50/50 rounded-2xl p-4 border border-orange-100">
                   <div className="text-xs font-bold text-orange-500 uppercase tracking-widest mb-2 flex items-center gap-1.5"><Info size={14} /> Remarks (ปัญหา)</div>
-                  <p className="text-sm text-slate-700">{String(selectedRecord.remark)}</p>
+                  {isEditing ? <textarea name="remark" value={editFormData?.remark || ''} onChange={handleEditChange} className="w-full bg-white border border-slate-200 rounded-lg p-2 text-sm outline-none" rows="2" /> : <p className="text-sm text-slate-700 whitespace-pre-wrap leading-relaxed">{String(selectedRecord.remark)}</p>}
+                </div>
+              )}
+
+              {isEditing && (
+                <div className="flex justify-end gap-2 pt-4 border-t border-slate-100 mt-4">
+                  <button onClick={() => setIsEditing(false)} className="px-4 py-2 bg-slate-100 text-slate-600 rounded-lg font-bold text-sm hover:bg-slate-200">Cancel</button>
+                  <button onClick={handleSaveEdit} className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold text-sm flex items-center gap-1"><Save size={16} /> Save Changes</button>
                 </div>
               )}
             </div>
@@ -1951,10 +2079,12 @@ const ReportView = ({ segmentRecords, groutRecords, projectInfo, shiftReports })
     let shiftDelays = [];
     filteredShiftReports.forEach(sr => {
       Object.entries(sr.events || {}).forEach(([activityName, evs]) => {
-        if (activityName !== 'Excavation' && activityName !== 'Segment Erection') {
+        if (activityName !== 'Excavation' && activityName !== 'Segment Erection' && activityName !== 'Other 1' && activityName !== 'Other 2') {
           evs.forEach(ev => {
             let desc = activityName;
-            if (ev.label && String(ev.label).trim() !== '') desc += ` (${ev.label})`;
+            if (ev.label && String(ev.label).trim() !== '') {
+               desc = activityName.toLowerCase().startsWith('other') ? ev.label : `${activityName} (${ev.label})`;
+            }
             shiftDelays.push(desc);
           });
         }
@@ -1972,7 +2102,7 @@ const ReportView = ({ segmentRecords, groutRecords, projectInfo, shiftReports })
     const promptText = `
 === TEMPLATE ที่ต้องใช้ (ส่งกลับมาเฉพาะข้อความตาม Template นี้เท่านั้น ห้ามอธิบายเพิ่ม) ===
 รายงานประจำวันที่ ${displayDateStr} ${reportShift} Shift
-อาคารรับน้ำตอนถนนรัชดาภิเษก (IS4)
+
 🪏🪏งานขุดเจาะอุโมงค์ ${projectInfo.tbmNo}
 Drive Shaft : ${projectInfo.location}
 สภาพอากาศ : แจ่มใส
@@ -2013,7 +2143,7 @@ ${remarksText}
 === สิ้นสุด TEMPLATE ===
     `;
 
-    const sysPrompt = "คุณคือวิศวกรควบคุมงาน หน้าที่ของคุณคือ Print ข้อความตามรูปแบบ TEMPLATE ที่ส่งไปให้ออกมาเป๊ะๆ ห้ามเปลี่ยนแปลงตัวเลข หรือเพิ่มข้อความบรรยายใดๆ ทั้งสิ้น";
+    const sysPrompt = "คุณคือวิศวกรควบคุมงาน หน้าที่ของคุณคือ Print ข้อความตามรูปแบบ TEMPLATE ที่กำหนดให้ออกมาเป๊ะๆ โดยข้อมูลในหัวข้อ 1-7 ห้ามเปลี่ยนแปลง คิดเอง หรือตัดทอนเด็ดขาด ให้พิมพ์ตามต้นฉบับทุกตัวอักษร แต่ในส่วน '8. Delay Activities' ให้คุณนำข้อมูลมาเรียบเรียงใหม่ให้อ่านดูเป็นภาษาวิศวกรหน้างานเชิงรายงาน หากมีกิจกรรมหรือรายการที่คล้ายกันให้จัดกลุ่มและสรุปรวมให้กระชับและเป็นมืออาชีพมากที่สุด (เช่น นำมารวมเป็น 1 บรรทัด หรือเรียบเรียง wording ใหม่ให้เป็นทางการ) ห้ามเพิ่มคำอธิบายทักทายใดๆ เด็ดขาด";
 
     try {
       const resultText = await generateGeminiSummary(promptText, sysPrompt);

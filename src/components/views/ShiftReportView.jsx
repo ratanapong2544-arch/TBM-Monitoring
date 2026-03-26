@@ -35,7 +35,9 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
       if (!inShift && instStart) {
         const [h] = instStart.split(':').map(Number);
         inShift = (h >= 7 && h < 19) ? "Day" : "Night";
-      } else if (!inShift) inShift = r.shift;
+      } else if (!inShift) {
+        inShift = r.shift;
+      }
 
       const logicalDate = getLogicalShiftDate(instStart, inShift, r.date, r.shift);
 

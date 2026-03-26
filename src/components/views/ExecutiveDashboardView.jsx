@@ -696,9 +696,10 @@ const ExecutiveDashboardView = ({ segmentRecords, groutRecords }) => {
             <h2 className="text-xl sm:text-2xl font-black text-[#2e266a] tracking-tight">
               รายงานความก้าวหน้างานขุดเจาะอุโมงค์ TBM1
             </h2>
-            <p className="text-xs sm:text-sm text-slate-500 mt-1 italic">
-              Route Line Tunnel: อาคารรับน้ำคลองประปาชาคร ตอนถนนรัชดาภิเษก IS4-1 → อาคารรับน้ำคลองประปาชาคร ตอนคลองบางเขน IS3
-            </p>
+            <div className="text-xs sm:text-sm text-slate-500 mt-2 font-medium tracking-tight space-y-0.5">
+              <p><span className="font-bold text-slate-700">เฟส 1 (Main Bore):</span> IS4-1 → IS2 → IS1 TBM เจาะต่อเนื่อง (เฟสปัจจุบัน)</p>
+              <p><span className="font-bold text-slate-700">เฟส 2 (Extension):</span> IS3 → เจาะเข้าอุโมงค์หลัก — TBM เจาะต่อไป ส่วนเชื่อม IS3 รอก่อสร้างในภายหลัง</p>
+            </div>
           </div>
           <div className="text-right mt-4 md:mt-0 flex items-center gap-3">
             <button onClick={() => setExpandedChart('distance')} className="p-2 text-slate-400 hover:text-blue-600 bg-white hover:bg-blue-50 rounded-xl transition-colors border border-slate-200 shadow-sm" title="Expand Chart"><Maximize2 size={18} /></button>
@@ -916,26 +917,60 @@ const ExecutiveDashboardView = ({ segmentRecords, groutRecords }) => {
             .track-pattern {
               background-image: repeating-linear-gradient(90deg, transparent, transparent 15px, #94a3b8 15px, #94a3b8 18px);
             }
+            .track-pattern-light {
+              background-image: repeating-linear-gradient(90deg, transparent, transparent 15px, #cbd5e1 15px, #cbd5e1 18px);
+            }
+            .track-pattern-vertical {
+              background-image: repeating-linear-gradient(0deg, transparent, transparent 10px, #94a3b8 10px, #94a3b8 13px);
+            }
+            .track-pattern-light-vertical {
+              background-image: repeating-linear-gradient(0deg, transparent, transparent 10px, #cbd5e1 10px, #cbd5e1 13px);
+            }
           `}</style>
 
           <div className="flex justify-between items-center mb-2">
             <span className="text-[#64748b] text-[11px] font-black tracking-[0.2em] uppercase">Route Progress</span>
           </div>
 
-          <div className="relative mx-4 sm:mx-8" style={{ height: '85px' }}>
-            {/* แถบราง */}
-            <div className="absolute top-1/2 -translate-y-1/2 left-0 right-0 h-[18px] bg-[#f1f5f9] border-y-[3px] border-[#64748b] track-pattern opacity-100 shadow-sm z-0"></div>
-            
+          <div className="relative mx-4 sm:mx-8" style={{ height: '95px' }}>
+            {/* แถบรางเฟส 1: IS4-1 → IS1 (ต่อเนื่อง สีปกติ) */}
+            <div className="absolute top-1/2 -translate-y-1/2 left-0 right-0 h-[18px] bg-[#f1f5f9] border-y-[3px] border-[#64748b] track-pattern shadow-sm z-0"></div>
+
             {/* พื้นที่ของผลงานจริง */}
             <div 
               className="absolute top-1/2 -translate-y-1/2 left-0 h-[32px] bg-[#ec4899]/20 border border-[#ec4899]/40 rounded-l-full z-1 transition-all duration-1000"
               style={{ width: `${Math.min((totalActualDistance / TOTAL_ROUTE_DISTANCE) * 100, 100)}%` }}
             ></div>
 
+            {/* เส้นแบ่งเฟสแนวตั้งประที่ IS3 */}
+            {(() => {
+              const is3Seg = routeStationPlacements.find(s => s.id === "IS3");
+              if (!is3Seg) return null;
+              return (
+                <div
+                  className="absolute z-20"
+                  style={{ left: `${is3Seg.xPercent}%`, top: 'calc(50% - 16px)', transform: 'translateX(-50%)', width: 2, height: 32, borderLeft: "2.5px dashed #f59e0b" }}
+                />
+              );
+            })()}
+
+            {/* อุโมงค์แยกส่วนแนวตั้งที่ IS3 (สีอ่อนกว่า) */}
+            {(() => {
+              const is3Seg = routeStationPlacements.find(s => s.id === "IS3");
+              if (!is3Seg) return null;
+              return (
+                <div
+                  className="absolute z-0"
+                  style={{ left: `calc(${is3Seg.xPercent}%)`, top: 'calc(50% - 30px)', width: 2, height: '25px', borderLeft: '1.5px dashed #f59e0b' }}
+                />
+              );
+            })()}
+
             {/* หมุดสถานี */}
             {routeStationPlacements.map((seg, i) => {
               if (i === 0) return null;
               const prevSeg = routeStationPlacements[i - 1];
+              const isIS3 = seg.id === "IS3";
               return (
                 <React.Fragment key={`route-${seg.id}`}>
                   {/* กรอบแสดงระยะระหว่างสถานี */}
@@ -947,14 +982,30 @@ const ExecutiveDashboardView = ({ segmentRecords, groutRecords }) => {
                   </div>
                   
                   {/* หมุดสถานี */}
+                  {/* หมุดสถานี */}
                   <div 
-                    className="absolute top-1/2 -translate-y-1/2 flex flex-col items-center justify-center z-20"
-                    style={{ left: `${seg.xPercent}%`, transform: 'translateX(-50%) translateY(-50%)' }}
+                    className="absolute flex flex-col items-center justify-center z-20"
+                    style={isIS3 ? { left: `${seg.xPercent}%`, top: `calc(50% - 38px)`, transform: 'translateX(-50%) translateY(-50%)' } : { left: `${seg.xPercent}%`, top: `50%`, transform: 'translateX(-50%) translateY(-50%)' }}
                   >
-                    <div className="relative w-9 h-9 rounded-full border-[4px] border-white shadow-lg bg-[#8b5cf6] text-white flex items-center justify-center text-[10px] font-black z-10 tracking-tighter">
-                      {seg.label.replace("IS", "")}
-                    </div>
-                    <span className="absolute top-11 text-[10px] font-bold text-slate-700 whitespace-nowrap">{seg.label}</span>
+                    {isIS3 ? (
+                      <div className="relative flex flex-col items-center">
+                        <span className="absolute whitespace-nowrap text-[9px] font-black text-amber-600 bg-amber-50 border border-amber-300 px-1.5 py-0.5 rounded shadow-sm tracking-wide" style={{ top: -24 }}>
+                          D-wall
+                        </span>
+                        <div className="relative bg-[#0f3b61] border-[1.5px] border-[#0f172a] rounded-lg p-1 shadow-md flex items-center justify-center z-10 w-11 h-11 pointer-events-none">
+                          <div className="bg-white w-full h-full flex items-center justify-center rounded-sm">
+                            <div className="w-6 h-6 rounded-full bg-[#8b5cf6] text-white flex items-center justify-center text-[10px] font-black">
+                              {seg.label.replace("IS", "")}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="relative w-9 h-9 rounded-full border-[4px] border-white shadow-lg bg-[#8b5cf6] text-white flex items-center justify-center text-[10px] font-black z-10 tracking-tighter">
+                        {seg.label.replace("IS", "")}
+                      </div>
+                    )}
+                    <span className="absolute text-[10px] font-bold text-slate-700 whitespace-nowrap" style={{ top: isIS3 ? 66 : 44 }}>{seg.label}</span>
                   </div>
                 </React.Fragment>
               );
@@ -975,12 +1026,15 @@ const ExecutiveDashboardView = ({ segmentRecords, groutRecords }) => {
             >
               <div className="relative drop-shadow-xl group cursor-pointer">
                 <span className="absolute -inset-2 rounded-full bg-[#ec4899] opacity-40 animate-ping"></span>
+                <div className="absolute -top-7 left-1/2 -translate-x-1/2 whitespace-nowrap text-[9px] font-black text-slate-700 bg-white/90 backdrop-blur-sm px-1.5 py-0.5 rounded shadow-sm border border-slate-200 z-50">
+                  Progress : {((totalActualDistance / TOTAL_ROUTE_DISTANCE) * 100).toFixed(2)} %
+                </div>
                 <div className="w-8 h-8 bg-[#0ea5e9] border-[3px] border-white flex items-center justify-center rounded-sm rotate-90 relative z-10 shadow-md overflow-hidden">
                   <div className="w-full h-[60%] bg-[#0284c7] absolute bottom-0 left-0"></div>
                   <div className="w-full h-[2px] bg-white opacity-50 absolute top-[40%] left-0"></div>
                   <span className="text-[8px] text-white font-black z-10 -rotate-90">TBM1</span>
                 </div>
-                <div className="absolute -top-10 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-[10px] px-3 py-1.5 rounded-lg font-bold whitespace-nowrap shadow-xl opacity-0 group-hover:opacity-100 transition-opacity z-40">
+                <div className="absolute -top-14 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-[10px] px-3 py-1.5 rounded-lg font-bold whitespace-nowrap shadow-xl opacity-0 group-hover:opacity-100 transition-opacity z-40 pointer-events-none">
                   TBM1: {totalActualDistance.toLocaleString()} m ({(totalActualDistance / TOTAL_ROUTE_DISTANCE * 100).toFixed(1)}%)
                 </div>
               </div>
@@ -1343,22 +1397,49 @@ const ExecutiveDashboardView = ({ segmentRecords, groutRecords }) => {
 
                     {/* ═══ ส่วนที่ 3: Route Progress ═══ */}
                     <div className="relative min-w-[700px] overflow-hidden bg-white border border-slate-100 rounded-2xl p-4 shadow-sm shrink-0">
-                      <style>{` .track-pattern { background-image: repeating-linear-gradient(90deg, transparent, transparent 15px, #94a3b8 15px, #94a3b8 18px); } `}</style>
+                      <style>{` .track-pattern { background-image: repeating-linear-gradient(90deg, transparent, transparent 15px, #94a3b8 15px, #94a3b8 18px); } .track-pattern-vertical { background-image: repeating-linear-gradient(0deg, transparent, transparent 10px, #94a3b8 10px, #94a3b8 13px); } .track-pattern-light-vertical { background-image: repeating-linear-gradient(0deg, transparent, transparent 10px, #cbd5e1 10px, #cbd5e1 13px); } `}</style>
                       <div className="flex justify-between items-center mb-2">
                         <span className="text-[#64748b] text-[11px] font-black tracking-[0.2em] uppercase">Route Progress</span>
                       </div>
                       <div className="relative mx-4 sm:mx-8" style={{ height: '85px' }}>
                         <div className="absolute top-1/2 -translate-y-1/2 left-0 right-0 h-[18px] bg-[#f1f5f9] border-y-[3px] border-[#64748b] track-pattern opacity-100 shadow-sm z-0"></div>
                         <div className="absolute top-1/2 -translate-y-1/2 left-0 h-[32px] bg-[#ec4899]/20 border border-[#ec4899]/40 rounded-l-full z-1 transition-all duration-1000" style={{ width: `${Math.min((totalActualDistance / TOTAL_ROUTE_DISTANCE) * 100, 100)}%` }}></div>
+                        {(() => {
+                          const is3Seg = routeStationPlacements.find(s => s.id === "IS3");
+                          if (!is3Seg) return null;
+                          return (
+                            <div className="absolute z-20" style={{ left: `${is3Seg.xPercent}%`, top: 'calc(50% - 16px)', transform: 'translateX(-50%)', width: 2, height: 32, borderLeft: "2.5px dashed #f59e0b" }} />
+                          );
+                        })()}
+                        {(() => {
+                          const is3Seg = routeStationPlacements.find(s => s.id === "IS3");
+                          if (!is3Seg) return null;
+                          return (
+                            <div className="absolute z-0" style={{ left: `calc(${is3Seg.xPercent}%)`, top: 'calc(50% - 30px)', width: 2, height: '25px', borderLeft: '1.5px dashed #f59e0b' }} />
+                          );
+                        })()}
                         {routeStationPlacements.map((seg, i) => {
                           if (i === 0) return null;
                           const prevSeg = routeStationPlacements[i - 1];
                           return (
                             <React.Fragment key={`route-modal-${seg.id}`}>
                               <div className="absolute -top-6 -translate-x-1/2 bg-white border-2 border-slate-700 rounded-full px-2 py-0.5 text-[9px] font-black text-slate-700 shadow-sm whitespace-nowrap z-10" style={{ left: `${(prevSeg.xPercent + seg.xPercent) / 2}%` }}>{((seg.distance - ROUTE_SEGMENTS[i - 1].distance)).toLocaleString(undefined, { minimumFractionDigits: 3 })} m</div>
-                              <div className="absolute top-1/2 -translate-y-1/2 flex flex-col items-center justify-center z-20" style={{ left: `${seg.xPercent}%`, transform: 'translateX(-50%) translateY(-50%)' }}>
-                                <div className="relative w-9 h-9 rounded-full border-[4px] border-white shadow-lg bg-[#8b5cf6] text-white flex items-center justify-center text-[10px] font-black z-10 tracking-tighter">{seg.label.replace("IS", "")}</div>
-                                <span className="absolute top-11 text-[10px] font-bold text-slate-700 whitespace-nowrap">{seg.label}</span>
+                              <div className="absolute flex flex-col items-center justify-center z-20" style={seg.id === "IS3" ? { left: `${seg.xPercent}%`, top: `calc(50% - 38px)`, transform: 'translateX(-50%) translateY(-50%)' } : { left: `${seg.xPercent}%`, top: `50%`, transform: 'translateX(-50%) translateY(-50%)' }}>
+                                {seg.id === "IS3" ? (
+                                  <div className="relative flex flex-col items-center">
+                                    <span className="absolute whitespace-nowrap text-[9px] font-black text-amber-600 bg-amber-50 border border-amber-300 px-1.5 py-0.5 rounded shadow-sm tracking-wide" style={{ top: -24 }}>
+                                      D-wall
+                                    </span>
+                                    <div className="relative bg-[#0f3b61] border-[1.5px] border-[#0f172a] rounded-lg p-1 shadow-md flex items-center justify-center z-10 w-11 h-11 pointer-events-none">
+                                      <div className="bg-white w-full h-full flex items-center justify-center rounded-sm">
+                                        <div className="w-6 h-6 rounded-full bg-[#8b5cf6] text-white flex items-center justify-center text-[10px] font-black">{seg.label.replace("IS", "")}</div>
+                                      </div>
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <div className="relative w-9 h-9 rounded-full border-[4px] border-white shadow-lg bg-[#8b5cf6] text-white flex items-center justify-center text-[10px] font-black z-10 tracking-tighter">{seg.label.replace("IS", "")}</div>
+                                )}
+                                <span className="absolute text-[10px] font-bold text-slate-700 whitespace-nowrap" style={{ top: seg.id === "IS3" ? 66 : 44 }}>{seg.label}</span>
                               </div>
                             </React.Fragment>
                           );
@@ -1373,7 +1454,8 @@ const ExecutiveDashboardView = ({ segmentRecords, groutRecords }) => {
                             <div className="w-8 h-8 bg-[#0ea5e9] border-[3px] border-white flex items-center justify-center rounded-sm rotate-90 relative z-10 shadow-md overflow-hidden">
                               <div className="w-full h-[60%] bg-[#0284c7] absolute bottom-0 left-0"></div><div className="w-full h-[2px] bg-white opacity-50 absolute top-[40%] left-0"></div><span className="text-[8px] text-white font-black z-10 -rotate-90">TBM1</span>
                             </div>
-                            <div className="absolute -top-10 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-[10px] px-3 py-1.5 rounded-lg font-bold whitespace-nowrap shadow-xl opacity-0 group-hover:opacity-100 transition-opacity z-40">TBM1: {totalActualDistance.toLocaleString()} m ({(totalActualDistance / TOTAL_ROUTE_DISTANCE * 100).toFixed(1)}%)</div>
+                            <div className="absolute -top-7 left-1/2 -translate-x-1/2 whitespace-nowrap text-[9px] font-black text-slate-700 bg-white/90 backdrop-blur-sm px-1.5 py-0.5 rounded shadow-sm border border-slate-200 z-50">Progress : {((totalActualDistance / TOTAL_ROUTE_DISTANCE) * 100).toFixed(2)} %</div>
+                            <div className="absolute -top-14 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-[10px] px-3 py-1.5 rounded-lg font-bold whitespace-nowrap shadow-xl opacity-0 group-hover:opacity-100 transition-opacity z-40 pointer-events-none">TBM1: {totalActualDistance.toLocaleString()} m ({(totalActualDistance / TOTAL_ROUTE_DISTANCE * 100).toFixed(1)}%)</div>
                           </div>
                         </div>
                       </div>

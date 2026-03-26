@@ -1,11 +1,12 @@
 import React, { useState, useMemo } from "react";
 import {
-  TrendingUp, Layers, Activity, MapPin, Droplet, BarChart3, Clock, Settings, Plus, Save, Trash2, X, Ruler, Maximize2
+  TrendingUp, Layers, Activity, MapPin, Droplet, BarChart3, Clock, Settings, Plus, Save, Trash2, X, Ruler, Maximize2, Loader2
 } from "lucide-react";
 import StatCard from "../common/StatCard";
 import { formatDisplayDate, formatDisplayTime, parseCH } from "../../utils/formatters";
 import { getRingNumeric, calculateSoilVolume, offsetRingNo } from "../../utils/helpers";
 import { THEORETICAL_VOL, VOL_120, VOL_150, TOTAL_ROUTE_DISTANCE, ROUTE_SEGMENTS } from "../../utils/constants";
+import { apiCall } from "../../utils/api";
 import {
   ResponsiveContainer, ComposedChart, CartesianGrid, XAxis, YAxis, Tooltip, Bar, Line,
   AreaChart, Area, ReferenceLine, PieChart, Pie, Cell, Legend
@@ -470,12 +471,38 @@ const ExecutiveDashboardView = ({ segmentRecords, groutRecords }) => {
   }, [groutRecords, groutFilterMode, groutChartWindow, groutRangeStart, groutRangeEnd, groutFilterDate, groutFilterMonth, groutFilterShift]);
 
   // ── Plan settings handlers ──
-  const handleSavePlanSettings = () => { localStorage.setItem('tbmPlanConfig', JSON.stringify(planConfig)); setShowPlanModal(false); };
+  const [isSavingPlan, setIsSavingPlan] = useState(false);
+  const handleSavePlanSettings = async () => { 
+    setIsSavingPlan(true);
+    try {
+      localStorage.setItem('tbmPlanConfig', JSON.stringify(planConfig)); 
+      await apiCall("savePlanConfig", { planConfig, distPlanConfig });
+      setShowPlanModal(false); 
+    } catch (e) {
+      console.error("Failed to save plan config", e);
+      alert("เกิดข้อผิดพลาดในการบันทึกข้อมูลไปยัง Server");
+    } finally {
+      setIsSavingPlan(false);
+    }
+  };
   const addPlanRange = () => setPlanConfig({ ...planConfig, ranges: [...(planConfig.ranges || []), { start: "", end: "", dailyPlan: 0 }] });
   const removePlanRange = (index) => { const r = [...(planConfig.ranges || [])]; r.splice(index, 1); setPlanConfig({ ...planConfig, ranges: r }); };
 
   // ── Distance Plan settings handlers ──
-  const handleSaveDistPlanSettings = () => { localStorage.setItem('tbmDistancePlanConfig', JSON.stringify(distPlanConfig)); setShowDistPlanModal(false); };
+  const [isSavingDistPlan, setIsSavingDistPlan] = useState(false);
+  const handleSaveDistPlanSettings = async () => { 
+    setIsSavingDistPlan(true);
+    try {
+      localStorage.setItem('tbmDistancePlanConfig', JSON.stringify(distPlanConfig)); 
+      await apiCall("savePlanConfig", { planConfig, distPlanConfig });
+      setShowDistPlanModal(false); 
+    } catch (e) {
+      console.error("Failed to save distance plan config", e);
+      alert("เกิดข้อผิดพลาดในการบันทึกข้อมูลไปยัง Server");
+    } finally {
+      setIsSavingDistPlan(false);
+    }
+  };
   const addDistPlanRange = () => setDistPlanConfig({ ...distPlanConfig, ranges: [...(distPlanConfig.ranges || []), { startMonth: "", endMonth: "", mode: "rings", ringsPerDay: 0, avgLength: 1.2, distancePerMonth: 0 }] });
   const removeDistPlanRange = (index) => { const r = [...(distPlanConfig.ranges || [])]; r.splice(index, 1); setDistPlanConfig({ ...distPlanConfig, ranges: r }); };
 
@@ -1074,8 +1101,10 @@ const ExecutiveDashboardView = ({ segmentRecords, groutRecords }) => {
               </div>
             </div>
             <div className="p-4 bg-slate-50 border-t border-slate-200 flex justify-end gap-2 shrink-0">
-              <button onClick={() => setShowPlanModal(false)} className="px-5 py-2.5 bg-white text-slate-600 rounded-xl text-sm font-bold border border-slate-200 hover:bg-slate-100 shadow-sm transition-colors">ยกเลิก</button>
-              <button onClick={handleSavePlanSettings} className="px-5 py-2.5 bg-emerald-600 text-white rounded-xl text-sm font-bold shadow-md hover:bg-emerald-700 transition-colors flex items-center gap-2"><Save size={16} /> บันทึกการตั้งค่า</button>
+              <button onClick={() => setShowPlanModal(false)} className="px-5 py-2.5 bg-white text-slate-600 rounded-xl text-sm font-bold border border-slate-200 hover:bg-slate-100 shadow-sm transition-colors" disabled={isSavingPlan}>ยกเลิก</button>
+              <button onClick={handleSavePlanSettings} disabled={isSavingPlan} className="px-5 py-2.5 bg-emerald-600 text-white rounded-xl text-sm font-bold shadow-md hover:bg-emerald-700 transition-colors flex items-center gap-2 disabled:bg-emerald-400 disabled:cursor-not-allowed">
+                {isSavingPlan ? <><Loader2 size={16} className="animate-spin" /> กำลังบันทึก...</> : <><Save size={16} /> บันทึกการตั้งค่า</>}
+              </button>
             </div>
           </div>
         </div>
@@ -1143,8 +1172,10 @@ const ExecutiveDashboardView = ({ segmentRecords, groutRecords }) => {
               </div>
             </div>
             <div className="p-4 bg-slate-50 border-t border-slate-200 flex justify-end gap-2 shrink-0">
-              <button onClick={() => setShowDistPlanModal(false)} className="px-5 py-2.5 bg-white text-slate-600 rounded-xl text-sm font-bold border border-slate-200 hover:bg-slate-100 shadow-sm transition-colors">ยกเลิก</button>
-              <button onClick={handleSaveDistPlanSettings} className="px-5 py-2.5 bg-purple-600 text-white rounded-xl text-sm font-bold shadow-md hover:bg-purple-700 transition-colors flex items-center gap-2"><Save size={16} /> บันทึกการตั้งค่า</button>
+              <button onClick={() => setShowDistPlanModal(false)} className="px-5 py-2.5 bg-white text-slate-600 rounded-xl text-sm font-bold border border-slate-200 hover:bg-slate-100 shadow-sm transition-colors" disabled={isSavingDistPlan}>ยกเลิก</button>
+              <button onClick={handleSaveDistPlanSettings} disabled={isSavingDistPlan} className="px-5 py-2.5 bg-purple-600 text-white rounded-xl text-sm font-bold shadow-md hover:bg-purple-700 transition-colors flex items-center gap-2 disabled:bg-purple-400 disabled:cursor-not-allowed">
+                {isSavingDistPlan ? <><Loader2 size={16} className="animate-spin" /> กำลังบันทึก...</> : <><Save size={16} /> บันทึกการตั้งค่า</>}
+              </button>
             </div>
           </div>
         </div>

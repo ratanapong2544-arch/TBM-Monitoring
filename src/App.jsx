@@ -89,6 +89,19 @@ const PrimaryGroutApp = () => {
             const defaultResult = { startSta: '', finishSta: '', numberRing: '', totalDistance: '', progressRate: '' };
             const parsedShiftReports = (result.shiftReports || []).map(sr => ({ ...sr, events: safeParseJSON(sr.events, {}), manpower: safeParseJSON(sr.manpower, defaultManpower), result: safeParseJSON(sr.result, defaultResult) }));
             setShiftReports(parsedShiftReports);
+            
+            if (result.planConfig) {
+              try {
+                const pc = typeof result.planConfig === 'string' ? JSON.parse(result.planConfig) : result.planConfig;
+                localStorage.setItem("tbmPlanConfig", JSON.stringify(pc));
+              } catch(e) { console.error("Parse planConfig error", e); }
+            }
+            if (result.distPlanConfig) {
+              try {
+                const dpc = typeof result.distPlanConfig === 'string' ? JSON.parse(result.distPlanConfig) : result.distPlanConfig;
+                localStorage.setItem("tbmDistancePlanConfig", JSON.stringify(dpc));
+              } catch(e) { console.error("Parse distPlanConfig error", e); }
+            }
           }
         } catch (error) { setLoadError("ไม่สามารถดึงข้อมูลได้: " + error.message); }
       }

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { Layers, MapPin, Home, PlusCircle, LayoutDashboard, Clock, FileText, Loader2, AlertCircle, Activity } from "lucide-react";
+import { Layers, MapPin, Home, PlusCircle, LayoutDashboard, Clock, FileText, Loader2, AlertCircle, Activity, Database } from "lucide-react";
 
 import { GAS_URL } from "./utils/constants";
 import { formatDisplayTime, formatDisplayDate } from "./utils/formatters";
@@ -10,6 +10,7 @@ import GroutRecordView from "./components/views/GroutRecordView";
 import SegmentRecordView from "./components/views/SegmentRecordView";
 import GroutDashboardView from "./components/views/GroutDashboardView";
 import SegmentDashboardView from "./components/views/SegmentDashboardView";
+import ExecutiveDashboardView from "./components/views/ExecutiveDashboardView";
 import ReportView from "./components/views/ReportView";
 import ShiftReportView from "./components/views/ShiftReportView";
 
@@ -136,10 +137,10 @@ const PrimaryGroutApp = () => {
               <div className="flex items-center gap-1.5 text-[10px] sm:text-xs text-slate-500 font-semibold mt-0.5"><MapPin size={12} /><input type="text" name="location" value={projectInfo.location} onChange={handleProjectInfoChange} list="locations-list" className="bg-transparent border-none p-0 focus:ring-0 w-48 sm:w-72 outline-none cursor-pointer placeholder-slate-400 font-medium" placeholder="สถานที่..." /><datalist id="locations-list"><option value="อุโมงค์จากบ่อ IS4 ถึง บ่อ IS2" /></datalist></div>
             </div>
           </div>
-          {activeTab !== "overview" && activeTab !== "shift_report" && (
+          {(activeTab === "record" || activeTab === "datalog") && (
             <div className="flex bg-slate-100/80 p-1.5 rounded-2xl border border-slate-200 w-full md:w-auto">
-              <button onClick={() => { setCurrentModule("segment"); setActiveTab("record"); }} className={`flex-1 md:flex-none px-6 py-2 rounded-xl text-xs font-black transition-all ${currentModule === "segment" ? "bg-white text-emerald-600 shadow-md shadow-slate-200" : "text-slate-500 hover:text-slate-800"}`}>Segment</button>
-              <button onClick={() => { setCurrentModule("grout"); setActiveTab("record"); }} className={`flex-1 md:flex-none px-6 py-2 rounded-xl text-xs font-black transition-all ${currentModule === "grout" ? "bg-white text-blue-600 shadow-md shadow-slate-200" : "text-slate-500 hover:text-slate-800"}`}>Grout</button>
+              <button onClick={() => { setCurrentModule("segment"); if (activeTab === "record") setActiveTab("record"); else setActiveTab("datalog"); }} className={`flex-1 md:flex-none px-6 py-2 rounded-xl text-xs font-black transition-all ${currentModule === "segment" ? "bg-white text-emerald-600 shadow-md shadow-slate-200" : "text-slate-500 hover:text-slate-800"}`}>Segment</button>
+              <button onClick={() => { setCurrentModule("grout"); if (activeTab === "record") setActiveTab("record"); else setActiveTab("datalog"); }} className={`flex-1 md:flex-none px-6 py-2 rounded-xl text-xs font-black transition-all ${currentModule === "grout" ? "bg-white text-blue-600 shadow-md shadow-slate-200" : "text-slate-500 hover:text-slate-800"}`}>Grout</button>
             </div>
           )}
         </div>
@@ -150,21 +151,23 @@ const PrimaryGroutApp = () => {
         {activeTab === "overview" && <OverviewView segmentRecords={segmentRecords} groutRecords={groutRecords} setCurrentModule={setCurrentModule} setActiveTab={setActiveTab} />}
         {activeTab === "record" && currentModule === "grout" && <GroutRecordView projectInfo={projectInfo} handleProjectInfoChange={handleProjectInfoChange} groutRecords={groutRecords} setGroutRecords={setGroutRecords} segmentRecords={segmentRecords} setCurrentModule={setCurrentModule} setActiveTab={setActiveTab} />}
         {activeTab === "record" && currentModule === "segment" && <SegmentRecordView projectInfo={projectInfo} handleProjectInfoChange={handleProjectInfoChange} segmentRecords={segmentRecords} setSegmentRecords={setSegmentRecords} setCurrentModule={setCurrentModule} setActiveTab={setActiveTab} />}
-        {activeTab === "dashboard" && currentModule === "grout" && <GroutDashboardView groutRecords={groutRecords} setGroutRecords={setGroutRecords} segmentRecords={segmentRecords} />}
-        {activeTab === "dashboard" && currentModule === "segment" && <SegmentDashboardView segmentRecords={segmentRecords} setSegmentRecords={setSegmentRecords} />}
+        {activeTab === "dashboard" && <ExecutiveDashboardView segmentRecords={segmentRecords} groutRecords={groutRecords} />}
+        {activeTab === "datalog" && currentModule === "grout" && <GroutDashboardView groutRecords={groutRecords} setGroutRecords={setGroutRecords} segmentRecords={segmentRecords} />}
+        {activeTab === "datalog" && currentModule === "segment" && <SegmentDashboardView segmentRecords={segmentRecords} setSegmentRecords={setSegmentRecords} />}
         {activeTab === "report" && <ReportView segmentRecords={segmentRecords} groutRecords={groutRecords} projectInfo={projectInfo} shiftReports={shiftReports} />}
         {activeTab === "shift_report" && <ShiftReportView projectInfo={projectInfo} segmentRecords={segmentRecords} shiftReports={shiftReports} setShiftReports={setShiftReports} />}
       </main>
 
       <nav className="fixed bottom-6 sm:bottom-8 left-1/2 transform -translate-x-1/2 z-40 no-print w-[95%] sm:w-auto max-w-2xl">
         <div className="flex items-center justify-between sm:justify-center gap-1 sm:gap-2 bg-slate-900/95 backdrop-blur-2xl border border-white/10 shadow-[0_20px_40px_-10px_rgba(0,0,0,0.5)] p-2 rounded-full overflow-x-auto hide-scrollbar">
-          <button onClick={() => setActiveTab("overview")} className={`flex-none flex items-center justify-center gap-2 px-4 sm:px-6 py-3 rounded-full text-xs font-bold transition-all ${activeTab === "overview" ? "bg-white text-slate-900 shadow-lg" : "text-slate-300 hover:text-white hover:bg-white/10"}`}><Home size={18} /> <span className="hidden sm:inline tracking-wide">Home</span></button>
-          <div className="w-px h-8 bg-white/20 mx-1"></div>
-          <button onClick={() => setActiveTab("record")} className={`flex-none flex items-center justify-center gap-2 px-4 sm:px-6 py-3 rounded-full text-xs font-bold transition-all ${activeTab === "record" ? "bg-white text-slate-900 shadow-lg" : "text-slate-300 hover:text-white hover:bg-white/10"}`}><PlusCircle size={18} /> <span className="hidden sm:inline tracking-wide">Record</span><span className="sm:hidden">Rec</span></button>
-          <button onClick={() => setActiveTab("dashboard")} className={`flex-none flex items-center justify-center gap-2 px-4 sm:px-6 py-3 rounded-full text-xs font-bold transition-all ${activeTab === "dashboard" ? "bg-white text-slate-900 shadow-lg" : "text-slate-300 hover:text-white hover:bg-white/10"}`}><LayoutDashboard size={18} /> <span className="hidden sm:inline tracking-wide">Dash</span></button>
-          <div className="w-px h-8 bg-white/20 mx-1"></div>
-          <button onClick={() => setActiveTab("shift_report")} className={`flex-none flex items-center justify-center gap-2 px-4 sm:px-6 py-3 rounded-full text-xs font-bold transition-all ${activeTab === "shift_report" ? "bg-white text-slate-900 shadow-lg" : "text-slate-300 hover:text-white hover:bg-white/10"}`}><Clock size={18} /> <span className="hidden sm:inline tracking-wide">Shift Report</span><span className="sm:hidden">Shift</span></button>
-          <button onClick={() => setActiveTab("report")} className={`flex-none flex items-center justify-center gap-2 px-4 sm:px-6 py-3 rounded-full text-xs font-bold transition-all ${activeTab === "report" ? "bg-white text-slate-900 shadow-lg" : "text-slate-300 hover:text-white hover:bg-white/10"}`}><FileText size={18} /> <span className="hidden sm:inline tracking-wide">Stats</span><span className="sm:hidden">Stats</span></button>
+          <button onClick={() => setActiveTab("overview")} className={`flex-none flex items-center justify-center gap-2 px-3 sm:px-5 py-3 rounded-full text-xs font-bold transition-all ${activeTab === "overview" ? "bg-white text-slate-900 shadow-lg" : "text-slate-300 hover:text-white hover:bg-white/10"}`}><Home size={16} /> <span className="hidden sm:inline tracking-wide">Home</span></button>
+          <div className="w-px h-8 bg-white/20 mx-0.5"></div>
+          <button onClick={() => setActiveTab("record")} className={`flex-none flex items-center justify-center gap-2 px-3 sm:px-5 py-3 rounded-full text-xs font-bold transition-all ${activeTab === "record" ? "bg-white text-slate-900 shadow-lg" : "text-slate-300 hover:text-white hover:bg-white/10"}`}><PlusCircle size={16} /> <span className="hidden sm:inline tracking-wide">Record</span><span className="sm:hidden">Rec</span></button>
+          <button onClick={() => setActiveTab("dashboard")} className={`flex-none flex items-center justify-center gap-2 px-3 sm:px-5 py-3 rounded-full text-xs font-bold transition-all ${activeTab === "dashboard" ? "bg-white text-slate-900 shadow-lg" : "text-slate-300 hover:text-white hover:bg-white/10"}`}><LayoutDashboard size={16} /> <span className="hidden sm:inline tracking-wide">Dashboard</span><span className="sm:hidden">Dash</span></button>
+          <button onClick={() => setActiveTab("datalog")} className={`flex-none flex items-center justify-center gap-2 px-3 sm:px-5 py-3 rounded-full text-xs font-bold transition-all ${activeTab === "datalog" ? "bg-white text-slate-900 shadow-lg" : "text-slate-300 hover:text-white hover:bg-white/10"}`}><Database size={16} /> <span className="hidden sm:inline tracking-wide">Data Log</span><span className="sm:hidden">Log</span></button>
+          <div className="w-px h-8 bg-white/20 mx-0.5"></div>
+          <button onClick={() => setActiveTab("shift_report")} className={`flex-none flex items-center justify-center gap-2 px-3 sm:px-5 py-3 rounded-full text-xs font-bold transition-all ${activeTab === "shift_report" ? "bg-white text-slate-900 shadow-lg" : "text-slate-300 hover:text-white hover:bg-white/10"}`}><Clock size={16} /> <span className="hidden sm:inline tracking-wide">Shift</span><span className="sm:hidden">Shift</span></button>
+          <button onClick={() => setActiveTab("report")} className={`flex-none flex items-center justify-center gap-2 px-3 sm:px-5 py-3 rounded-full text-xs font-bold transition-all ${activeTab === "report" ? "bg-white text-slate-900 shadow-lg" : "text-slate-300 hover:text-white hover:bg-white/10"}`}><FileText size={16} /> <span className="hidden sm:inline tracking-wide">Stats</span><span className="sm:hidden">Stats</span></button>
         </div>
       </nav>
     </div>

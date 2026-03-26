@@ -43,6 +43,27 @@ const SegmentDashboardView = ({ segmentRecords, setSegmentRecords }) => {
     return 0;
   };
 
+  // ══════════════════════════════════════════════
+  // HELPER: Smart deduplicate — เลือก Completed ก่อน, ถ้าไม่มีใช้แถวสุดท้าย
+  // ══════════════════════════════════════════════
+  const deduplicateRecords = (records) => {
+    const map = new Map();
+    records.forEach(r => {
+      const key = r.ringNo;
+      const existing = map.get(key);
+      if (!existing) {
+        map.set(key, r);
+      } else {
+        if (existing.status === "In Progress" && r.status !== "In Progress") {
+          map.set(key, r);
+        } else if (existing.status === r.status) {
+          map.set(key, r);
+        }
+      }
+    });
+    return Array.from(map.values());
+  };
+
   const baseSegmentRecords = useMemo(() => {
     let recordsToFilter = segmentRecords;
     if (filterShift !== "All") {
@@ -61,38 +82,40 @@ const SegmentDashboardView = ({ segmentRecords, setSegmentRecords }) => {
       return true;
     });
 
-    return filtered.sort((a, b) => {
+    // Deduplicate แล้วเรียงตาม: P ก่อน T, แล้ว ringNo มากไปน้อย
+    const deduped = deduplicateRecords(filtered);
+    return deduped.sort((a, b) => {
+      const prefA = String(a.ringNo).replace(/\d/g, '');
+      const prefB = String(b.ringNo).replace(/\d/g, '');
+      if (prefA !== prefB) return prefA.localeCompare(prefB); // P ก่อน T
       const numA = getRingNumeric(a.ringNo);
       const numB = getRingNumeric(b.ringNo);
-      if (numA !== numB) return numA - numB;
-      const dateA = new Date(a.date).getTime();
-      const dateB = new Date(b.date).getTime();
-      return dateA - dateB;
+      return numB - numA; // เลขมากอยู่บน
     });
   }, [segmentRecords, filterMode, filterDate, filterMonth, rangeStart, rangeEnd, filterShift]);
 
   const stats = useMemo(() => {
-    const completedRecords = baseSegmentRecords.filter((rec) => rec.status !== "In Progress");
-    const permRings = completedRecords.filter((r) => r.installType !== "Temporary").length;
-    const tempRings = completedRecords.filter((r) => r.installType === "Temporary").length;
-    const totalDistance = completedRecords.filter((r) => r.installType !== "Temporary").reduce((sum, rec) => sum + parseFloat(rec.length || 0), 0);
-    const totalSoilVol = completedRecords.filter((r) => r.installType !== "Temporary").reduce((sum, rec) => sum + parseFloat(rec.soilVolume || calculateSoilVolume(rec.length)), 0);
+    const permRings = baseSegmentRecords.filter(r => r.installType !== "Temporary");
+    const tempRings = baseSegmentRecords.filter(r => r.installType === "Temporary");
 
-    const dates = [...new Set(completedRecords.filter((r) => r.installType !== "Temporary").map((rec) => formatDisplayDate(rec.date)))];
-    const avgRings = dates.length > 0 ? (permRings / dates.length).toFixed(1) : 0;
+    const totalDistance = permRings.reduce((sum, rec) => sum + parseFloat(rec.length || 0), 0);
+    const totalSoilVol = permRings.reduce((sum, rec) => sum + parseFloat(rec.soilVolume || calculateSoilVolume(rec.length)), 0);
+
+    const dates = [...new Set(permRings.map((rec) => formatDisplayDate(rec.date)))];
+    const avgRings = dates.length > 0 ? (permRings.length / dates.length).toFixed(1) : 0;
     const avgDist = dates.length > 0 ? (totalDistance / dates.length).toFixed(1) : 0;
 
     let currentCH = "-";
-    if (completedRecords.length > 0) {
-      const permWithCH = completedRecords.filter(r => r.installType !== "Temporary" && r.finishCH);
+    if (permRings.length > 0) {
+      const permWithCH = permRings.filter(r => r.finishCH);
       if (permWithCH.length > 0) {
-        currentCH = permWithCH[permWithCH.length - 1].finishCH;
-      } else {
-        currentCH = completedRecords[completedRecords.length - 1].finishCH || "-";
+        // เรียงตาม ringNo เพื่อหา CH ล่าสุด
+        const sorted = [...permWithCH].sort((a, b) => getRingNumeric(a.ringNo) - getRingNumeric(b.ringNo));
+        currentCH = sorted[sorted.length - 1].finishCH;
       }
     }
 
-    return { permRings, tempRings, totalRings: permRings + tempRings, totalDistance, totalSoilVol, avgRings, avgDist, currentCH };
+    return { permRings: permRings.length, tempRings: tempRings.length, totalRings: permRings.length + tempRings.length, totalDistance, totalSoilVol, avgRings, avgDist, currentCH };
   }, [baseSegmentRecords]);
 
   const fullDailyProgress = useMemo(() => {
@@ -257,80 +280,31 @@ const SegmentDashboardView = ({ segmentRecords, setSegmentRecords }) => {
         <StatCard label="Current Position" value={stats.currentCH} subtext="Latest Finish CH." color="text-indigo-600" icon={MapPin} />
       </div>
 
-      <div className="bg-white p-5 sm:p-8 rounded-3xl shadow-sm border border-slate-100 flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
-        <div>
-          <h2 className="text-xl sm:text-2xl font-black text-slate-800 flex items-center gap-2 tracking-tight">
-            <TrendingUp className="text-emerald-600" size={28} /> Ring Progress Monthly Report
-          </h2>
-          <p className="text-sm text-slate-500 mt-1 font-medium">TBM1 Segment Installation Tracking</p>
-        </div>
-        <div className="flex gap-4 text-xs font-bold bg-slate-50 p-3 sm:p-4 rounded-2xl border border-slate-100 w-full md:w-auto justify-between sm:justify-start shadow-inner">
-          <div className="flex flex-col items-center"><span className="w-4 h-4 rounded bg-yellow-300 mb-1.5 shadow-sm"></span>Day Shift</div>
-          <div className="flex flex-col items-center"><span className="w-4 h-4 rounded bg-blue-500 mb-1.5 shadow-sm"></span>Night Shift</div>
-          {filterMode !== "daily" && (
-            <>
-              <div className="flex flex-col items-center"><span className="w-5 h-1 rounded-full bg-black mt-2 mb-1.5"></span>Plan Acc.</div>
-              <div className="flex flex-col items-center"><span className="w-5 h-1 rounded-full bg-red-500 mt-2 mb-1.5"></span>Actual Acc.</div>
-            </>
-          )}
-        </div>
-      </div>
-
-      <div className="bg-white rounded-3xl shadow-sm border border-slate-100 p-5 sm:p-8 overflow-hidden">
-        <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-6 gap-4">
-          <div className="flex items-center gap-3">
-            <h3 className="font-bold text-slate-800 text-lg">Installation Trend</h3>
-            <button onClick={() => setShowPlanModal(true)} className="p-2 text-slate-400 hover:text-emerald-600 bg-slate-50 hover:bg-emerald-50 rounded-xl transition-colors border border-slate-100 shadow-sm" title="ตั้งค่าแผนงาน (Plan Settings)">
-              <Settings size={16} />
-            </button>
+      {/* Filter Controls */}
+      <div className="bg-white rounded-3xl shadow-sm border border-slate-100 p-5 sm:p-8">
+        <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center w-full bg-slate-50 p-2 rounded-xl border border-slate-100">
+          <div className="flex bg-white rounded-lg p-1 border border-slate-200 shadow-sm w-full sm:w-auto overflow-x-auto">
+            <button onClick={() => setFilterMode("all")} className={`flex-1 sm:flex-none px-3 py-1.5 text-xs rounded-md font-bold transition whitespace-nowrap ${filterMode === "all" ? "bg-emerald-600 text-white shadow" : "text-slate-500 hover:bg-slate-50"}`}>All</button>
+            <button onClick={() => setFilterMode("daily")} className={`flex-1 sm:flex-none px-3 py-1.5 text-xs rounded-md font-bold transition whitespace-nowrap ${filterMode === "daily" ? "bg-emerald-600 text-white shadow" : "text-slate-500 hover:bg-slate-50"}`}>Daily</button>
+            <button onClick={() => setFilterMode("monthly")} className={`flex-1 sm:flex-none px-3 py-1.5 text-xs rounded-md font-bold transition whitespace-nowrap ${filterMode === "monthly" ? "bg-emerald-600 text-white shadow" : "text-slate-500 hover:bg-slate-50"}`}>Monthly</button>
+            <button onClick={() => setFilterMode("range")} className={`flex-1 sm:flex-none px-3 py-1.5 text-xs rounded-md font-bold transition whitespace-nowrap ${filterMode === "range" ? "bg-emerald-600 text-white shadow" : "text-slate-500 hover:bg-slate-50"}`}>Range</button>
           </div>
 
-          <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center w-full lg:w-auto bg-slate-50 p-2 rounded-xl border border-slate-100">
-            <div className="flex bg-white rounded-lg p-1 border border-slate-200 shadow-sm w-full sm:w-auto overflow-x-auto">
-              <button onClick={() => setFilterMode("all")} className={`flex-1 sm:flex-none px-3 py-1.5 text-xs rounded-md font-bold transition whitespace-nowrap ${filterMode === "all" ? "bg-emerald-600 text-white shadow" : "text-slate-500 hover:bg-slate-50"}`}>All</button>
-              <button onClick={() => setFilterMode("daily")} className={`flex-1 sm:flex-none px-3 py-1.5 text-xs rounded-md font-bold transition whitespace-nowrap ${filterMode === "daily" ? "bg-emerald-600 text-white shadow" : "text-slate-500 hover:bg-slate-50"}`}>Daily</button>
-              <button onClick={() => setFilterMode("monthly")} className={`flex-1 sm:flex-none px-3 py-1.5 text-xs rounded-md font-bold transition whitespace-nowrap ${filterMode === "monthly" ? "bg-emerald-600 text-white shadow" : "text-slate-500 hover:bg-slate-50"}`}>Monthly</button>
-              <button onClick={() => setFilterMode("range")} className={`flex-1 sm:flex-none px-3 py-1.5 text-xs rounded-md font-bold transition whitespace-nowrap ${filterMode === "range" ? "bg-emerald-600 text-white shadow" : "text-slate-500 hover:bg-slate-50"}`}>Range</button>
+          {filterMode === "daily" && <input type="date" value={filterDate} onChange={(e) => setFilterDate(e.target.value)} className="px-3 py-1.5 text-xs font-bold border border-slate-200 rounded-lg focus:ring-1 focus:ring-emerald-500 outline-none text-slate-700 w-full sm:w-auto" />}
+          {filterMode === "monthly" && <input type="month" value={filterMonth} onChange={(e) => setFilterMonth(e.target.value)} className="px-3 py-1.5 text-xs font-bold border border-slate-200 rounded-lg focus:ring-1 focus:ring-emerald-500 outline-none text-slate-700 w-full sm:w-auto" />}
+          {filterMode === "range" && (
+            <div className="flex items-center gap-2 w-full sm:w-auto">
+              <input type="date" value={rangeStart} onChange={(e) => setRangeStart(e.target.value)} className="px-2 py-1.5 flex-1 sm:flex-none sm:w-[120px] text-xs font-bold border border-slate-200 rounded-lg focus:ring-1 focus:ring-emerald-500 outline-none text-slate-700" />
+              <span className="text-slate-400">-</span>
+              <input type="date" value={rangeEnd} onChange={(e) => setRangeEnd(e.target.value)} className="px-2 py-1.5 flex-1 sm:flex-none sm:w-[120px] text-xs font-bold border border-slate-200 rounded-lg focus:ring-1 focus:ring-emerald-500 outline-none text-slate-700" />
             </div>
-
-            {filterMode === "daily" && <input type="date" value={filterDate} onChange={(e) => setFilterDate(e.target.value)} className="px-3 py-1.5 text-xs font-bold border border-slate-200 rounded-lg focus:ring-1 focus:ring-emerald-500 outline-none text-slate-700 w-full sm:w-auto" />}
-            {filterMode === "monthly" && <input type="month" value={filterMonth} onChange={(e) => setFilterMonth(e.target.value)} className="px-3 py-1.5 text-xs font-bold border border-slate-200 rounded-lg focus:ring-1 focus:ring-emerald-500 outline-none text-slate-700 w-full sm:w-auto" />}
-            {filterMode === "range" && (
-              <div className="flex items-center gap-2 w-full sm:w-auto">
-                <input type="date" value={rangeStart} onChange={(e) => setRangeStart(e.target.value)} className="px-2 py-1.5 flex-1 sm:flex-none sm:w-[120px] text-xs font-bold border border-slate-200 rounded-lg focus:ring-1 focus:ring-emerald-500 outline-none text-slate-700" />
-                <span className="text-slate-400">-</span>
-                <input type="date" value={rangeEnd} onChange={(e) => setRangeEnd(e.target.value)} className="px-2 py-1.5 flex-1 sm:flex-none sm:w-[120px] text-xs font-bold border border-slate-200 rounded-lg focus:ring-1 focus:ring-emerald-500 outline-none text-slate-700" />
-              </div>
-            )}
-            <div className="w-px h-6 bg-slate-200 hidden sm:block"></div>
-            <select value={filterShift} onChange={(e) => setFilterShift(e.target.value)} className="px-3 py-1.5 text-xs font-bold border border-slate-200 rounded-lg focus:ring-1 focus:ring-emerald-500 outline-none text-slate-700 bg-white cursor-pointer w-full sm:w-auto">
-              <option value="All">All Shifts</option>
-              <option value="Day">Day Shift</option>
-              <option value="Night">Night Shift</option>
-            </select>
-          </div>
-        </div>
-
-        <div className="h-[350px] sm:h-[500px] w-full min-w-full overflow-x-auto">
-          <div className="min-w-[700px] h-full">
-            <ResponsiveContainer>
-              <ComposedChart data={chartData} margin={{ top: 20, right: 20, left: 0, bottom: 20 }}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F1F5F9" />
-                <XAxis dataKey="displayDate" tick={{ fontSize: 10, fill: "#64748b", fontWeight: 500 }} angle={-45} textAnchor="end" height={60} />
-                <YAxis yAxisId="left" domain={[0, filterMode === "daily" ? "auto" : 10]} tick={{ fontSize: 10, fill: "#94A3B8" }} axisLine={false} tickLine={false} />
-                {filterMode !== "daily" && <YAxis yAxisId="right" orientation="right" domain={["auto", "auto"]} tick={{ fontSize: 10, fill: "#94A3B8" }} axisLine={false} tickLine={false} />}
-                <Tooltip contentStyle={{ borderRadius: "12px", border: "none", boxShadow: "0 10px 15px -3px rgb(0 0 0 / 0.1)" }} itemStyle={{ fontSize: "11px", fontWeight: "bold" }} />
-
-                {filterMode !== "daily" && <Line yAxisId="left" type="monotone" dataKey="plan" stroke="#94a3b8" strokeWidth={2} dot={chartData.length <= 24 ? { r: 0 } : { r: 2 }} name="Plan Daily" />}
-                <Bar yAxisId="left" dataKey="dayRings" stackId="a" fill="#fde047" name="Perm. D/S" radius={[0, 0, 0, 0]} maxBarSize={40} />
-                <Bar yAxisId="left" dataKey="nightRings" stackId="a" fill="#3b82f6" name="Perm. N/S" radius={[0, 0, 0, 0]} maxBarSize={40} />
-                <Bar yAxisId="left" dataKey="tempRings" stackId="a" fill="#cbd5e1" name="Temporary" radius={[4, 4, 0, 0]} maxBarSize={40} />
-
-                {filterMode !== "daily" && <Line yAxisId="right" type="monotone" dataKey="planAcc" stroke="#0f172a" strokeWidth={2} dot={chartData.length === 1 ? { r: 3, fill: "#0f172a" } : { r: 2, fill: "#0f172a" }} name="Plan Acc." />}
-                {filterMode !== "daily" && <Line yAxisId="right" type="monotone" dataKey="actualAcc" stroke="#ef4444" strokeWidth={3} dot={chartData.length === 1 ? { r: 4, fill: "#ef4444" } : { r: 3, fill: "#ef4444" }} name="Actual Acc." label={{ position: "top", fill: "#ef4444", fontSize: 10, fontWeight: "900" }} />}
-              </ComposedChart>
-            </ResponsiveContainer>
-          </div>
+          )}
+          <div className="w-px h-6 bg-slate-200 hidden sm:block"></div>
+          <select value={filterShift} onChange={(e) => setFilterShift(e.target.value)} className="px-3 py-1.5 text-xs font-bold border border-slate-200 rounded-lg focus:ring-1 focus:ring-emerald-500 outline-none text-slate-700 bg-white cursor-pointer w-full sm:w-auto">
+            <option value="All">All Shifts</option>
+            <option value="Day">Day Shift</option>
+            <option value="Night">Night Shift</option>
+          </select>
         </div>
       </div>
 
@@ -352,7 +326,7 @@ const SegmentDashboardView = ({ segmentRecords, setSegmentRecords }) => {
             </thead>
             <tbody className="divide-y divide-slate-50">
               {filteredTableRecords.length > 0 ? (
-                [...filteredTableRecords].reverse().map((rec, index) => (
+                filteredTableRecords.map((rec, index) => (
                   <tr key={`${rec.id}-${index}`} onClick={() => { setSelectedRecord(rec); setIsEditing(false); }} className="hover:bg-emerald-50/40 transition-colors cursor-pointer group">
                     <td className="px-6 py-4">
                       <div className="font-bold text-slate-800 text-base">{formatDisplayDate(rec.date)}</div>

@@ -1,18 +1,18 @@
 import React, { useState, useMemo } from "react";
 import {
-  TrendingUp, Layers, Activity, MapPin, Droplet, BarChart3, Clock, Settings, Plus, Save, Trash2, X, Ruler, Maximize2, Loader2
+  TrendingUp, Layers, Activity, MapPin, Droplet, BarChart3, Clock, Settings, Plus, Save, Trash2, X, Ruler, Maximize2, Loader2, AlertCircle, Check, Copy, Sparkles
 } from "lucide-react";
 import StatCard from "../common/StatCard";
 import { formatDisplayDate, formatDisplayTime, parseCH } from "../../utils/formatters";
 import { getRingNumeric, calculateSoilVolume, offsetRingNo } from "../../utils/helpers";
 import { THEORETICAL_VOL, VOL_120, VOL_150, TOTAL_ROUTE_DISTANCE, ROUTE_SEGMENTS } from "../../utils/constants";
-import { apiCall } from "../../utils/api";
+import { apiCall, generateGeminiSummary } from "../../utils/api";
 import {
   ResponsiveContainer, ComposedChart, CartesianGrid, XAxis, YAxis, Tooltip, Bar, Line,
   AreaChart, Area, ReferenceLine, PieChart, Pie, Cell, Legend
 } from "recharts";
 
-const ExecutiveDashboardView = ({ segmentRecords, groutRecords }) => {
+const ExecutiveDashboardView = ({ segmentRecords, groutRecords, shiftReports }) => {
 
   // ── Segment Filter State ──
   const [segFilterMode, setSegFilterMode] = useState("all");
@@ -36,6 +36,65 @@ const ExecutiveDashboardView = ({ segmentRecords, groutRecords }) => {
   const [distRangeStart, setDistRangeStart] = useState("");
   const [distRangeEnd, setDistRangeEnd] = useState("");
   const [expandedChart, setExpandedChart] = useState(null);
+
+  // ── Global Filter State ──
+  const [globalFilterMode, setGlobalFilterMode] = useState("all");
+  const [globalFilterDate, setGlobalFilterDate] = useState(new Date().toISOString().split("T")[0]);
+  const [globalFilterWeek, setGlobalFilterWeek] = useState(() => {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    d.setDate(d.getDate() + 4 - (d.getDay() || 7));
+    const yearStart = new Date(d.getFullYear(), 0, 1);
+    const weekNo = Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+    return `${d.getFullYear()}-W${String(weekNo).padStart(2, '0')}`;
+  });
+  const [globalFilterMonth, setGlobalFilterMonth] = useState(new Date().toISOString().slice(0, 7));
+  const [globalRangeStart, setGlobalRangeStart] = useState("");
+  const [globalRangeEnd, setGlobalRangeEnd] = useState("");
+
+  const getWeekString = (dateObj) => {
+    const d = new Date(dateObj);
+    if (isNaN(d.getTime())) return "";
+    d.setHours(0, 0, 0, 0);
+    d.setDate(d.getDate() + 4 - (d.getDay() || 7));
+    const yearStart = new Date(d.getFullYear(), 0, 1);
+    const weekNo = Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+    return `${d.getFullYear()}-W${String(weekNo).padStart(2, '0')}`;
+  };
+
+  const globalFilteredSegments = useMemo(() => {
+    if (globalFilterMode === "all") return segmentRecords;
+    return segmentRecords.filter(r => {
+      const dDateStr = r.date ? formatDisplayDate(r.date) : "";
+      if (!dDateStr) return false;
+      let pass = true;
+      if (globalFilterMode === "daily") pass = (dDateStr === globalFilterDate);
+      if (globalFilterMode === "weekly") pass = (getWeekString(r.date) === globalFilterWeek);
+      if (globalFilterMode === "monthly") pass = dDateStr.startsWith(globalFilterMonth);
+      if (globalFilterMode === "range") {
+        if (globalRangeStart && dDateStr < globalRangeStart) pass = false;
+        if (globalRangeEnd && dDateStr > globalRangeEnd) pass = false;
+      }
+      return pass;
+    });
+  }, [segmentRecords, globalFilterMode, globalFilterDate, globalFilterWeek, globalFilterMonth, globalRangeStart, globalRangeEnd]);
+
+  const globalFilteredGrout = useMemo(() => {
+    if (globalFilterMode === "all") return groutRecords;
+    return groutRecords.filter(r => {
+      const dDateStr = r.date ? formatDisplayDate(r.date) : "";
+      if (!dDateStr) return false;
+      let pass = true;
+      if (globalFilterMode === "daily") pass = (dDateStr === globalFilterDate);
+      if (globalFilterMode === "weekly") pass = (getWeekString(r.date) === globalFilterWeek);
+      if (globalFilterMode === "monthly") pass = dDateStr.startsWith(globalFilterMonth);
+      if (globalFilterMode === "range") {
+        if (globalRangeStart && dDateStr < globalRangeStart) pass = false;
+        if (globalRangeEnd && dDateStr > globalRangeEnd) pass = false;
+      }
+      return pass;
+    });
+  }, [groutRecords, globalFilterMode, globalFilterDate, globalFilterWeek, globalFilterMonth, globalRangeStart, globalRangeEnd]);
 
   // ── Plan Config ──
   const [showPlanModal, setShowPlanModal] = useState(false);
@@ -98,7 +157,7 @@ const ExecutiveDashboardView = ({ segmentRecords, groutRecords }) => {
 
   const overallStats = useMemo(() => {
     // Deduplicate ทุก records ก่อน (เลือก Completed ก่อน In Progress)
-    const allDeduped = deduplicateRecords(segmentRecords);
+    const allDeduped = deduplicateRecords(globalFilteredSegments);
 
     const permRings = allDeduped.filter(r => r.installType !== "Temporary");
     const tempRings = allDeduped.filter(r => r.installType === "Temporary");
@@ -117,14 +176,14 @@ const ExecutiveDashboardView = ({ segmentRecords, groutRecords }) => {
     }
 
     // Grout stats
-    const groutAvgVol = groutRecords.length > 0
-      ? (groutRecords.reduce((acc, r) => acc + Number(r.total || 0), 0) / groutRecords.length).toFixed(2)
+    const groutAvgVol = globalFilteredGrout.length > 0
+      ? (globalFilteredGrout.reduce((acc, r) => acc + Number(r.total || 0), 0) / globalFilteredGrout.length).toFixed(2)
       : "0.00";
-    const groutAvgRatio = groutRecords.length > 0
-      ? (groutRecords.reduce((acc, r) => acc + Number(r.ratio || 0), 0) / groutRecords.length).toFixed(1)
+    const groutAvgRatio = globalFilteredGrout.length > 0
+      ? (globalFilteredGrout.reduce((acc, r) => acc + Number(r.ratio || 0), 0) / globalFilteredGrout.length).toFixed(1)
       : "0.0";
-    const uniqueGroutedRings = new Set(groutRecords.map(r => r.ringNo)).size;
-    const latestGroutRing = groutRecords.length > 0 ? String(groutRecords[groutRecords.length - 1].ringNo) : "-";
+    const uniqueGroutedRings = new Set(globalFilteredGrout.map(r => r.ringNo)).size;
+    const latestGroutRing = globalFilteredGrout.length > 0 ? String(globalFilteredGrout[globalFilteredGrout.length - 1].ringNo) : "-";
 
     return {
       permRings: permRings.length, tempRings: tempRings.length,
@@ -132,7 +191,7 @@ const ExecutiveDashboardView = ({ segmentRecords, groutRecords }) => {
       totalDistance, totalSoilVol, avgRings, avgDist, currentCH,
       groutAvgVol, groutAvgRatio, uniqueGroutedRings, latestGroutRing
     };
-  }, [segmentRecords, groutRecords]);
+  }, [globalFilteredSegments, globalFilteredGrout]);
 
   // ══════════════════════════════════════════════
   // SECTION: Live Status
@@ -159,15 +218,15 @@ const ExecutiveDashboardView = ({ segmentRecords, groutRecords }) => {
   // ══════════════════════════════════════════════
 
   const groutPending = useMemo(() => {
-    const completedSegs = segmentRecords.filter(s => s.status === "Completed");
+    const completedSegs = globalFilteredSegments.filter(s => s.status === "Completed");
     const latestSeg = completedSegs.length > 0 ? String(completedSegs[completedSegs.length - 1].ringNo) : "-";
-    const latestGrout = groutRecords.length > 0 ? String(groutRecords[groutRecords.length - 1].ringNo) : "-";
+    const latestGrout = globalFilteredGrout.length > 0 ? String(globalFilteredGrout[globalFilteredGrout.length - 1].ringNo) : "-";
     let pending = 0;
     if (latestSeg !== "-" && latestGrout !== "-") {
       pending = Math.max(0, getRingNumeric(latestSeg) - getRingNumeric(latestGrout));
     }
     return { pending, latestSeg, latestGrout };
-  }, [segmentRecords, groutRecords]);
+  }, [globalFilteredSegments, globalFilteredGrout]);
 
   // ══════════════════════════════════════════════
   // SECTION: Day vs Night
@@ -175,7 +234,7 @@ const ExecutiveDashboardView = ({ segmentRecords, groutRecords }) => {
 
   const shiftComparison = useMemo(() => {
     // Deduplicate ก่อนนับ เพื่อไม่ให้ ring ซ้ำนับ 2 รอบ
-    const allDeduped = deduplicateRecords(segmentRecords);
+    const allDeduped = deduplicateRecords(globalFilteredSegments);
     const permDeduped = allDeduped.filter(r => r.installType !== "Temporary");
     const dayCount = permDeduped.filter(r => (r.installShift || r.shift) === "Day").length;
     const nightCount = permDeduped.filter(r => (r.installShift || r.shift) === "Night").length;
@@ -183,16 +242,16 @@ const ExecutiveDashboardView = ({ segmentRecords, groutRecords }) => {
       { name: "Day Shift", value: dayCount, color: "#fde047" },
       { name: "Night Shift", value: nightCount, color: "#3b82f6" }
     ];
-  }, [segmentRecords]);
+  }, [globalFilteredSegments]);
 
   // ══════════════════════════════════════════════
   // SECTION: Segment Chart Data
   // ══════════════════════════════════════════════
 
   const baseSegmentRecords = useMemo(() => {
-    let recordsToFilter = segmentRecords;
+    let recordsToFilter = globalFilteredSegments;
     if (segFilterShift !== "All") {
-      recordsToFilter = segmentRecords.filter(rec => rec.shift === segFilterShift || rec.installShift === segFilterShift || rec.excavShift === segFilterShift);
+      recordsToFilter = globalFilteredSegments.filter(rec => rec.shift === segFilterShift || rec.installShift === segFilterShift || rec.excavShift === segFilterShift);
     }
     return recordsToFilter.filter(rec => {
       const dDate = formatDisplayDate(rec.date);
@@ -289,7 +348,7 @@ const ExecutiveDashboardView = ({ segmentRecords, groutRecords }) => {
   // ══════════════════════════════════════════════
 
   const distanceChartData = useMemo(() => {
-    const allDeduped = deduplicateRecords(segmentRecords);
+    const allDeduped = deduplicateRecords(globalFilteredSegments);
     // เอาเฉพาะ ring ตั้งแต่ P36 เป็นต้นไป (ringNo P36, P37, ...) ที่ไม่ใช่ In Progress
     const fromP36 = allDeduped.filter(r => {
       if (r.status === "In Progress") return false;
@@ -513,8 +572,148 @@ const ExecutiveDashboardView = ({ segmentRecords, groutRecords }) => {
 
   const SHIFT_COLORS = ["#fde047", "#3b82f6"];
 
+  // ── AI Analysis ──
+  const [isGeneratingAI, setIsGeneratingAI] = useState(false);
+  const [showAIModal, setShowAIModal] = useState(false);
+  const [aiSummaryText, setAiSummaryText] = useState("");
+  const [copied, setCopied] = useState(false);
+
+  const globalFilteredShiftReports = useMemo(() => {
+    if (!shiftReports) return [];
+    if (globalFilterMode === "all") return shiftReports;
+    return shiftReports.filter(r => {
+      const dDateStr = r.date ? formatDisplayDate(r.date) : "";
+      if (!dDateStr) return false;
+      let pass = true;
+      if (globalFilterMode === "daily") pass = (dDateStr === globalFilterDate);
+      if (globalFilterMode === "weekly") pass = (getWeekString(r.date) === globalFilterWeek);
+      if (globalFilterMode === "monthly") pass = dDateStr.startsWith(globalFilterMonth);
+      if (globalFilterMode === "range") {
+        if (globalRangeStart && dDateStr < globalRangeStart) pass = false;
+        if (globalRangeEnd && dDateStr > globalRangeEnd) pass = false;
+      }
+      return pass;
+    });
+  }, [shiftReports, globalFilterMode, globalFilterDate, globalFilterWeek, globalFilterMonth, globalRangeStart, globalRangeEnd]);
+
+  const getDuration = (start, end) => {
+    if (!start || !end) return 0;
+    let [h1, m1] = start.split(':').map(Number);
+    let [h2, m2] = end.split(':').map(Number);
+    let mins1 = h1 * 60 + m1;
+    let mins2 = h2 * 60 + m2;
+    if (mins2 < mins1) mins2 += 24 * 60;
+    return mins2 - mins1;
+  };
+
+  const handleGenerateDelaySummary = async () => {
+    setIsGeneratingAI(true);
+    setShowAIModal(true);
+    setAiSummaryText("");
+    setCopied(false);
+
+    const allRemarks = [
+      ...globalFilteredSegments.filter((s) => s.remark).map((s) => ({ ring: s.ringNo, module: "Segment", text: s.remark })),
+      ...globalFilteredGrout.filter((g) => g.remark).map((g) => ({ ring: g.ringNo, module: "Grout", text: g.remark })),
+    ];
+
+    let delaySummary = {};
+    let totalDelayMins = 0;
+    globalFilteredShiftReports.forEach(sr => {
+      Object.keys(sr.events || {}).forEach(activity => {
+        if (!['Excavation', 'Segment Erection', 'Locomotive / Rail System', 'Survey', 'Other 1', 'Other 2'].includes(activity)) {
+          let duration = sr.events[activity].reduce((acc, ev) => acc + getDuration(ev.start, ev.end), 0);
+          if (duration > 0) { delaySummary[activity] = (delaySummary[activity] || 0) + duration; totalDelayMins += duration; }
+        }
+      });
+    });
+
+    const delayDetails = Object.entries(delaySummary).length > 0 ? Object.entries(delaySummary).map(([k, v]) => `- ${k}: ${v} นาที`).join('\n') : '- ไม่มีบันทึกเวลาหยุดชะงัก (Delay)';
+    const remarksText = allRemarks.length > 0 ? allRemarks.map(r => `- [${r.module} วงที่ ${r.ring}] ${String(r.text)}`).join('\n') : '- ไม่มีปัญหาอุปสรรคที่ถูกบันทึก';
+    
+    let displayDateStr = "ทั้งหมด (All)";
+    if (globalFilterMode === "daily") displayDateStr = globalFilterDate;
+    if (globalFilterMode === "weekly") displayDateStr = globalFilterWeek;
+    if (globalFilterMode === "monthly") displayDateStr = globalFilterMonth;
+    if (globalFilterMode === "range") displayDateStr = `${globalRangeStart} ถึง ${globalRangeEnd}`;
+
+    const promptText = `อ้างอิงข้อมูลปัญหาและความล่าช้า:
+ช่วงเวลา: ${displayDateStr}
+Total Downtime: ${totalDelayMins} นาที
+
+หมวดหมู่เวลาที่สูญเสีย:
+${delayDetails}
+
+ปัญหาเรื้อรังจากบันทึกหน้างาน (Remarks):
+${remarksText}
+
+คุณคือวิศวกรที่ปรึกษาอาวุโสด้านการขุดเจาะอุโมงค์ TBM ให้ความเห็นและวิเคราะห์สาเหตุ (Root Cause Analysis) แด่ผู้บริหาร 
+ห้ามใช้คำทักทาย ห้ามเขียนเป็นเรียงความ ให้ใช้ภาษาวิศวกรผู้เชี่ยวชาญที่มีความเป็นมนุษย์ โทนตื่นตัว มืออาชีพแต่เข้าใจง่าย และให้ข้อเสนอแนะที่ปฏิบัติได้จริง 
+
+รูปแบบที่ต้องการ:
+📌 บทสรุปผู้บริหารย่อ (Overview)
+[สรุปสั้นๆ 2-3 บรรทัด ว่าช่วงเวลานี้เกิดภาพรวมปัญหาอะไรขึ้นบ้าง]
+
+⚠️ การวิเคราะห์สาเหตุและความเชื่อมโยง (Root Cause & Insight)
+- [วิเคราะห์แบบเจาะลึกจาก Remarks และ Delay Time ให้น้ำหนักเรื่องที่มีผลกระทบมากที่สุดก่อน (อธิบายเป็น Bullet)]
+
+💡 แผนปฏิบัติการและข้อเสนอแนะเชิงรุก (Proactive Action Plan)
+- [แนะนำวิธีจัดการหรือป้องกันสำหรับหน้างาน หรือการบำรุงรักษาเชิงป้องกัน (อธิบายเป็น Bullet)]`;
+
+    const sysPrompt = "คุณคือวิศวกรวิเคราะห์ข้อมูล TBM Consultant อาวุโส สนทนาด้วยภาษาแบบผู้เชี่ยวชาญที่มีความเป็นมนุษย์ (วิเคราะห์เชิงลึก ขบคิด และไม่เหมือนหุ่นยนต์) กระชับ ตรงจุด จัดหน้าอ่านง่ายด้วย Bullet points";
+
+    try {
+      const resultText = await generateGeminiSummary(promptText, sysPrompt);
+      setAiSummaryText(resultText);
+    } catch (error) { setAiSummaryText("ขออภัย เกิดข้อผิดพลาดในการเชื่อมต่อกับ AI กรุณาลองใหม่อีกครั้ง: " + error.message); } finally { setIsGeneratingAI(false); }
+  };
+
+  const copyToClipboard = () => {
+    const textArea = document.createElement("textarea");
+    textArea.value = aiSummaryText;
+    document.body.appendChild(textArea);
+    textArea.select();
+    try { document.execCommand("copy"); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch (err) { console.error('Failed to copy', err); }
+    document.body.removeChild(textArea);
+  };
+
   return (
     <div className="max-w-7xl mx-auto space-y-6 sm:space-y-8 animate-fade-in pb-24">
+
+      {/* ═══ GLOBAL FILTER BAR ═══ */}
+      <div className="bg-white rounded-3xl p-5 shadow-sm border border-slate-200 flex flex-col md:flex-row gap-4 items-start md:items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="bg-[#2e266a] text-white p-2.5 rounded-xl shadow-md">
+            <Settings size={20} />
+          </div>
+          <div>
+            <h3 className="text-lg font-black text-slate-800 tracking-tight">Global Dashboard Filter</h3>
+            <p className="text-xs font-bold text-slate-400">กรองข้อมูลภาพรวมทั้งหน้าหลัก</p>
+          </div>
+        </div>
+        <div className="flex flex-col xl:flex-row gap-3 w-full md:w-auto overflow-hidden">
+          <div className="flex bg-slate-50 border border-slate-200 rounded-lg p-1 shadow-inner overflow-x-auto w-full xl:w-auto shrink-0">
+            {["all", "daily", "weekly", "monthly", "range"].map(m => (
+              <button key={m} onClick={() => setGlobalFilterMode(m)} className={`px-4 py-2 text-xs rounded-md font-bold transition whitespace-nowrap ${globalFilterMode === m ? "bg-[#2e266a] text-white shadow" : "text-slate-500 hover:bg-white"}`}>
+                {m === "all" ? "ทั้งหมด (All)" : m === "daily" ? "รายวัน (Daily)" : m === "weekly" ? "รายสัปดาห์ (Weekly)" : m === "monthly" ? "รายเดือน (Monthly)" : "กำหนดช่วง (Range)"}
+              </button>
+            ))}
+          </div>
+          
+          <div className="flex items-center gap-2 shrink-0">
+            {globalFilterMode === "daily" && <input type="date" value={globalFilterDate} onChange={e => setGlobalFilterDate(e.target.value)} className="px-3 py-2 text-xs font-bold border border-slate-200 rounded-lg focus:ring-1 focus:ring-[#2e266a] outline-none text-slate-700 bg-white" />}
+            {globalFilterMode === "weekly" && <input type="week" value={globalFilterWeek} onChange={e => setGlobalFilterWeek(e.target.value)} className="px-3 py-2 text-xs font-bold border border-slate-200 rounded-lg focus:ring-1 focus:ring-[#2e266a] outline-none text-slate-700 bg-white" />}
+            {globalFilterMode === "monthly" && <input type="month" value={globalFilterMonth} onChange={e => setGlobalFilterMonth(e.target.value)} className="px-3 py-2 text-xs font-bold border border-slate-200 rounded-lg focus:ring-1 focus:ring-[#2e266a] outline-none text-slate-700 bg-white" />}
+            {globalFilterMode === "range" && (
+              <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-lg px-2">
+                <input type="date" value={globalRangeStart} onChange={e => setGlobalRangeStart(e.target.value)} className="py-2 flex-1 w-[120px] text-xs font-bold bg-transparent outline-none text-slate-700" />
+                <span className="text-slate-300">-</span>
+                <input type="date" value={globalRangeEnd} onChange={e => setGlobalRangeEnd(e.target.value)} className="py-2 flex-1 w-[120px] text-xs font-bold bg-transparent outline-none text-slate-700" />
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
 
       {/* ═══ SECTION 1: Project Header + Live Status ═══ */}
       <div className={`rounded-3xl p-6 sm:p-8 text-white relative overflow-hidden shadow-xl ${liveStatus.state === "EXCAVATING" ? "bg-gradient-to-br from-amber-500 to-orange-600" :
@@ -523,23 +722,26 @@ const ExecutiveDashboardView = ({ segmentRecords, groutRecords }) => {
             "bg-gradient-to-br from-blue-600 to-indigo-700"
         }`}>
         <div className="absolute top-0 right-0 w-64 h-64 bg-white/10 rounded-full blur-3xl -mr-10 -mt-10 pointer-events-none"></div>
-        <div className="relative z-10">
-          <div className="flex items-center gap-2 mb-2">
-            {liveStatus.state !== "IDLE" && <span className="relative flex h-3 w-3"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span><span className="relative inline-flex rounded-full h-3 w-3 bg-white"></span></span>}
-            <span className="text-xs font-extrabold uppercase tracking-widest opacity-90">TBM1 Executive Dashboard</span>
+        <div className="relative z-10 flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
+          <div>
+            <div className="flex items-center gap-2 mb-2">
+              {liveStatus.state !== "IDLE" && <span className="relative flex h-3 w-3"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span><span className="relative inline-flex rounded-full h-3 w-3 bg-white"></span></span>}
+              <span className="text-xs font-extrabold uppercase tracking-widest opacity-90">TBM1 Executive Dashboard</span>
+            </div>
+            <h2 className="text-2xl sm:text-4xl font-black mb-1 tracking-tight drop-shadow-sm">
+              {liveStatus.state === "EXCAVATING" && "กำลังขุดเจาะดิน"}
+              {liveStatus.state === "INSTALLING" && "กำลังประกอบ Ring"}
+              {liveStatus.state === "WAITING" && "ขุดเจาะเสร็จ รอประกอบ"}
+              {liveStatus.state === "IDLE" && "เครื่องจักรจอดพัก"}
+              {liveStatus.state === "IN_PROGRESS" && "กำลังทำงาน"}
+            </h2>
+            <div className="flex flex-wrap items-center gap-3 text-lg sm:text-xl font-bold opacity-90">
+              <span>Ring: <span className="bg-white/20 px-3 py-0.5 rounded-xl backdrop-blur-sm">{liveStatus.ring}</span></span>
+              <span className="hidden sm:inline opacity-60">|</span>
+              <span className="flex items-center gap-1.5"><Clock size={16} className="opacity-80" /> {liveStatus.desc}</span>
+            </div>
           </div>
-          <h2 className="text-2xl sm:text-4xl font-black mb-1 tracking-tight drop-shadow-sm">
-            {liveStatus.state === "EXCAVATING" && "กำลังขุดเจาะดิน"}
-            {liveStatus.state === "INSTALLING" && "กำลังประกอบ Ring"}
-            {liveStatus.state === "WAITING" && "ขุดเจาะเสร็จ รอประกอบ"}
-            {liveStatus.state === "IDLE" && "เครื่องจักรจอดพัก"}
-            {liveStatus.state === "IN_PROGRESS" && "กำลังทำงาน"}
-          </h2>
-          <div className="flex flex-wrap items-center gap-3 text-lg sm:text-xl font-bold opacity-90">
-            <span>Ring: <span className="bg-white/20 px-3 py-0.5 rounded-xl backdrop-blur-sm">{liveStatus.ring}</span></span>
-            <span className="hidden sm:inline opacity-60">|</span>
-            <span className="flex items-center gap-1.5"><Clock size={16} className="opacity-80" /> {liveStatus.desc}</span>
-          </div>
+          <button onClick={handleGenerateDelaySummary} disabled={isGeneratingAI} className="w-full md:w-auto bg-gradient-to-r from-orange-400 to-red-500 hover:from-orange-500 hover:to-red-600 border border-white/20 text-white px-5 py-3 rounded-xl flex items-center justify-center gap-2 font-bold shadow-lg transition-all active:scale-95 whitespace-nowrap text-sm"><Sparkles size={18} /> <span className="hidden sm:inline">วิเคราะห์ปัญหา AI</span><span className="sm:hidden">วิเคราะห์ AI</span></button>
         </div>
       </div>
 
@@ -619,33 +821,37 @@ const ExecutiveDashboardView = ({ segmentRecords, groutRecords }) => {
       </div>
 
       {/* ═══ SECTION 3: Segment Installation Trend ═══ */}
-      <div className="bg-white p-5 sm:p-8 rounded-3xl shadow-sm border border-slate-100 flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
-        <div>
-          <h2 className="text-xl sm:text-2xl font-black text-slate-800 flex items-center gap-2 tracking-tight">
-            <TrendingUp className="text-emerald-600" size={28} /> Ring Progress
-          </h2>
-          <p className="text-sm text-slate-500 mt-1 font-medium">TBM1 Segment Installation Tracking</p>
-        </div>
-        <div className="flex gap-4 text-xs font-bold bg-slate-50 p-3 rounded-2xl border border-slate-100 w-full md:w-auto justify-between sm:justify-start shadow-inner">
-          <div className="flex flex-col items-center"><span className="w-4 h-4 rounded bg-yellow-300 mb-1.5 shadow-sm"></span>Day</div>
-          <div className="flex flex-col items-center"><span className="w-4 h-4 rounded bg-blue-500 mb-1.5 shadow-sm"></span>Night</div>
-          {segFilterMode !== "daily" && <>
-            <div className="flex flex-col items-center"><span className="w-5 h-1 rounded-full bg-black mt-2 mb-1.5"></span>Plan</div>
-            <div className="flex flex-col items-center"><span className="w-5 h-1 rounded-full bg-red-500 mt-2 mb-1.5"></span>Actual</div>
-          </>}
-        </div>
-      </div>
-
       <div className="bg-white rounded-3xl shadow-sm border border-slate-100 p-5 sm:p-8 overflow-hidden">
-        <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-6 gap-4">
-          <div className="flex items-center gap-3">
-            <h3 className="font-bold text-slate-800 text-lg">Installation Trend</h3>
-            <div className="flex bg-slate-50 border border-slate-100 rounded-lg p-0.5 shadow-sm">
-              <button onClick={() => setExpandedChart('segment')} className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-white rounded-md transition-colors" title="Expand Chart"><Maximize2 size={16} /></button>
-              <button onClick={() => setShowPlanModal(true)} className="p-1.5 text-slate-400 hover:text-emerald-600 hover:bg-white rounded-md transition-colors" title="Plan Settings"><Settings size={16} /></button>
-            </div>
+        
+        {/* Header - Title & Legend */}
+        <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-8 gap-4 border-b border-slate-100 pb-5">
+          <div className="flex flex-col gap-1 w-full lg:w-auto">
+            <h2 className="text-xl sm:text-2xl font-black text-[#2e266a] tracking-tight flex items-center gap-2">
+              <TrendingUp className="text-emerald-600" size={28} /> รายงานความก้าวหน้างานขุดเจาะอุโมงค์ TBM1 (Rings/Day)
+            </h2>
+            <p className="text-sm text-slate-500 font-medium ml-9">TBM1 Segment Installation Tracking (Ring Progress)</p>
           </div>
-          <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center w-full lg:w-auto bg-slate-50 p-2 rounded-xl border border-slate-100">
+          
+          <div className="flex gap-4 text-xs font-bold bg-slate-50 p-3 rounded-2xl border border-slate-100 shadow-inner shrink-0 items-center justify-between sm:justify-end w-full lg:w-auto">
+            <div className="flex items-center gap-2"><span className="w-4 h-4 rounded-md bg-[#fde047] shadow-sm"></span>Day Shift</div>
+            <div className="flex items-center gap-2"><span className="w-4 h-4 rounded-md bg-[#3b82f6] shadow-sm"></span>Night Shift</div>
+            {segFilterMode !== "daily" && <>
+              <div className="w-px h-6 bg-slate-300 mx-1 hidden sm:block"></div>
+              <div className="flex items-center gap-2"><span className="w-5 h-1 rounded-full bg-slate-900 shadow-sm"></span>Plan Acc.</div>
+              <div className="flex items-center gap-2"><span className="w-5 h-1.5 rounded-full bg-red-500 shadow-sm"></span>Actual Acc.</div>
+            </>}
+          </div>
+        </div>
+
+        {/* Filters and Controls */}
+        <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-6 gap-4">
+          <div className="flex items-center bg-slate-50 border border-slate-200 rounded-xl p-1 shadow-sm shrink-0">
+            <button onClick={() => setExpandedChart('segment')} className="px-3 py-1.5 flex items-center gap-2 text-xs font-bold text-slate-600 hover:text-blue-600 hover:bg-white rounded-lg transition-colors bg-white border border-slate-100 shadow-sm" title="Expand Chart"><Maximize2 size={16} /> ขยายจอภาพ</button>
+            <div className="w-px h-5 bg-slate-300 mx-2 hidden sm:block"></div>
+            <button onClick={() => setShowPlanModal(true)} className="px-3 py-1.5 flex items-center gap-2 text-xs font-bold text-slate-600 hover:text-emerald-600 hover:bg-white rounded-lg transition-colors border border-transparent" title="Plan Settings"><Settings size={16} /> ตั้งค่าแผนงาน</button>
+          </div>
+
+          <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center w-full lg:w-auto bg-slate-50 p-2 rounded-xl border border-slate-100 shrink-0">
             <div className="flex bg-white rounded-lg p-1 border border-slate-200 shadow-sm w-full sm:w-auto overflow-x-auto">
               {["all", "daily", "monthly", "range"].map(m => (
                 <button key={m} onClick={() => setSegFilterMode(m)} className={`flex-1 sm:flex-none px-3 py-1.5 text-xs rounded-md font-bold transition whitespace-nowrap ${segFilterMode === m ? "bg-emerald-600 text-white shadow" : "text-slate-500 hover:bg-slate-50"}`}>{m === "all" ? "All" : m === "daily" ? "Daily" : m === "monthly" ? "Monthly" : "Range"}</button>
@@ -670,11 +876,11 @@ const ExecutiveDashboardView = ({ segmentRecords, groutRecords }) => {
         <div className="h-[350px] sm:h-[500px] w-full">
           <div className="w-full h-full">
             <ResponsiveContainer>
-              <ComposedChart data={segChartData} margin={{ top: 20, right: 20, left: 0, bottom: 20 }}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F1F5F9" />
-                <XAxis dataKey="displayDate" tick={{ fontSize: 10, fill: "#64748b", fontWeight: 500 }} angle={-45} textAnchor="end" height={60} />
-                <YAxis yAxisId="left" domain={[0, segFilterMode === "daily" ? "auto" : 10]} tick={{ fontSize: 10, fill: "#94A3B8" }} axisLine={false} tickLine={false} />
-                {segFilterMode !== "daily" && <YAxis yAxisId="right" orientation="right" domain={["auto", "auto"]} tick={{ fontSize: 10, fill: "#94A3B8" }} axisLine={false} tickLine={false} />}
+              <ComposedChart data={segChartData} margin={{ top: 20, right: 30, left: 10, bottom: 20 }}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" />
+                <XAxis dataKey="displayDate" tick={{ fontSize: 10, fill: "#475569", fontWeight: "bold" }} angle={-45} textAnchor="end" height={80} stroke="#94a3b8" label={{ value: "วันที่ (Date)", position: "insideBottom", offset: -20, fill: "#475569", fontSize: 12, fontWeight: "bold" }} />
+                <YAxis yAxisId="left" domain={[0, segFilterMode === "daily" ? "auto" : 10]} tick={{ fontSize: 10, fill: "#475569", fontWeight: "bold" }} axisLine={{ stroke: '#cbd5e1' }} tickLine={false} label={{ value: 'อัตราการขุดเจาะ (Rings / Day)', angle: -90, position: 'insideLeft', offset: -5, fill: '#475569', fontSize: 11, fontWeight: 'bold' }} />
+                {segFilterMode !== "daily" && <YAxis yAxisId="right" orientation="right" domain={["auto", "auto"]} tick={{ fontSize: 10, fill: "#475569", fontWeight: "bold" }} axisLine={{ stroke: '#cbd5e1' }} tickLine={false} label={{ value: 'สะสม (Cumulative Rings)', angle: 90, position: 'insideRight', offset: -5, fill: '#475569', fontSize: 11, fontWeight: 'bold' }} />}
                 <Tooltip contentStyle={{ borderRadius: "12px", border: "none", boxShadow: "0 10px 15px -3px rgb(0 0 0 / 0.1)" }} itemStyle={{ fontSize: "11px", fontWeight: "bold" }} />
                 {segFilterMode !== "daily" && <Line yAxisId="left" type="monotone" dataKey="plan" stroke="#94a3b8" strokeWidth={2} dot={segChartData.length <= 24 ? { r: 0 } : { r: 2 }} name="Plan Daily" />}
                 <Bar yAxisId="left" dataKey="dayRings" stackId="a" fill="#fde047" name="Perm. D/S" radius={[0, 0, 0, 0]} maxBarSize={40} />
@@ -688,13 +894,13 @@ const ExecutiveDashboardView = ({ segmentRecords, groutRecords }) => {
         </div>
       </div>
 
-      {/* ═══ SECTION 3.5: รายงานความก้าวหน้างานขุดเจาะอุโมงค์ TBM1 — แบ่ง 3 ส่วน ═══ */}
+      {/* ═══ SECTION 3.5: แผนผังสถานะเส้นทางและตำแหน่ง TBM1 ปัจจุบัน ═══ */}
       <div className="bg-white p-4 sm:p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col gap-2">
         {/* Header แถวที่ 1 */}
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center">
           <div>
             <h2 className="text-xl sm:text-2xl font-black text-[#2e266a] tracking-tight">
-              รายงานความก้าวหน้างานขุดเจาะอุโมงค์ TBM1
+              แผนผังสถานะเส้นทางและตำแหน่ง TBM1 ปัจจุบัน
             </h2>
             <div className="text-xs sm:text-sm text-slate-500 mt-2 font-medium tracking-tight space-y-0.5">
               <p><span className="font-bold text-slate-700">เฟส 1 (Main Bore):</span> IS4-1 → IS2 → IS1 TBM เจาะต่อเนื่อง (เฟสปัจจุบัน)</p>
@@ -1512,6 +1718,42 @@ const ExecutiveDashboardView = ({ segmentRecords, groutRecords }) => {
           </div>
         </div>
       )}
+      {/* ═══ DASHBOARD AI MODAL ═══ */}
+      {showAIModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 bg-slate-900/60 backdrop-blur-md animate-fade-in no-print">
+          <div className="bg-white rounded-[2rem] w-full max-w-2xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh] sm:max-h-[90vh] transform transition-all border border-white/20">
+            <div className="px-6 py-5 text-white flex justify-between items-center shrink-0 bg-gradient-to-r from-orange-500 to-red-600">
+              <h3 className="font-black text-lg sm:text-xl flex items-center gap-3 tracking-tight">
+                <AlertCircle size={24} className="text-orange-200" />
+                AI Delay & Issue Analysis
+              </h3>
+              <button onClick={() => setShowAIModal(false)} className="text-white/70 hover:text-white bg-white/10 hover:bg-white/20 rounded-full p-2 transition-colors"><X size={20} /></button>
+            </div>
+
+            <div className="p-6 sm:p-8 bg-slate-50 relative min-h-[200px] overflow-y-auto flex-1 hide-scrollbar">
+              {isGeneratingAI ? (
+                <div className="flex flex-col items-center justify-center py-12 text-orange-500 h-full gap-4">
+                  <Loader2 size={48} className="animate-spin" />
+                  <p className="font-bold animate-pulse text-base sm:text-lg">AI Consultant กำลังวิเคราะห์ข้อมูลเชิงลึก...</p>
+                </div>
+              ) : (
+                <div className="prose prose-sm sm:prose-base max-w-none text-slate-700 whitespace-pre-wrap leading-relaxed font-medium">{aiSummaryText}</div>
+              )}
+            </div>
+
+            {!isGeneratingAI && aiSummaryText && (
+              <div className="bg-white px-6 py-4 border-t border-slate-100 flex flex-col sm:flex-row justify-between items-center shrink-0 gap-4">
+                <p className="text-[10px] sm:text-xs text-slate-400 font-bold flex items-center gap-1.5 text-center sm:text-left"><Sparkles size={12} /> ข้อมูลประเมินโดย AI โปรดใช้วิจารณญาณร่วมในการตัดสินใจ</p>
+                <button onClick={copyToClipboard} className="flex items-center justify-center gap-2 px-6 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl font-bold text-sm transition-colors shadow-lg active:scale-95 w-full sm:w-auto">
+                  {copied ? <Check size={18} className="text-emerald-400" /> : <Copy size={18} />}
+                  {copied ? "คัดลอกลงคลิปบอร์ดแล้ว!" : "คัดลอกการวิเคราะห์"}
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
     </div>
   );
 };

@@ -291,67 +291,7 @@ ${remarksText}
     } catch (error) { setAiSummaryText("ขออภัย เกิดข้อผิดพลาดในการเชื่อมต่อกับ AI กรุณาลองใหม่อีกครั้ง: " + error.message); } finally { setIsGeneratingAI(false); }
   };
 
-  const getDuration = (start, end) => {
-    if (!start || !end) return 0;
-    let [h1, m1] = start.split(':').map(Number);
-    let [h2, m2] = end.split(':').map(Number);
-    let mins1 = h1 * 60 + m1;
-    let mins2 = h2 * 60 + m2;
-    if (mins2 < mins1) mins2 += 24 * 60;
-    return mins2 - mins1;
-  };
 
-  const handleGenerateDelaySummary = async () => {
-    setIsGeneratingAI(true);
-    setAiModalType("delay");
-    setShowAIModal(true);
-    setAiSummaryText("");
-    setCopied(false);
-
-    let delaySummary = {};
-    let totalDelayMins = 0;
-    filteredShiftReports.forEach(sr => {
-      Object.keys(sr.events || {}).forEach(activity => {
-        if (!['Excavation', 'Segment Erection', 'Locomotive / Rail System', 'Survey', 'Other 1', 'Other 2'].includes(activity)) {
-          let duration = sr.events[activity].reduce((acc, ev) => acc + getDuration(ev.start, ev.end), 0);
-          if (duration > 0) { delaySummary[activity] = (delaySummary[activity] || 0) + duration; totalDelayMins += duration; }
-        }
-      });
-    });
-
-    const delayDetails = Object.entries(delaySummary).length > 0 ? Object.entries(delaySummary).map(([k, v]) => `- ${k}: ${v} นาที`).join('\n') : '- ไม่มีบันทึกเวลาหยุดชะงัก (Delay)';
-    const remarksText = summary.allRemarks.length > 0 ? summary.allRemarks.map(r => `- [${r.module} วงที่ ${r.ring}] ${String(r.text)}`).join('\n') : '- ไม่มีปัญหาอุปสรรคที่ถูกบันทึก';
-
-    const promptText = `ข้อมูลอ้างอิงสำหรับวิเคราะห์ความล่าช้า/อุปสรรค:
-- วันที่/เดือน: ${displayDateStr} ${reportShift !== 'All' ? reportShift + ' Shift' : ''}
-- เวลาสูญเสียรวม (Total Downtime): ${totalDelayMins} นาที
-รายละเอียดเวลาที่สูญเสียแยกตามหมวดหมู่:
-${delayDetails}
-ปัญหาและอุปสรรคที่พบจากหน้างาน (Remarks):
-${remarksText}
-
-คำสั่ง: คุณคือวิศวกรที่ปรึกษาด้านการขุดเจาะอุโมงค์ TBM ห้ามเขียนเป็นเรียงความยาวๆ เด็ดขาด! ให้สรุปรายงานให้อ่านง่ายที่สุด เข้าใจได้ใน 1 นาที โดยใช้รูปแบบหัวข้อย่อยและ Emoji นำสายตา
-กรุณาจัดรูปแบบผลลัพธ์ตามโครงสร้างนี้เท่านั้น:
-📊 สรุปข้อมูลความล่าช้า (Downtime Summary)
-- รวมเวลาล่าช้าทั้งหมด: [ใส่ตัวเลข] นาที
-- งานที่ทำให้เสียเวลามากที่สุด: [ระบุชื่อและเวลา]
-
-⚠️ วิเคราะห์สาเหตุหลัก (Root Cause Analysis)
-- [สรุปสาเหตุจากข้อมูล Remarks และ Delay เป็นข้อๆ สั้นและกระชับ]
-
-📉 ผลกระทบต่องาน (Impact)
-- [สรุปสั้นๆ ว่าส่งผลกระทบต่อระยะทางหรือเวลาอย่างไร]
-
-💡 ข้อเสนอแนะและแผนป้องกัน (Action Plan)
-- [ข้อเสนอแนะสั้นๆ 1-2 ข้อ]`;
-
-    const sysPrompt = "คุณคือวิศวกรผู้เชี่ยวชาญด้านการขุดเจาะอุโมงค์ TBM ห้ามตอบเป็นเรียงความ ให้ตอบในรูปแบบหัวข้อย่อย (Bullet points) ที่กระชับ ตรงประเด็น สั้นที่สุด และอ่านง่ายที่สุด";
-
-    try {
-      const resultText = await generateGeminiSummary(promptText, sysPrompt);
-      setAiSummaryText(resultText);
-    } catch (error) { setAiSummaryText("ขออภัย เกิดข้อผิดพลาดในการเชื่อมต่อกับ AI กรุณาลองใหม่อีกครั้ง: " + error.message); } finally { setIsGeneratingAI(false); }
-  };
 
   const copyToClipboard = () => {
     const textArea = document.createElement("textarea");
@@ -379,8 +319,7 @@ ${remarksText}
           <div className="grid grid-cols-2 sm:flex sm:flex-row items-center gap-2 sm:gap-3 w-full lg:w-auto">
             <button onClick={handleDownloadImage} disabled={isExportingImage} className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-white px-3 sm:px-4 py-2.5 rounded-xl flex items-center justify-center gap-1.5 font-bold shadow-md shadow-blue-200 transition-colors whitespace-nowrap text-xs sm:text-sm">{isExportingImage ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />} <span className="hidden sm:inline">เซฟรูปภาพ</span><span className="sm:hidden">เซฟรูป</span></button>
             <button onClick={() => window.print()} className="w-full sm:w-auto bg-slate-800 hover:bg-slate-900 text-white px-3 sm:px-4 py-2.5 rounded-xl flex items-center justify-center gap-1.5 font-bold shadow-md transition-colors whitespace-nowrap text-xs sm:text-sm"><Printer size={16} /> <span className="hidden sm:inline">Print PDF</span><span className="sm:hidden">Print</span></button>
-            <button onClick={handleGenerateAISummary} className="w-full sm:w-auto bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white px-3 sm:px-4 py-2.5 rounded-xl flex items-center justify-center gap-1.5 font-bold shadow-md shadow-indigo-200 transition-all active:scale-95 whitespace-nowrap text-xs sm:text-sm"><Sparkles size={16} /> สรุปรายงาน</button>
-            <button onClick={handleGenerateDelaySummary} className="w-full sm:w-auto bg-gradient-to-r from-orange-500 to-red-600 hover:from-orange-600 hover:to-red-700 text-white px-3 sm:px-4 py-2.5 rounded-xl flex items-center justify-center gap-1.5 font-bold shadow-md shadow-orange-200 transition-all active:scale-95 whitespace-nowrap text-xs sm:text-sm"><AlertCircle size={16} /> วิเคราะห์ปัญหา</button>
+            <button onClick={handleGenerateAISummary} className="col-span-2 w-full sm:w-auto bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white px-3 sm:px-4 py-2.5 rounded-xl flex items-center justify-center gap-1.5 font-bold shadow-md shadow-indigo-200 transition-all active:scale-95 whitespace-nowrap text-xs sm:text-sm"><Sparkles size={16} /> สรุปรายงานประจำวัน</button>
           </div>
         </div>
       </div>
@@ -536,10 +475,10 @@ ${remarksText}
       {showAIModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 bg-slate-900/60 backdrop-blur-md animate-fade-in no-print">
           <div className="bg-white rounded-[2rem] w-full max-w-2xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh] sm:max-h-[90vh] transform transition-all border border-white/20">
-            <div className={`px-6 py-5 text-white flex justify-between items-center shrink-0 ${aiModalType === 'executive' ? 'bg-gradient-to-r from-purple-600 to-indigo-600' : 'bg-gradient-to-r from-orange-500 to-red-600'}`}>
+            <div className="px-6 py-5 text-white flex justify-between items-center shrink-0 bg-gradient-to-r from-purple-600 to-indigo-600">
               <h3 className="font-black text-lg sm:text-xl flex items-center gap-3 tracking-tight">
-                {aiModalType === 'executive' ? <Sparkles size={24} className="text-purple-200" /> : <AlertCircle size={24} className="text-orange-200" />}
-                {aiModalType === 'executive' ? 'AI Executive Summary' : 'AI Delay & Issue Analysis'}
+                <Sparkles size={24} className="text-purple-200" />
+                AI Executive Summary
               </h3>
               <button onClick={() => setShowAIModal(false)} className="text-white/70 hover:text-white bg-white/10 hover:bg-white/20 rounded-full p-2 transition-colors"><X size={20} /></button>
             </div>

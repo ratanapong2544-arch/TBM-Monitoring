@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from "react";
 import {
-  TrendingUp, Layers, Activity, MapPin, Droplet, BarChart3, Clock, Settings, Plus, Save, Trash2, X, Ruler, Maximize2, Loader2, AlertCircle, Check, Copy, Sparkles
+  TrendingUp, Layers, Activity, MapPin, Droplet, BarChart3, Clock, Settings, Plus, Save, Trash2, X, Ruler, Maximize2, Loader2, AlertCircle, Check, Copy, Sparkles, Printer
 } from "lucide-react";
 import StatCard from "../common/StatCard";
 import { formatDisplayDate, formatDisplayTime, parseCH } from "../../utils/formatters";
@@ -13,6 +13,20 @@ import {
 } from "recharts";
 
 const ExecutiveDashboardView = ({ segmentRecords, groutRecords, shiftReports }) => {
+  const [printingChartId, setPrintingChartId] = useState("all");
+
+  const handlePrintSpecificChart = (chartId) => {
+    setPrintingChartId(chartId);
+    // หน่วงเวลาให้ Recharts.ResponsiveContainer ได้คำนวณ width ตามหน้าจอแบบเต็มที่ก่อนจะ Print
+    setTimeout(() => {
+      window.print();
+      setPrintingChartId("all");
+    }, 600);
+  };
+
+  const getPrintClass = (id) => {
+    return printingChartId === "all" ? "" : (printingChartId === id ? "print-target" : "print:hidden");
+  };
 
   // ── Segment Filter State ──
   const [segFilterMode, setSegFilterMode] = useState("all");
@@ -678,10 +692,52 @@ ${remarksText}
   };
 
   return (
-    <div className="max-w-7xl mx-auto space-y-6 sm:space-y-8 animate-fade-in pb-24">
+    <div className="max-w-7xl mx-auto space-y-6 sm:space-y-8 animate-fade-in pb-24 print:max-w-full print:w-full print:m-0 print:p-0 print:space-y-0 print:block">
+      <style>{`
+        @media print {
+          @page { size: landscape; margin: 10mm; }
+          body { background: white !important; }
+        }
+        
+        ${printingChartId !== "all" ? `
+          body { overflow: hidden !important; }
+          
+          /* ขยาย Container เป้าหมายให้เต็มหน้าจอทันทีที่มีการคลิกปริ้น (บนหน้าจอจริง)
+             เพื่อให้ Recharts.ResponsiveContainer จับขนาด Width 100% ก่อนส่งคำสั่งพิมพ์ */
+          .print-target {
+            position: absolute !important;
+            top: 0 !important; 
+            left: 0 !important;
+            right: 0 !important;
+            width: 100% !important;
+            min-height: 100vh !important;
+            height: auto !important;
+            margin: 0 !important; 
+            padding: 20px !important;
+            background: white !important;
+            border: none !important;
+            box-shadow: none !important;
+            border-radius: 0 !important;
+            z-index: 99999 !important;
+            max-width: none !important;
+          }
+          
+          .print-target * {
+            max-width: none !important;
+          }
+          
+          /* เมื่อบราวเซอร์เข้าสู่หน้า Preveiw Print แล้ว ให้ปรับเป็น Static เหมือนหน้าพิมพ์ปกติ */
+          @media print {
+            .print-target {
+              position: static !important;
+              padding: 0 !important;
+            }
+          }
+        ` : ""}
+      `}</style>
 
       {/* ═══ GLOBAL FILTER BAR ═══ */}
-      <div className="bg-white rounded-3xl p-5 shadow-sm border border-slate-200 flex flex-col md:flex-row gap-4 items-start md:items-center justify-between">
+      <div className="bg-white rounded-3xl p-5 shadow-sm border border-slate-200 flex flex-col md:flex-row gap-4 items-start md:items-center justify-between print:hidden">
         <div className="flex items-center gap-3">
           <div className="bg-[#2e266a] text-white p-2.5 rounded-xl shadow-md">
             <Settings size={20} />
@@ -716,7 +772,7 @@ ${remarksText}
       </div>
 
       {/* ═══ SECTION 1: Project Header + Live Status ═══ */}
-      <div className={`rounded-3xl p-6 sm:p-8 text-white relative overflow-hidden shadow-xl ${liveStatus.state === "EXCAVATING" ? "bg-gradient-to-br from-amber-500 to-orange-600" :
+      <div className={`rounded-3xl p-6 sm:p-8 text-white relative overflow-hidden shadow-xl ${printingChartId !== 'all' ? 'print:hidden' : ''} ${liveStatus.state === "EXCAVATING" ? "bg-gradient-to-br from-amber-500 to-orange-600" :
         liveStatus.state === "INSTALLING" ? "bg-gradient-to-br from-emerald-500 to-teal-600" :
           liveStatus.state === "WAITING" ? "bg-gradient-to-br from-slate-600 to-slate-800" :
             "bg-gradient-to-br from-blue-600 to-indigo-700"
@@ -741,12 +797,23 @@ ${remarksText}
               <span className="flex items-center gap-1.5"><Clock size={16} className="opacity-80" /> {liveStatus.desc}</span>
             </div>
           </div>
-          <button onClick={handleGenerateDelaySummary} disabled={isGeneratingAI} className="w-full md:w-auto bg-gradient-to-r from-orange-400 to-red-500 hover:from-orange-500 hover:to-red-600 border border-white/20 text-white px-5 py-3 rounded-xl flex items-center justify-center gap-2 font-bold shadow-lg transition-all active:scale-95 whitespace-nowrap text-sm"><Sparkles size={18} /> <span className="hidden sm:inline">วิเคราะห์ปัญหา AI</span><span className="sm:hidden">วิเคราะห์ AI</span></button>
+          <div className="flex flex-col sm:flex-row w-full md:w-auto gap-3 items-center print:hidden">
+            <button onClick={() => window.print()} className="w-full sm:w-auto bg-white/20 hover:bg-white/30 backdrop-blur-md border border-white/30 text-white px-5 py-3 rounded-xl flex items-center justify-center gap-2 font-bold shadow-sm transition-all active:scale-95 whitespace-nowrap text-sm">
+              <Printer size={18} />
+              <span className="hidden sm:inline">ปริ้นรายงาน (PDF)</span>
+              <span className="sm:hidden">ปริ้น PDF</span>
+            </button>
+            <button onClick={handleGenerateDelaySummary} disabled={isGeneratingAI} className="w-full sm:w-auto bg-gradient-to-r from-orange-400 to-red-500 hover:from-orange-500 hover:to-red-600 border border-white/20 text-white px-5 py-3 rounded-xl flex items-center justify-center gap-2 font-bold shadow-lg transition-all active:scale-95 whitespace-nowrap text-sm">
+              <Sparkles size={18} /> 
+              <span className="hidden sm:inline">วิเคราะห์ปัญหา AI</span>
+              <span className="sm:hidden">วิเคราะห์ AI</span>
+            </button>
+          </div>
         </div>
       </div>
 
       {/* ═══ SECTION 2: KPI Summary Cards ═══ */}
-      <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
+      <div className={`grid grid-cols-2 lg:grid-cols-3 gap-4 ${printingChartId !== 'all' ? 'print:hidden' : ''}`}>
         <StatCard label="Permanent Rings" value={overallStats.permRings} subtext={`+ ${overallStats.tempRings} Temp. (Total: ${overallStats.totalRings})`} color="text-emerald-600" icon={Layers} />
         <StatCard label="Total Distance" value={`${Number(overallStats.totalDistance || 0).toFixed(2)} m`} subtext={`ดินขุดรวม: ${Number(overallStats.totalSoilVol || 0).toFixed(2)} m³`} color="text-blue-600" icon={TrendingUp} />
         <StatCard label="Daily Average" value={`${overallStats.avgRings} Rings`} subtext={`~ ${overallStats.avgDist} m / day`} color="text-orange-500" icon={Activity} />
@@ -766,9 +833,9 @@ ${remarksText}
       </div>
 
       {/* ═══ SECTION 5: Grout Pending & Section 6: Shift Comparison ═══ */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className={`grid grid-cols-1 md:grid-cols-2 gap-4 ${printingChartId !== 'all' && printingChartId !== 'pie' ? 'print:hidden' : ''}`}>
         {/* Grout Pending */}
-        <div className={`rounded-3xl p-6 shadow-sm border relative overflow-hidden ${groutPending.pending > 0 ? "bg-red-50 border-red-200" : "bg-emerald-50 border-emerald-200"}`}>
+        <div className={`rounded-3xl p-6 shadow-sm border relative overflow-hidden ${printingChartId !== 'all' ? 'print:hidden' : ''} ${groutPending.pending > 0 ? "bg-red-50 border-red-200" : "bg-emerald-50 border-emerald-200"}`}>
           <div className="flex items-center justify-between mb-4">
             <h3 className="font-black text-slate-800 text-base flex items-center gap-2"><Droplet size={20} className={groutPending.pending > 0 ? "text-red-500" : "text-emerald-500"} /> Grout Status</h3>
             <span className={`text-3xl font-black ${groutPending.pending > 0 ? "text-red-500" : "text-emerald-500"}`}>
@@ -788,13 +855,16 @@ ${remarksText}
         </div>
 
         {/* Day vs Night */}
-        <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-100">
-          <h3 className="font-black text-slate-800 text-base mb-2">Day vs Night Shift</h3>
-          <div className="flex items-center gap-4">
-            <div className="w-32 h-32 sm:w-36 sm:h-36 shrink-0">
-              <ResponsiveContainer>
+        <div className={`bg-white rounded-3xl p-6 shadow-sm border border-slate-100 relative ${getPrintClass('pie')}`}>
+          <div className="flex justify-between items-center mb-2">
+            <h3 className="font-black text-slate-800 text-base">Day vs Night Shift</h3>
+            <button onClick={() => handlePrintSpecificChart('pie')} className="p-1.5 text-slate-400 hover:text-blue-600 bg-slate-50 hover:bg-blue-50 rounded-lg transition-colors border border-slate-100 shadow-sm print:hidden" title="Print Chart"><Printer size={16} /></button>
+          </div>
+          <div className="flex items-center gap-4 print:items-center print:justify-center">
+            <div className="w-32 h-32 sm:w-36 sm:h-36 shrink-0 print:w-[350px] print:h-[350px] transition-all">
+              <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
-                  <Pie data={shiftComparison} cx="50%" cy="50%" innerRadius={30} outerRadius={55} paddingAngle={4} dataKey="value" stroke="none">
+                  <Pie data={shiftComparison} cx="50%" cy="50%" innerRadius={30} outerRadius={55} paddingAngle={4} dataKey="value" stroke="none" isAnimationActive={printingChartId === "all"}>
                     {shiftComparison.map((entry, i) => <Cell key={i} fill={entry.color} />)}
                   </Pie>
                   <Tooltip contentStyle={{ borderRadius: "12px", border: "none", boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1)" }} itemStyle={{ fontSize: "12px", fontWeight: "bold" }} />
@@ -821,7 +891,7 @@ ${remarksText}
       </div>
 
       {/* ═══ SECTION 3: Segment Installation Trend ═══ */}
-      <div className="bg-white rounded-3xl shadow-sm border border-slate-100 p-5 sm:p-8 overflow-hidden">
+      <div className={`bg-white rounded-3xl shadow-sm border border-slate-100 p-5 sm:p-8 overflow-hidden ${getPrintClass('segment')}`}>
         
         {/* Header - Title & Legend */}
         <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-8 gap-4 border-b border-slate-100 pb-5">
@@ -845,13 +915,15 @@ ${remarksText}
 
         {/* Filters and Controls */}
         <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-6 gap-4">
-          <div className="flex items-center bg-slate-50 border border-slate-200 rounded-xl p-1 shadow-sm shrink-0">
-            <button onClick={() => setExpandedChart('segment')} className="px-3 py-1.5 flex items-center gap-2 text-xs font-bold text-slate-600 hover:text-blue-600 hover:bg-white rounded-lg transition-colors bg-white border border-slate-100 shadow-sm" title="Expand Chart"><Maximize2 size={16} /> ขยายจอภาพ</button>
+          <div className="flex items-center bg-slate-50 border border-slate-200 rounded-xl p-1 shadow-sm shrink-0 print:hidden">
+            <button onClick={() => handlePrintSpecificChart('segment')} className="px-3 py-1.5 flex items-center gap-2 text-xs font-bold text-slate-600 hover:text-blue-600 hover:bg-white rounded-lg transition-colors bg-white border border-slate-100 shadow-sm" title="Print Chart"><Printer size={16} /> ปริ้นกราฟ</button>
+            <div className="w-px h-5 bg-slate-300 mx-2 hidden sm:block"></div>
+            <button onClick={() => setExpandedChart('segment')} className="px-3 py-1.5 flex items-center gap-2 text-xs font-bold text-slate-600 hover:text-blue-600 hover:bg-white rounded-lg transition-colors border border-transparent" title="Expand Chart"><Maximize2 size={16} /> ขยายจอภาพ</button>
             <div className="w-px h-5 bg-slate-300 mx-2 hidden sm:block"></div>
             <button onClick={() => setShowPlanModal(true)} className="px-3 py-1.5 flex items-center gap-2 text-xs font-bold text-slate-600 hover:text-emerald-600 hover:bg-white rounded-lg transition-colors border border-transparent" title="Plan Settings"><Settings size={16} /> ตั้งค่าแผนงาน</button>
           </div>
 
-          <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center w-full lg:w-auto bg-slate-50 p-2 rounded-xl border border-slate-100 shrink-0">
+          <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center w-full lg:w-auto bg-slate-50 p-2 rounded-xl border border-slate-100 shrink-0 print:hidden">
             <div className="flex bg-white rounded-lg p-1 border border-slate-200 shadow-sm w-full sm:w-auto overflow-x-auto">
               {["all", "daily", "monthly", "range"].map(m => (
                 <button key={m} onClick={() => setSegFilterMode(m)} className={`flex-1 sm:flex-none px-3 py-1.5 text-xs rounded-md font-bold transition whitespace-nowrap ${segFilterMode === m ? "bg-emerald-600 text-white shadow" : "text-slate-500 hover:bg-slate-50"}`}>{m === "all" ? "All" : m === "daily" ? "Daily" : m === "monthly" ? "Monthly" : "Range"}</button>
@@ -875,19 +947,19 @@ ${remarksText}
 
         <div className="h-[350px] sm:h-[500px] w-full">
           <div className="w-full h-full">
-            <ResponsiveContainer>
+            <ResponsiveContainer width="100%" height="100%">
               <ComposedChart data={segChartData} margin={{ top: 20, right: 30, left: 10, bottom: 20 }}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" />
                 <XAxis dataKey="displayDate" tick={{ fontSize: 10, fill: "#475569", fontWeight: "bold" }} angle={-45} textAnchor="end" height={80} stroke="#94a3b8" label={{ value: "วันที่ (Date)", position: "insideBottom", offset: -20, fill: "#475569", fontSize: 12, fontWeight: "bold" }} />
                 <YAxis yAxisId="left" domain={[0, segFilterMode === "daily" ? "auto" : 10]} tick={{ fontSize: 10, fill: "#475569", fontWeight: "bold" }} axisLine={{ stroke: '#cbd5e1' }} tickLine={false} label={{ value: 'อัตราการขุดเจาะ (Rings / Day)', angle: -90, position: 'insideLeft', offset: -5, fill: '#475569', fontSize: 11, fontWeight: 'bold' }} />
                 {segFilterMode !== "daily" && <YAxis yAxisId="right" orientation="right" domain={["auto", "auto"]} tick={{ fontSize: 10, fill: "#475569", fontWeight: "bold" }} axisLine={{ stroke: '#cbd5e1' }} tickLine={false} label={{ value: 'สะสม (Cumulative Rings)', angle: 90, position: 'insideRight', offset: -5, fill: '#475569', fontSize: 11, fontWeight: 'bold' }} />}
                 <Tooltip contentStyle={{ borderRadius: "12px", border: "none", boxShadow: "0 10px 15px -3px rgb(0 0 0 / 0.1)" }} itemStyle={{ fontSize: "11px", fontWeight: "bold" }} />
-                {segFilterMode !== "daily" && <Line yAxisId="left" type="monotone" dataKey="plan" stroke="#94a3b8" strokeWidth={2} dot={segChartData.length <= 24 ? { r: 0 } : { r: 2 }} name="Plan Daily" />}
-                <Bar yAxisId="left" dataKey="dayRings" stackId="a" fill="#fde047" name="Perm. D/S" radius={[0, 0, 0, 0]} maxBarSize={40} />
-                <Bar yAxisId="left" dataKey="nightRings" stackId="a" fill="#3b82f6" name="Perm. N/S" radius={[0, 0, 0, 0]} maxBarSize={40} />
-                <Bar yAxisId="left" dataKey="tempRings" stackId="a" fill="#cbd5e1" name="Temporary" radius={[4, 4, 0, 0]} maxBarSize={40} />
-                {segFilterMode !== "daily" && <Line yAxisId="right" type="monotone" dataKey="planAcc" stroke="#0f172a" strokeWidth={2} dot={segChartData.length === 1 ? { r: 3, fill: "#0f172a" } : { r: 2, fill: "#0f172a" }} name="Plan Acc." />}
-                {segFilterMode !== "daily" && <Line yAxisId="right" type="monotone" dataKey="actualAcc" stroke="#ef4444" strokeWidth={3} dot={segChartData.length === 1 ? { r: 4, fill: "#ef4444" } : { r: 3, fill: "#ef4444" }} name="Actual Acc." label={{ position: "top", fill: "#ef4444", fontSize: 10, fontWeight: "900" }} />}
+                {segFilterMode !== "daily" && <Line yAxisId="left" type="monotone" dataKey="plan" stroke="#94a3b8" strokeWidth={2} dot={segChartData.length <= 24 ? { r: 0 } : { r: 2 }} name="Plan Daily" isAnimationActive={printingChartId === "all"} />}
+                <Bar yAxisId="left" dataKey="dayRings" stackId="a" fill="#fde047" name="Perm. D/S" radius={[0, 0, 0, 0]} maxBarSize={40} isAnimationActive={printingChartId === "all"} />
+                <Bar yAxisId="left" dataKey="nightRings" stackId="a" fill="#3b82f6" name="Perm. N/S" radius={[0, 0, 0, 0]} maxBarSize={40} isAnimationActive={printingChartId === "all"} />
+                <Bar yAxisId="left" dataKey="tempRings" stackId="a" fill="#cbd5e1" name="Temporary" radius={[4, 4, 0, 0]} maxBarSize={40} isAnimationActive={printingChartId === "all"} />
+                {segFilterMode !== "daily" && <Line yAxisId="right" type="monotone" dataKey="planAcc" stroke="#0f172a" strokeWidth={2} dot={segChartData.length === 1 ? { r: 3, fill: "#0f172a" } : { r: 2, fill: "#0f172a" }} name="Plan Acc." isAnimationActive={printingChartId === "all"} />}
+                {segFilterMode !== "daily" && <Line yAxisId="right" type="monotone" dataKey="actualAcc" stroke="#ef4444" strokeWidth={3} dot={segChartData.length === 1 ? { r: 4, fill: "#ef4444" } : { r: 3, fill: "#ef4444" }} name="Actual Acc." label={{ position: "top", fill: "#ef4444", fontSize: 10, fontWeight: "900" }} isAnimationActive={printingChartId === "all"} />}
               </ComposedChart>
             </ResponsiveContainer>
           </div>
@@ -895,7 +967,7 @@ ${remarksText}
       </div>
 
       {/* ═══ SECTION 3.5: แผนผังสถานะเส้นทางและตำแหน่ง TBM1 ปัจจุบัน ═══ */}
-      <div className="bg-white p-4 sm:p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col gap-2">
+      <div className={`bg-white p-4 sm:p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col gap-2 ${getPrintClass('distance')}`}>
         {/* Header แถวที่ 1 */}
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center">
           <div>
@@ -908,7 +980,8 @@ ${remarksText}
             </div>
           </div>
           <div className="text-right mt-4 md:mt-0 flex items-center gap-3">
-            <button onClick={() => setExpandedChart('distance')} className="p-2 text-slate-400 hover:text-blue-600 bg-white hover:bg-blue-50 rounded-xl transition-colors border border-slate-200 shadow-sm" title="Expand Chart"><Maximize2 size={18} /></button>
+            <button onClick={() => handlePrintSpecificChart('distance')} className="p-2 text-slate-400 hover:text-blue-600 bg-white hover:bg-blue-50 rounded-xl transition-colors border border-slate-200 shadow-sm print:hidden" title="Print Chart"><Printer size={18} /></button>
+            <button onClick={() => setExpandedChart('distance')} className="p-2 text-slate-400 hover:text-blue-600 bg-white hover:bg-blue-50 rounded-xl transition-colors border border-slate-200 shadow-sm print:hidden" title="Expand Chart"><Maximize2 size={18} /></button>
             <span className="bg-[#2e266a] text-white text-xs font-bold px-4 py-2 rounded-xl shadow-md">
               อัปเดตล่าสุด: {formatDisplayDate(new Date())}
             </span>
@@ -926,7 +999,7 @@ ${remarksText}
               <span className="flex items-center gap-0.5"><span className="w-3 h-3 rounded-full bg-[#8b5cf6]"></span><span className="w-5 h-1 bg-[#8b5cf6] rounded-full"></span></span>
               <span className="text-sm font-bold text-slate-700">Plan Acc. (แผนงานสะสม)</span>
             </div>
-            <button onClick={() => setShowDistPlanModal(true)} className="p-1.5 text-slate-400 hover:text-purple-600 hover:bg-purple-100 rounded-lg transition-colors border border-transparent shadow-sm" title="Distance Plan Settings"><Settings size={18} /></button>
+            <button onClick={() => setShowDistPlanModal(true)} className="p-1.5 text-slate-400 hover:text-purple-600 hover:bg-purple-100 rounded-lg transition-colors border border-transparent shadow-sm print:hidden" title="Distance Plan Settings"><Settings size={18} /></button>
           </div>
 
           {/* Project Delay Warning Box */}
@@ -947,10 +1020,9 @@ ${remarksText}
           )}
         </div>
 
-        {/* ═══ ส่วนที่ 1: กราฟเส้น (Line Chart) — เปรียบเทียบแผนกับผลงานจริง ═══ */}
         <div className="h-[380px] sm:h-[460px] w-full relative z-10">
           <div className="w-full h-full pl-2 pr-4 sm:pr-8">
-            <ResponsiveContainer>
+            <ResponsiveContainer width="100%" height="100%">
               <ComposedChart data={filteredDistanceChartData} margin={{ top: 35, right: 30, left: 10, bottom: 15 }}>
                 <CartesianGrid strokeDasharray="3 3" vertical={true} horizontal={true} stroke="#e2e8f0" />
                 <XAxis 
@@ -992,6 +1064,7 @@ ${remarksText}
                   strokeWidth={3} 
                   connectNulls={false}
                   activeDot={{ r: 6, stroke: "#fff", strokeWidth: 2 }}
+                  isAnimationActive={printingChartId === "all"}
                   dot={(props) => {
                     const { cx, cy, payload } = props;
                     if (cx === undefined || cy === undefined) return null;
@@ -1012,6 +1085,7 @@ ${remarksText}
                   strokeWidth={3} 
                   connectNulls={true}
                   activeDot={{ r: 6, stroke: "#fff", strokeWidth: 2 }}
+                  isAnimationActive={printingChartId === "all"}
                   dot={(props) => {
                     const { cx, cy, payload } = props;
                     if (payload.actualAcc === null || payload.actualAcc === undefined || cx === undefined || cy === undefined) return null;
@@ -1252,13 +1326,16 @@ ${remarksText}
       </div>
 
       {/* ═══ SECTION 4: Grout Volume Trend ═══ */}
-      <div className="bg-white rounded-3xl shadow-sm border border-slate-100 p-5 sm:p-8">
+      <div className={`bg-white rounded-3xl shadow-sm border border-slate-100 p-5 sm:p-8 ${getPrintClass('grout')}`}>
         <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-6 gap-4">
           <div className="flex items-center gap-3">
             <h3 className="font-bold text-slate-800 text-lg flex items-center gap-2"><Droplet className="text-blue-500" size={22} /> Grout Volume Trend</h3>
-            <button onClick={() => setExpandedChart('grout')} className="p-1.5 text-slate-400 hover:text-blue-600 bg-slate-50 hover:bg-blue-50 rounded-lg transition-colors border border-slate-100 shadow-sm" title="Expand Chart"><Maximize2 size={16} /></button>
+            <div className="flex items-center gap-2 print:hidden">
+              <button onClick={() => handlePrintSpecificChart('grout')} className="p-1.5 text-slate-400 hover:text-blue-600 bg-slate-50 hover:bg-blue-50 rounded-lg transition-colors border border-slate-100 shadow-sm" title="Print Chart"><Printer size={16} /></button>
+              <button onClick={() => setExpandedChart('grout')} className="p-1.5 text-slate-400 hover:text-blue-600 bg-slate-50 hover:bg-blue-50 rounded-lg transition-colors border border-slate-100 shadow-sm" title="Expand Chart"><Maximize2 size={16} /></button>
+            </div>
           </div>
-          <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center w-full lg:w-auto bg-slate-50 p-2 rounded-xl border border-slate-100">
+          <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center w-full lg:w-auto bg-slate-50 p-2 rounded-xl border border-slate-100 print:hidden">
             <div className="flex bg-white rounded-lg p-1 border border-slate-200 shadow-sm w-full sm:w-auto overflow-x-auto">
               {["all", "lastN", "daily", "monthly", "range"].map(m => (
                 <button key={m} onClick={() => setGroutFilterMode(m)} className={`flex-1 sm:flex-none px-3 py-1.5 text-xs rounded-md font-bold transition whitespace-nowrap ${groutFilterMode === m ? "bg-blue-600 text-white shadow" : "text-slate-500 hover:bg-slate-50"}`}>{m === "all" ? "All" : m === "lastN" ? "Last N" : m === "daily" ? "Daily" : m === "monthly" ? "Monthly" : "Range"}</button>
@@ -1288,7 +1365,7 @@ ${remarksText}
         </div>
 
         <div className="h-[350px] sm:h-[400px] w-full">
-          <ResponsiveContainer>
+          <ResponsiveContainer width="100%" height="100%">
             <AreaChart data={groutChartData} margin={{ top: 20, right: 20, left: -20, bottom: 0 }}>
               <defs>
                 <linearGradient id="execColorTotal" x1="0" y1="0" x2="0" y2="1">
@@ -1303,7 +1380,7 @@ ${remarksText}
               <ReferenceLine y={THEORETICAL_VOL} stroke="#FB923C" strokeDasharray="5 5" label={{ position: "insideTopRight", value: "100% (3.1)", fill: "#FB923C", fontSize: 9 }} />
               <ReferenceLine y={VOL_120} stroke="#4ADE80" strokeDasharray="5 5" label={{ position: "insideTopRight", value: "120%", fill: "#4ADE80", fontSize: 9 }} />
               <ReferenceLine y={VOL_150} stroke="#F472B6" strokeDasharray="5 5" label={{ position: "insideTopRight", value: "150%", fill: "#F472B6", fontSize: 9 }} />
-              <Area type="monotone" dataKey="total" stroke="#3B82F6" strokeWidth={3} fill="url(#execColorTotal)" dot={{ r: 4, fill: "#3B82F6", stroke: "#fff", strokeWidth: 2 }} label={{ position: "top", fill: "#475569", fontSize: 9, fontWeight: 600, formatter: val => Number(val || 0).toFixed(2) }} />
+              <Area type="monotone" dataKey="total" stroke="#3B82F6" strokeWidth={3} fill="url(#execColorTotal)" dot={{ r: 4, fill: "#3B82F6", stroke: "#fff", strokeWidth: 2 }} label={{ position: "top", fill: "#475569", fontSize: 9, fontWeight: 600, formatter: val => Number(val || 0).toFixed(2) }} isAnimationActive={printingChartId === "all"} />
             </AreaChart>
           </ResponsiveContainer>
         </div>

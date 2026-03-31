@@ -412,6 +412,7 @@ ${remarksText}
               <tr>
                 <th className="py-3 px-4 sm:px-5">Ring No.</th>
                 <th className="py-3 px-4 sm:px-5">Excav. Ring</th>
+                <th className="py-3 px-4 sm:px-5 text-right">Pressure</th>
                 <th className="py-3 px-4 sm:px-5">Key & Pos</th>
                 <th className="py-3 px-4 sm:px-5 text-right">Vol A</th>
                 <th className="py-3 px-4 sm:px-5 text-right">Vol B</th>
@@ -428,6 +429,13 @@ ${remarksText}
                       {r.groutPass === "Re-Grout" && <span className="text-purple-600 ml-2 font-bold text-[9px] bg-purple-50 px-1.5 py-0.5 rounded">(Re-Grout)</span>}
                     </td>
                     <td className="py-3 px-4 sm:px-5 text-slate-500 font-medium">{String(r.excavRing)}</td>
+                    <td className="py-3 px-4 sm:px-5 text-right">
+                      {r.pressure ? (
+                        <span className="font-bold font-mono text-rose-600 bg-rose-50 px-2 py-1 rounded-md border border-rose-100">{Number(r.pressure).toFixed(1)} <span className="text-[10px] font-semibold text-rose-400">bar</span></span>
+                      ) : (
+                        <span className="text-slate-300 italic">-</span>
+                      )}
+                    </td>
                     <td className="py-3 px-4 sm:px-5">
                       <div className="font-bold text-slate-700 text-xs mb-1">K{String(r.key)}</div>
                       <div className="flex gap-1 flex-wrap">
@@ -450,7 +458,7 @@ ${remarksText}
                   </tr>
                 ))
               ) : (
-                <tr><td colSpan="7" className="py-8 text-center text-slate-400 italic">No grout data for this period.</td></tr>
+                <tr><td colSpan="8" className="py-8 text-center text-slate-400 italic">No grout data for this period.</td></tr>
               )}
             </tbody>
           </table>

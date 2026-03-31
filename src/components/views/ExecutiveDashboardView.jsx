@@ -5,7 +5,7 @@ import {
 import StatCard from "../common/StatCard";
 import { formatDisplayDate, formatDisplayTime, parseCH } from "../../utils/formatters";
 import { getRingNumeric, calculateSoilVolume, offsetRingNo } from "../../utils/helpers";
-import { THEORETICAL_VOL, VOL_120, VOL_150, TOTAL_ROUTE_DISTANCE, ROUTE_SEGMENTS } from "../../utils/constants";
+import { THEORETICAL_VOL, VOL_120, VOL_150, VOL_80, VOL_50, TOTAL_ROUTE_DISTANCE, ROUTE_SEGMENTS } from "../../utils/constants";
 import { apiCall, generateGeminiSummary } from "../../utils/api";
 import {
   ResponsiveContainer, ComposedChart, CartesianGrid, XAxis, YAxis, Tooltip, Bar, Line,
@@ -529,7 +529,7 @@ const ExecutiveDashboardView = ({ segmentRecords, groutRecords, shiftReports }) 
 
   const groutChartData = useMemo(() => {
     let baseData = groutFilterShift === "All" ? groutRecords : groutRecords.filter(r => r.shift === groutFilterShift);
-    baseData = baseData.map(r => ({ ...r, displayRing: r.groutPass === "Re-Grout" ? `${r.ringNo} (Re)` : r.ringNo }));
+    baseData = baseData.map(r => ({ ...r, displayRing: r.groutPass === "Re-Grout" ? `${r.ringNo} (Re)` : r.ringNo, pressure: r.pressure ? Number(r.pressure) : null }));
 
     if (groutFilterMode === "all") return baseData;
     if (groutFilterMode === "range" && groutRangeStart && groutRangeEnd) {
@@ -1364,9 +1364,23 @@ ${remarksText}
           </div>
         </div>
 
-        <div className="h-[350px] sm:h-[400px] w-full">
+        {/* ── Pressure Chart (Top) ── */}
+        <div className="w-full" style={{ height: 160 }}>
           <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={groutChartData} margin={{ top: 20, right: 20, left: -20, bottom: 0 }}>
+            <ComposedChart data={groutChartData} margin={{ top: 20, right: 25, left: -10, bottom: 0 }} syncId="groutSync">
+              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F1F5F9" />
+              <XAxis dataKey="displayRing" tick={false} axisLine={false} tickLine={false} height={0} />
+              <YAxis domain={[0, 'auto']} tick={{ fontSize: 12, fill: "#e11d48", fontWeight: 600 }} axisLine={false} tickLine={false} label={{ value: "Pressure (bar)", angle: -90, position: "insideLeft", offset: 15, style: { fontSize: 13, fill: "#e11d48", fontWeight: "bold" } }} />
+              <Tooltip contentStyle={{ borderRadius: "12px", border: "none", boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1)" }} itemStyle={{ fontSize: "13px", fontWeight: "bold" }} />
+              <ReferenceLine y={3.5} stroke="#a855f7" strokeDasharray="8 4" strokeWidth={2} label={{ position: "insideTopLeft", value: "Baseline 3.5 bar", fill: "#a855f7", fontSize: 11, fontWeight: "bold" }} />
+              <Line type="monotone" dataKey="pressure" stroke="#e11d48" strokeWidth={2.5} dot={{ r: 4, fill: "#e11d48", stroke: "#fff", strokeWidth: 2 }} connectNulls={true} isAnimationActive={printingChartId === "all"} name="Pressure (bar)" label={{ position: "top", fill: "#e11d48", fontSize: 11, fontWeight: 800, formatter: val => val != null ? Number(val).toFixed(1) : '' }} />
+            </ComposedChart>
+          </ResponsiveContainer>
+        </div>
+        {/* ── Volume Chart (Bottom) ── */}
+        <div className="w-full" style={{ height: 310 }}>
+          <ResponsiveContainer width="100%" height="100%">
+            <ComposedChart data={groutChartData} margin={{ top: 15, right: 25, left: -10, bottom: 5 }} syncId="groutSync">
               <defs>
                 <linearGradient id="execColorTotal" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="5%" stopColor="#3B82F6" stopOpacity={0.15} />
@@ -1374,14 +1388,16 @@ ${remarksText}
                 </linearGradient>
               </defs>
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F1F5F9" />
-              <XAxis dataKey="displayRing" tick={{ fontSize: 10, fill: "#94A3B8" }} axisLine={false} tickLine={false} />
-              <YAxis domain={[0, 6]} tick={{ fontSize: 10, fill: "#94A3B8" }} axisLine={false} tickLine={false} />
-              <Tooltip contentStyle={{ borderRadius: "12px", border: "none", boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1)" }} itemStyle={{ fontSize: "12px", fontWeight: "bold" }} />
-              <ReferenceLine y={THEORETICAL_VOL} stroke="#FB923C" strokeDasharray="5 5" label={{ position: "insideTopRight", value: "100% (3.1)", fill: "#FB923C", fontSize: 9 }} />
-              <ReferenceLine y={VOL_120} stroke="#4ADE80" strokeDasharray="5 5" label={{ position: "insideTopRight", value: "120%", fill: "#4ADE80", fontSize: 9 }} />
-              <ReferenceLine y={VOL_150} stroke="#F472B6" strokeDasharray="5 5" label={{ position: "insideTopRight", value: "150%", fill: "#F472B6", fontSize: 9 }} />
-              <Area type="monotone" dataKey="total" stroke="#3B82F6" strokeWidth={3} fill="url(#execColorTotal)" dot={{ r: 4, fill: "#3B82F6", stroke: "#fff", strokeWidth: 2 }} label={{ position: "top", fill: "#475569", fontSize: 9, fontWeight: 600, formatter: val => Number(val || 0).toFixed(2) }} isAnimationActive={printingChartId === "all"} />
-            </AreaChart>
+              <XAxis dataKey="displayRing" tick={{ fontSize: 12, fill: "#475569", fontWeight: 600 }} axisLine={false} tickLine={false} label={{ value: "Ring No.", position: "insideBottomRight", offset: -5, style: { fontSize: 12, fill: "#64748b", fontWeight: "bold" } }} />
+              <YAxis domain={[0, 6]} tick={{ fontSize: 12, fill: "#475569", fontWeight: 600 }} axisLine={false} tickLine={false} label={{ value: "Volume (m³)", angle: -90, position: "insideLeft", offset: 15, style: { fontSize: 13, fill: "#3B82F6", fontWeight: "bold" } }} />
+              <Tooltip contentStyle={{ borderRadius: "12px", border: "none", boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1)" }} itemStyle={{ fontSize: "13px", fontWeight: "bold" }} />
+              <ReferenceLine y={THEORETICAL_VOL} stroke="#FB923C" strokeDasharray="5 5" label={{ position: "insideTopRight", value: "100% (3.1)", fill: "#FB923C", fontSize: 11, fontWeight: "bold" }} />
+              <ReferenceLine y={VOL_120} stroke="#4ADE80" strokeDasharray="5 5" label={{ position: "insideTopRight", value: "120%", fill: "#4ADE80", fontSize: 11, fontWeight: "bold" }} />
+              <ReferenceLine y={VOL_150} stroke="#F472B6" strokeDasharray="5 5" label={{ position: "insideTopRight", value: "150%", fill: "#F472B6", fontSize: 11, fontWeight: "bold" }} />
+              <ReferenceLine y={VOL_80} stroke="#EAB308" strokeDasharray="5 5" label={{ position: "insideTopRight", value: "80%", fill: "#EAB308", fontSize: 11, fontWeight: "bold" }} />
+              <ReferenceLine y={VOL_50} stroke="#EF4444" strokeDasharray="5 5" label={{ position: "insideTopRight", value: "50%", fill: "#EF4444", fontSize: 11, fontWeight: "bold" }} />
+              <Area type="monotone" dataKey="total" stroke="#3B82F6" strokeWidth={3} fill="url(#execColorTotal)" dot={{ r: 4, fill: "#3B82F6", stroke: "#fff", strokeWidth: 2 }} label={{ position: "top", fill: "#475569", fontSize: 11, fontWeight: 700, formatter: val => Number(val || 0).toFixed(2) }} isAnimationActive={printingChartId === "all"} name="Grout Volume (m³)" />
+            </ComposedChart>
           </ResponsiveContainer>
         </div>
       </div>
@@ -1755,6 +1771,14 @@ ${remarksText}
                           <span className="text-[10px] sm:text-xs font-bold text-slate-700">Grout Volume</span>
                         </div>
                         <div className="flex items-center gap-2">
+                          <span className="w-6 h-0 border-t-2 border-solid border-[#e11d48]"></span>
+                          <span className="text-[10px] sm:text-xs font-bold text-[#e11d48]">Pressure (bar)</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="w-6 h-0 border-t-2 border-dashed border-[#a855f7]"></span>
+                          <span className="text-[10px] sm:text-xs font-bold text-[#a855f7]">Baseline 3.5 bar</span>
+                        </div>
+                        <div className="flex items-center gap-2">
                           <span className="w-6 h-0 border-t-2 border-dashed border-[#FB923C]"></span>
                           <span className="text-[10px] sm:text-xs font-bold text-slate-600">Theoretical (100%)</span>
                         </div>
@@ -1766,11 +1790,33 @@ ${remarksText}
                           <span className="w-6 h-0 border-t-2 border-dashed border-[#F472B6]"></span>
                           <span className="text-[10px] sm:text-xs font-bold text-slate-600">150%</span>
                         </div>
+                        <div className="flex items-center gap-2">
+                          <span className="w-6 h-0 border-t-2 border-dashed border-[#EAB308]"></span>
+                          <span className="text-[10px] sm:text-xs font-bold text-slate-600">80%</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="w-6 h-0 border-t-2 border-dashed border-[#EF4444]"></span>
+                          <span className="text-[10px] sm:text-xs font-bold text-slate-600">50%</span>
+                        </div>
                       </div>
                     </div>
-                    <div className="flex-1 w-full min-h-[400px]">
+                    {/* ── Pressure Chart (Top) ── */}
+                    <div className="w-full" style={{ height: 200 }}>
                       <ResponsiveContainer>
-                        <AreaChart data={groutChartData} margin={{ top: 20, right: 20, left: -20, bottom: 0 }}>
+                        <ComposedChart data={groutChartData} margin={{ top: 20, right: 25, left: -10, bottom: 0 }} syncId="groutSyncPop">
+                          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F1F5F9" />
+                          <XAxis dataKey="displayRing" tick={false} axisLine={false} tickLine={false} height={0} />
+                          <YAxis domain={[0, 'auto']} tick={{ fontSize: 12, fill: "#e11d48", fontWeight: 600 }} axisLine={false} tickLine={false} label={{ value: "Pressure (bar)", angle: -90, position: "insideLeft", offset: 15, style: { fontSize: 13, fill: "#e11d48", fontWeight: "bold" } }} />
+                          <Tooltip contentStyle={{ borderRadius: "12px", border: "none", boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1)" }} itemStyle={{ fontSize: "13px", fontWeight: "bold" }} />
+                          <ReferenceLine y={3.5} stroke="#a855f7" strokeDasharray="8 4" strokeWidth={2} label={{ position: "insideTopLeft", value: "Baseline 3.5 bar", fill: "#a855f7", fontSize: 12, fontWeight: "bold" }} />
+                          <Line type="monotone" dataKey="pressure" stroke="#e11d48" strokeWidth={2.5} dot={{ r: 4, fill: "#e11d48", stroke: "#fff", strokeWidth: 2 }} connectNulls={true} name="Pressure (bar)" label={{ position: "top", fill: "#e11d48", fontSize: 11, fontWeight: 800, formatter: val => val != null ? Number(val).toFixed(1) : '' }} />
+                        </ComposedChart>
+                      </ResponsiveContainer>
+                    </div>
+                    {/* ── Volume Chart (Bottom) ── */}
+                    <div className="flex-1 w-full min-h-[350px]">
+                      <ResponsiveContainer>
+                        <ComposedChart data={groutChartData} margin={{ top: 15, right: 25, left: -10, bottom: 5 }} syncId="groutSyncPop">
                           <defs>
                             <linearGradient id="execColorTotalPop" x1="0" y1="0" x2="0" y2="1">
                               <stop offset="5%" stopColor="#3B82F6" stopOpacity={0.15} />
@@ -1778,14 +1824,16 @@ ${remarksText}
                             </linearGradient>
                           </defs>
                           <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F1F5F9" />
-                          <XAxis dataKey="displayRing" tick={{ fontSize: 10, fill: "#94A3B8" }} axisLine={false} tickLine={false} />
-                          <YAxis domain={[0, 6]} tick={{ fontSize: 10, fill: "#94A3B8" }} axisLine={false} tickLine={false} />
-                          <Tooltip contentStyle={{ borderRadius: "12px", border: "none", boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1)" }} itemStyle={{ fontSize: "12px", fontWeight: "bold" }} />
-                          <ReferenceLine y={THEORETICAL_VOL} stroke="#FB923C" strokeDasharray="5 5" label={{ position: "insideTopRight", value: "100% (3.1)", fill: "#FB923C", fontSize: 9 }} />
-                          <ReferenceLine y={VOL_120} stroke="#4ADE80" strokeDasharray="5 5" label={{ position: "insideTopRight", value: "120%", fill: "#4ADE80", fontSize: 9 }} />
-                          <ReferenceLine y={VOL_150} stroke="#F472B6" strokeDasharray="5 5" label={{ position: "insideTopRight", value: "150%", fill: "#F472B6", fontSize: 9 }} />
-                          <Area type="monotone" dataKey="total" stroke="#3B82F6" strokeWidth={3} fill="url(#execColorTotalPop)" dot={{ r: 4, fill: "#3B82F6", stroke: "#fff", strokeWidth: 2 }} label={{ position: "top", fill: "#475569", fontSize: 9, fontWeight: 600, formatter: val => Number(val || 0).toFixed(2) }} />
-                        </AreaChart>
+                          <XAxis dataKey="displayRing" tick={{ fontSize: 12, fill: "#475569", fontWeight: 600 }} axisLine={false} tickLine={false} label={{ value: "Ring No.", position: "insideBottomRight", offset: -5, style: { fontSize: 12, fill: "#64748b", fontWeight: "bold" } }} />
+                          <YAxis domain={[0, 6]} tick={{ fontSize: 12, fill: "#475569", fontWeight: 600 }} axisLine={false} tickLine={false} label={{ value: "Volume (m³)", angle: -90, position: "insideLeft", offset: 15, style: { fontSize: 13, fill: "#3B82F6", fontWeight: "bold" } }} />
+                          <Tooltip contentStyle={{ borderRadius: "12px", border: "none", boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1)" }} itemStyle={{ fontSize: "13px", fontWeight: "bold" }} />
+                          <ReferenceLine y={THEORETICAL_VOL} stroke="#FB923C" strokeDasharray="5 5" label={{ position: "insideTopRight", value: "100% (3.1)", fill: "#FB923C", fontSize: 11, fontWeight: "bold" }} />
+                          <ReferenceLine y={VOL_120} stroke="#4ADE80" strokeDasharray="5 5" label={{ position: "insideTopRight", value: "120%", fill: "#4ADE80", fontSize: 11, fontWeight: "bold" }} />
+                          <ReferenceLine y={VOL_150} stroke="#F472B6" strokeDasharray="5 5" label={{ position: "insideTopRight", value: "150%", fill: "#F472B6", fontSize: 11, fontWeight: "bold" }} />
+                          <ReferenceLine y={VOL_80} stroke="#EAB308" strokeDasharray="5 5" label={{ position: "insideTopRight", value: "80%", fill: "#EAB308", fontSize: 11, fontWeight: "bold" }} />
+                          <ReferenceLine y={VOL_50} stroke="#EF4444" strokeDasharray="5 5" label={{ position: "insideTopRight", value: "50%", fill: "#EF4444", fontSize: 11, fontWeight: "bold" }} />
+                          <Area type="monotone" dataKey="total" stroke="#3B82F6" strokeWidth={3} fill="url(#execColorTotalPop)" dot={{ r: 4, fill: "#3B82F6", stroke: "#fff", strokeWidth: 2 }} label={{ position: "top", fill: "#475569", fontSize: 11, fontWeight: 700, formatter: val => Number(val || 0).toFixed(2) }} name="Grout Volume (m³)" />
+                        </ComposedChart>
                       </ResponsiveContainer>
                     </div>
                   </div>

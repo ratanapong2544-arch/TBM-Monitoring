@@ -2,6 +2,8 @@ export const GAS_URL = "https://script.google.com/macros/s/AKfycbyRUl5BVmZYDhw_Z
 export const THEORETICAL_VOL = 3.1;
 export const VOL_120 = 3.72;
 export const VOL_150 = 4.65;
+export const VOL_80 = 2.48;
+export const VOL_50 = 1.55;
 
 // Tunnel route constants
 export const CH_START_P36 = 8769.960; // CH เริ่มต้นของ P36

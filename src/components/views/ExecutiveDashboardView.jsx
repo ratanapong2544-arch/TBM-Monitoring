@@ -153,17 +153,158 @@ const ExecutiveDashboardView = ({ segmentRecords, groutRecords, shiftReports }) 
       if (!existing) {
         map.set(key, r);
       } else {
-        // ถ้าของเดิมยังเป็น In Progress แต่ตัวใหม่เป็น Completed → เอาตัวใหม่
         if (existing.status === "In Progress" && r.status !== "In Progress") {
           map.set(key, r);
         } else if (existing.status === r.status) {
-          // status เหมือนกัน → เอาตัวที่ใหม่กว่า (ท้ายสุดใน array)
           map.set(key, r);
         }
       }
     });
     return Array.from(map.values());
   };
+
+  // ══════════════════════════════════════════════
+  // SECTION: Distance Chart Data (รายเดือน) — เริ่มนับจาก P36
+  // ══════════════════════════════════════════════
+
+  const distanceChartData = useMemo(() => {
+    const allDeduped = deduplicateRecords(globalFilteredSegments);
+    
+    // เอาเฉพาะ ring ตั้งแต่ P36 เป็นต้นไป (ringNo P36, P37, ...) ที่ไม่ใช่ In Progress
+    const fromP36 = allDeduped.filter(r => {
+      if (r.status === "In Progress") return false;
+      const prefix = String(r.ringNo).replace(/\d/g, '').toUpperCase();
+      const num = getRingNumeric(r.ringNo);
+      if (prefix === "P" && num >= 36) return true;
+      if (prefix === "T" && num >= 36) return true;
+      return false;
+    });
+
+    fromP36.sort((a, b) => {
+      const prefA = String(a.ringNo).replace(/\d/g, '');
+      const prefB = String(b.ringNo).replace(/\d/g, '');
+      if (prefA !== prefB) return prefA.localeCompare(prefB);
+      return getRingNumeric(a.ringNo) - getRingNumeric(b.ringNo);
+    });
+
+    const monthsMap = new Map();
+    // เพิ่มข้อมูล Actual สำหรับ >= P36
+    fromP36.forEach(rec => {
+      const dDate = formatDisplayDate(rec.date);
+      if (!dDate) return;
+      const monthKey = dDate.slice(0, 7);
+      if (!monthsMap.has(monthKey)) monthsMap.set(monthKey, { month: monthKey, distance: 0, rings: 0, hasActual: true });
+      const d = monthsMap.get(monthKey);
+      d.distance += parseFloat(rec.length || 0);
+      d.rings++;
+    });
+
+    // คำนวณระยะทางจาก P1-P32 จากข้อมูลจริง
+    const p1ToP32 = allDeduped.filter(r => {
+      if (r.status === "In Progress") return false;
+      const prefix = String(r.ringNo).replace(/\d/g, '').toUpperCase();
+      const num = getRingNumeric(r.ringNo);
+      return prefix === "P" && num >= 1 && num <= 32;
+    });
+    
+    const p1ToP32Distance = p1ToP32.reduce((sum, r) => sum + parseFloat(r.length || 0), 0);
+
+    // ยกยอด P1-P32 (ตามจริง) มารวมในเดือน พ.ย. 68 (2025-11)
+    if (p1ToP32Distance > 0) {
+      const carryOverMonth = "2025-11";
+      if (!monthsMap.has(carryOverMonth)) {
+        monthsMap.set(carryOverMonth, { month: carryOverMonth, distance: 0, rings: 0, hasActual: true });
+      }
+      monthsMap.get(carryOverMonth).distance += p1ToP32Distance;
+    }
+
+    // เริ่มสร้าง sequence เดือนตั้งแต่เดือนแรกที่มีข้อมูล
+    let minMonth = "2024-11";
+    if (monthsMap.size > 0) {
+      minMonth = Array.from(monthsMap.keys()).sort()[0];
+    }
+
+    // หาเดือนปัจจุบัน (เวลาไทย)
+    const now = new Date();
+    const nowTH = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Bangkok" }));
+    const currentMonth = `${nowTH.getFullYear()}-${String(nowTH.getMonth() + 1).padStart(2, '0')}`;
+
+    // เดือนสุดท้ายของโครงการ: ก.ย. 2028 (ก.ย. 71)
+    const projectEndMonth = "2028-09";
+
+    let currentActualAcc = 0;
+    let currentPlanAcc = 0;
+    let currentMonthStr = minMonth;
+    const result = [];
+
+    // สร้างข้อมูลจนถึง ก.ย. 71 เต็มโครงการ
+    let loopCount = 0;
+    while (currentMonthStr <= projectEndMonth && loopCount < 100) {
+      let mData = monthsMap.get(currentMonthStr);
+      let distThisMonth = mData ? mData.distance : 0;
+      
+      // Actual: นับเฉพาะเดือนที่มีข้อมูลจริงหรือเดือนที่ผ่านมาแล้ว
+      if (currentMonthStr <= currentMonth) {
+        currentActualAcc += distThisMonth;
+      }
+
+      // คำนวณ Plan สำหรับเดือนนี้
+      let monthPlan = 0;
+      if (distPlanConfig.ranges && distPlanConfig.ranges.length > 0) {
+        for (const range of distPlanConfig.ranges) {
+          if ((!range.startMonth || currentMonthStr >= range.startMonth) && (!range.endMonth || currentMonthStr <= range.endMonth)) {
+            if (range.mode === "distance") {
+              monthPlan = parseFloat(range.distancePerMonth) || 0;
+            } else {
+              const ringsPerDay = parseFloat(range.ringsPerDay) || 0;
+              const avgLen = parseFloat(range.avgLength) || 1.2;
+              monthPlan = ringsPerDay * avgLen * 30;
+            }
+            break;
+          }
+        }
+      }
+      currentPlanAcc += monthPlan;
+      if (currentPlanAcc > TOTAL_ROUTE_DISTANCE) currentPlanAcc = TOTAL_ROUTE_DISTANCE;
+
+      const [y, mo] = currentMonthStr.split("-");
+      const thMonths = ["ม.ค.","ก.พ.","มี.ค.","เม.ย.","พ.ค.","มิ.ย.","ก.ค.","ส.ค.","ก.ย.","ต.ค.","พ.ย.","ธ.ค."];
+      const buddhistYear = (parseInt(y) + 543).toString().slice(-2);
+      const displayMonth = `${thMonths[parseInt(mo) - 1]} ${buddhistYear}`;
+
+      // Actual: เดือนอนาคตไม่แสดงจุด
+      const isActualAvailable = currentMonthStr <= currentMonth;
+
+      result.push({
+        month: currentMonthStr,
+        displayMonth,
+        actualAcc: isActualAvailable ? (currentActualAcc > 0 ? Math.round(currentActualAcc * 10) / 10 : (mData ? 0 : 0)) : null,
+        planAcc: Math.round(currentPlanAcc * 10) / 10,
+        hasActual: !!mData,
+        isFuture: currentMonthStr > currentMonth
+      });
+
+      // Next month
+      let ny = parseInt(y);
+      let nm = parseInt(mo) + 1;
+      if (nm > 12) { nm = 1; ny++; }
+      currentMonthStr = `${ny}-${String(nm).padStart(2, '0')}`;
+      loopCount++;
+    }
+
+    return result;
+  }, [segmentRecords, globalFilteredSegments, distPlanConfig]);
+
+  // ระยะสะสมรวม (ทั้งหมด ไม่ filter) สำหรับ TBM position + summary
+  const totalActualDistance = useMemo(() => {
+    // หาค่า actualAcc ล่าสุดที่ไม่ใช่ null
+    for (let i = distanceChartData.length - 1; i >= 0; i--) {
+      if (distanceChartData[i].actualAcc !== null && distanceChartData[i].actualAcc > 0) {
+        return distanceChartData[i].actualAcc;
+      }
+    }
+    return 0;
+  }, [distanceChartData]);
 
   // ══════════════════════════════════════════════
   // SECTION: Overall KPI Stats (all data)
@@ -176,6 +317,7 @@ const ExecutiveDashboardView = ({ segmentRecords, groutRecords, shiftReports }) 
     const permRings = allDeduped.filter(r => r.installType !== "Temporary");
     const tempRings = allDeduped.filter(r => r.installType === "Temporary");
 
+    // คำนวณระยะทางรวมจากทุก ring ถาวรจริงๆ ตามฐานข้อมูล
     const totalDistance = permRings.reduce((sum, r) => sum + parseFloat(r.length || 0), 0);
     const totalSoilVol = permRings.reduce((sum, r) => sum + parseFloat(r.soilVolume || calculateSoilVolume(r.length)), 0);
 
@@ -357,141 +499,11 @@ const ExecutiveDashboardView = ({ segmentRecords, groutRecords, shiftReports }) 
     });
   }, [baseSegmentRecords, planConfig, segFilterMode, segFilterDate, getPlanForDate]);
 
-  // ══════════════════════════════════════════════
-  // SECTION: Distance Chart Data (รายเดือน) — เริ่มนับจาก P36
-  // ══════════════════════════════════════════════
-
-  const distanceChartData = useMemo(() => {
-    const allDeduped = deduplicateRecords(globalFilteredSegments);
-    // เอาเฉพาะ ring ตั้งแต่ P36 เป็นต้นไป (ringNo P36, P37, ...) ที่ไม่ใช่ In Progress
-    const fromP36 = allDeduped.filter(r => {
-      if (r.status === "In Progress") return false;
-      const prefix = String(r.ringNo).replace(/\d/g, '').toUpperCase();
-      const num = getRingNumeric(r.ringNo);
-      if (prefix === "P" && num >= 36) return true;
-      if (prefix === "T" && num >= 36) return true;
-      return false;
-    });
-
-    fromP36.sort((a, b) => {
-      const prefA = String(a.ringNo).replace(/\d/g, '');
-      const prefB = String(b.ringNo).replace(/\d/g, '');
-      if (prefA !== prefB) return prefA.localeCompare(prefB);
-      return getRingNumeric(a.ringNo) - getRingNumeric(b.ringNo);
-    });
-
-    const monthsMap = new Map();
-    // เพิ่มข้อมูล Actual
-    fromP36.forEach(rec => {
-      const dDate = formatDisplayDate(rec.date);
-      if (!dDate) return;
-      const monthKey = dDate.slice(0, 7);
-      if (!monthsMap.has(monthKey)) monthsMap.set(monthKey, { month: monthKey, distance: 0, rings: 0, hasActual: true });
-      const d = monthsMap.get(monthKey);
-      d.distance += parseFloat(rec.length || 0);
-      d.rings++;
-    });
-
-    // ยกยอด P1-P32 (43.8 เมตร) มารวมในเดือน พ.ย. 68 (2025-11)
-    const carryOverMonth = "2025-11";
-    if (!monthsMap.has(carryOverMonth)) {
-      monthsMap.set(carryOverMonth, { month: carryOverMonth, distance: 0, rings: 0, hasActual: true });
-    }
-    monthsMap.get(carryOverMonth).distance += 43.8;
-
-    // เริ่มสร้าง sequence เดือนตั้งแต่เดือนแรกที่มีข้อมูล
-    let minMonth = "2024-11";
-    if (monthsMap.size > 0) {
-      minMonth = Array.from(monthsMap.keys()).sort()[0];
-    }
-
-    // หาเดือนปัจจุบัน (เวลาไทย)
-    const now = new Date();
-    const nowTH = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Bangkok" }));
-    const currentMonth = `${nowTH.getFullYear()}-${String(nowTH.getMonth() + 1).padStart(2, '0')}`;
-
-    // เดือนสุดท้ายของโครงการ: ก.ย. 2028 (ก.ย. 71)
-    const projectEndMonth = "2028-09";
-
-    let currentActualAcc = 0;
-    let currentPlanAcc = 0;
-    let currentMonthStr = minMonth;
-    const result = [];
-
-    // สร้างข้อมูลจนถึง ก.ย. 71 เต็มโครงการ
-    let loopCount = 0;
-    while (currentMonthStr <= projectEndMonth && loopCount < 100) {
-      let mData = monthsMap.get(currentMonthStr);
-      let distThisMonth = mData ? mData.distance : 0;
-      
-      // Actual: นับเฉพาะเดือนที่มีข้อมูลจริงหรือเดือนที่ผ่านมาแล้ว
-      if (currentMonthStr <= currentMonth) {
-        currentActualAcc += distThisMonth;
-      }
-
-      // คำนวณ Plan สำหรับเดือนนี้
-      let monthPlan = 0;
-      if (distPlanConfig.ranges && distPlanConfig.ranges.length > 0) {
-        for (const range of distPlanConfig.ranges) {
-          if ((!range.startMonth || currentMonthStr >= range.startMonth) && (!range.endMonth || currentMonthStr <= range.endMonth)) {
-            if (range.mode === "distance") {
-              monthPlan = parseFloat(range.distancePerMonth) || 0;
-            } else {
-              const ringsPerDay = parseFloat(range.ringsPerDay) || 0;
-              const avgLen = parseFloat(range.avgLength) || 1.2;
-              monthPlan = ringsPerDay * avgLen * 30;
-            }
-            break;
-          }
-        }
-      }
-      currentPlanAcc += monthPlan;
-      if (currentPlanAcc > TOTAL_ROUTE_DISTANCE) currentPlanAcc = TOTAL_ROUTE_DISTANCE;
-
-      const [y, mo] = currentMonthStr.split("-");
-      const thMonths = ["ม.ค.","ก.พ.","มี.ค.","เม.ย.","พ.ค.","มิ.ย.","ก.ค.","ส.ค.","ก.ย.","ต.ค.","พ.ย.","ธ.ค."];
-      const buddhistYear = (parseInt(y) + 543).toString().slice(-2);
-      const displayMonth = `${thMonths[parseInt(mo) - 1]} ${buddhistYear}`;
-
-      // Actual: เดือนอนาคตไม่แสดงจุด
-      const isActualAvailable = currentMonthStr <= currentMonth;
-
-      result.push({
-        month: currentMonthStr,
-        displayMonth,
-        actualAcc: isActualAvailable ? (currentActualAcc > 0 ? Math.round(currentActualAcc * 10) / 10 : (mData ? 0 : 0)) : null,
-        planAcc: Math.round(currentPlanAcc * 10) / 10,
-        hasActual: !!mData,
-        isFuture: currentMonthStr > currentMonth
-      });
-
-      // Next month
-      let ny = parseInt(y);
-      let nm = parseInt(mo) + 1;
-      if (nm > 12) { nm = 1; ny++; }
-      currentMonthStr = `${ny}-${String(nm).padStart(2, '0')}`;
-      loopCount++;
-    }
-
-    return result;
-  }, [segmentRecords, distPlanConfig]);
-
   // Filter ตามช่วงเดือน
   const filteredDistanceChartData = useMemo(() => {
     if (distFilterMode === "all" || !distRangeStart || !distRangeEnd) return distanceChartData;
     return distanceChartData.filter(d => d.month >= distRangeStart && d.month <= distRangeEnd);
   }, [distanceChartData, distFilterMode, distRangeStart, distRangeEnd]);
-
-  // ระยะสะสมรวม (ทั้งหมด ไม่ filter) สำหรับ TBM position + summary
-  const totalActualDistance = useMemo(() => {
-    // หาค่า actualAcc ล่าสุดที่ไม่ใช่ null
-    for (let i = distanceChartData.length - 1; i >= 0; i--) {
-      if (distanceChartData[i].actualAcc !== null && distanceChartData[i].actualAcc > 0) {
-        return distanceChartData[i].actualAcc;
-      }
-    }
-    return 0;
-  }, [distanceChartData]);
 
   const totalPlanDistance = useMemo(() => {
     // ใช้ planAcc ณ เดือนปัจจุบัน (ไม่ใช่เดือนสุดท้ายของโครงการ)

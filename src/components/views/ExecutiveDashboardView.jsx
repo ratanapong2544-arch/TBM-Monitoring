@@ -392,6 +392,13 @@ const ExecutiveDashboardView = ({ segmentRecords, groutRecords, shiftReports }) 
       d.rings++;
     });
 
+    // ยกยอด P1-P32 (43.8 เมตร) มารวมในเดือน พ.ย. 68 (2025-11)
+    const carryOverMonth = "2025-11";
+    if (!monthsMap.has(carryOverMonth)) {
+      monthsMap.set(carryOverMonth, { month: carryOverMonth, distance: 0, rings: 0, hasActual: true });
+    }
+    monthsMap.get(carryOverMonth).distance += 43.8;
+
     // เริ่มสร้าง sequence เดือนตั้งแต่เดือนแรกที่มีข้อมูล
     let minMonth = "2024-11";
     if (monthsMap.size > 0) {

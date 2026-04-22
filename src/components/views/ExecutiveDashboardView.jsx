@@ -164,23 +164,16 @@ const ExecutiveDashboardView = ({ segmentRecords, groutRecords, shiftReports }) 
   };
 
   // ══════════════════════════════════════════════
-  // SECTION: Distance Chart Data (รายเดือน) — เริ่มนับจาก P36
+  // SECTION: Distance Chart Data (รายเดือน)
   // ══════════════════════════════════════════════
 
   const distanceChartData = useMemo(() => {
     const allDeduped = deduplicateRecords(globalFilteredSegments);
     
-    // เอาเฉพาะ ring ตั้งแต่ P36 เป็นต้นไป (ringNo P36, P37, ...) ที่ไม่ใช่ In Progress
-    const fromP36 = allDeduped.filter(r => {
-      if (r.status === "In Progress") return false;
-      const prefix = String(r.ringNo).replace(/\d/g, '').toUpperCase();
-      const num = getRingNumeric(r.ringNo);
-      if (prefix === "P" && num >= 36) return true;
-      if (prefix === "T" && num >= 36) return true;
-      return false;
-    });
+    // ใช้เฉพาะ Ring ถาวร (ให้สอดคล้องกับ Total Distance) ไม่ตัด In Progress ออกแล้ว
+    const completedPermRings = allDeduped.filter(r => r.installType !== "Temporary");
 
-    fromP36.sort((a, b) => {
+    completedPermRings.sort((a, b) => {
       const prefA = String(a.ringNo).replace(/\d/g, '');
       const prefB = String(b.ringNo).replace(/\d/g, '');
       if (prefA !== prefB) return prefA.localeCompare(prefB);
@@ -188,35 +181,23 @@ const ExecutiveDashboardView = ({ segmentRecords, groutRecords, shiftReports }) 
     });
 
     const monthsMap = new Map();
-    // เพิ่มข้อมูล Actual สำหรับ >= P36
-    fromP36.forEach(rec => {
+    const carryOverMonth = "2025-11";
+
+    completedPermRings.forEach(rec => {
       const dDate = formatDisplayDate(rec.date);
       if (!dDate) return;
-      const monthKey = dDate.slice(0, 7);
+      let monthKey = dDate.slice(0, 7);
+      
+      // ถ้ายอดเกิดก่อน พ.ย. 68 (2025-11) ให้ปัดไปรวมใน พ.ย. 68 (ยกยอดตามความต้องการ)
+      if (monthKey < carryOverMonth) {
+        monthKey = carryOverMonth;
+      }
+
       if (!monthsMap.has(monthKey)) monthsMap.set(monthKey, { month: monthKey, distance: 0, rings: 0, hasActual: true });
       const d = monthsMap.get(monthKey);
       d.distance += parseFloat(rec.length || 0);
       d.rings++;
     });
-
-    // คำนวณระยะทางจาก P1-P32 จากข้อมูลจริง
-    const p1ToP32 = allDeduped.filter(r => {
-      if (r.status === "In Progress") return false;
-      const prefix = String(r.ringNo).replace(/\d/g, '').toUpperCase();
-      const num = getRingNumeric(r.ringNo);
-      return prefix === "P" && num >= 1 && num <= 32;
-    });
-    
-    const p1ToP32Distance = p1ToP32.reduce((sum, r) => sum + parseFloat(r.length || 0), 0);
-
-    // ยกยอด P1-P32 (ตามจริง) มารวมในเดือน พ.ย. 68 (2025-11)
-    if (p1ToP32Distance > 0) {
-      const carryOverMonth = "2025-11";
-      if (!monthsMap.has(carryOverMonth)) {
-        monthsMap.set(carryOverMonth, { month: carryOverMonth, distance: 0, rings: 0, hasActual: true });
-      }
-      monthsMap.get(carryOverMonth).distance += p1ToP32Distance;
-    }
 
     // เริ่มสร้าง sequence เดือนตั้งแต่เดือนแรกที่มีข้อมูล
     let minMonth = "2024-11";

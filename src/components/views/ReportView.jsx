@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from "react";
 import { Sparkles, AlertCircle, X, Check, Copy, Download, Printer, Loader2 } from "lucide-react";
-import { formatDisplayDate, formatDisplayTime, parseCH } from "../../utils/formatters";
+import { formatDisplayDate, formatDisplayTime, parseCH, formatThaiBuddhistDate, formatThaiBuddhistDateForFile } from "../../utils/formatters";
 import { getLogicalShiftDate, getRingNumeric, calculateSoilVolume, loadHtml2Canvas } from "../../utils/helpers";
 import { generateGeminiSummary } from "../../utils/api";
 
@@ -146,7 +146,11 @@ const ReportView = ({ segmentRecords, groutRecords, projectInfo, shiftReports })
   }, [filteredSegments, filteredGrouts, reportShift, reportType, reportDate, reportMonth]);
 
   const displayDateStr = reportType === "daily"
-    ? new Date(reportDate).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })
+    ? formatThaiBuddhistDate(reportDate)
+    : new Date(reportMonth + "-01").toLocaleDateString("en-GB", { month: "long", year: "numeric" });
+
+  const fileDateStr = reportType === "daily"
+    ? formatThaiBuddhistDateForFile(reportDate)
     : new Date(reportMonth + "-01").toLocaleDateString("en-GB", { month: "long", year: "numeric" });
 
   const handleDownloadImage = async () => {
@@ -182,7 +186,7 @@ const ReportView = ({ segmentRecords, groutRecords, projectInfo, shiftReports })
       });
       inputs.forEach(inp => inp.removeAttribute('data-html2canvas-id'));
       const link = document.createElement("a");
-      link.download = `Stats_Report_${displayDateStr}.jpg`; link.href = canvas.toDataURL("image/jpeg", 0.9); link.click();
+      link.download = `Stats_Report_${fileDateStr}.jpg`; link.href = canvas.toDataURL("image/jpeg", 0.9); link.click();
     } catch (error) { alert("เกิดข้อผิดพลาดในการสร้างรูปภาพ: " + error.message); } finally { setIsExportingImage(false); }
   };
 

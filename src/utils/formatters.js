@@ -53,3 +53,23 @@ export const formatCH = (val) => {
   }
   return `${isNegative ? "-" : ""}${km}+${m}${decPart}`;
 };
+
+export const formatThaiBuddhistDate = (d) => {
+  if (!d) return "";
+  const dateObj = d instanceof Date ? d : new Date(d);
+  if (isNaN(dateObj.getTime())) return String(d);
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Bangkok', year: 'numeric', month: '2-digit', day: '2-digit'
+  }).formatToParts(dateObj);
+  const y = Number(parts.find(p => p.type === 'year').value) + 543;
+  const m = parts.find(p => p.type === 'month').value;
+  const day = parts.find(p => p.type === 'day').value;
+  return `${day}/${m}/${y}`;
+};
+
+export const formatThaiBuddhistDateForFile = (d) => {
+  const display = formatThaiBuddhistDate(d);
+  if (!display) return "";
+  const [day, m, y] = display.split('/');
+  return `${y}-${m}-${day}`;
+};

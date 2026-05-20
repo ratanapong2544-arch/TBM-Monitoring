@@ -3,6 +3,7 @@ import { Sparkles, AlertCircle, X, Check, Copy, Download, Printer, Loader2 } fro
 import { formatDisplayDate, formatDisplayTime, parseCH, formatThaiBuddhistDate, formatThaiBuddhistDateForFile } from "../../utils/formatters";
 import { getLogicalShiftDate, getRingNumeric, calculateSoilVolume, loadHtml2Canvas } from "../../utils/helpers";
 import { generateGeminiSummary } from "../../utils/api";
+import { TOTAL_ROUTE_DISTANCE } from "../../utils/constants";
 
 const ReportView = ({ segmentRecords, groutRecords, projectInfo, shiftReports }) => {
   const [reportType, setReportType] = useState("daily");
@@ -153,12 +154,14 @@ const ReportView = ({ segmentRecords, groutRecords, projectInfo, shiftReports })
     const sortedPerm = [...permAccum].sort((a, b) => getRingNumeric(a.ringNo) - getRingNumeric(b.ringNo));
     const latestPermRing = sortedPerm.length > 0 ? String(sortedPerm[sortedPerm.length - 1].ringNo) : "-";
     const totalAccumDist = permAccum.reduce((sum, s) => sum + parseFloat(s.length || 0), 0);
+    const progressPercent = TOTAL_ROUTE_DISTANCE > 0 ? (totalAccumDist / TOTAL_ROUTE_DISTANCE) * 100 : 0;
     return {
       latestPermRing,
       permRings: permAccum.length,
       tempRings: tempAccum.length,
       totalRings: allAccum.length,
       totalAccumDist: Number(totalAccumDist || 0).toFixed(3),
+      progressPercent: Number(progressPercent || 0).toFixed(2),
     };
   }, [deduplicatedSegments, reportType, reportDate, reportMonth]);
 
@@ -388,6 +391,11 @@ ${remarksText}
             <div className="text-[10px] sm:text-xs uppercase font-extrabold text-slate-400 tracking-wider mb-2">Accum. Distance</div>
             <div className="text-2xl sm:text-3xl font-black text-blue-600">{accumulation.totalAccumDist} <span className="text-xs sm:text-sm text-slate-400 font-bold ml-1">m</span></div>
             <div className="text-[10px] sm:text-xs font-bold text-slate-500 mt-2 bg-slate-200/50 px-2 py-1 rounded inline-block">ระยะติดตั้งสะสม (Permanent)</div>
+          </div>
+          <div className="bg-slate-50 p-4 sm:p-6 rounded-2xl border border-slate-200 shadow-sm">
+            <div className="text-[10px] sm:text-xs uppercase font-extrabold text-slate-400 tracking-wider mb-2">% ผลงานแล้วเสร็จ</div>
+            <div className="text-2xl sm:text-3xl font-black text-purple-600">{accumulation.progressPercent} <span className="text-xs sm:text-sm font-bold ml-1">%</span></div>
+            <div className="text-[10px] sm:text-xs font-bold text-slate-500 mt-2 bg-slate-200/50 px-2 py-1 rounded inline-block">จากระยะรวม {TOTAL_ROUTE_DISTANCE.toLocaleString()} ม.</div>
           </div>
         </div>
 

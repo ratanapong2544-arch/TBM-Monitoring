@@ -145,6 +145,23 @@ const ReportView = ({ segmentRecords, groutRecords, projectInfo, shiftReports })
     };
   }, [filteredSegments, filteredGrouts, reportShift, reportType, reportDate, reportMonth]);
 
+  const accumulation = useMemo(() => {
+    const targetDate = reportType === "daily" ? reportDate : `${reportMonth}-31`;
+    const allAccum = deduplicatedSegments.filter(s => s.status !== "In Progress" && formatDisplayDate(s.date) <= targetDate);
+    const permAccum = allAccum.filter(s => s.installType !== "Temporary");
+    const tempAccum = allAccum.filter(s => s.installType === "Temporary");
+    const sortedPerm = [...permAccum].sort((a, b) => getRingNumeric(a.ringNo) - getRingNumeric(b.ringNo));
+    const latestPermRing = sortedPerm.length > 0 ? String(sortedPerm[sortedPerm.length - 1].ringNo) : "-";
+    const totalAccumDist = permAccum.reduce((sum, s) => sum + parseFloat(s.length || 0), 0);
+    return {
+      latestPermRing,
+      permRings: permAccum.length,
+      tempRings: tempAccum.length,
+      totalRings: allAccum.length,
+      totalAccumDist: Number(totalAccumDist || 0).toFixed(3),
+    };
+  }, [deduplicatedSegments, reportType, reportDate, reportMonth]);
+
   const displayDateStr = reportType === "daily"
     ? formatThaiBuddhistDate(reportDate)
     : new Date(reportMonth + "-01").toLocaleDateString("en-GB", { month: "long", year: "numeric" });
@@ -212,13 +229,9 @@ const ReportView = ({ segmentRecords, groutRecords, projectInfo, shiftReports })
     const latestGroutRing = sortedGrouts.length > 0 ? sortedGrouts[sortedGrouts.length - 1].ringNo : '-';
     const soilTypes = [...new Set(excavatedInShift.map(s => s.soilType).filter(Boolean))].join(', ') || '-';
 
-    const targetDate = reportType === 'daily' ? reportDate : `${reportMonth}-31`;
-    const allAccumSegments = deduplicatedSegments.filter(s => s.status !== "In Progress" && formatDisplayDate(s.date) <= targetDate);
-    const accumPermSegments = allAccumSegments.filter(s => s.installType !== "Temporary");
-    const accumTempSegments = allAccumSegments.filter(s => s.installType === "Temporary");
-    const totalAccumPermRings = accumPermSegments.length;
-    const totalAccumTempRings = accumTempSegments.length;
-    const totalAccumDist = Number(accumPermSegments.reduce((sum, s) => sum + parseFloat(s.length || 0), 0)).toFixed(3);
+    const totalAccumPermRings = accumulation.permRings;
+    const totalAccumTempRings = accumulation.tempRings;
+    const totalAccumDist = accumulation.totalAccumDist;
 
     let shiftDelays = [];
     filteredShiftReports.forEach(sr => {
@@ -360,6 +373,21 @@ ${remarksText}
             <div className="text-[10px] sm:text-xs uppercase font-extrabold text-slate-400 tracking-wider mb-2">Avg Grout Ratio</div>
             <div className={`text-2xl sm:text-3xl font-black ${Number(summary.avgGroutRatio) > 150 ? "text-purple-500" : Number(summary.avgGroutRatio) >= 100 ? "text-emerald-500" : "text-red-500"}`}>{summary.avgGroutRatio} <span className="text-xs sm:text-sm font-bold ml-1">%</span></div>
             <div className="text-[10px] sm:text-xs font-bold text-slate-500 mt-2 bg-slate-200/50 px-2 py-1 rounded inline-block">Efficiency Target: 100%</div>
+          </div>
+          <div className="bg-slate-50 p-4 sm:p-6 rounded-2xl border border-slate-200 shadow-sm">
+            <div className="text-[10px] sm:text-xs uppercase font-extrabold text-slate-400 tracking-wider mb-2">Latest Ring</div>
+            <div className="text-2xl sm:text-3xl font-black text-slate-800">{accumulation.latestPermRing}</div>
+            <div className="text-[10px] sm:text-xs font-bold text-slate-500 mt-2 bg-slate-200/50 px-2 py-1 rounded inline-block">วงล่าสุด (Permanent)</div>
+          </div>
+          <div className="bg-slate-50 p-4 sm:p-6 rounded-2xl border border-slate-200 shadow-sm">
+            <div className="text-[10px] sm:text-xs uppercase font-extrabold text-slate-400 tracking-wider mb-2">Accum. Rings</div>
+            <div className="text-2xl sm:text-3xl font-black text-emerald-600">{accumulation.permRings} <span className="text-xs sm:text-sm text-slate-400 font-bold ml-1">Perm.</span></div>
+            <div className="text-[10px] sm:text-xs font-bold text-slate-500 mt-2 bg-slate-200/50 px-2 py-1 rounded inline-block">+ {accumulation.tempRings} Temp (Total: {accumulation.totalRings})</div>
+          </div>
+          <div className="bg-slate-50 p-4 sm:p-6 rounded-2xl border border-slate-200 shadow-sm">
+            <div className="text-[10px] sm:text-xs uppercase font-extrabold text-slate-400 tracking-wider mb-2">Accum. Distance</div>
+            <div className="text-2xl sm:text-3xl font-black text-blue-600">{accumulation.totalAccumDist} <span className="text-xs sm:text-sm text-slate-400 font-bold ml-1">m</span></div>
+            <div className="text-[10px] sm:text-xs font-bold text-slate-500 mt-2 bg-slate-200/50 px-2 py-1 rounded inline-block">ระยะติดตั้งสะสม (Permanent)</div>
           </div>
         </div>
 

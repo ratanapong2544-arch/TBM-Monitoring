@@ -76,6 +76,52 @@ export default function PerformanceView({ segmentRecords = [], shiftReports = []
     };
   }, [filteredShiftReports]);
 
+  const cycle = useMemo(() => {
+    const durMin = (a, b) => {
+      const p = (t) => {
+        if (!t) return null;
+        const [h, m] = formatDisplayTime(t).split(":").map(Number);
+        return isNaN(h) || isNaN(m) ? null : h * 60 + m;
+      };
+      let A = p(a);
+      let B = p(b);
+      if (A === null || B === null) return null;
+      if (B < A) B += 24 * 60;
+      return B - A;
+    };
+    const map = new Map();
+    filteredSegments.forEach((r) => map.set(r.ringNo, r));
+    const rows = [];
+    let skipped = 0;
+    Array.from(map.values()).forEach((r) => {
+      const ex = durMin(r.excavStartTime, r.excavEndTime);
+      const er = durMin(r.installStartTime, r.installEndTime);
+      const wt0 = durMin(r.excavEndTime, r.installStartTime);
+      if (ex === null || er === null || wt0 === null) { skipped += 1; return; }
+      const wt = Math.max(0, wt0);
+      const total = ex + wt + er;
+      if (total > CYCLE_MAX_MIN) { skipped += 1; return; }
+      rows.push({ ringNo: String(r.ringNo), num: getRingNumeric(r.ringNo), excav: ex, wait: wt, erect: er, total });
+    });
+    rows.sort((a, b) => a.num - b.num);
+    const recent = rows.slice(-RECENT_RINGS).map((d) => ({
+      ringNo: d.ringNo,
+      excavH: +(d.excav / 60).toFixed(2),
+      waitH: +(d.wait / 60).toFixed(2),
+      erectH: +(d.erect / 60).toFixed(2),
+      totalH: +(d.total / 60).toFixed(2),
+    }));
+    const n = rows.length;
+    const avg = (sel) => (n > 0 ? rows.reduce((s, d) => s + sel(d), 0) / n / 60 : 0);
+    let fastest = null;
+    rows.forEach((d) => { if (!fastest || d.total < fastest.total) fastest = d; });
+    return {
+      recent, skipped, count: n,
+      avgCycle: avg((d) => d.total), avgExcav: avg((d) => d.excav), avgErect: avg((d) => d.erect),
+      fastestH: fastest ? +(fastest.total / 60).toFixed(1) : 0, fastestRing: fastest ? fastest.ringNo : "-",
+    };
+  }, [filteredSegments]);
+
   return (
     <div className="max-w-full mx-auto pb-24 animate-fade-in space-y-6">
       <GlobalFilterBar state={gfState} setters={gfSetters} title="Performance Filter" subtitle="กรองช่วงเวลา (ใช้ฟิลเตอร์เดียวกับทั้งระบบ)" />
@@ -148,8 +194,35 @@ export default function PerformanceView({ segmentRecords = [], shiftReports = []
 
       <section className="space-y-4">
         <SectionHeader title="Cycle Time" subtitle="รอบเวลาการทำงานต่อวง" icon={Clock} />
-        <div className="bg-surface rounded-card p-6 shadow-card border border-line text-ink-3 text-sm">
-          (Section 2 — ใส่ใน Task 5) · segments ในช่วง: {filteredSegments.length}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <StatCard label="avg Cycle/วง" value={`${fmt1(cycle.avgCycle)} ชม.`} subtext="ขุด+รอ+ประกอบ" color="text-navy" valueColor="text-navy" icon={Clock} />
+          <StatCard label="avg ขุด" value={`${fmt1(cycle.avgExcav)} ชม.`} subtext="Excavation" color="text-navy" valueColor="text-navy" icon={Timer} />
+          <StatCard label="avg ประกอบ" value={`${fmt1(cycle.avgErect)} ชม.`} subtext="Segment Erection" color="text-cyan-med" valueColor="text-cyan-med" icon={Layers} />
+          <StatCard label="เร็วสุด" value={`${fmt1(cycle.fastestH)} ชม.`} subtext={`วง ${cycle.fastestRing}`} color="text-sgreen-dark" valueColor="text-sgreen-dark" icon={Zap} />
+        </div>
+        <div className="bg-surface rounded-card p-6 shadow-card border border-line">
+          <h3 className="font-semibold text-ink text-base">Cycle Time ต่อวง (ย้อนหลัง {RECENT_RINGS} วง)</h3>
+          <p className="text-xs text-ink-3 font-semibold mb-4">แต่ละแท่ง = 1 วง · ซ้อน ขุด → รอ → ประกอบ{cycle.skipped > 0 ? ` · ข้าม ${cycle.skipped} วง (เวลาไม่ครบ)` : ""}</p>
+          {cycle.recent.length === 0 ? (
+            <div className="h-[300px] flex items-center justify-center text-ink-3 text-sm">ยังไม่มีวงที่เวลาครบในช่วงนี้</div>
+          ) : (
+            <div className="h-[340px] w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <ComposedChart data={cycle.recent} margin={{ top: 20, right: 16, left: 0, bottom: 30 }}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={chartColors.grid} />
+                  <XAxis dataKey="ringNo" tick={axisTick} angle={-45} textAnchor="end" height={56} interval={0} stroke={chartColors.axis} />
+                  <YAxis tick={axisTick} axisLine={false} tickLine={false} label={{ value: "ชั่วโมง", angle: -90, position: "insideLeft", fill: chartColors.axisLabel, fontSize: 11 }} />
+                  <Tooltip {...tooltipStyle} formatter={(v, n) => [`${v} ชม.`, n]} />
+                  <Legend wrapperStyle={{ fontSize: 12, fontWeight: 600 }} />
+                  <Bar dataKey="excavH" stackId="c" fill={chartColors.planned} name="ขุด" maxBarSize={40} />
+                  <Bar dataKey="waitH" stackId="c" fill={chartColors.dayShift} name="รอ/regrip" maxBarSize={40} />
+                  <Bar dataKey="erectH" stackId="c" fill={chartColors.paid} name="ประกอบ" radius={[3, 3, 0, 0]} maxBarSize={40}>
+                    <LabelList dataKey="totalH" position="top" style={{ fontSize: 10, fontWeight: 700, fill: chartColors.axisLabel }} />
+                  </Bar>
+                </ComposedChart>
+              </ResponsiveContainer>
+            </div>
+          )}
         </div>
       </section>
     </div>

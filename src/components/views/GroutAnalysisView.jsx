@@ -1,13 +1,14 @@
 import React, { useState, useMemo } from "react";
-import { Droplet, Printer, Maximize2, X } from "lucide-react";
+import { Droplet, Printer, Maximize2, X, RefreshCw, BarChart3 } from "lucide-react";
 import {
   ResponsiveContainer, ComposedChart, CartesianGrid, XAxis, YAxis, Tooltip,
-  Area, Line, ReferenceLine
+  Area, Line, ReferenceLine, BarChart, Bar, Cell, LabelList
 } from "recharts";
 import { chartColors, axisTick, tooltipStyle } from "../../ui-ux-pro-max/chartTheme";
 import { getRingNumeric } from "../../utils/helpers";
 import { THEORETICAL_VOL, VOL_120, VOL_150, VOL_80, VOL_50 } from "../../utils/constants";
 import SectionHeader from "../common/SectionHeader";
+import StatCard from "../common/StatCard";
 
 export default function GroutAnalysisView({ groutRecords = [] }) {
   // ── Print State ──
@@ -53,6 +54,39 @@ export default function GroutAnalysisView({ groutRecords = [] }) {
     const start = Math.max(0, baseData.length - groutChartWindow);
     return baseData.slice(start);
   }, [groutRecords, groutFilterMode, groutChartWindow, groutRangeStart, groutRangeEnd, groutFilterDate, groutFilterMonth, groutFilterShift]);
+
+  const groutQuality = useMemo(() => {
+    const ringMap = new Map();
+    groutRecords.forEach((r) => ringMap.set(r.ringNo, r)); // latest record per ring
+    const rings = Array.from(ringMap.values());
+    const uniqueRings = rings.length;
+    const reGroutCount = rings.filter((r) => r.groutPass === "Re-Grout").length;
+    const reGroutRate = uniqueRings > 0 ? (reGroutCount / uniqueRings) * 100 : 0;
+    const ratios = rings.map((r) => Number(r.ratio || 0)).filter((v) => v > 0);
+    const avgRatio = ratios.length > 0 ? ratios.reduce((s, v) => s + v, 0) / ratios.length : 0;
+    const belowSpec = rings.filter((r) => Number(r.ratio || 0) > 0 && Number(r.ratio) < 100).length;
+    return { uniqueRings, reGroutCount, reGroutRate, avgRatio, belowSpec };
+  }, [groutRecords]);
+
+  const ratioBuckets = useMemo(() => {
+    const defs = [
+      { name: "<80%", min: 0, max: 80, color: chartColors.delay },
+      { name: "80–100%", min: 80, max: 100, color: chartColors.dayShift },
+      { name: "100–120%", min: 100, max: 120, color: chartColors.actual },
+      { name: "120–150%", min: 120, max: 150, color: chartColors.paid },
+      { name: ">150%", min: 150, max: Infinity, color: "#a855f7" },
+    ];
+    const counts = defs.map((d) => ({ name: d.name, count: 0, color: d.color }));
+    const ringMap = new Map();
+    groutRecords.forEach((r) => ringMap.set(r.ringNo, r));
+    Array.from(ringMap.values()).forEach((r) => {
+      const v = Number(r.ratio || 0);
+      if (v <= 0) return;
+      const idx = defs.findIndex((d) => v >= d.min && v < d.max);
+      if (idx >= 0) counts[idx].count++;
+    });
+    return counts;
+  }, [groutRecords]);
 
   return (
     <div className="max-w-full mx-auto pb-24 animate-fade-in space-y-6">
@@ -176,6 +210,33 @@ export default function GroutAnalysisView({ groutRecords = [] }) {
           </div>
         </div>
       </section>
+
+      {/* ── Grout Quality summary ── */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <StatCard label="Re-grout rate" value={`${groutQuality.reGroutRate.toFixed(1)}%`} subtext={`${groutQuality.reGroutCount} จาก ${groutQuality.uniqueRings} วง`} color="text-code-d" valueColor={groutQuality.reGroutRate > 10 ? "text-code-d" : "text-sgreen-dark"} icon={RefreshCw} />
+        <StatCard label="เฉลี่ย Ratio" value={`${groutQuality.avgRatio.toFixed(1)}%`} subtext="อัตราส่วนน้ำยาเฉลี่ยทุกวง" color="text-navy" valueColor={groutQuality.avgRatio >= 100 ? "text-sgreen-dark" : "text-code-d"} icon={Droplet} />
+        <StatCard label="วง < 100%" value={`${groutQuality.belowSpec} วง`} subtext="ต่ำกว่าทฤษฎี (ควรตรวจ)" color="text-code-c" valueColor={groutQuality.belowSpec > 0 ? "text-code-c" : "text-sgreen-dark"} icon={BarChart3} />
+      </div>
+
+      {/* ── Ratio distribution histogram ── */}
+      <div className="bg-surface rounded-card p-6 shadow-card border border-line">
+        <h3 className="font-semibold text-ink text-base mb-1">การกระจายของ Grout Ratio</h3>
+        <p className="text-xs text-ink-3 font-semibold mb-4">จำนวนวงในแต่ละช่วง % เทียบทฤษฎี (3.1 m³ = 100%)</p>
+        <div className="h-[280px] w-full">
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={ratioBuckets} margin={{ top: 20, right: 16, left: 0, bottom: 8 }}>
+              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={chartColors.grid} />
+              <XAxis dataKey="name" tick={axisTick} stroke={chartColors.axis} />
+              <YAxis allowDecimals={false} tick={axisTick} axisLine={false} tickLine={false} label={{ value: "จำนวนวง", angle: -90, position: "insideLeft", fill: chartColors.axisLabel, fontSize: 11 }} />
+              <Tooltip {...tooltipStyle} />
+              <Bar dataKey="count" radius={[4, 4, 0, 0]} maxBarSize={64}>
+                {ratioBuckets.map((b, i) => <Cell key={i} fill={b.color} />)}
+                <LabelList dataKey="count" position="top" style={{ fontSize: 12, fontWeight: 700, fill: chartColors.axisLabel }} />
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
 
       {/* ═══ Chart Expansion Modal ═══ */}
       {expandedChart === 'grout' && (

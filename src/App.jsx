@@ -14,6 +14,7 @@ import ExecutiveDashboardView from "./components/views/ExecutiveDashboardView";
 import ReportView from "./components/views/ReportView";
 import ShiftReportView from "./components/views/ShiftReportView";
 import { loadIssues, persistIssues, upsertIssue, setIssueStatus, removeIssue } from "./utils/issues";
+import { apiCall } from "./utils/api";
 
 import { Shell, NAV_GROUPS } from "./ui-ux-pro-max";
 import "./styles/globals.css";
@@ -32,9 +33,26 @@ const PrimaryGroutApp = () => {
   const [issues, setIssues] = useState(loadIssues);
   useEffect(() => { persistIssues(issues); }, [issues]);
 
-  const handleSaveIssue = (form) => setIssues((prev) => upsertIssue(prev, form));
-  const handleSetIssueStatus = (id, status) => setIssues((prev) => setIssueStatus(prev, id, status));
-  const handleDeleteIssue = (id) => setIssues((prev) => removeIssue(prev, id));
+  const syncIssueToServer = (issue) => {
+    apiCall("saveIssue", issue).catch((e) => console.warn("Issue sync (save) failed — kept locally:", e.message));
+  };
+
+  const handleSaveIssue = (form) => {
+    const next = upsertIssue(issues, form);
+    setIssues(next);
+    const saved = form.id ? next.find((i) => i.id === form.id) : next[0];
+    if (saved) syncIssueToServer(saved);
+  };
+  const handleSetIssueStatus = (id, status) => {
+    const next = setIssueStatus(issues, id, status);
+    setIssues(next);
+    const changed = next.find((i) => i.id === id);
+    if (changed) syncIssueToServer(changed);
+  };
+  const handleDeleteIssue = (id) => {
+    setIssues(removeIssue(issues, id));
+    apiCall("deleteIssue", { id }).catch((e) => console.warn("Issue sync (delete) failed — kept locally:", e.message));
+  };
 
   useEffect(() => {
     const fetchData = async () => {
@@ -99,6 +117,7 @@ const PrimaryGroutApp = () => {
             const defaultResult = { startSta: '', finishSta: '', numberRing: '', totalDistance: '', progressRate: '' };
             const parsedShiftReports = (result.shiftReports || []).map(sr => ({ ...sr, events: safeParseJSON(sr.events, {}), manpower: safeParseJSON(sr.manpower, defaultManpower), result: safeParseJSON(sr.result, defaultResult) }));
             setShiftReports(parsedShiftReports);
+            if (Array.isArray(result.issues)) { setIssues(result.issues); persistIssues(result.issues); }
             
             if (result.planConfig) {
               try {

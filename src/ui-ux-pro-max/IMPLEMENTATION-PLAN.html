@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CMI AI Mark 2 — Implementation Plan (TBM1)</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Sans+Thai:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+:root{
+  --navy:#003B84;--navy-dark:#0C2C65;--navy-deepest:#00246C;
+  --cyan:#38A7CE;--cyan-med:#1E80BD;--cyan-tint:#E5F1FF;
+  --green-dark:#10463A;--green-med:#44C473;
+  --a:#10463A;--a-bg:rgba(16,70,58,0.08);--b:#B8860B;--c:#C8500A;--c-bg:rgba(200,80,10,0.10);--d:#B91C1C;--d-bg:rgba(185,28,28,0.10);
+  --page:#F8FAFD;--surface:#fff;--fg1:#333;--fg2:#666;--fg3:#999;--border:#E8E8E8;--divider:#F0F0F0;
+}
+*{box-sizing:border-box;}
+body{margin:0;background:var(--page);font-family:'IBM Plex Sans Thai','IBM Plex Sans',sans-serif;color:var(--fg1);font-size:14px;line-height:1.6;-webkit-font-smoothing:antialiased;padding:24px 16px 80px;}
+.doc{max-width:1000px;margin:0 auto;background:var(--surface);border:1px solid var(--border);border-radius:12px;box-shadow:0 1px 2px rgba(0,59,132,0.04);overflow:hidden;}
+.mono{font-family:'IBM Plex Mono',monospace;}
+code{font-family:'IBM Plex Mono',monospace;background:#F2F5F9;color:var(--navy-deepest);padding:1px 5px;border-radius:4px;font-size:0.88em;}
+.banner{background:linear-gradient(135deg,#0C2C65 0%,#003B84 100%);color:#fff;padding:26px 32px;}
+.banner .ml{font-size:11px;font-weight:600;letter-spacing:0.14em;text-transform:uppercase;color:#9db5d8;display:flex;align-items:center;gap:8px;}
+.banner .mk{width:18px;height:18px;border-radius:4px;background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.25);display:inline-flex;align-items:center;justify-content:center;font-size:10px;}
+.banner h1{font-size:26px;font-weight:600;margin:8px 0 6px;line-height:1.2;}
+.banner .meta{font-size:12.5px;color:#cdd8ee;display:flex;gap:14px;flex-wrap:wrap;align-items:center;}
+.banner .pill{background:rgba(68,196,115,0.18);color:#bfe9cf;border:1px solid rgba(255,255,255,0.18);padding:3px 10px;border-radius:9999px;font-size:11px;font-weight:600;}
+.body{padding:18px 32px 36px;}
+.lead{background:var(--cyan-tint);border:1px solid #cfe2fb;border-radius:8px;padding:14px 18px;margin:18px 0;font-size:13px;}
+.lead b{color:var(--navy-dark);}
+.lead .hd{font-weight:600;color:var(--navy-dark);margin-bottom:6px;}
+.warn{background:var(--c-bg);border:1px solid rgba(200,80,10,0.25);border-radius:8px;padding:14px 18px;margin:18px 0;font-size:13px;}
+.warn .hd{font-weight:600;color:var(--c);margin-bottom:5px;}
+h2{font-size:18px;font-weight:600;color:var(--navy);margin:30px 0 12px;padding:6px 0 6px 12px;border-left:3px solid var(--navy);}
+h3{font-size:14.5px;font-weight:600;color:var(--fg1);margin:18px 0 8px;}
+p{margin:0 0 10px;} ul{margin:8px 0;padding-left:22px;} li{margin:4px 0;}
+table{width:100%;border-collapse:collapse;margin:12px 0;font-size:12.5px;}
+th{background:var(--navy-dark);color:#fff;font-weight:600;text-align:left;padding:8px 10px;border:1px solid var(--navy-dark);}
+td{padding:7px 10px;border:1px solid var(--border);vertical-align:top;}
+tr:nth-child(even) td{background:var(--page);}
+.phase{margin:36px 0 4px;padding:11px 18px;background:linear-gradient(90deg,#0C2C65,#003B84);color:#fff;border-radius:8px;font-size:16px;font-weight:600;}
+.phase .pn{font-family:'IBM Plex Mono',monospace;opacity:0.65;margin-right:10px;}
+.task{border:1px solid var(--border);border-left:3px solid var(--navy);border-radius:8px;padding:14px 16px;margin:14px 0;background:#fff;}
+.task h4{margin:0 0 8px;font-size:14px;font-weight:600;color:var(--navy-dark);}
+.files{font-size:11.5px;color:var(--fg2);background:var(--page);border-radius:6px;padding:6px 10px;margin-bottom:10px;}
+ul.steps{list-style:none;padding-left:0;margin:8px 0;}
+ul.steps>li{padding-left:24px;position:relative;margin:7px 0;font-size:13px;}
+ul.steps>li:before{content:"☐";position:absolute;left:0;color:var(--cyan-med);font-size:14px;}
+ul.steps>li b{color:var(--navy-dark);}
+.cp{background:var(--a-bg);border:1px solid rgba(16,70,58,0.22);border-radius:6px;padding:8px 12px;margin-top:10px;font-size:12.5px;color:var(--a);}
+.cp b{color:var(--a);}
+.danger{color:var(--d);font-weight:700;}
+pre{background:#0C2C65;color:#e2eaf7;font-family:'IBM Plex Mono',monospace;font-size:11.5px;line-height:1.55;padding:12px 14px;border-radius:8px;overflow:auto;margin:8px 0;}
+pre .cm{color:#86a9d8;}
+.chip{display:inline-block;font-size:11px;font-weight:600;padding:2px 8px;border-radius:4px;}
+.code-a{background:var(--a-bg);color:var(--a);} .code-d{background:var(--d-bg);color:var(--d);}
+.toc{background:var(--page);border:1px solid var(--border);border-radius:8px;padding:12px 18px;margin:16px 0;font-size:12.5px;}
+.toc a{color:var(--navy);text-decoration:none;margin-right:14px;white-space:nowrap;}
+.toc a:hover{text-decoration:underline;}
+.note{background:var(--page);border:1px solid var(--border);border-radius:6px;padding:8px 12px;margin:10px 0;font-size:12px;color:var(--fg2);}
+</style>
+</head>
+<body>
+<div class="doc">
+  <div class="banner">
+    <div class="ml"><span class="mk">▤</span> CMI AI Mark 2 · Implementation Plan</div>
+    <h1>Reskin TBM1 System — แผน Implement ทีละเฟส</h1>
+    <div class="meta"><span>React 18 (CRA)</span><span>·</span><span>Tailwind Play CDN</span><span>·</span><span>recharts · IBM Plex</span><span class="pill">● รอ review / execute</span></div>
+  </div>
+
+  <div class="body">
+    <p><b>Goal:</b> เปลี่ยน visual language ทั้งแอปเป็น CMI AI Mark 2 โดยไม่กระทบ logic / ข้อมูล / การกรอก / กราฟ / ตาราง / export</p>
+    <p><b>Architecture:</b> central design layer ที่ <code>src/ui-ux-pro-max/</code> (tokens + CDN theme config + chartTheme + 11 primitives) → แก้ shell (App.jsx) + retone 8 views ในที่เดิม เปลี่ยนแค่ className/CSS/wrapper</p>
+
+    <div class="toc">
+      <b>เฟส:</b>
+      <a href="#p0">0 Foundation</a><a href="#p1">1 Shell</a><a href="#p2">2 Common+Overview</a><a href="#p3">3 Record</a><a href="#p4">4 Dashboards</a><a href="#p5">5 Exec</a><a href="#p6">6 Reports+Export</a><a href="#p7">7 QA</a>
+    </div>
+
+    <div class="warn">
+      <div class="hd">⚠️ จุดเทคนิคสำคัญ (verified)</div>
+      แอปใช้ <b>Tailwind Play CDN</b> (<code>cdn.tailwindcss.com</code> ใน index.html) ไม่ใช่ build-time → <b>ไม่มี tailwind.config.js</b> และ <code>@tailwind</code> ใน globals.css เป็น inert. การ inject CMI theme ต้องทำผ่าน <b>inline <code>tailwind.config</code> script ใน public/index.html</b> (ดู Task 0.4)
+    </div>
+
+    <div class="lead">
+      <div class="hd">วิธีอ่านแผนนี้ (ต่างจาก TDD ทั่วไป)</div>
+      งานนี้เป็น <b>presentational reskin</b> จึงปรับ verification:<br>
+      • <b>ไม่มี git</b> — โฟลเดอร์ <code>Tunnel Boring App - Copy</code> เป็น copy ทดลอง (safety net). แทน "commit" ด้วย <b>Checkpoint</b><br>
+      • <b>ไม่ใช้ TDD red-green</b> — ไม่มี test suite สำหรับ views. verification = <code>npm start</code> รันได้ + ตรวจสายตา + ยืนยัน feature เดิม<br>
+      • <b>Bulk className</b> ใช้ Token Mapping (§3 DESIGN-PLAN) เป็นกฎแปลง — แผนนี้ให้ <b>code เต็มเฉพาะของใหม่ (Phase 0–1) + จุดเสี่ยงสูง</b> + checklist รายเฟส
+    </div>
+
+    <div class="cp" style="margin:0 0 8px;"><b>🔁 Checkpoint (ทุกจบ task ที่แก้โค้ด):</b> (1) <code>npm start</code> รัน ไม่มี console error ใหม่ (2) ตรวจ visual ตาม checklist (3) ยืนยัน feature เดิมทำงาน (กรอก/กราฟ/ตาราง/export) — <i>ไม่ commit (เป็น copy)</i></div>
+
+    <h2>File Structure</h2>
+    <h3>สร้างใหม่ <code>src/ui-ux-pro-max/</code></h3>
+    <table>
+      <tr><th style="width:34%;">ไฟล์</th><th>หน้าที่</th></tr>
+      <tr><td class="mono">tokens.css</td><td>copy จาก colors_and_type.css (:root vars + @font-face)</td></tr>
+      <tr><td class="mono">fonts/*.ttf · assets/*.svg</td><td>IBM Plex (self-hosted) + cmi-mark / cmi-ai-lockup / team-group-logo</td></tr>
+      <tr><td class="mono">chartTheme.js</td><td>CMI recharts palette + tick/tooltip (single source สีกราฟ)</td></tr>
+      <tr><td class="mono">components/</td><td>Badge · Button · Card · StatCard · SegmentedToggle · Sidebar · TopBar · BottomNav · MoreSheet · StickyActionBar · Shell · navModel · index</td></tr>
+    </table>
+    <h3>แก้ไขในที่เดิม</h3>
+    <table>
+      <tr><th style="width:34%;">ไฟล์</th><th>การแก้</th></tr>
+      <tr><td class="mono">public/index.html</td><td>เพิ่ม inline <code>tailwind.config</code> (CMI theme)</td></tr>
+      <tr><td class="mono">src/index.tsx</td><td><code>import "./ui-ux-pro-max/tokens.css"</code></td></tr>
+      <tr><td class="mono">src/App.jsx</td><td>ใช้ Shell (sidebar/topbar/bottom nav) — คง state/routing</td></tr>
+      <tr><td class="mono">styles/globals.css</td><td>body font→IBM Plex · bg-stripe→CMI (คง 3 ความหมาย) · คง @media print</td></tr>
+      <tr><td class="mono">common/StatCard.jsx · RingVisualizer.jsx</td><td>StatCard→re-export · RingVisualizer recolor (คง geometry)</td></tr>
+      <tr><td class="mono">views/*.jsx (8)</td><td>retone className + import primitives + chartTheme (คงโครง/logic/export)</td></tr>
+    </table>
+
+    <!-- PHASE 0 -->
+    <div class="phase" id="p0"><span class="pn">P0</span>Foundation (design layer)</div>
+
+    <div class="task">
+      <h4>Task 0.1 — Baseline: ยืนยันแอปรันก่อนแก้</h4>
+      <ul class="steps">
+        <li><b>1.</b> <code>cd TunnelBoringMonitoring && npm start</code></li>
+        <li><b>2.</b> คลิกครบทุก tab + ลอง export 1 ครั้ง → จดว่าอะไรทำงาน (baseline เทียบหลัง reskin)</li>
+        <li><b>3.</b> หยุด dev server</li>
+      </ul>
+    </div>
+
+    <div class="task">
+      <h4>Task 0.2 — คัดลอก tokens + fonts + assets</h4>
+      <div class="files"><b>Create:</b> tokens.css, fonts/, assets/</div>
+      <ul class="steps">
+        <li><b>1.</b> copy <code>fonts/</code> จาก design system → <code>ui-ux-pro-max/fonts/</code></li>
+        <li><b>2.</b> copy <code>colors_and_type.css</code> → <code>ui-ux-pro-max/tokens.css</code> (url ฟอนต์ relative ตรงอยู่แล้ว — webpack bundle ให้)</li>
+        <li><b>3.</b> copy assets svg ทั้ง 3</li>
+      </ul>
+<pre>$src = "...\CMI AI Mark 2 Design System"
+$dst = "...\TunnelBoringMonitoring\src\ui-ux-pro-max"
+Copy-Item "$src\fonts" "$dst\fonts" -Recurse -Force
+Copy-Item "$src\colors_and_type.css" "$dst\tokens.css" -Force
+Copy-Item "$src\assets" "$dst\assets" -Recurse -Force</pre>
+      <div class="cp"><b>Checkpoint:</b> ไฟล์ครบ (tokens.css, fonts/*.ttf, assets/*.svg)</div>
+    </div>
+
+    <div class="task">
+      <h4>Task 0.3 — โหลด tokens.css เข้าแอป</h4>
+      <div class="files"><b>Modify:</b> src/index.tsx</div>
+      <ul class="steps"><li><b>1.</b> เพิ่มบรรทัดแรก (ก่อน import App):</li></ul>
+<pre>import "./ui-ux-pro-max/tokens.css";</pre>
+      <ul class="steps"><li><b>2.</b> <code>npm start</code> → Network: IBMPlex*.ttf โหลด 200, ตัวอักษรเปลี่ยนทรง</li></ul>
+      <div class="cp"><b>Checkpoint:</b> ไม่มี error, ฟอนต์โหลด</div>
+    </div>
+
+    <div class="task">
+      <h4>Task 0.4 — ใส่ CMI theme เข้า Tailwind CDN config</h4>
+      <div class="files"><b>Modify:</b> public/index.html (หลังบรรทัด 4 — CDN script)</div>
+<pre>&lt;script&gt;
+  tailwind.config = {
+    theme: { extend: {
+      colors: {
+        navy:    { DEFAULT:'#003B84', dark:'#0C2C65', deepest:'#00246C', pressed:'#001A57' },
+        cyan:    { DEFAULT:'#38A7CE', med:'#1E80BD', tint:'#E5F1FF', vtint:'#F5FAFF' },
+        sgreen:  { dark:'#10463A', med:'#44C473' },
+        code:    { a:'#10463A', b:'#B8860B', c:'#C8500A', d:'#B91C1C' },
+        ink:     { DEFAULT:'#333333', 2:'#666666', 3:'#999999' },
+        surface: { DEFAULT:'#FFFFFF', page:'#F8FAFD', alt:'#F5FAFF' },
+        line:    { DEFAULT:'#E8E8E8', input:'#D8D8D8', divider:'#F0F0F0' },
+      },
+      borderRadius: { badge:'4px', input:'6px', card:'8px', modal:'12px' },
+      boxShadow: {
+        card:'0 1px 2px rgba(0,59,132,0.04)',
+        hover:'0 2px 8px rgba(0,59,132,0.06)',
+        modal:'0 12px 32px rgba(12,44,101,0.18)',
+      },
+      fontFamily: {
+        sans:['"IBM Plex Sans Thai"','"IBM Plex Sans"','sans-serif'],
+        mono:['"IBM Plex Mono"','Consolas','monospace'],
+      },
+    } },
+  }
+&lt;/script&gt;</pre>
+      <ul class="steps"><li><b>2.</b> ทดสอบ <code>bg-navy text-white rounded-card shadow-card font-sans</code> ชั่วคราว → เห็นกล่องน้ำเงินมุม 8px → ลบออก</li></ul>
+      <div class="cp"><b>Checkpoint:</b> utility ใหม่ทำงานผ่าน CDN</div>
+      <div class="note">Note (out of scope): Play CDN เป็น dev-CDN แต่แอปใช้ production อยู่แล้ว — คงไว้ (surgical). migrate ไป PostCSS เป็นงานแยกอนาคต</div>
+    </div>
+
+    <div class="task">
+      <h4>Task 0.5 — chartTheme.js</h4>
+      <div class="files"><b>Create:</b> ui-ux-pro-max/chartTheme.js</div>
+<pre><span class="cm">// CMI Mark 2 — palette กลางสำหรับ recharts (semantic-aware)</span>
+export const chartColors = {
+  planned:    "#003B84", <span class="cm">// navy — ตามแผน</span>
+  actual:     "#10463A", <span class="cm">// green-dark — จริง (ปกติ)</span>
+  actualAlert:"#B91C1C", <span class="cm">// Code D — จริงเมื่อช้ากว่าแผน</span>
+  paid:       "#1E80BD",
+  dayShift:   "#B8860B", <span class="cm">// Code B gold</span>
+  nightShift: "#003B84", <span class="cm">// navy</span>
+  temporary:  "#C0C0C0",
+  delay:      "#B91C1C",
+  grid:       "#F0F0F0", axis: "#999999", axisLabel: "#666666",
+  routeRamp:  ["#0C2C65","#003B84","#1E80BD","#38A7CE"],
+};
+export const SHIFT_COLORS = [chartColors.dayShift, chartColors.nightShift];
+export const axisTick  = { fontSize:10, fill:chartColors.axisLabel, fontWeight:600 };
+export const gridProps = { strokeDasharray:"3 3", stroke:chartColors.grid };
+export const tooltipStyle = {
+  contentStyle:{ border:"1px solid #E8E8E8", borderRadius:8, boxShadow:"0 2px 8px rgba(0,59,132,0.06)", fontSize:12 },
+  labelStyle:{ color:"#666", fontWeight:600, marginBottom:4 },
+};</pre>
+      <div class="cp"><b>Checkpoint:</b> import ได้ ไม่มี error</div>
+    </div>
+
+    <div class="task">
+      <h4>Task 0.6 — Badge</h4>
+      <div class="files"><b>Create:</b> components/Badge.jsx</div>
+<pre>import React from "react";
+const MAP = {
+  a:"bg-code-a/10 text-code-a", b:"bg-code-b/10 text-code-b",
+  c:"bg-code-c/10 text-code-c", d:"bg-code-d/10 text-code-d",
+  info:"bg-cyan-tint text-cyan-med", neutral:"bg-line/40 text-ink-2",
+};
+export default function Badge({ code="neutral", children, className="" }) {
+  return (
+    &lt;span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-badge text-[11px] font-semibold ${MAP[code]||MAP.neutral} ${className}`}&gt;
+      {children}
+    &lt;/span&gt;
+  );
+}</pre>
+      <div class="cp"><b>Checkpoint:</b> <span class="chip code-a">Code A</span> ได้สีเขียวเข้ม</div>
+    </div>
+
+    <div class="task">
+      <h4>Task 0.7 — Button · Card · StatCard · SegmentedToggle</h4>
+      <div class="files"><b>Create:</b> Button.jsx, Card.jsx, StatCard.jsx, SegmentedToggle.jsx</div>
+<pre><span class="cm">// Button.jsx</span>
+import React from "react";
+const V = {
+  primary:"bg-navy hover:bg-navy-deepest text-white shadow-card",
+  secondary:"bg-surface border border-line text-ink hover:bg-cyan-tint",
+  ghost:"text-ink-2 hover:bg-cyan-tint", danger:"bg-code-d hover:opacity-90 text-white",
+};
+export default function Button({ variant="primary", className="", children, ...p }) {
+  return &lt;button {...p} className={`inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-button text-sm font-semibold transition-colors ${V[variant]} ${className}`}&gt;{children}&lt;/button&gt;;
+}
+
+<span class="cm">// Card.jsx</span>
+export default function Card({ className="", children, ...p }) {
+  return &lt;div {...p} className={`bg-surface border border-line rounded-card shadow-card ${className}`}&gt;{children}&lt;/div&gt;;
+}
+
+<span class="cm">// StatCard.jsx — props เดิม label,value,subtext,color,icon</span>
+export default function StatCard({ label, value, subtext, color="text-navy", icon:Icon }) {
+  return (
+    &lt;div className="bg-surface p-4 rounded-card border border-line shadow-card relative overflow-hidden flex flex-col justify-between"&gt;
+      {Icon &amp;&amp; &lt;div className={`absolute -right-3 -top-3 opacity-[0.06] ${color}`}&gt;&lt;Icon size={72} /&gt;&lt;/div&gt;}
+      &lt;div className="relative z-10"&gt;
+        &lt;div className="text-[11px] text-ink-2 uppercase font-semibold tracking-wide mb-1.5"&gt;{label}&lt;/div&gt;
+        &lt;div className="text-2xl font-semibold text-ink tracking-tight font-mono"&gt;{value}&lt;/div&gt;
+      &lt;/div&gt;
+      {subtext &amp;&amp; &lt;div className="text-[11px] font-medium mt-3 pt-2 border-t border-divider text-ink-2 relative z-10"&gt;{subtext}&lt;/div&gt;}
+    &lt;/div&gt;
+  );
+}
+
+<span class="cm">// SegmentedToggle.jsx — props value,onChange,options=[{value,label}]</span>
+export default function SegmentedToggle({ value, onChange, options }) {
+  return (
+    &lt;div className="flex bg-surface-alt border border-line rounded-input p-0.5"&gt;
+      {options.map((o) =&gt; (
+        &lt;button key={o.value} onClick={() =&gt; onChange(o.value)}
+          className={`flex-1 px-4 py-2 rounded-[5px] text-xs font-semibold transition-colors ${value===o.value ? "bg-navy text-white shadow-card" : "text-ink-2 hover:text-ink"}`}&gt;
+          {o.label}
+        &lt;/button&gt;
+      ))}
+    &lt;/div&gt;
+  );
+}</pre>
+      <div class="cp"><b>Checkpoint:</b> ทุก primitive render ถูกในหน้า test ชั่วคราว</div>
+    </div>
+
+    <div class="task">
+      <h4>Task 0.8 — Shell primitives: navModel · Sidebar · TopBar · BottomNav · MoreSheet · StickyActionBar</h4>
+      <div class="files"><b>Create:</b> navModel.js + 5 components</div>
+<pre><span class="cm">// navModel.js — nav กลาง (ชื่อ/กลุ่มตรงกันทุกจอ). tab=activeTab เดิม, module=currentModule</span>
+import { Home, PlusCircle, LayoutDashboard, Database, Clock, FileText } from "lucide-react";
+export const NAV_GROUPS = [
+  { label:"ภาพรวม", items:[{ id:"overview", tab:"overview", label:"Home", icon:Home }] },
+  { label:"บันทึกข้อมูล", items:[
+    { id:"rec-seg", tab:"record", module:"segment", label:"Record · Segment", icon:PlusCircle },
+    { id:"rec-grt", tab:"record", module:"grout",   label:"Record · Grout",   icon:PlusCircle }]},
+  { label:"Dashboard &amp; Data", items:[
+    { id:"dash", tab:"dashboard", label:"Executive Dashboard", icon:LayoutDashboard },
+    { id:"log-seg", tab:"datalog", module:"segment", label:"Data Log · Segment", icon:Database },
+    { id:"log-grt", tab:"datalog", module:"grout",   label:"Data Log · Grout",   icon:Database }]},
+  { label:"รายงาน", items:[
+    { id:"shift",  tab:"shift_report", label:"Shift Report", icon:Clock },
+    { id:"report", tab:"report",       label:"Stats Report", icon:FileText }]},
+];
+export const MOBILE_PRIMARY = ["overview","record","dashboard","shift_report"]; <span class="cm">// + More</span>
+export const MOBILE_MORE_TABS = ["datalog","report"];</pre>
+      <ul class="steps">
+        <li><b>Sidebar.jsx:</b> navy-dark bg, brand (cmi-ai-lockup) บนสุด, render NAV_GROUPS (group label + items), active = <code>bg-navy text-white</code> + แถบซ้าย <code>border-l-2 border-sgreen-med</code>; onClick→onNavigate(item). props: active, onNavigate, liveStatus. ใส่ <code>print:hidden</code></li>
+        <li><b>TopBar.jsx:</b> white bg, border-b, page title + live <code>&lt;Badge&gt;</code> + project meta (date/shift). <code>print:hidden</code></li>
+        <li><b>BottomNav.jsx (docked แก้ overlap):</b></li>
+      </ul>
+<pre>export default function BottomNav({ items, activeTab, onNavigate, onMore }) {
+  return (
+    &lt;nav className="lg:hidden fixed bottom-0 inset-x-0 z-40 bg-navy-dark border-t border-white/10 print:hidden"
+         style={{ paddingBottom:"env(safe-area-inset-bottom)" }}&gt;
+      &lt;div className="flex justify-around items-stretch"&gt;
+        {items.map((it) =&gt; (
+          &lt;button key={it.id} onClick={() =&gt; onNavigate(it)}
+            className={`flex-1 flex flex-col items-center gap-0.5 py-2.5 min-h-[48px] text-[10px] font-semibold ${activeTab===it.tab ? "text-white" : "text-cyan-tint/70"}`}&gt;
+            &lt;it.icon size={20} /&gt; {it.label}
+          &lt;/button&gt;
+        ))}
+        &lt;button onClick={onMore} className="flex-1 flex flex-col items-center gap-0.5 py-2.5 min-h-[48px] text-[10px] font-semibold text-cyan-tint/70"&gt;⋯ More&lt;/button&gt;
+      &lt;/div&gt;
+    &lt;/nav&gt;
+  );
+}</pre>
+      <div class="note"><span class="danger">สำคัญ:</span> <code>&lt;main&gt;</code> ต้องมี <code>pb-[calc(64px+env(safe-area-inset-bottom))] lg:pb-0</code> เพื่อ <b>จองพื้นที่</b> ไม่ให้ nav บัง (set ใน Shell/App)</div>
+      <ul class="steps">
+        <li><b>MoreSheet.jsx:</b> bottom sheet (fixed inset-0 z-50, backdrop <code>bg-navy-dark/35</code>, panel ล่าง <code>rounded-t-modal bg-surface</code>), render กลุ่มที่เหลือ. props: open, onClose, onNavigate. respect safe-area</li>
+        <li><b>StickyActionBar.jsx:</b></li>
+      </ul>
+<pre>export default function StickyActionBar({ children }) {
+  return (
+    &lt;div className="lg:static fixed inset-x-0 z-30 bg-surface/95 backdrop-blur border-t border-line p-3 print:hidden"
+         style={{ bottom:"calc(56px + env(safe-area-inset-bottom))" }}&gt;
+      {children}
+    &lt;/div&gt;
+  );
+}</pre>
+      <div class="cp"><b>Checkpoint:</b> แต่ละชิ้น render เดี่ยวๆ ได้ (mock props)</div>
+    </div>
+
+    <div class="task">
+      <h4>Task 0.9 — Shell.jsx + index re-exports</h4>
+      <div class="files"><b>Create:</b> Shell.jsx, components/index.js, index.js</div>
+      <ul class="steps">
+        <li><b>Shell.jsx:</b> desktop <code>lg:flex</code> → Sidebar (w-60) + (TopBar + main children); mobile → TopBar compact + <code>&lt;main className="pb-[calc(64px+env(safe-area-inset-bottom))] lg:pb-0"&gt;</code> + BottomNav + MoreSheet. props: active, onNavigate, title, liveStatus, projectInfo, children, moreOpen, setMoreOpen</li>
+        <li><b>index.js:</b> re-export ทุก primitive + Shell + chartTheme + NAV_GROUPS</li>
+      </ul>
+      <div class="cp"><b>Checkpoint:</b> <code>npm run build</code> ผ่าน (layer compile ได้ทั้งหมด)</div>
+    </div>
+
+    <!-- PHASE 1 -->
+    <div class="phase" id="p1"><span class="pn">P1</span>Shell integration (App.jsx)</div>
+    <div class="task">
+      <h4>Task 1.1 — App.jsx ใช้ Shell</h4>
+      <div class="files"><b>Modify:</b> src/App.jsx</div>
+      <ul class="steps">
+        <li><b>1.</b> เก็บ state/effect/fetch/parse/liveHeaderStatus เดิม <b>ไม่แตะ</b> (19–137)</li>
+        <li><b>2.</b> เพิ่ม <code>const [moreOpen,setMoreOpen]=useState(false)</code></li>
+        <li><b>3.</b> <code>handleNavigate(item)</code> → <code>setActiveTab(item.tab); if(item.module) setCurrentModule(item.module); setMoreOpen(false)</code></li>
+        <li><b>4.</b> แทน header+main+nav (140–185) ด้วย <code>&lt;Shell …&gt;</code> ครอบ block <code>{activeTab===…}</code> เดิม (164–171 <b>คงทุกบรรทัด</b>)</li>
+        <li><b>5.</b> loading screen (131–137) retone navy/IBM Plex</li>
+      </ul>
+      <div class="cp"><b>Checkpoint:</b> ทุก tab สลับได้ · desktop sidebar active ถูก + Segment/Grout ทางลัดเปลี่ยน module · mobile bottom nav docked + More sheet + <b>nav ไม่บัง content</b> (scroll ถึงล่างเห็นครบ) · projectInfo editable</div>
+    </div>
+
+    <!-- PHASE 2 -->
+    <div class="phase" id="p2"><span class="pn">P2</span>Common + Overview</div>
+    <div class="task">
+      <h4>Task 2.1 — RingVisualizer recolor</h4>
+      <div class="files"><b>Modify:</b> common/RingVisualizer.jsx (คง geometry/rotation/onClick)</div>
+      <ul class="steps">
+        <li><b>1.</b> primary: <code>#EFF6FF→#E5F1FF</code>, <code>#3B82F6→#003B84</code> (pattern/stroke/center/label <code>#2563EB→#003B84</code>)</li>
+        <li><b>2.</b> secondary: <code>#FFF7ED→#F5FAFF</code>, <code>#F97316→#1E80BD</code></li>
+        <li><b>3.</b> ring <code>#CBD5E1→#D8D8D8</code>, label inactive <code>#94A3B8→#999999</code></li>
+      </ul>
+      <div class="cp"><b>Checkpoint:</b> primary=navy / secondary=cyan, คลิก toggle ได้, rotation ตาม key ถูก</div>
+    </div>
+    <div class="task">
+      <h4>Task 2.2 — StatCard (common) → CMI version</h4>
+      <div class="files"><b>Modify:</b> common/StatCard.jsx</div>
+      <ul class="steps"><li><b>1.</b> แทนด้วย re-export: <code>export { default } from "../../ui-ux-pro-max/components/StatCard";</code> (props เดิมใช้ได้ทันที)</li></ul>
+      <div class="cp"><b>Checkpoint:</b> ทุกหน้าที่ใช้ StatCard แสดงการ์ด CMI</div>
+    </div>
+    <div class="task">
+      <h4>Task 2.3 — OverviewView retone</h4>
+      <div class="files"><b>Modify:</b> views/OverviewView.jsx</div>
+      <ul class="steps">
+        <li><b>1.</b> hero gradient (40–66) → Card ขาว + แถบซ้าย Code สีตามสถานะ (EXCAVATING=code-b, INSTALLING=sgreen, WAITING=ink-2, IDLE=navy); ring เป็น font-mono; คง liveStatus/groutStatus (7–36)</li>
+        <li><b>2.</b> action cards (68–95) → Card + icon box navy/sgreen; คง onClick navigation</li>
+      </ul>
+      <div class="cp"><b>Checkpoint:</b> Home แสดงสถานะถูกตามข้อมูลจริง, กดการ์ดไป Record ถูก module</div>
+    </div>
+
+    <!-- PHASE 3 -->
+    <div class="phase" id="p3"><span class="pn">P3</span>Record views</div>
+    <div class="task">
+      <h4>Task 3.1 — SegmentedToggle + StickyActionBar</h4>
+      <div class="files"><b>Modify:</b> GroutRecordView, SegmentRecordView</div>
+      <ul class="steps">
+        <li><b>1.</b> module toggle → <code>&lt;SegmentedToggle&gt;</code> บนฟอร์ม (ผูก currentModule/setCurrentModule)</li>
+        <li><b>2.</b> ปุ่ม submit → ครอบ <code>&lt;StickyActionBar&gt;</code> บน mobile (lg: static). คง onClick/apiCall/validation</li>
+      </ul>
+      <div class="cp"><b>Checkpoint:</b> ปุ่มบันทึก mobile อยู่เหนือ nav, กดได้, ไม่โดนบัง</div>
+    </div>
+    <div class="task">
+      <h4>Task 3.2 — GroutRecordView retone</h4>
+      <div class="files"><b>Modify:</b> views/GroutRecordView.jsx</div>
+      <ul class="steps">
+        <li><b>1.</b> header gradient (blue/orange re-grout) → navy / Code C; volume box → cyan-tint / code-c/10; ratio → sgreen/code-b/code-d; focus → navy; radius/font ตามกฎ</li>
+        <li><b>2.</b> คง inputs/slider/file/ratio calc/RingVisualizer wiring/apiCall</li>
+      </ul>
+      <div class="cp"><b>Checkpoint:</b> กรอก+บันทึก Grout (รวม Re-Grout) ได้, ratio ถูก, RingVisualizer sync</div>
+    </div>
+    <div class="task">
+      <h4>Task 3.3 — SegmentRecordView retone</h4>
+      <div class="files"><b>Modify:</b> views/SegmentRecordView.jsx</div>
+      <ul class="steps">
+        <li><b>1.</b> header <code>#0b8261→sgreen-dark</code>; phase accent → code-b/sgreen; CH section <code>bg-slate-900→bg-navy-dark</code> (label→cyan); soil box → sgreen tint; focus → navy/sgreen</li>
+        <li><b>2.</b> คง time inputs/soil volume/key slider/type dropdown/CH logic/apiCall</li>
+      </ul>
+      <div class="cp"><b>Checkpoint:</b> กรอก+บันทึก Segment ได้, soil volume ถูก, CH chevron ถูก</div>
+    </div>
+
+    <!-- PHASE 4 -->
+    <div class="phase" id="p4"><span class="pn">P4</span>Dashboards &amp; tables</div>
+    <div class="task">
+      <h4>Task 4.1 — GroutDashboardView retone</h4>
+      <div class="files"><b>Modify:</b> views/GroutDashboardView.jsx</div>
+      <ul class="steps">
+        <li><b>1.</b> status card gradient→navy; filter bar→surface-alt; table→navy-dark header + zebra + <code>hover:bg-cyan-tint</code>; badges→Badge (Re-Grout purple→escalated/code-c); modal→navy</li>
+        <li><b>2.</b> คง pagination/filter/edit logic</li>
+      </ul>
+      <div class="cp"><b>Checkpoint:</b> ตาราง, filter (All/Last N/Daily/Monthly/Range), edit modal save</div>
+    </div>
+    <div class="task">
+      <h4>Task 4.2 — SegmentDashboardView retone + chart</h4>
+      <div class="files"><b>Modify:</b> views/SegmentDashboardView.jsx</div>
+      <ul class="steps">
+        <li><b>1.</b> table/filter/modal retone; left border accent → code-b/sgreen</li>
+        <li><b>2.</b> chart (ComposedChart) → import chartTheme; แทนสี bars/lines/grid/axis ตาม §3.2 (คง dataKey/แกน/logic)</li>
+      </ul>
+      <div class="cp"><b>Checkpoint:</b> ตาราง, edit, plan modal (localStorage), chart render + สี CMI + ความหมายเดิม</div>
+    </div>
+
+    <!-- PHASE 5 -->
+    <div class="phase" id="p5"><span class="pn">P5</span>Executive Dashboard (ใหญ่สุด — ระวัง)</div>
+    <div class="task">
+      <h4>Task 5.1 — แทนสีแบรนด์ + recolor recharts ทั้งหมด</h4>
+      <div class="files"><b>Modify:</b> views/ExecutiveDashboardView.jsx</div>
+      <ul class="steps">
+        <li><b>1.</b> แทนทุก <code>#2e266a → navy-dark/#0C2C65</code> (class <code>bg-[#2e266a]→bg-navy-dark</code>)</li>
+        <li><b>2.</b> import chartTheme; แทนสี recharts (verified):
+          SHIFT_COLORS (587) + pie (379–380) → SHIFT_COLORS; legend (906–907) → <code>bg-code-b</code>/<code>bg-navy</code>;
+          segment chart (958–962) <code>#fde047/#3b82f6/#cbd5e1</code>→day/night/temp, <code>#94a3b8</code>→axis, <code>#0f172a</code>→planned, <code>#ef4444</code>→actual;
+          distance (1063,1073-74) <code>#8b5cf6</code>→planned, <code>#ec4899/#9b1c1c</code>→delay, grid/axis</li>
+        <li><b>3.</b> cards/modals/filters/AI modal (<code>purple→indigo</code>)→navy; radius/font ตามกฎ</li>
+      </ul>
+      <div class="cp"><b>Checkpoint:</b> กราฟทุกตัว (segment/distance/shift pie) render + สี CMI + ความหมายเดิม; plan/AI modal, filter ทำงาน; <b>window.print() chart ออกถูก</b></div>
+    </div>
+
+    <!-- PHASE 6 -->
+    <div class="phase" id="p6"><span class="pn">P6</span>Reports &amp; Export (รักษาให้ครบ)</div>
+    <div class="task">
+      <h4>Task 6.1 — ReportView retone (รักษา export)</h4>
+      <div class="files"><b>Modify:</b> views/ReportView.jsx</div>
+      <ul class="steps">
+        <li><b>1.</b> report header (<code>border-slate-900→navy</code>), stat cards (359–399)→StatCard/Card, tables→navy-dark header + zebra, badges→Badge; AI modal→navy</li>
+        <li><b>2.</b> <span class="danger">🚨 ห้ามแตะ</span> export (181–209): <code>data-html2canvas-id</code> flow, loadHtml2Canvas, onclone, toDataURL, link.download/.click. ห้ามเปลี่ยน <code>&lt;input&gt;</code> เป็น component ที่ไม่ render input จริง. คง <code>print:</code> + ปุ่ม print (341)</li>
+      </ul>
+      <div class="cp"><b>Checkpoint:</b> Daily/Monthly ถูก; <b>Export JPG ตรง baseline</b>; <b>Print PDF A4 ถูก, sidebar/topbar/nav ไม่โผล่</b>; AI summary ทำงาน</div>
+    </div>
+    <div class="task">
+      <h4>Task 6.2 — ShiftReportView retone (รักษา work-time table + export)</h4>
+      <div class="files"><b>Modify:</b> views/ShiftReportView.jsx</div>
+      <ul class="steps">
+        <li><b>1.</b> retone header/meta/manpower/result/signature; <code>rounded-[2rem]→rounded-modal</code>; คง <code>print:</code></li>
+        <li><b>2.</b> work-time table (300–342): คงโครง <code>table-fixed min-w-[800px]</code>, hour cells, bar absolute, total. retone border/bg (คง <code>print:border-black</code>)</li>
+        <li><b>3.</b> getBarColorClasses (187–191): <code>bg-stripe-*</code> คงไว้ (ปรับสีใน globals 7.1) + border <code>blue-500→navy</code>, <code>red-500→code-d</code>, <code>green-500→sgreen-med</code> (<b>คง 3 ความหมาย</b>)</li>
+        <li><b>4.</b> <span class="danger">🚨 ห้ามแตะ</span> export (205–233) + <code>#shift-report-container</code> id + onclone</li>
+      </ul>
+      <div class="cp"><b>Checkpoint:</b> <b>work-time table ถูกต้อง</b> (hour cells, bars 3 ความหมาย, total); manpower/result/signature ครบ; <b>Export JPG + Print PDF ตรง baseline</b></div>
+    </div>
+
+    <!-- PHASE 7 -->
+    <div class="phase" id="p7"><span class="pn">P7</span>Global polish &amp; QA</div>
+    <div class="task">
+      <h4>Task 7.1 — globals.css</h4>
+      <div class="files"><b>Modify:</b> styles/globals.css</div>
+      <ul class="steps">
+        <li><b>1.</b> <code>@layer base body</code> font <code>'Inter'→'IBM Plex Sans Thai'…</code>, bg <code>#F8FAFC→#F8FAFD</code></li>
+        <li><b>2.</b> <code>bg-stripe-blue/red/green</code> (21–34): เปลี่ยนสีเป็น CMI (navy/code-d/sgreen) — คง repeating-linear-gradient (3 ความหมายแยกออก)</li>
+        <li><b>3.</b> <span class="danger">🚨 คง @media print</span> (48–97) ไม่แตะ</li>
+      </ul>
+      <div class="cp"><b>Checkpoint:</b> ฟอนต์ทั้งแอป IBM Plex, stripe ตารางกะดู CMI แต่ 3 ความหมายแยก, print ถูก</div>
+    </div>
+    <div class="task">
+      <h4>Task 7.2 — Full regression QA</h4>
+      <ul class="steps">
+        <li><b>1.</b> <code>npm run build</code> ผ่าน ไม่มี error/warning ใหม่</li>
+        <li><b>2.</b> เดินครบ checklist DESIGN-PLAN §9 (ทุก tab, เพิ่ม/แก้/ลบ Grout+Segment, กราฟทุกตัว, work-time table, export JPG×2, print PDF×3, mobile nav ไม่บัง + ปุ่มบันทึก + safe-area, desktop sidebar)</li>
+        <li><b>3.</b> เทียบ baseline (Task 0.1) — feature เดิมครบ</li>
+      </ul>
+      <div class="cp"><b>Checkpoint:</b> ผ่านทุกข้อ → reskin เสร็จ</div>
+    </div>
+
+    <h2>Self-Review (ผู้เขียนแผนตรวจเอง)</h2>
+    <ul>
+      <li><b>Spec coverage:</b> ทุก § ของ DESIGN-PLAN มี task รองรับ (tokens→0.2-0.4, nav→0.8/1.1, mapping→2-6, charts→4.2/5.1, export→6, stripe→6.2/7.1, verify→7.2) ✓</li>
+      <li><b>Placeholder scan:</b> ไม่มี TBD/TODO; bulk retone ระบุกฎ + ไฟล์ + บรรทัดเสี่ยงชัด ✓</li>
+      <li><b>Type/name consistency:</b> primitive props (Badge.code, SegmentedToggle.value/options, StatCard props) + chartTheme exports อ้างตรงกันทุก task ✓</li>
+      <li><b>เสี่ยงสูง</b> (export/charts/work-time) มี task เฉพาะ + <span class="danger">🚨 ห้ามแตะ</span> marker ✓</li>
+    </ul>
+  </div>
+</div>
+</body>
+</html>

@@ -5,6 +5,8 @@ import { THEORETICAL_VOL } from "../../utils/constants";
 import { formatDisplayDate } from "../../utils/formatters";
 import { getRingByOffsetFromHistory, handleFileUpload } from "../../utils/helpers";
 import { apiCall } from "../../utils/api";
+import { SegmentedToggle } from "../../ui-ux-pro-max";
+import StickyActionBar from "../../ui-ux-pro-max/components/StickyActionBar";
 
 const GroutRecordView = ({ projectInfo, handleProjectInfoChange, groutRecords, setGroutRecords, segmentRecords, setCurrentModule, setActiveTab }) => {
   const [isSaving, setIsSaving] = useState(false);
@@ -161,44 +163,58 @@ const GroutRecordView = ({ projectInfo, handleProjectInfoChange, groutRecords, s
 
   return (
     <div className="max-w-xl mx-auto pb-24 animate-slide-up">
-      <form onSubmit={handleSubmit} className="bg-white rounded-3xl shadow-lg border border-slate-100 overflow-hidden">
-        <div className={`px-6 sm:px-8 py-6 text-white relative ${isReGrout ? 'bg-gradient-to-br from-orange-500 to-red-600' : 'bg-gradient-to-br from-blue-600 to-indigo-700'}`}>
-          <h2 className="font-extrabold text-2xl flex items-center gap-2">{isReGrout ? "Secondary Grout Record" : "Primary Grout Record"}</h2>
+      {/* Module switcher — lets mobile users toggle between Segment and Grout */}
+      <div className="mb-4">
+        <SegmentedToggle
+          value="grout"
+          options={[{ value: "segment", label: "Segment" }, { value: "grout", label: "Grout" }]}
+          onChange={(m) => { setCurrentModule(m); }}
+        />
+      </div>
+
+      <form onSubmit={handleSubmit} className="bg-white rounded-card shadow-card border border-line overflow-hidden">
+        {/* Header */}
+        <div className={`px-6 sm:px-8 py-6 text-white relative ${isReGrout ? 'bg-code-c' : 'bg-navy'}`}>
+          <h2 className="font-semibold text-2xl flex items-center gap-2">{isReGrout ? "Secondary Grout Record" : "Primary Grout Record"}</h2>
           <p className="text-white/80 text-xs mt-1">{isReGrout ? "บันทึกข้อมูลการอัดน้ำปูนรอบที่ 2 (Re-Grout)" : "Enter details for primary grout"}</p>
         </div>
+
         <div className="p-6 space-y-5">
+          {/* Date & Shift */}
           <div className="grid grid-cols-2 gap-4">
-            <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
-              <label className="text-[10px] font-bold text-slate-400 block mb-1">Working Date</label>
-              <input type="date" name="date" value={projectInfo.date} onChange={handleProjectInfoChange} className="w-full bg-transparent font-bold text-slate-800 outline-none cursor-pointer" />
+            <div className="bg-surface-alt p-4 rounded-input border border-input">
+              <label className="text-[10px] font-semibold text-ink-3 block mb-1">Working Date</label>
+              <input type="date" name="date" value={projectInfo.date} onChange={handleProjectInfoChange} className="w-full bg-transparent font-semibold text-ink outline-none cursor-pointer" />
             </div>
-            <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
-              <label className="text-[10px] font-bold text-slate-400 block mb-1">Working Shift</label>
-              <select name="shift" value={projectInfo.shift} onChange={handleProjectInfoChange} className="w-full bg-transparent font-bold text-slate-800 outline-none cursor-pointer">
+            <div className="bg-surface-alt p-4 rounded-input border border-input">
+              <label className="text-[10px] font-semibold text-ink-3 block mb-1">Working Shift</label>
+              <select name="shift" value={projectInfo.shift} onChange={handleProjectInfoChange} className="w-full bg-transparent font-semibold text-ink outline-none cursor-pointer">
                 <option value="Day">☀️ Day Shift</option><option value="Night">🌙 Night Shift</option>
               </select>
             </div>
           </div>
 
+          {/* Ring inputs */}
           <div className="grid grid-cols-2 gap-4">
-            <div className="bg-slate-50 p-4 rounded-xl border border-slate-100 focus-within:border-blue-400 focus-within:ring-2 transition-all">
-              <label className="text-[10px] font-bold text-slate-400 block mb-1">Grouting Ring</label>
-              <input type="text" name="ringNo" required value={formData.ringNo} onChange={handleInputChange} onBlur={(e) => setFormData(prev => ({ ...prev, ringNo: String(e.target.value).trim().toUpperCase() }))} className={`w-full bg-transparent text-2xl font-black outline-none uppercase mt-1 ${isReGrout ? "text-orange-600" : "text-slate-800"}`} placeholder="P-XXXX" />
-              {isReGrout && <span className="text-[9px] bg-orange-100 text-orange-700 px-2 py-0.5 rounded font-bold mt-2 inline-block">โหมดบันทึก Re-Grout อัตโนมัติ</span>}
+            <div className="bg-surface-alt p-4 rounded-input border border-input focus-within:border-navy focus-within:ring-2 focus-within:ring-cyan-tint transition-all">
+              <label className="text-[10px] font-semibold text-ink-3 block mb-1">Grouting Ring</label>
+              <input type="text" name="ringNo" required value={formData.ringNo} onChange={handleInputChange} onBlur={(e) => setFormData(prev => ({ ...prev, ringNo: String(e.target.value).trim().toUpperCase() }))} className={`w-full bg-transparent text-2xl font-semibold outline-none uppercase mt-1 ${isReGrout ? "text-code-c" : "text-ink"}`} placeholder="P-XXXX" />
+              {isReGrout && <span className="text-[9px] bg-code-c/10 text-code-c px-2 py-0.5 rounded-badge font-semibold mt-2 inline-block">โหมดบันทึก Re-Grout อัตโนมัติ</span>}
             </div>
-            <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
-              <label className="text-[10px] font-bold text-slate-400 block mb-1 flex items-center justify-between">Excavation Ring <Activity size={12} className="text-blue-500" /></label>
-              <input type="text" name="excavRing" value={formData.excavRing} onChange={handleInputChange} className="w-full bg-transparent text-2xl font-black text-slate-800 outline-none uppercase mt-1" />
+            <div className="bg-surface-alt p-4 rounded-input border border-input">
+              <label className="text-[10px] font-semibold text-ink-3 block mb-1 flex items-center justify-between">Excavation Ring <Activity size={12} className="text-navy" /></label>
+              <input type="text" name="excavRing" value={formData.excavRing} onChange={handleInputChange} className="w-full bg-transparent text-2xl font-semibold text-ink outline-none uppercase mt-1" />
             </div>
           </div>
 
-          <div className="bg-white border rounded-xl p-4 text-center">
+          {/* Key segment & RingVisualizer */}
+          <div className="bg-white border border-line rounded-input p-4 text-center">
             <div className="flex justify-between items-center mb-3">
-              <span className="text-[10px] font-bold text-slate-400">Key Segment {isKeyLinked && <span className="bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded text-[8px] ml-1">Synced</span>}</span>
-              <span className="font-bold text-sm bg-slate-100 px-3 py-1 rounded-lg border">Key {String(formData.keyType)}</span>
+              <span className="text-[10px] font-semibold text-ink-3">Key Segment {isKeyLinked && <span className="bg-sgreen-med/20 text-sgreen-dark px-1.5 py-0.5 rounded-badge text-[8px] ml-1">Synced</span>}</span>
+              <span className="font-semibold text-sm bg-surface-alt px-3 py-1 rounded-input border border-line">Key {String(formData.keyType)}</span>
             </div>
-            <input type="range" min="1" max="16" step="1" name="keyType" value={formData.keyType} onChange={handleInputChange} disabled={isKeyLinked} className="w-full h-2 rounded-full appearance-none bg-slate-200 accent-blue-600 cursor-pointer" />
-            <p className="text-[9px] text-slate-400 font-bold mt-3">แตะเลือกตำแหน่งที่ฉีด (สีน้ำเงิน = รูเดิม, สีส้ม = รูที่เลือกใหม่)</p>
+            <input type="range" min="1" max="16" step="1" name="keyType" value={formData.keyType} onChange={handleInputChange} disabled={isKeyLinked} className="w-full h-2 rounded-full appearance-none bg-surface-alt accent-navy cursor-pointer" />
+            <p className="text-[9px] text-ink-3 font-semibold mt-3">แตะเลือกตำแหน่งที่ฉีด (สีน้ำเงิน = รูเดิม, สีส้ม = รูที่เลือกใหม่)</p>
             <div className="scale-90 transform origin-top mt-2">
               <RingVisualizer
                 ringKey={formData.keyType}
@@ -209,45 +225,51 @@ const GroutRecordView = ({ projectInfo, handleProjectInfoChange, groutRecords, s
             </div>
           </div>
 
+          {/* Part A / Part B / Pressure */}
           <div className="grid grid-cols-3 gap-3">
-            <div className="bg-slate-50 p-3 rounded-lg border border-slate-200">
-              <label className={`block text-[10px] font-bold mb-1 ${isReGrout ? 'text-orange-500' : 'text-slate-500'}`}>{isReGrout ? "Sec. Part A" : "Part A"}</label>
-              <input type="number" step="0.01" name="partA" value={formData.partA} onChange={handleInputChange} className="bg-transparent w-full font-mono text-lg font-black text-slate-800 outline-none" placeholder="0.00" />
-              {isReGrout && <div className="text-[9px] text-blue-500 font-bold mt-1 pt-1 border-t border-slate-200">Prim: {String(existingRecord?.primaryPartA || existingRecord?.partA || '0.00')}</div>}
+            <div className="bg-surface-alt p-3 rounded-input border border-input">
+              <label className={`block text-[10px] font-semibold mb-1 ${isReGrout ? 'text-code-c' : 'text-ink-3'}`}>{isReGrout ? "Sec. Part A" : "Part A"}</label>
+              <input type="number" step="0.01" name="partA" value={formData.partA} onChange={handleInputChange} className="bg-transparent w-full font-mono text-lg font-semibold text-ink outline-none" placeholder="0.00" />
+              {isReGrout && <div className="text-[9px] text-navy font-semibold mt-1 pt-1 border-t border-line">Prim: {String(existingRecord?.primaryPartA || existingRecord?.partA || '0.00')}</div>}
             </div>
-            <div className="bg-slate-50 p-3 rounded-lg border border-slate-200">
-              <label className={`block text-[10px] font-bold mb-1 ${isReGrout ? 'text-orange-500' : 'text-slate-500'}`}>{isReGrout ? "Sec. Part B" : "Part B"}</label>
-              <input type="number" step="0.01" name="partB" value={formData.partB} onChange={handleInputChange} className="bg-transparent w-full font-mono text-lg font-black text-slate-800 outline-none" placeholder="0.00" />
-              {isReGrout && <div className="text-[9px] text-blue-500 font-bold mt-1 pt-1 border-t border-slate-200">Prim: {String(existingRecord?.primaryPartB || existingRecord?.partB || '0.00')}</div>}
+            <div className="bg-surface-alt p-3 rounded-input border border-input">
+              <label className={`block text-[10px] font-semibold mb-1 ${isReGrout ? 'text-code-c' : 'text-ink-3'}`}>{isReGrout ? "Sec. Part B" : "Part B"}</label>
+              <input type="number" step="0.01" name="partB" value={formData.partB} onChange={handleInputChange} className="bg-transparent w-full font-mono text-lg font-semibold text-ink outline-none" placeholder="0.00" />
+              {isReGrout && <div className="text-[9px] text-navy font-semibold mt-1 pt-1 border-t border-line">Prim: {String(existingRecord?.primaryPartB || existingRecord?.partB || '0.00')}</div>}
             </div>
-            <div className="bg-slate-50 p-3 rounded-lg border border-slate-200">
-              <label className="block text-[10px] font-bold text-slate-500 mb-1">Pressure (bar)</label>
-              <input type="number" step="0.1" name="pressure" value={formData.pressure} onChange={handleInputChange} className="bg-transparent w-full font-mono text-lg font-black text-slate-800 outline-none" placeholder="0.0" />
+            <div className="bg-surface-alt p-3 rounded-input border border-input">
+              <label className="block text-[10px] font-semibold text-ink-3 mb-1">Pressure (bar)</label>
+              <input type="number" step="0.1" name="pressure" value={formData.pressure} onChange={handleInputChange} className="bg-transparent w-full font-mono text-lg font-semibold text-ink outline-none" placeholder="0.0" />
             </div>
           </div>
 
-          <div className={`p-4 rounded-xl flex justify-between items-center ${isReGrout ? 'bg-orange-50 border border-orange-200' : 'bg-blue-50 border border-blue-200'}`}>
+          {/* Total volume / Ratio box */}
+          <div className={`p-4 rounded-input flex justify-between items-center ${isReGrout ? 'bg-code-c/10 border border-code-c/30' : 'bg-cyan-tint border border-cyan-med/30'}`}>
             <div>
-              <span className={`block text-[10px] font-bold ${isReGrout ? 'text-orange-600' : 'text-blue-600'}`}>{isReGrout ? 'Total (Prim + Sec)' : 'Total Volume'}</span>
-              <div className="text-2xl font-black text-slate-800">{isReGrout && existingRecord ? Number(Number(existingRecord.primaryPartA || existingRecord.partA || 0) + Number(existingRecord.primaryPartB || existingRecord.partB || 0) + Number(currentTotal)).toFixed(2) : String(currentTotal)} m³</div>
+              <span className={`block text-[10px] font-semibold ${isReGrout ? 'text-code-c' : 'text-cyan-med'}`}>{isReGrout ? 'Total (Prim + Sec)' : 'Total Volume'}</span>
+              <div className="text-2xl font-semibold text-ink font-mono">{isReGrout && existingRecord ? Number(Number(existingRecord.primaryPartA || existingRecord.partA || 0) + Number(existingRecord.primaryPartB || existingRecord.partB || 0) + Number(currentTotal)).toFixed(2) : String(currentTotal)} m³</div>
             </div>
             <div className="text-right">
-              <span className={`block text-[10px] font-bold ${isReGrout ? 'text-orange-600' : 'text-blue-600'}`}>Ratio</span>
-              <div className={`text-2xl font-black ${Number(displayRatio) > 150 ? "text-purple-600" : Number(displayRatio) >= 100 ? "text-emerald-600" : "text-red-600"}`}>{String(displayRatio)}%</div>
+              <span className={`block text-[10px] font-semibold ${isReGrout ? 'text-code-c' : 'text-cyan-med'}`}>Ratio</span>
+              <div className={`text-2xl font-semibold font-mono ${Number(displayRatio) > 150 ? "text-cyan-med" : Number(displayRatio) >= 100 ? "text-sgreen-dark" : "text-code-d"}`}>{String(displayRatio)}%</div>
             </div>
           </div>
 
-          <div className="bg-white p-4 border border-slate-200 rounded-xl shadow-sm">
-            <textarea name="remark" value={formData.remark} onChange={handleInputChange} rows="2" className="w-full bg-slate-50 border border-slate-200 p-3 rounded-lg text-sm outline-none focus:border-blue-500 transition-all" placeholder="Problem / Remark (อุปสรรค)"></textarea>
-            <div className="mt-3 pt-3 border-t border-slate-100">
-              <label className="text-[10px] font-bold text-slate-500 mb-2 flex items-center gap-1"><Camera size={12} /> Attach Photo</label>
-              <input type="file" accept="image/*" onChange={(e) => handleFileUpload(e, setFormData)} className="text-xs text-slate-500 w-full file:mr-4 file:py-1.5 file:px-4 file:rounded-full file:border-0 file:bg-blue-50 file:text-blue-700" />
+          {/* Remark & Photo */}
+          <div className="bg-white p-4 border border-line rounded-input shadow-card">
+            <textarea name="remark" value={formData.remark} onChange={handleInputChange} rows="2" className="w-full bg-surface-alt border border-input p-3 rounded-input text-sm outline-none focus:border-navy focus:ring-2 focus:ring-cyan-tint transition-all text-ink" placeholder="Problem / Remark (อุปสรรค)"></textarea>
+            <div className="mt-3 pt-3 border-t border-line">
+              <label className="text-[10px] font-semibold text-ink-3 mb-2 flex items-center gap-1"><Camera size={12} /> Attach Photo</label>
+              <input type="file" accept="image/*" onChange={(e) => handleFileUpload(e, setFormData)} className="text-xs text-ink-3 w-full file:mr-4 file:py-1.5 file:px-4 file:rounded-badge file:border-0 file:bg-cyan-tint file:text-navy" />
             </div>
           </div>
 
-          <button type="submit" disabled={isSaving} className={`w-full text-white font-bold py-4 rounded-xl flex justify-center items-center gap-2 shadow-lg transition-transform active:scale-95 ${isSaving ? 'bg-slate-400' : isReGrout ? 'bg-gradient-to-r from-orange-500 to-red-600 shadow-orange-500/30' : 'bg-gradient-to-r from-blue-600 to-indigo-600 shadow-blue-500/30'}`}>
-            {isSaving ? <Loader2 size={20} className="animate-spin" /> : <Save size={20} />} {isReGrout ? "Save Re-Grout Data" : "Confirm & Save Record"}
-          </button>
+          {/* Submit — wrapped in StickyActionBar for mobile reachability */}
+          <StickyActionBar>
+            <button type="submit" disabled={isSaving} className={`w-full text-white font-semibold py-4 rounded-input flex justify-center items-center gap-2 shadow-card transition-transform active:scale-95 ${isSaving ? 'bg-ink-3' : isReGrout ? 'bg-code-c' : 'bg-navy'}`}>
+              {isSaving ? <Loader2 size={20} className="animate-spin" /> : <Save size={20} />} {isReGrout ? "Save Re-Grout Data" : "Confirm & Save Record"}
+            </button>
+          </StickyActionBar>
         </div>
       </form>
     </div>

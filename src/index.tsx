@@ -1,4 +1,5 @@
 // @ts-nocheck
+import "./ui-ux-pro-max/tokens.css";
 import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";

@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 80" role="img" aria-label="TEAM GROUP">
+  <defs>
+    
+  </defs>
+  <g>
+    <rect class="accent" x="8" y="22" width="8" height="36" rx="1"></rect>
+    <text class="wordmark" x="28" y="50">TEAM</text>
+    <text class="wordmark" x="170" y="50">GROUP</text>
+  </g>
+  <text class="sub" x="28" y="70">Development for Sustainable Growth</text>
+</svg>

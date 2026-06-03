@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 56" role="img" aria-label="CMI AI Mark 2">
+  <defs>
+    
+  </defs>
+  <g>
+    <rect x="6" y="14" width="4" height="28" fill="#003B84"></rect>
+    <rect x="12" y="20" width="4" height="22" fill="#38A7CE"></rect>
+    <rect x="18" y="8" width="4" height="34" fill="#10463A"></rect>
+    <text class="lock" x="32" y="36">CMI</text>
+    <text class="ai" x="84" y="36">AI</text>
+    <text class="mk" x="118" y="36">MARK 2</text>
+  </g>
+</svg>

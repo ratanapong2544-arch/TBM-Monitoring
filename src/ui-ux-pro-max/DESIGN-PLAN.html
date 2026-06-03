@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CMI AI Mark 2 — แผน Redesign UX/UI (TBM1 System)</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Sans+Thai:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+:root{
+  --navy:#003B84; --navy-dark:#0C2C65; --navy-deepest:#00246C;
+  --cyan:#38A7CE; --cyan-med:#1E80BD; --cyan-tint:#E5F1FF;
+  --green-dark:#10463A; --green-med:#44C473;
+  --a:#10463A; --a-bg:rgba(16,70,58,0.08); --b:#B8860B; --b-bg:rgba(184,134,11,0.10);
+  --c:#C8500A; --c-bg:rgba(200,80,10,0.10); --d:#B91C1C; --d-bg:rgba(185,28,28,0.10);
+  --page:#F8FAFD; --surface:#fff; --fg1:#333; --fg2:#666; --fg3:#999;
+  --border:#E8E8E8; --divider:#F0F0F0;
+}
+*{box-sizing:border-box;}
+body{margin:0;background:var(--page);font-family:'IBM Plex Sans Thai','IBM Plex Sans',sans-serif;color:var(--fg1);font-size:14px;line-height:1.6;-webkit-font-smoothing:antialiased;padding:24px 16px 80px;}
+.doc{max-width:980px;margin:0 auto;background:var(--surface);border:1px solid var(--border);border-radius:12px;box-shadow:0 1px 2px rgba(0,59,132,0.04);overflow:hidden;}
+.mono{font-family:'IBM Plex Mono',monospace;}
+code{font-family:'IBM Plex Mono',monospace;background:#F5F5F5;color:var(--navy-deepest);padding:1px 5px;border-radius:4px;font-size:0.9em;}
+
+/* header banner */
+.banner{background:linear-gradient(135deg,#0C2C65 0%,#003B84 100%);color:#fff;padding:26px 32px;}
+.banner .ml{font-size:11px;font-weight:600;letter-spacing:0.14em;text-transform:uppercase;color:#9db5d8;display:flex;align-items:center;gap:8px;}
+.banner .mk{width:18px;height:18px;border-radius:4px;background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.25);display:inline-flex;align-items:center;justify-content:center;font-size:10px;}
+.banner h1{font-size:28px;font-weight:600;margin:8px 0 6px;line-height:1.2;}
+.banner .meta{font-size:12.5px;color:#cdd8ee;display:flex;gap:18px;flex-wrap:wrap;align-items:center;}
+.banner .pill{background:rgba(68,196,115,0.18);color:#bfe9cf;border:1px solid rgba(255,255,255,0.18);padding:3px 10px;border-radius:9999px;font-size:11px;font-weight:600;}
+
+.body{padding:14px 32px 36px;}
+
+/* TOC */
+.toc{background:var(--cyan-tint);border:1px solid #cfe2fb;border-radius:8px;padding:14px 18px;margin:20px 0;font-size:13px;}
+.toc b{color:var(--navy-dark);}
+.toc a{color:var(--navy);text-decoration:none;}
+.toc a:hover{color:var(--cyan-med);text-decoration:underline;}
+.toc .row{display:flex;flex-wrap:wrap;gap:6px 18px;margin-top:6px;}
+
+h2{font-size:19px;font-weight:600;color:var(--navy);margin:34px 0 12px;padding:6px 0 6px 12px;border-left:3px solid var(--navy);scroll-margin-top:16px;}
+h2 .n{color:var(--cyan-med);font-family:'IBM Plex Mono',monospace;margin-right:8px;}
+h3{font-size:15px;font-weight:600;color:var(--fg1);margin:22px 0 8px;}
+p{margin:0 0 10px;}
+ul{margin:8px 0;padding-left:22px;}
+li{margin:4px 0;}
+
+table{width:100%;border-collapse:collapse;margin:12px 0;font-size:12.7px;}
+th{background:var(--navy-dark);color:#fff;font-weight:600;text-align:left;padding:8px 10px;border:1px solid var(--navy-dark);}
+td{padding:7px 10px;border:1px solid var(--border);vertical-align:top;}
+tr:nth-child(even) td{background:var(--page);}
+td.mono,th.mono{font-family:'IBM Plex Mono',monospace;}
+
+.swatch{display:inline-block;width:12px;height:12px;border-radius:3px;border:1px solid rgba(0,0,0,0.12);vertical-align:middle;margin-right:6px;}
+
+.chip{display:inline-block;font-size:11px;font-weight:600;padding:2px 8px;border-radius:4px;}
+.code-a{background:var(--a-bg);color:var(--a);} .code-b{background:var(--b-bg);color:var(--b);}
+.code-c{background:var(--c-bg);color:var(--c);} .code-d{background:var(--d-bg);color:var(--d);}
+
+.box{border-radius:8px;padding:14px 16px;margin:14px 0;font-size:13px;}
+.box .h{font-weight:600;margin-bottom:6px;display:flex;align-items:center;gap:7px;}
+.box.lock{background:var(--d-bg);border:1px solid rgba(185,28,28,0.25);}
+.box.lock .h{color:var(--d);}
+.box.risk{background:var(--c-bg);border:1px solid rgba(200,80,10,0.22);}
+.box.risk .h{color:var(--c);}
+.box.note{background:var(--page);border:1px solid var(--border);color:var(--fg2);}
+.box.q{background:var(--cyan-tint);border:1px solid #cfe2fb;}
+.box.q .h{color:var(--navy-dark);}
+
+pre{background:#0C2C65;color:#dbe6f7;font-family:'IBM Plex Mono',monospace;font-size:12px;line-height:1.55;padding:14px 16px;border-radius:8px;overflow:auto;}
+pre .c{color:#7fa8d8;}
+
+.check{list-style:none;padding-left:0;}
+.check li{padding-left:26px;position:relative;}
+.check li:before{content:"☐";position:absolute;left:0;color:var(--cyan-med);font-size:15px;}
+
+.legend{font-size:11px;color:var(--fg3);margin-top:4px;}
+.keep{color:var(--a);font-weight:600;} .change{color:var(--navy);font-weight:600;}
+hr{border:0;border-top:1px solid var(--divider);margin:28px 0;}
+</style>
+</head>
+<body>
+<div class="doc">
+  <div class="banner">
+    <div class="ml"><span class="mk">▤</span> CMI AI Mark 2 · Design Spec</div>
+    <h1>แผน Redesign UX/UI — TBM1 System</h1>
+    <div class="meta"><span>Tunnel Boring Monitoring</span><span>·</span><span>2026-05-31</span><span>·</span><span><code style="background:rgba(255,255,255,0.12);color:#dbe6f7;">src/ui-ux-pro-max/</code></span><span class="pill">● รอ review</span></div>
+  </div>
+
+  <div class="body">
+    <div class="toc">
+      <b>สารบัญ</b>
+      <div class="row">
+        <a href="#s1">1. เป้าหมาย & ขอบเขต</a>
+        <a href="#s2">2. Design Tokens</a>
+        <a href="#s3">3. Token Mapping</a>
+        <a href="#s4">4. สถาปัตยกรรม</a>
+        <a href="#s5">5. Navigation & Shell</a>
+        <a href="#s6">6. ปรับแต่งราย View</a>
+        <a href="#s7">7. จุดเสี่ยงสูง</a>
+        <a href="#s8">8. แผนเป็นเฟส</a>
+        <a href="#s9">9. Verification</a>
+        <a href="#s10">10. นอกขอบเขต</a>
+        <a href="#s11">11. คำถามรอยืนยัน</a>
+      </div>
+    </div>
+
+    <!-- 1 -->
+    <h2 id="s1"><span class="n">01</span>เป้าหมาย & ขอบเขต</h2>
+    <p>เปลี่ยน <b>"ผิว" (visual language)</b> ของทั้งแอปให้เป็น CMI AI Mark 2 (TEAM Navy / IBM Plex / corporate enterprise) โดย <b>ไม่กระทบการทำงานเดิมแม้แต่น้อย</b></p>
+    <p><b>ระดับงาน: B</b> — Reskin เต็ม + ปรับ Shell (header / nav / layout) ให้เป็น enterprise dashboard</p>
+
+    <div class="box lock">
+      <div class="h">🔒 ข้อจำกัดเด็ดขาด — ต้องเหมือนเดิม 100%</div>
+      <table style="margin:6px 0 0;">
+        <tr><th style="width:30%;">ห้ามกระทบ</th><th>รายละเอียด</th></tr>
+        <tr><td>Data flow / State</td><td><code>currentModule</code>, <code>activeTab</code>, <code>groutRecords</code>, <code>segmentRecords</code>, <code>shiftReports</code>, props ทุกตัว</td></tr>
+        <tr><td>การกรอกข้อมูล</td><td>ทุก input / select / textarea / slider / file-upload + validation + auto-link</td></tr>
+        <tr><td>การคำนวณ</td><td>soil volume, ratio, CH, ring offset, cumulative, delay — ทุก formula</td></tr>
+        <tr><td>API</td><td><code>GAS_URL</code> + <code>apiCall</code> + Gemini summary</td></tr>
+        <tr><td>กราฟ (charts)</td><td>recharts ทุกตัว: โครงสร้าง, dataKey, แกน, logic — เปลี่ยนได้แค่ <b>สี</b></td></tr>
+        <tr><td>ตารางแสดงเวลาการทำงาน</td><td>work-time table (ShiftReport): hour-cell grid + activity bars</td></tr>
+        <tr><td>หน้าสรุป (summary)</td><td>Overview, Report, ExecutiveDashboard — ตัวเลข/โครงเดิม</td></tr>
+        <tr><td>Export</td><td>html2canvas → JPG + <code>window.print()</code> → PDF + <code>@media print</code></td></tr>
+      </table>
+    </div>
+
+    <h3>หลักการ</h3>
+    <ul>
+      <li><b>Presentational-only</b>: แตะแค่ <code>className</code>, CSS, shell layout, wrapper — ไม่แตะ logic</li>
+      <li><b>Token-driven</b>: CMI Mark 2 tokens = single source of truth</li>
+      <li><b>โครงสร้าง DOM/props เดิม</b>: เพื่อให้ export (html2canvas อิง DOM tree) ไม่พัง</li>
+      <li><b>ใช้เฉพาะที่จำเป็น</b> จาก design system — ส่วนที่แอปไม่มีไม่เอามา</li>
+    </ul>
+
+    <!-- 2 -->
+    <h2 id="s2"><span class="n">02</span>Design Tokens <span style="font-size:12px;font-weight:400;color:var(--fg3);">(จาก colors_and_type.css)</span></h2>
+    <table>
+      <tr><th>กลุ่ม</th><th>Token</th><th>ค่า</th></tr>
+      <tr><td>Brand</td><td>navy / navy-dark / navy-deepest</td><td class="mono"><span class="swatch" style="background:#003B84"></span>#003B84 · <span class="swatch" style="background:#0C2C65"></span>#0C2C65 · <span class="swatch" style="background:#00246C"></span>#00246C</td></tr>
+      <tr><td>Secondary</td><td>cyan / cyan-med / cyan-tint</td><td class="mono"><span class="swatch" style="background:#38A7CE"></span>#38A7CE · <span class="swatch" style="background:#1E80BD"></span>#1E80BD · <span class="swatch" style="background:#E5F1FF"></span>#E5F1FF</td></tr>
+      <tr><td>Sustainability</td><td>green-dark / green-med</td><td class="mono"><span class="swatch" style="background:#10463A"></span>#10463A · <span class="swatch" style="background:#44C473"></span>#44C473</td></tr>
+      <tr><td>Status</td><td>Code A / B / C / D</td><td><span class="chip code-a">A #10463A</span> <span class="chip code-b">B #B8860B</span> <span class="chip code-c">C #C8500A</span> <span class="chip code-d">D #B91C1C</span></td></tr>
+      <tr><td>Surface</td><td>bg-page / bg-surface</td><td class="mono"><span class="swatch" style="background:#F8FAFD"></span>#F8FAFD · <span class="swatch" style="background:#fff"></span>#FFFFFF</td></tr>
+      <tr><td>Text</td><td>fg-1 / fg-2 / fg-3</td><td class="mono"><span class="swatch" style="background:#333"></span>#333 · <span class="swatch" style="background:#666"></span>#666 · <span class="swatch" style="background:#999"></span>#999</td></tr>
+      <tr><td>Radii</td><td>badge / button / card / modal</td><td class="mono">4 / 6 / 8 / 12 px</td></tr>
+      <tr><td>Shadow</td><td>card / hover / modal</td><td>เบามาก (navy-tinted): 0 1px 2px / 0 2px 8px / 0 12px 32px</td></tr>
+      <tr><td>Font</td><td>sans / mono</td><td>IBM Plex Sans Thai+Sans / IBM Plex Mono</td></tr>
+      <tr><td>Chart</td><td>planned / actual / paid</td><td class="mono"><span class="swatch" style="background:#003B84"></span>navy · <span class="swatch" style="background:#10463A"></span>green-dark · <span class="swatch" style="background:#1E80BD"></span>cyan-med</td></tr>
+    </table>
+    <div class="box note">การเปลี่ยนที่เห็นชัดสุด: heading <code>font-black (900)</code> → <code>semibold (600)</code> · radii <code>24px</code> → <code>8px</code> · เงา <code>shadow-2xl</code> → เบามาก · Inter → IBM Plex · ตัวเลข engineering → IBM Plex Mono</div>
+
+    <!-- 3 -->
+    <h2 id="s3"><span class="n">03</span>Token Mapping: ปัจจุบัน → CMI <span style="font-size:12px;font-weight:400;color:var(--fg3);">(หัวใจของงาน)</span></h2>
+    <h3>3.1 สี UI ทั่วไป</h3>
+    <table>
+      <tr><th>ปัจจุบัน (Tailwind)</th><th>บทบาท</th><th>→ CMI</th></tr>
+      <tr><td class="mono">slate-50</td><td>page bg</td><td class="mono"><span class="swatch" style="background:#F8FAFD"></span>--bg-page #F8FAFD</td></tr>
+      <tr><td class="mono">white</td><td>card surface</td><td class="mono"><span class="swatch" style="background:#fff"></span>--bg-surface #FFFFFF</td></tr>
+      <tr><td class="mono">slate-900/800</td><td>chrome เข้ม (nav/header)</td><td class="mono"><span class="swatch" style="background:#0C2C65"></span>--navy-dark #0C2C65</td></tr>
+      <tr><td class="mono">slate-800/900</td><td>text หลัก</td><td class="mono"><span class="swatch" style="background:#333"></span>--fg-1 #333</td></tr>
+      <tr><td class="mono">slate-500/400</td><td>text รอง</td><td class="mono"><span class="swatch" style="background:#666"></span>#666 · <span class="swatch" style="background:#999"></span>#999</td></tr>
+      <tr><td class="mono">slate-200/100</td><td>border</td><td class="mono"><span class="swatch" style="background:#E8E8E8"></span>--border #E8E8E8</td></tr>
+      <tr><td class="mono">blue-600 #2563eb</td><td>accent หลัก (Grout)</td><td class="mono"><span class="swatch" style="background:#003B84"></span>--navy #003B84</td></tr>
+      <tr><td class="mono">#2e266a</td><td>ExecDashboard brand</td><td class="mono"><span class="swatch" style="background:#0C2C65"></span>--navy-dark #0C2C65</td></tr>
+      <tr><td class="mono">emerald-500/600</td><td>Segment / สำเร็จ</td><td class="mono"><span class="swatch" style="background:#44C473"></span>#44C473 · <span class="swatch" style="background:#10463A"></span>#10463A</td></tr>
+      <tr><td class="mono">amber-500</td><td>กำลังขุด (warn)</td><td><span class="chip code-b">Code B #B8860B</span></td></tr>
+      <tr><td class="mono">orange-500 #F97316</td><td>in-progress / secondary grout</td><td><span class="chip code-c">Code C</span> หรือ <span class="mono">cyan-med</span></td></tr>
+      <tr><td class="mono">red-500 #ef4444</td><td>error / ค้าง / เกิน</td><td><span class="chip code-d">Code D #B91C1C</span></td></tr>
+      <tr><td class="mono">indigo/purple #8b5cf6</td><td>route / re-grout</td><td>navy→cyan ramp / <span class="mono">escalated #7C2D92</span></td></tr>
+    </table>
+
+    <h3>3.2 สีกราฟ (recharts) — แมพแบบ "รักษาความหมาย"</h3>
+    <div class="box note" style="margin-top:0;">⚠️ ห้ามเปลี่ยนสีแบบสุ่ม — สีในกราฟมีความหมาย (เช่น แดง = ช้ากว่าแผน) ต้องคงไว้</div>
+    <table>
+      <tr><th>recharts ปัจจุบัน</th><th>ความหมาย</th><th>→ CMI</th></tr>
+      <tr><td class="mono">#0f172a / #8b5cf6 (planAcc)</td><td>เส้นแผน Plan</td><td class="mono"><span class="swatch" style="background:#003B84"></span>chart-planned navy</td></tr>
+      <tr><td class="mono">#ef4444 (actualAcc)</td><td>เส้นจริง Actual</td><td class="mono"><span class="swatch" style="background:#10463A"></span>green-dark <span style="color:var(--fg3)">(แดง Code D เมื่อช้ากว่าแผน)</span></td></tr>
+      <tr><td class="mono">#fde047 (dayRings)</td><td>กะกลางวัน</td><td><span class="chip code-b">gold #B8860B</span></td></tr>
+      <tr><td class="mono">#3b82f6 (nightRings)</td><td>กะกลางคืน</td><td class="mono"><span class="swatch" style="background:#003B84"></span>navy #003B84</td></tr>
+      <tr><td class="mono">#cbd5e1 (tempRings)</td><td>ชั่วคราว</td><td class="mono"><span class="swatch" style="background:#C0C0C0"></span>gray-300</td></tr>
+      <tr><td class="mono">#ec4899 / #9b1c1c</td><td>ล่าช้า (delay)</td><td><span class="chip code-d">Code D #B91C1C</span></td></tr>
+      <tr><td class="mono">grid #E2E8F0</td><td>เส้น grid</td><td class="mono"><span class="swatch" style="background:#F0F0F0"></span>#F0F0F0</td></tr>
+    </table>
+    <p class="legend">จุดที่ต้องยืนยัน (§11): คู่สี Day/Night → เสนอ gold/navy · ทางเลือก cyan/navy</p>
+
+    <h3>3.3 RingVisualizer (SVG hatch)</h3>
+    <table>
+      <tr><th>ปัจจุบัน</th><th>→ CMI</th></tr>
+      <tr><td class="mono">hatch น้ำเงิน #EFF6FF / #3B82F6 (primary)</td><td class="mono"><span class="swatch" style="background:#003B84"></span>navy-tint / navy #003B84</td></tr>
+      <tr><td class="mono">hatch ส้ม #FFF7ED / #F97316 (secondary)</td><td class="mono"><span class="swatch" style="background:#1E80BD"></span>cyan-tint / cyan-med #1E80BD</td></tr>
+      <tr><td class="mono">ring เส้นประ #CBD5E1</td><td class="mono"><span class="swatch" style="background:#D8D8D8"></span>--border-input #D8D8D8</td></tr>
+    </table>
+
+    <!-- 4 -->
+    <h2 id="s4"><span class="n">04</span>สถาปัตยกรรมโค้ด</h2>
+    <h3>4.1 โครงสร้าง <code>src/ui-ux-pro-max/</code></h3>
+<pre><span class="c">src/ui-ux-pro-max/</span>
+├── DESIGN-PLAN.md / .html      <span class="c">← เอกสารนี้</span>
+├── tokens.css                  <span class="c">← @font-face + :root CSS variables</span>
+├── fonts/                      <span class="c">← IBM Plex *.ttf (self-hosted)</span>
+├── assets/                     <span class="c">← cmi-mark.svg, team-group-logo.svg</span>
+├── theme/cmiTailwindTheme.js   <span class="c">← token mapping → tailwind.config.js</span>
+├── chartTheme.js               <span class="c">← CMI recharts palette + helper</span>
+├── components/
+│   ├── Shell · Sidebar · TopBar · BottomNav · MoreSheet
+│   ├── StickyActionBar · Card · StatCard · Badge · Button · SegmentedToggle
+│   └── index.js
+└── index.js</pre>
+    <h3>4.2 วิธี bridge Tailwind ↔ CMI</h3>
+    <ul>
+      <li><code>tokens.css</code> ประกาศ <code>@font-face</code> + <code>:root{--color-navy…}</code> → import ใน <code>src/index.tsx</code></li>
+      <li><code>tailwind.config.js</code> extend ด้วย <code>cmiTailwindTheme.js</code> → ได้ <code>bg-navy</code>, <code>rounded-card</code>, <code>shadow-card</code>, <code>font-sans</code>=IBM Plex ฯลฯ</li>
+      <li>แก้ <code>className</code> ใน views ทีละหน้า: <code>bg-blue-600</code>→<code>bg-navy</code>, <code>rounded-3xl</code>→<code>rounded-card</code>, <code>font-black</code>→<code>font-semibold</code></li>
+    </ul>
+    <h3>4.3 หลักการแก้ไฟล์</h3>
+    <ul>
+      <li><b>Generic primitives</b> (Card, Badge, Button, nav) → อยู่ใน <code>ui-ux-pro-max/</code></li>
+      <li><b>Domain components</b> (RingVisualizer) → คงที่เดิม แค่ <b>recolor</b></li>
+      <li><b>Views</b> → แก้ในที่เดิม เปลี่ยน className + import primitives — โครง JSX/props เดิม</li>
+    </ul>
+
+    <!-- 5 -->
+    <h2 id="s5"><span class="n">05</span>Navigation & Shell</h2>
+    <h3>5.1 Desktop (≥ lg) — Navy Sidebar จัดกลุ่ม</h3>
+    <table>
+      <tr><th style="width:32%;">กลุ่ม</th><th>เมนู</th></tr>
+      <tr><td>ภาพรวม</td><td>Home</td></tr>
+      <tr><td>บันทึกข้อมูล</td><td>Record · Segment &nbsp;|&nbsp; Record · Grout</td></tr>
+      <tr><td>Dashboard &amp; Data</td><td>Executive Dashboard &nbsp;|&nbsp; Data Log · Segment &nbsp;|&nbsp; Data Log · Grout</td></tr>
+      <tr><td>รายงาน</td><td>Shift Report &nbsp;|&nbsp; Stats Report</td></tr>
+    </table>
+    <p class="legend">Segment/Grout ดึงเป็นเมนูย่อย (ทางลัด) — wire เข้า state เดิม (<code>setCurrentModule</code> + <code>setActiveTab</code>) · active = navy + แถบ <span class="chip code-a">Code A</span> ซ้าย</p>
+
+    <h3>5.2 Mobile (&lt; lg) — Docked Bottom Nav</h3>
+    <ul>
+      <li><b>5 ปุ่ม</b>: Home · Record · Dashboard · Shift · More</li>
+      <li><b>More</b> → bottom sheet: Data Log·Segment/Grout, Stats Report (กลุ่ม/ชื่อตรงกับ sidebar)</li>
+      <li><b>Record / Data Log</b> → <code>SegmentedToggle [Segment | Grout]</code> ในหน้า (logic เดิม)</li>
+    </ul>
+
+    <div class="box risk">
+      <div class="h">🔑 กติกาแก้ปัญหา nav บังเนื้อหา (ปัญหาหลักที่ระบุ)</div>
+      <ol style="margin:4px 0 0;padding-left:20px;">
+        <li><b>Docked ชิดขอบล่าง</b> (ไม่ลอย) เต็มกว้าง — content เว้น <code>padding-bottom = nav + safe-area</code></li>
+        <li><b>เคารพ <code>env(safe-area-inset-bottom)</code></b> (home indicator / gesture bar) ทุกหน้า</li>
+        <li><b>ปุ่มหลัก (บันทึก) = StickyActionBar เหนือ nav เสมอ</b> — กดได้ตลอด ไม่โดนทับ</li>
+        <li><b>คีย์บอร์ดเด้ง</b> → nav ซ่อนชั่วคราว</li>
+        <li><i>(ออปชั่น)</i> ตาราง/รายงานยาว → nav auto-hide ตอนเลื่อนลง</li>
+      </ol>
+    </div>
+
+    <!-- 6 -->
+    <h2 id="s6"><span class="n">06</span>ปรับแต่งราย View</h2>
+    <p class="legend"><span class="change">■ เปลี่ยน</span> = visual เท่านั้น &nbsp;·&nbsp; <span class="keep">■ คงเดิม</span> = logic/structure/export</p>
+    <table>
+      <tr><th>View</th><th class="mono">บรรทัด</th><th>เปลี่ยน (visual)</th><th>คงเดิม</th></tr>
+      <tr><td>App.jsx</td><td class="mono">190</td><td>shell ใหม่ (sidebar/topbar/docked nav), navy, IBM Plex</td><td>state, routing, fetch, parse</td></tr>
+      <tr><td>OverviewView</td><td class="mono">101</td><td>hero gradient → CMI status card + แถบ Code A</td><td>liveStatus/groutStatus, navigation</td></tr>
+      <tr><td>GroutRecordView</td><td class="mono">257</td><td>form retone, SegmentedToggle, StickyActionBar</td><td>inputs, ratio calc, RingVisualizer, apiCall</td></tr>
+      <tr><td>SegmentRecordView</td><td class="mono">262</td><td>header #0b8261→green-dark, phase สี CMI, CH section→navy</td><td>time inputs, soil volume, key slider, apiCall</td></tr>
+      <tr><td>GroutDashboardView</td><td class="mono">379</td><td>table/filter/modal retone, badge→Code colors</td><td>pagination, filter, edit</td></tr>
+      <tr><td>SegmentDashboardView</td><td class="mono">602</td><td>table/filter/modal retone, chart สี (chartTheme)</td><td>filter, plan localStorage, edit</td></tr>
+      <tr><td>ExecutiveDashboardView</td><td class="mono">1886</td><td>#2e266a→navy, <b>recolor recharts ทุกตัว</b>, cards/modals</td><td>charts logic, plan config, distance, Gemini</td></tr>
+      <tr><td>ReportView</td><td class="mono">561</td><td>report retone, stat cards, table→zebra CMI</td><td>filter, <b>html2canvas export, print</b>, AI</td></tr>
+      <tr><td>ShiftReportView</td><td class="mono">412</td><td>retone, <b>work-time table สี CMI (คง semantics)</b></td><td>hour-cell grid, activity bars, manpower, <b>export/print</b></td></tr>
+    </table>
+
+    <!-- 7 -->
+    <h2 id="s7"><span class="n">07</span>จุดเสี่ยงสูง & การรักษา <span style="font-size:12px;font-weight:400;color:var(--fg3);">(verified จากโค้ดจริง)</span></h2>
+
+    <div class="box risk">
+      <div class="h">7.1 Export — ReportView + ShiftReportView</div>
+      กลไก: <code>loadHtml2Canvas()</code> → <code>html2canvas(el,{onclone})</code> → <code>toDataURL("image/jpeg",0.9)</code> → <code>link.download=*.jpg</code> → <code>.click()</code> <span class="mono">(Report:181-209, Shift:205-233)</span>. onclone แทนค่า input ผ่าน <code>data-html2canvas-id</code>.<br>
+      <b>กฎ:</b> คง id container (<code>#shift-report-container</code>), โครง DOM, <code>print:</code> classes, โครง <code>&lt;input&gt;</code> จริง — แตะแค่ className
+    </div>
+    <div class="box risk">
+      <div class="h">7.2 Print — window.print() + @media print</div>
+      <code>window.print()</code> (Report:341, Shift:198, Exec:22/801) + <code>@media print</code> ใน globals.css (A4, scale 0.88, input→dotted).<br>
+      <b>กฎ:</b> คง <code>@media print</code> + <code>print:*</code> + <code>.no-print</code> · navy header/sidebar ต้องมี <code>print:hidden</code> ครบ
+    </div>
+    <div class="box risk">
+      <div class="h">7.3 Work-time table — ShiftReportView</div>
+      <code>getBarColorClasses()</code> (187-191): <code>bg-stripe-blue/red/green</code> (Main/Delay/Service) นิยามใน globals.css · ตาราง <code>table-fixed min-w-[800px]</code> + activity bar absolute.<br>
+      <b>แผน:</b> เปลี่ยน stripe เป็นโทน CMI (navy / Code-D / Code-A) แต่ <b>คง 3 ความหมาย</b> + grid/bar positioning + <code>print:border-black</code>
+    </div>
+    <div class="box risk">
+      <div class="h">7.4 Charts — ExecutiveDashboardView</div>
+      สี hardcode เป็น hex จำนวนมากใน props (<code>fill=</code>, <code>stroke=</code>, <code>&lt;Cell&gt;</code>, SHIFT_COLORS:587, legend:906-907).<br>
+      <b>แผน:</b> ย้ายสีทั้งหมดไป <code>chartTheme.js</code> แล้วอ้างอิง — คง dataKey/แกน/ReferenceLine/logic เดิม (semantic-aware §3.2)
+    </div>
+    <div class="box risk" style="margin-bottom:0;">
+      <div class="h">7.5 RingVisualizer SVG</div>
+      recolor hatch/stroke เท่านั้น — คง geometry / rotation / onClick
+    </div>
+
+    <!-- 8 -->
+    <h2 id="s8"><span class="n">08</span>แผนดำเนินงานเป็นเฟส <span style="font-size:12px;font-weight:400;color:var(--fg3);">(verify ก่อนไปต่อทุกเฟส)</span></h2>
+    <table>
+      <tr><th style="width:20%;">Phase</th><th>งาน</th><th style="width:30%;">Verify</th></tr>
+      <tr><td><b>0 — Foundation</b></td><td>สร้าง ui-ux-pro-max layer: fonts, tokens.css, tailwind theme, chartTheme, primitives</td><td><code>npm run build</code> ผ่าน</td></tr>
+      <tr><td><b>1 — Shell</b></td><td>rewrite App.jsx ใช้ Shell (sidebar/topbar + docked nav/MoreSheet), grouped nav</td><td>ทุก tab สลับได้, mobile nav ไม่บัง</td></tr>
+      <tr><td><b>2 — Common + Overview</b></td><td>retone StatCard, RingVisualizer, OverviewView</td><td>hero/cards + navigation</td></tr>
+      <tr><td><b>3 — Record views</b></td><td>Grout/Segment Record: form + SegmentedToggle + StickyActionBar</td><td>เพิ่ม/แก้/save ได้</td></tr>
+      <tr><td><b>4 — Dashboards/Tables</b></td><td>Grout/Segment Dashboard: table/filter/modal + chart</td><td>table, edit, chart สีถูก</td></tr>
+      <tr><td><b>5 — Executive Dashboard</b></td><td>navy brand, recolor recharts ทุกตัว, modals</td><td>กราฟทุกตัว, plan/AI modal, print</td></tr>
+      <tr><td><b>6 — Reports + Export</b></td><td>Report/Shift retone + <b>รักษา export/print/work-time table</b></td><td><b>JPG + Print PDF เทียบ pixel</b></td></tr>
+      <tr><td><b>7 — Polish + QA</b></td><td>globals.css (stripe→CMI, คง @media print), full regression</td><td>checklist §9 ครบ</td></tr>
+    </table>
+
+    <!-- 9 -->
+    <h2 id="s9"><span class="n">09</span>Verification Plan <span style="font-size:12px;font-weight:400;color:var(--fg3);">(Definition of Done)</span></h2>
+    <ul class="check">
+      <li><code>npm run build</code> ผ่าน ไม่มี error/warning ใหม่</li>
+      <li>เปิดแอป → ไม่มี console error, ฟอนต์ IBM Plex โหลด, สี navy</li>
+      <li>ทุก tab (Home/Record/Dashboard/Data Log/Shift/Stats) แสดงครบ</li>
+      <li>เพิ่ม / แก้ / ลบ Grout + Segment ได้ (props ส่งผ่านถูก)</li>
+      <li>กราฟทุกตัว render + สีตรง chartTheme + ความหมายเดิม</li>
+      <li><b>work-time table</b> ถูกต้อง: hour cells, activity bars, 3 ความหมาย, total</li>
+      <li><b>Export JPG</b> (Report + Shift) ตรงเหมือนเดิม</li>
+      <li><b>Print PDF</b> จัดหน้า A4 ถูก, header navy ไม่โผล่</li>
+      <li><b>Mobile</b>: nav ไม่บัง content/ปุ่ม, ปุ่มบันทึกกดได้, safe-area, keyboard ไม่ทับ</li>
+      <li>Desktop: sidebar จัดกลุ่ม + active + Segment/Grout ทางลัดทำงาน</li>
+    </ul>
+
+    <!-- 10 -->
+    <h2 id="s10"><span class="n">10</span>นอกขอบเขต (YAGNI)</h2>
+    <ul>
+      <li>❌ ไม่แตะ logic / formula / API / state / GAS_URL</li>
+      <li>❌ ไม่เพิ่ม feature ใหม่ที่ไม่ได้ขอ</li>
+      <li>❌ ไม่ดึง component จาก design system ที่แอปไม่มี/ไม่เกี่ยว</li>
+      <li>❌ ไม่รื้อ IA ภายใน view (จัดลำดับ KPI ใหม่ = ระดับ C — ไม่ทำ)</li>
+      <li>❌ ไม่เปลี่ยน responsive ของ "เนื้อหา" (เปลี่ยนแค่ shell/nav)</li>
+    </ul>
+
+    <!-- 11 -->
+    <h2 id="s11"><span class="n">11</span>คำถามรอยืนยันก่อนเริ่ม</h2>
+    <div class="box q">
+      <ol style="margin:0;padding-left:20px;">
+        <li><b>คู่สีกราฟ Day/Night</b> → เสนอ <span class="chip code-b">gold #B8860B</span> / <span style="color:var(--navy);font-weight:600;">navy #003B84</span> (วันอุ่น/คืนเข้ม) — OK ไหม หรือ cyan/navy?</li>
+        <li><b>เส้น Actual ในกราฟ</b> → คงเป็น <span class="chip code-d">แดง Code D</span> (presentational ล้วน ไม่เพิ่ม logic) — OK ไหม?</li>
+        <li><b>Logo</b> บน header/sidebar → <code>cmi-mark.svg</code>, <code>team-group-logo.svg</code>, หรือทั้งคู่?</li>
+      </ol>
+    </div>
+    <div class="box note" style="margin-top:18px;">📁 ไม่ได้ commit git — โฟลเดอร์ <code>Tunnel Boring App - Copy</code> นี้เป็น copy ทดลอง = safety net แล้ว · ขั้นต่อไปหลัง approve: ลงรายละเอียด <b>implementation plan step-by-step</b> ก่อนแก้โค้ดจริงทีละเฟส</div>
+  </div>
+</div>
+</body>
+</html>

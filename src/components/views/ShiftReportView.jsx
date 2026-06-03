@@ -186,10 +186,10 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
 
   const getBarColorClasses = (groupIndex) => {
     switch (groupIndex) {
-      case 0: return 'bg-stripe-blue border-blue-500 text-blue-900';
-      case 1: return 'bg-stripe-red border-red-500 text-red-900';
-      case 2: return 'bg-stripe-green border-green-500 text-green-900';
-      default: return 'bg-gray-100 border-gray-400 text-gray-800';
+      case 0: return 'bg-stripe-blue border-navy text-navy';
+      case 1: return 'bg-stripe-red border-code-d text-code-d';
+      case 2: return 'bg-stripe-green border-sgreen-med text-sgreen-dark';
+      default: return 'bg-surface-alt border-line text-ink';
     }
   };
 
@@ -261,77 +261,78 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
   const closeModal = () => { setActiveModal(null); cancelEdit(); };
 
   const renderInput = (value, onChange, name, placeholder = "", type = "text", className = "") => (
-    <input type={type} name={name} value={value} onChange={onChange} placeholder={placeholder} className={`w-full bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition-all print:bg-transparent print:border-b print:border-black print:border-x-0 print:border-t-0 print:rounded-none print:text-black ${className}`} />
+    <input type={type} name={name} value={value} onChange={onChange} placeholder={placeholder} className={`w-full bg-surface-alt border border-input rounded-input outline-none focus:border-navy focus:ring-2 focus:ring-cyan-tint transition-all print:bg-transparent print:border-b print:border-black print:border-x-0 print:border-t-0 print:rounded-none print:text-black ${className}`} />
   );
 
   return (
-    <div className="max-w-6xl mx-auto font-sans text-sm pb-32 animate-fade-in">
-      <div className="mb-6 bg-white p-5 rounded-3xl shadow-sm border border-slate-200 flex flex-col sm:flex-row justify-between items-center gap-4 no-print">
-        <h1 className="text-xl font-black text-slate-800 flex items-center gap-3"><FileText className="text-blue-600" size={24} />ระบบบันทึก TBM Shift Report</h1>
+    <div className="max-w-[1123px] mx-auto font-sans text-sm pb-32 animate-fade-in">
+      <style dangerouslySetInnerHTML={{ __html: '@media print { @page { size: A4 landscape; margin: 8mm; } }' }} />
+      <div className="mb-6 bg-white p-5 rounded-card shadow-card border border-line flex flex-col sm:flex-row justify-between items-center gap-4 no-print">
+        <h1 className="text-xl font-semibold text-ink flex items-center gap-3"><FileText className="text-navy" size={24} />ระบบบันทึก TBM Shift Report</h1>
         <div className="flex w-full sm:w-auto gap-3">
-          <button onClick={handleDownloadImage} disabled={isExportingImage} className="flex-1 sm:flex-none bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl flex items-center justify-center gap-2 transition-colors shadow-md font-bold">{isExportingImage ? <Loader2 size={18} className="animate-spin" /> : <Download size={18} />} {isExportingImage ? "Saving..." : "เซฟรูปภาพ"}</button>
-          <button onClick={handleSaveToCloud} disabled={isSaving} className="flex-1 sm:flex-none bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2.5 rounded-xl flex items-center justify-center gap-2 transition-colors shadow-md font-bold">{isSaving ? <Loader2 size={18} className="animate-spin" /> : <CloudUpload size={18} />} {isSaving ? "Saving..." : "Save to Cloud"}</button>
-          <button onClick={handlePrint} className="flex-1 sm:flex-none bg-slate-800 hover:bg-slate-900 text-white px-5 py-2.5 rounded-xl flex items-center justify-center gap-2 transition-colors shadow-md font-bold"><Printer size={18} /> Print PDF</button>
+          <button onClick={handleDownloadImage} disabled={isExportingImage} className="flex-1 sm:flex-none bg-navy hover:bg-navy-deepest text-white px-5 py-2.5 rounded-input flex items-center justify-center gap-2 transition-colors shadow-card font-semibold">{isExportingImage ? <Loader2 size={18} className="animate-spin" /> : <Download size={18} />} {isExportingImage ? "Saving..." : "เซฟรูปภาพ"}</button>
+          <button onClick={handleSaveToCloud} disabled={isSaving} className="flex-1 sm:flex-none bg-sgreen-dark hover:bg-sgreen-dark/90 text-white px-5 py-2.5 rounded-input flex items-center justify-center gap-2 transition-colors shadow-card font-semibold">{isSaving ? <Loader2 size={18} className="animate-spin" /> : <CloudUpload size={18} />} {isSaving ? "Saving..." : "Save to Cloud"}</button>
+          <button onClick={handlePrint} className="flex-1 sm:flex-none bg-navy hover:bg-navy-dark text-white px-5 py-2.5 rounded-input flex items-center justify-center gap-2 transition-colors shadow-card font-semibold"><Printer size={18} /> Print PDF</button>
         </div>
       </div>
 
-      <div id="shift-report-container" className="bg-white border border-slate-200 shadow-xl print:shadow-none print:border-none rounded-[2rem] overflow-hidden print:rounded-none">
-        <div className="p-8 border-b border-slate-200 print:border-black print:p-2 text-center bg-slate-50/50 print:bg-white">
-          <h2 className="text-2xl print:text-lg font-black mb-2 tracking-tight text-slate-900">บันทึกการทำงานการขุดเจาะอุโมงค์</h2>
-          <p className="font-bold text-slate-600 print:text-black text-sm mb-3">โครงการงานก่อสร้างอุโมงค์ระบายน้ำคลองเปรมประชากรจากคลองบางบัวลงสู่แม่น้ำเจ้าพระยา</p>
-          <div className="flex flex-col sm:flex-row justify-center gap-4 sm:gap-8 text-xs sm:text-sm mt-4 text-slate-700 print:text-black items-center font-medium">
-            <p><strong className="text-slate-900">ผู้ว่าจ้าง :</strong> สำนักการระบายน้ำ กรุงเทพมหานคร</p>
-            <div className="flex items-center gap-2"><strong className="text-slate-900">ผู้ให้บริการควบคุมงานก่อสร้าง :</strong><div className="flex items-center bg-white px-3 py-1 rounded-md border border-slate-200 shadow-sm print:shadow-none print:border-gray-400"><span className="text-[#004a80] font-black tracking-tighter border-r border-gray-300 pr-2 text-xs">TEAM GROUP</span><span className="text-[#1a85b6] font-black pl-2 text-xs flex items-center gap-1"><div className="w-3 h-3 bg-gray-200 rounded-sm flex items-center justify-center relative overflow-hidden"><div className="w-0 h-0 border-l-[4px] border-r-[4px] border-b-[6px] border-transparent border-b-[#1a85b6] absolute bottom-0.5"></div></div>GFE</span></div></div>
-            <p><strong className="text-slate-900">ผู้รับจ้าง :</strong> กิจการร่วมค้า ไอทีดี-เอ็นดับเบิลยูอาร์</p>
+      <div id="shift-report-container" className="bg-white border border-line shadow-modal print:shadow-none print:border-none rounded-modal overflow-hidden print:rounded-none">
+        <div className="p-8 border-b border-line print:border-black print:p-2 text-center bg-surface-alt print:bg-white">
+          <h2 className="text-2xl print:text-lg font-semibold mb-2 tracking-tight text-ink print:text-black">บันทึกการทำงานการขุดเจาะอุโมงค์</h2>
+          <p className="font-semibold text-ink-2 print:text-black text-sm mb-3">โครงการงานก่อสร้างอุโมงค์ระบายน้ำคลองเปรมประชากรจากคลองบางบัวลงสู่แม่น้ำเจ้าพระยา</p>
+          <div className="flex flex-col sm:flex-row justify-center gap-4 sm:gap-8 text-xs sm:text-sm mt-4 text-ink-2 print:text-black items-center font-medium">
+            <p><strong className="text-ink">ผู้ว่าจ้าง :</strong> สำนักการระบายน้ำ กรุงเทพมหานคร</p>
+            <div className="flex items-center gap-2"><strong className="text-ink">ผู้ให้บริการควบคุมงานก่อสร้าง :</strong><div className="flex items-center bg-white px-3 py-1 rounded-input border border-line shadow-sm print:shadow-none print:border-gray-400"><span className="text-[#004a80] font-semibold tracking-tighter border-r border-gray-300 pr-2 text-xs">TEAM GROUP</span><span className="text-[#1a85b6] font-semibold pl-2 text-xs flex items-center gap-1"><div className="w-3 h-3 bg-gray-200 rounded-sm flex items-center justify-center relative overflow-hidden"><div className="w-0 h-0 border-l-[4px] border-r-[4px] border-b-[6px] border-transparent border-b-[#1a85b6] absolute bottom-0.5"></div></div>GFE</span></div></div>
+            <p><strong className="text-ink">ผู้รับจ้าง :</strong> กิจการร่วมค้า ไอทีดี-เอ็นดับเบิลยูอาร์</p>
           </div>
         </div>
 
-        <div className="p-5 sm:p-6 print:p-2 border-b border-slate-200 print:border-black flex flex-wrap gap-4 items-center bg-white text-sm font-medium">
-          <div className="flex items-center gap-2"><strong className="text-slate-800">วันที่:</strong><input type="date" name="date" value={meta.date} onChange={handleMetaChange} className="border border-slate-200 p-2 rounded-lg bg-slate-50 print:border-none print:bg-transparent text-slate-800 font-bold outline-none focus:ring-2 focus:ring-blue-100 transition-all" /></div>
-          <div className="flex items-center gap-2"><strong className="text-slate-800">หัวเจาะหมายเลข:</strong><input type="text" name="tbmNo" value={meta.tbmNo} onChange={handleMetaChange} className="border border-slate-200 p-2 rounded-lg bg-slate-50 w-24 print:border-none print:bg-transparent font-bold outline-none focus:ring-2 focus:ring-blue-100 transition-all text-center" /></div>
-          <div className="flex items-center gap-2 flex-grow"><strong className="text-slate-800">ตำแหน่ง:</strong><input type="text" name="location" value={meta.location} onChange={handleMetaChange} className="border border-slate-200 p-2 rounded-lg bg-slate-50 w-full print:border-none print:bg-transparent font-bold outline-none focus:ring-2 focus:ring-blue-100 transition-all" /></div>
-          <div className="flex items-center gap-5 font-bold bg-slate-50 p-2.5 rounded-xl border border-slate-200 shadow-inner print:shadow-none print:border-none print:bg-transparent">
-            <label className="flex items-center gap-1.5 cursor-pointer text-orange-600 hover:text-orange-700 transition-colors"><input type="radio" name="shift" value="Day" checked={meta.shift === 'Day'} onChange={handleMetaChange} className="accent-orange-500 w-4 h-4" /> Day (07-19)</label>
-            <label className="flex items-center gap-1.5 cursor-pointer text-indigo-600 hover:text-indigo-700 transition-colors"><input type="radio" name="shift" value="Night" checked={meta.shift === 'Night'} onChange={handleMetaChange} className="accent-indigo-500 w-4 h-4" /> Night (19-07)</label>
+        <div className="p-5 sm:p-6 print:p-2 border-b border-line print:border-black flex flex-wrap gap-4 items-center bg-white text-sm font-medium">
+          <div className="flex items-center gap-2"><strong className="text-ink">วันที่:</strong><input type="date" name="date" value={meta.date} onChange={handleMetaChange} className="border border-input p-2 rounded-input bg-surface-alt print:border-none print:bg-transparent text-ink font-semibold outline-none focus:ring-2 focus:ring-cyan-tint focus:border-navy transition-all" /></div>
+          <div className="flex items-center gap-2"><strong className="text-ink">หัวเจาะหมายเลข:</strong><input type="text" name="tbmNo" value={meta.tbmNo} onChange={handleMetaChange} className="border border-input p-2 rounded-input bg-surface-alt w-24 print:border-none print:bg-transparent font-semibold outline-none focus:ring-2 focus:ring-cyan-tint focus:border-navy transition-all text-center" /></div>
+          <div className="flex items-center gap-2 flex-grow"><strong className="text-ink">ตำแหน่ง:</strong><input type="text" name="location" value={meta.location} onChange={handleMetaChange} className="border border-input p-2 rounded-input bg-surface-alt w-full print:border-none print:bg-transparent font-semibold outline-none focus:ring-2 focus:ring-cyan-tint focus:border-navy transition-all" /></div>
+          <div className="flex items-center gap-5 font-semibold bg-surface-alt p-2.5 rounded-input border border-line shadow-sm print:shadow-none print:border-none print:bg-transparent">
+            <label className="flex items-center gap-1.5 cursor-pointer text-code-b hover:text-code-b/80 transition-colors"><input type="radio" name="shift" value="Day" checked={meta.shift === 'Day'} onChange={handleMetaChange} className="accent-code-b w-4 h-4" /> Day (07-19)</label>
+            <label className="flex items-center gap-1.5 cursor-pointer text-navy hover:text-navy-dark transition-colors"><input type="radio" name="shift" value="Night" checked={meta.shift === 'Night'} onChange={handleMetaChange} className="accent-navy w-4 h-4" /> Night (19-07)</label>
           </div>
         </div>
 
-        <div className="overflow-x-auto border-b border-slate-200 print:border-black">
+        <div className="overflow-x-auto border-b border-line print:border-black">
           <table className="w-full text-xs print:text-[11px] border-collapse table-fixed min-w-[800px]">
             <thead>
-              <tr className="bg-slate-100">
-                <th className="border border-slate-300 print:border-black p-2.5 text-left text-slate-700" style={{ width: '22%' }}>Time / Activities</th>
-                {currentHours.map((hour, idx) => <th key={idx} className="border border-slate-300 print:border-black p-1 text-center font-bold text-slate-700" style={{ width: '6%' }}>{hour}</th>)}
-                <th className="border border-slate-300 print:border-black p-1 text-center text-slate-700" style={{ width: '6%' }}>Total Time<br />(min)</th>
+              <tr className="bg-surface-alt">
+                <th className="border border-line print:border-black p-2.5 text-left text-ink-2" style={{ width: '22%' }}>Time / Activities</th>
+                {currentHours.map((hour, idx) => <th key={idx} className="border border-line print:border-black p-1 text-center font-semibold text-ink-2" style={{ width: '6%' }}>{hour}</th>)}
+                <th className="border border-line print:border-black p-1 text-center text-ink-2" style={{ width: '6%' }}>Total Time<br />(min)</th>
               </tr>
             </thead>
             <tbody>
               {activityCategories.map((cat, cIdx) => (
                 <React.Fragment key={cIdx}>
-                  <tr className="bg-slate-200/60"><td colSpan={14} className="border border-slate-300 print:border-black p-2 font-black pl-3 text-slate-800">{String(cat.group)}</td></tr>
+                  <tr className="bg-surface-alt"><td colSpan={14} className="border border-line print:border-black p-2 font-semibold pl-3 text-ink">{String(cat.group)}</td></tr>
                   {cat.items.map((item, iIdx) => {
                     const totalMins = getTotalMinutes(item);
                     return (
-                      <tr key={`${cIdx}-${iIdx}`} className="group h-[38px] hover:bg-slate-50 transition-colors">
-                        <td className="border border-slate-300 print:border-black p-1.5 pl-5 relative bg-white font-medium text-slate-700">
+                      <tr key={`${cIdx}-${iIdx}`} className="group h-[38px] hover:bg-cyan-tint transition-colors">
+                        <td className="border border-line print:border-black p-1.5 pl-5 relative bg-white font-medium text-ink-2">
                           {String(item)}
-                          <button onClick={() => setActiveModal(item)} className="absolute right-1.5 top-1.5 text-blue-500 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 p-1 rounded-md no-print opacity-0 group-hover:opacity-100 transition-all shadow-sm" title="เพิ่มเวลาการทำงาน"><Plus size={14} /></button>
+                          <button onClick={() => setActiveModal(item)} className="absolute right-1.5 top-1.5 text-navy hover:text-navy-dark bg-cyan-tint hover:bg-cyan-tint/80 p-1 rounded-input no-print opacity-0 group-hover:opacity-100 transition-all shadow-sm" title="เพิ่มเวลาการทำงาน"><Plus size={14} /></button>
                         </td>
-                        <td colSpan={12} className="border border-slate-300 print:border-black p-0 relative">
-                          <div className="absolute inset-0 flex pointer-events-none">{currentHours.map((h, idx) => <div key={idx} className={`h-full w-[8.333%] ${idx < 11 ? 'border-r border-slate-200 print:border-gray-300' : ''}`} />)}</div>
+                        <td colSpan={12} className="border border-line print:border-black p-0 relative">
+                          <div className="absolute inset-0 flex pointer-events-none">{currentHours.map((h, idx) => <div key={idx} className={`h-full w-[8.333%] ${idx < 11 ? 'border-r border-line print:border-gray-300' : ''}`} />)}</div>
                           <div className="absolute inset-y-[4px] inset-x-0 px-0.5">
                             {(Array.isArray(displayEvents[item]) ? displayEvents[item] : []).filter(ev => ev != null).map((ev, index) => {
                               const { left, width } = calculateBarStyles(ev.start, ev.end, meta.shift);
                               const colorClasses = getBarColorClasses(cIdx);
                               return (
-                                <div key={`${ev.id || index}-${index}`} className={`absolute h-[90%] top-[5%] border-[1.5px] rounded-[4px] flex items-center justify-center text-[10px] sm:text-[11px] font-black overflow-visible whitespace-nowrap cursor-pointer z-10 hover:brightness-95 transition-all shadow-sm ${colorClasses}`} style={{ left, width }} onClick={() => !ev?.isAuto && setActiveModal(item)} title={`${ev.start} - ${ev.end}`}>
+                                <div key={`${ev.id || index}-${index}`} className={`absolute h-[90%] top-[5%] border-[1.5px] rounded-[4px] flex items-center justify-center text-[10px] sm:text-[11px] font-semibold overflow-visible whitespace-nowrap cursor-pointer z-10 hover:brightness-95 transition-all shadow-sm ${colorClasses}`} style={{ left, width }} onClick={() => !ev?.isAuto && setActiveModal(item)} title={`${ev.start} - ${ev.end}`}>
                                   <span className="bg-white/90 px-1.5 py-0.5 rounded-[2px] shadow-sm tracking-tight">{String(ev.label || "")}</span>
                                 </div>
                               );
                             })}
                           </div>
                         </td>
-                        <td className="border border-slate-300 print:border-black p-1 text-center bg-slate-50 print:bg-white font-black text-blue-700 print:text-blue-800 text-sm">{totalMins > 0 ? totalMins : ''}</td>
+                        <td className="border border-line print:border-black p-1 text-center bg-surface-alt print:bg-white font-semibold text-navy print:text-blue-800 text-sm font-mono">{totalMins > 0 ? totalMins : ''}</td>
                       </tr>
                     );
                   })}
@@ -341,23 +342,23 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
           </table>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 border-b border-slate-200 print:border-black bg-slate-50">
-          <div className="p-6 print:p-3 lg:border-r border-slate-200 print:border-black bg-white m-3 sm:m-4 rounded-2xl shadow-sm print:shadow-none print:m-0 print:rounded-none">
-            <h3 className="font-bold text-slate-800 flex items-center gap-2 mb-4 bg-slate-100 print:bg-transparent p-2 rounded-lg print:p-0"><Users size={18} className="text-slate-500" /> Man Power (People)</h3>
+        <div className="grid grid-cols-1 lg:grid-cols-2 border-b border-line print:border-black bg-surface-page">
+          <div className="p-6 print:p-3 lg:border-r border-line print:border-black bg-white m-3 sm:m-4 rounded-card shadow-card print:shadow-none print:m-0 print:rounded-none">
+            <h3 className="font-semibold text-ink flex items-center gap-2 mb-4 bg-surface-alt print:bg-transparent p-2 rounded-input print:p-0"><Users size={18} className="text-ink-3" /> Man Power (People)</h3>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs sm:text-sm print:text-[11px]">
               {Object.keys(manpower).map(role => (
-                <div key={role} className="flex flex-col"><span className="text-slate-500 font-bold mb-1.5">{String(role)}</span>{renderInput(manpower[role], handleManpowerChange, role, "0", "number", "text-center p-2 font-black")}</div>
+                <div key={role} className="flex flex-col"><span className="text-ink-3 font-semibold mb-1.5">{String(role)}</span>{renderInput(manpower[role], handleManpowerChange, role, "0", "number", "text-center p-2 font-semibold")}</div>
               ))}
             </div>
           </div>
-          <div className="p-6 print:p-3 bg-white m-3 sm:m-4 rounded-2xl shadow-sm print:shadow-none print:m-0 print:rounded-none">
-            <h3 className="font-bold text-slate-800 flex items-center gap-2 mb-4 bg-slate-100 print:bg-transparent p-2 rounded-lg print:p-0"><Activity size={18} className="text-slate-500" /> Result</h3>
+          <div className="p-6 print:p-3 bg-white m-3 sm:m-4 rounded-card shadow-card print:shadow-none print:m-0 print:rounded-none">
+            <h3 className="font-semibold text-ink flex items-center gap-2 mb-4 bg-surface-alt print:bg-transparent p-2 rounded-input print:p-0"><Activity size={18} className="text-ink-3" /> Result</h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-y-4 gap-x-8 text-xs sm:text-sm print:text-[11px]">
-              <div className="flex items-center justify-between border-b border-dashed border-slate-300 pb-2"><span className="font-medium text-slate-600">Start: Sta.</span><div className="w-28">{renderInput(result.startSta, handleResultChange, 'startSta', '', 'text', 'text-right font-black p-1')}</div></div>
-              <div className="flex items-center justify-between border-b border-dashed border-slate-300 pb-2"><span className="font-medium text-slate-600">Finish: Sta.</span><div className="w-28">{renderInput(result.finishSta, handleResultChange, 'finishSta', '', 'text', 'text-right font-black p-1')}</div></div>
-              <div className="flex items-center justify-between border-b border-dashed border-slate-300 pb-2"><span className="font-medium text-slate-600">Number of ring:</span><div className="w-28">{renderInput(result.numberRing, handleResultChange, 'numberRing', '', 'number', 'text-right font-black text-blue-700 p-1')}</div></div>
-              <div className="flex items-center justify-between border-b border-dashed border-slate-300 pb-2"><span className="font-medium text-slate-600">Total Distance (m.):</span><div className="w-28">{renderInput(result.totalDistance, handleResultChange, 'totalDistance', '', 'text', 'text-right font-black p-1')}</div></div>
-              <div className="flex items-center justify-between col-span-1 sm:col-span-2 border-b border-dashed border-slate-300 pb-2"><span className="font-medium text-slate-600">Progress Rate (m./shift):</span><div className="w-28">{renderInput(result.progressRate, handleResultChange, 'progressRate', '', 'text', 'text-right font-black p-1')}</div></div>
+              <div className="flex items-center justify-between border-b border-dashed border-line pb-2"><span className="font-medium text-ink-2">Start: Sta.</span><div className="w-28">{renderInput(result.startSta, handleResultChange, 'startSta', '', 'text', 'text-right font-semibold p-1')}</div></div>
+              <div className="flex items-center justify-between border-b border-dashed border-line pb-2"><span className="font-medium text-ink-2">Finish: Sta.</span><div className="w-28">{renderInput(result.finishSta, handleResultChange, 'finishSta', '', 'text', 'text-right font-semibold p-1')}</div></div>
+              <div className="flex items-center justify-between border-b border-dashed border-line pb-2"><span className="font-medium text-ink-2">Number of ring:</span><div className="w-28">{renderInput(result.numberRing, handleResultChange, 'numberRing', '', 'number', 'text-right font-semibold text-navy p-1 font-mono')}</div></div>
+              <div className="flex items-center justify-between border-b border-dashed border-line pb-2"><span className="font-medium text-ink-2">Total Distance (m.):</span><div className="w-28">{renderInput(result.totalDistance, handleResultChange, 'totalDistance', '', 'text', 'text-right font-semibold p-1')}</div></div>
+              <div className="flex items-center justify-between col-span-1 sm:col-span-2 border-b border-dashed border-line pb-2"><span className="font-medium text-ink-2">Progress Rate (m./shift):</span><div className="w-28">{renderInput(result.progressRate, handleResultChange, 'progressRate', '', 'text', 'text-right font-semibold p-1')}</div></div>
             </div>
           </div>
         </div>
@@ -365,38 +366,38 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
         <div className="p-6 sm:p-10 print:p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8 text-center text-xs print:text-[11px] bg-white">
           {['ผู้บันทึก (ผู้รับจ้าง)', 'วิศวกร (ผู้รับจ้าง)', 'วิศวกร (กลุ่มบริษัทที่ปรึกษา)', 'ผู้ควบคุมงาน สำนักการระบายน้ำ'].map((role, idx) => (
             <div key={idx} className="flex flex-col justify-end h-28 sm:h-32">
-              <p className="text-slate-400 font-bold mb-auto">{idx === 0 ? 'บันทึกโดย' : idx === 1 ? 'ตรวจสอบโดย' : ''}</p>
-              <div className="border-b-[1.5px] border-dotted border-slate-400 print:border-black w-[80%] mx-auto pb-2 relative"><input type="text" className="absolute bottom-0 left-0 w-full text-center bg-transparent outline-none grid-input font-bold text-slate-700 print:text-black border-none" placeholder="(ชื่อ-สกุล)" /></div>
-              <p className="font-bold text-slate-800 mt-3">{String(role)}</p>
+              <p className="text-ink-3 font-semibold mb-auto">{idx === 0 ? 'บันทึกโดย' : idx === 1 ? 'ตรวจสอบโดย' : ''}</p>
+              <div className="border-b-[1.5px] border-dotted border-line print:border-black w-[80%] mx-auto pb-2 relative"><input type="text" className="absolute bottom-0 left-0 w-full text-center bg-transparent outline-none grid-input font-semibold text-ink-2 print:text-black border-none" placeholder="(ชื่อ-สกุล)" /></div>
+              <p className="font-semibold text-ink mt-3">{String(role)}</p>
             </div>
           ))}
         </div>
       </div>
 
       {activeModal && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 no-print p-4">
-          <div className="bg-white rounded-3xl shadow-2xl p-6 sm:p-8 w-full max-w-md transform transition-all border border-slate-100">
-            <div className="flex justify-between items-center border-b border-slate-100 pb-4 mb-5">
-              <h3 className="text-lg font-black flex items-center gap-2 text-slate-800"><Clock className="text-blue-500" size={20} />{editingEventId ? 'แก้ไขเวลา:' : 'เพิ่มเวลา:'} <span className="text-blue-600">{String(activeModal)}</span></h3>
-              <button onClick={closeModal} className="text-slate-400 hover:text-red-500 bg-slate-100 hover:bg-red-50 rounded-full p-1.5 transition-colors"><X size={20} /></button>
+        <div className="fixed inset-0 bg-navy-dark/50 backdrop-blur-sm flex items-center justify-center z-50 no-print p-4">
+          <div className="bg-white rounded-modal shadow-modal p-6 sm:p-8 w-full max-w-md transform transition-all border border-line">
+            <div className="flex justify-between items-center border-b border-line pb-4 mb-5">
+              <h3 className="text-lg font-semibold flex items-center gap-2 text-ink"><Clock className="text-navy" size={20} />{editingEventId ? 'แก้ไขเวลา:' : 'เพิ่มเวลา:'} <span className="text-cyan-med">{String(activeModal)}</span></h3>
+              <button onClick={closeModal} className="text-ink-3 hover:text-code-d bg-surface-alt hover:bg-code-d/10 rounded-full p-1.5 transition-colors"><X size={20} /></button>
             </div>
             <div className="flex gap-4 mb-5">
-              <div className="flex-1"><label className="block text-[10px] sm:text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-widest">เวลาเริ่ม (Start)</label><input type="time" value={newEvent.start} onChange={e => setNewEvent({ ...newEvent, start: e.target.value })} className="w-full border border-slate-300 rounded-xl p-3 text-sm font-bold text-slate-700 outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-500 transition-all" /></div>
-              <div className="flex-1"><label className="block text-[10px] sm:text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-widest">เวลาสิ้นสุด (End)</label><input type="time" value={newEvent.end} onChange={e => setNewEvent({ ...newEvent, end: e.target.value })} className="w-full border border-slate-300 rounded-xl p-3 text-sm font-bold text-slate-700 outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-500 transition-all" /></div>
+              <div className="flex-1"><label className="block text-[10px] sm:text-xs font-semibold text-ink-3 mb-1.5 uppercase tracking-widest">เวลาเริ่ม (Start)</label><input type="time" value={newEvent.start} onChange={e => setNewEvent({ ...newEvent, start: e.target.value })} className="w-full border border-input rounded-input p-3 text-sm font-semibold text-ink-2 outline-none focus:ring-2 focus:ring-cyan-tint focus:border-navy transition-all" /></div>
+              <div className="flex-1"><label className="block text-[10px] sm:text-xs font-semibold text-ink-3 mb-1.5 uppercase tracking-widest">เวลาสิ้นสุด (End)</label><input type="time" value={newEvent.end} onChange={e => setNewEvent({ ...newEvent, end: e.target.value })} className="w-full border border-input rounded-input p-3 text-sm font-semibold text-ink-2 outline-none focus:ring-2 focus:ring-cyan-tint focus:border-navy transition-all" /></div>
             </div>
-            <div className="mb-8"><label className="block text-[10px] sm:text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-widest">ข้อความในกราฟ</label><input type="text" value={newEvent.label} onChange={e => setNewEvent({ ...newEvent, label: e.target.value })} placeholder="เช่น 108 หรือ K-14" className="w-full border border-slate-300 rounded-xl p-3 text-sm font-bold text-slate-700 outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-500 transition-all" /></div>
+            <div className="mb-8"><label className="block text-[10px] sm:text-xs font-semibold text-ink-3 mb-1.5 uppercase tracking-widest">ข้อความในกราฟ</label><input type="text" value={newEvent.label} onChange={e => setNewEvent({ ...newEvent, label: e.target.value })} placeholder="เช่น 108 หรือ K-14" className="w-full border border-input rounded-input p-3 text-sm font-semibold text-ink-2 outline-none focus:ring-2 focus:ring-cyan-tint focus:border-navy transition-all" /></div>
             <div className="flex flex-col gap-3 mb-6">
-              <button onClick={() => addEvent(activeModal)} className={`w-full text-white rounded-xl p-3.5 font-bold transition-all shadow-md flex items-center justify-center gap-2 active:scale-[0.98] ${editingEventId ? "bg-emerald-600 hover:bg-emerald-700 shadow-emerald-200" : "bg-blue-600 hover:bg-blue-700 shadow-blue-200"}`}>{editingEventId ? <Save size={18} /> : <Plus size={18} />}{editingEventId ? "บันทึกการแก้ไข" : "เพิ่มช่วงเวลาลงกราฟ"}</button>
-              {editingEventId && <button onClick={cancelEdit} className="w-full text-slate-500 hover:text-slate-800 text-xs font-bold py-2 underline transition-colors">ยกเลิกการแก้ไข</button>}
+              <button onClick={() => addEvent(activeModal)} className={`w-full text-white rounded-input p-3.5 font-semibold transition-all shadow-card flex items-center justify-center gap-2 active:scale-[0.98] ${editingEventId ? "bg-sgreen-dark hover:bg-sgreen-dark/90" : "bg-navy hover:bg-navy-dark"}`}>{editingEventId ? <Save size={18} /> : <Plus size={18} />}{editingEventId ? "บันทึกการแก้ไข" : "เพิ่มช่วงเวลาลงกราฟ"}</button>
+              {editingEventId && <button onClick={cancelEdit} className="w-full text-ink-3 hover:text-ink text-xs font-semibold py-2 underline transition-colors">ยกเลิกการแก้ไข</button>}
             </div>
             {Array.isArray(displayEvents[activeModal]) && displayEvents[activeModal].length > 0 && (
-              <div className="bg-slate-50 rounded-xl p-4 border border-slate-100">
-                <h4 className="font-bold text-[10px] uppercase tracking-widest mb-3 text-slate-400">รายการที่บันทึกไว้แล้ว</h4>
+              <div className="bg-surface-alt rounded-input p-4 border border-line">
+                <h4 className="font-semibold text-[10px] uppercase tracking-widest mb-3 text-ink-3">รายการที่บันทึกไว้แล้ว</h4>
                 <div className="space-y-2 max-h-40 overflow-y-auto pr-2 hide-scrollbar">
                   {displayEvents[activeModal].filter(ev => ev != null).map((ev, index) => (
-                    <div key={`${ev.id || index}-${index}`} className={`flex justify-between items-center bg-white p-3 rounded-xl text-sm border shadow-sm transition-all ${editingEventId === ev?.id ? 'border-emerald-500 ring-2 ring-emerald-100 bg-emerald-50/10' : 'border-slate-200 hover:border-slate-300'}`}>
-                      <span className="font-medium text-slate-700 font-mono">{ev.start} - {ev.end} <strong className="ml-2 text-blue-700 bg-blue-50 px-2 py-0.5 rounded-md border border-blue-100 font-sans tracking-tight">[{String(ev.label || "")}]</strong></span>
-                      {ev.isAuto ? <span className="text-[9px] text-emerald-600 bg-emerald-50 px-2 py-1 rounded-md font-bold border border-emerald-100">Auto (System)</span> : <div className="flex items-center gap-1"><button onClick={() => handleEditEventClick(ev)} className="text-blue-500 hover:bg-blue-100 p-1.5 rounded-lg transition-colors"><Edit size={16} /></button><button onClick={() => deleteEvent(activeModal, ev.id)} className="text-red-500 hover:bg-red-100 p-1.5 rounded-lg transition-colors"><Trash2 size={16} /></button></div>}
+                    <div key={`${ev.id || index}-${index}`} className={`flex justify-between items-center bg-white p-3 rounded-input text-sm border shadow-sm transition-all ${editingEventId === ev?.id ? 'border-sgreen-med ring-2 ring-sgreen-med/20' : 'border-line hover:border-input'}`}>
+                      <span className="font-medium text-ink-2 font-mono">{ev.start} - {ev.end} <strong className="ml-2 text-navy bg-cyan-tint px-2 py-0.5 rounded-badge border border-cyan-tint font-sans tracking-tight">[{String(ev.label || "")}]</strong></span>
+                      {ev.isAuto ? <span className="text-[9px] text-sgreen-dark bg-sgreen-med/10 px-2 py-1 rounded-badge font-semibold border border-sgreen-med/30">Auto (System)</span> : <div className="flex items-center gap-1"><button onClick={() => handleEditEventClick(ev)} className="text-navy hover:bg-cyan-tint p-1.5 rounded-input transition-colors"><Edit size={16} /></button><button onClick={() => deleteEvent(activeModal, ev.id)} className="text-code-d hover:bg-code-d/10 p-1.5 rounded-input transition-colors"><Trash2 size={16} /></button></div>}
                     </div>
                   ))}
                 </div>

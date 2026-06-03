@@ -3,8 +3,10 @@ import { Layers, ChevronRight, Save, Loader2, Camera, Clock } from "lucide-react
 import { parseCH, formatCH } from "../../utils/formatters";
 import { offsetRingNo, calculateSoilVolume, handleFileUpload } from "../../utils/helpers";
 import { apiCall } from "../../utils/api";
+import { SegmentedToggle } from "../../ui-ux-pro-max";
+import StickyActionBar from "../../ui-ux-pro-max/components/StickyActionBar";
 
-const SegmentRecordView = ({ projectInfo, handleProjectInfoChange, segmentRecords, setSegmentRecords }) => {
+const SegmentRecordView = ({ projectInfo, handleProjectInfoChange, segmentRecords, setSegmentRecords, setCurrentModule, setActiveTab }) => {
   const [isSaving, setIsSaving] = useState(false);
   const [formData, setFormData] = useState({
     id: null, ringNo: "", typeRing: "C1", keyPos: "16", startCH: "", finishCH: "", length: "1.40", remark: "",
@@ -92,30 +94,39 @@ const SegmentRecordView = ({ projectInfo, handleProjectInfoChange, segmentRecord
 
   return (
     <div className="max-w-2xl mx-auto pb-24 animate-slide-up">
-      <form onSubmit={handleSubmit} className="bg-white rounded-3xl shadow-lg border border-slate-100 overflow-hidden">
+      {/* Module switcher — lets mobile users toggle between Segment and Grout */}
+      <div className="mb-4">
+        <SegmentedToggle
+          value="segment"
+          options={[{ value: "segment", label: "Segment" }, { value: "grout", label: "Grout" }]}
+          onChange={(m) => { setCurrentModule(m); }}
+        />
+      </div>
+
+      <form onSubmit={handleSubmit} className="bg-white rounded-card shadow-card border border-line overflow-hidden">
         {/* Header */}
-        <div className="bg-[#0b8261] px-6 py-5 text-white flex justify-between items-center">
+        <div className="bg-sgreen-dark px-6 py-5 text-white flex justify-between items-center">
           <div>
-            <h2 className="font-extrabold text-2xl tracking-tight flex items-center gap-2"><Layers size={24} /> Segment Install</h2>
-            <p className="text-emerald-100 text-[10px] sm:text-xs mt-1 opacity-80 font-medium">Record daily segment Installation</p>
+            <h2 className="font-semibold text-2xl tracking-tight flex items-center gap-2"><Layers size={24} /> Segment Install</h2>
+            <p className="text-cyan-tint text-[10px] sm:text-xs mt-1 opacity-90 font-medium">Record daily segment Installation</p>
           </div>
-          <div className="bg-white/20 px-3 py-1.5 rounded-lg text-xs font-bold border border-white/30 shadow-sm">
+          <div className="bg-white/20 px-3 py-1.5 rounded-input text-xs font-semibold border border-white/30 shadow-card">
             Last: {lastRing}
           </div>
         </div>
 
-        <div className="p-6 space-y-6 bg-slate-50/30">
+        <div className="p-6 space-y-6 bg-surface-page">
           {/* Row 1: Date & Shift */}
           <div className="grid grid-cols-2 gap-4">
-            <div className="bg-white border border-slate-200 p-3 rounded-xl shadow-sm">
-              <label className="text-[9px] font-extrabold text-slate-400 uppercase tracking-widest block mb-1">Working Date</label>
+            <div className="bg-surface border border-input p-3 rounded-input shadow-card">
+              <label className="text-[9px] font-semibold text-ink-3 uppercase tracking-widest block mb-1">Working Date</label>
               <div className="flex items-center justify-between">
-                <input type="date" name="date" value={projectInfo.date} onChange={handleProjectInfoChange} className="w-full bg-transparent font-black text-slate-700 outline-none text-sm cursor-pointer" />
+                <input type="date" name="date" value={projectInfo.date} onChange={handleProjectInfoChange} className="w-full bg-transparent font-semibold text-ink outline-none text-sm cursor-pointer" />
               </div>
             </div>
-            <div className="bg-white border border-slate-200 p-3 rounded-xl shadow-sm">
-              <label className="text-[9px] font-extrabold text-slate-400 uppercase tracking-widest block mb-1">Working Shift</label>
-              <select name="shift" value={projectInfo.shift} onChange={handleProjectInfoChange} className="w-full bg-transparent font-black text-slate-700 outline-none text-sm appearance-none cursor-pointer">
+            <div className="bg-surface border border-input p-3 rounded-input shadow-card">
+              <label className="text-[9px] font-semibold text-ink-3 uppercase tracking-widest block mb-1">Working Shift</label>
+              <select name="shift" value={projectInfo.shift} onChange={handleProjectInfoChange} className="w-full bg-transparent font-semibold text-ink outline-none text-sm appearance-none cursor-pointer">
                 <option value="Day">☀️ Day Shift</option>
                 <option value="Night">🌙 Night Shift</option>
               </select>
@@ -124,13 +135,13 @@ const SegmentRecordView = ({ projectInfo, handleProjectInfoChange, segmentRecord
 
           {/* Row 2: Ring & Type */}
           <div className="grid grid-cols-2 gap-4">
-            <div className="bg-white border border-slate-200 p-3 rounded-xl shadow-sm focus-within:ring-2 ring-emerald-100 transition-all">
-              <label className="text-[9px] font-extrabold text-slate-400 uppercase tracking-widest block mb-1">Ring No.</label>
-              <input type="text" name="ringNo" required value={formData.ringNo} onChange={handleInputChange} onBlur={(e) => setFormData(prev => ({ ...prev, ringNo: String(e.target.value).trim().toUpperCase() }))} className="w-full bg-transparent text-xl font-black text-slate-800 outline-none uppercase" placeholder="PXXX" />
+            <div className="bg-surface border border-input p-3 rounded-input shadow-card focus-within:ring-2 focus-within:ring-sgreen-med/30 transition-all">
+              <label className="text-[9px] font-semibold text-ink-3 uppercase tracking-widest block mb-1">Ring No.</label>
+              <input type="text" name="ringNo" required value={formData.ringNo} onChange={handleInputChange} onBlur={(e) => setFormData(prev => ({ ...prev, ringNo: String(e.target.value).trim().toUpperCase() }))} className="w-full bg-transparent text-xl font-semibold text-ink outline-none uppercase" placeholder="PXXX" />
             </div>
-            <div className="bg-white border border-slate-200 p-3 rounded-xl shadow-sm">
-              <label className="text-[9px] font-extrabold text-slate-400 uppercase tracking-widest block mb-1">Install Type</label>
-              <select name="installType" value={formData.installType} onChange={handleInputChange} className="w-full bg-transparent font-black text-slate-700 outline-none text-sm appearance-none cursor-pointer">
+            <div className="bg-surface border border-input p-3 rounded-input shadow-card">
+              <label className="text-[9px] font-semibold text-ink-3 uppercase tracking-widest block mb-1">Install Type</label>
+              <select name="installType" value={formData.installType} onChange={handleInputChange} className="w-full bg-transparent font-semibold text-ink outline-none text-sm appearance-none cursor-pointer">
                 <option value="Permanent">ถาวร (Permanent)</option>
                 <option value="Temporary">ชั่วคราว (Temporary)</option>
               </select>
@@ -138,11 +149,11 @@ const SegmentRecordView = ({ projectInfo, handleProjectInfoChange, segmentRecord
           </div>
 
           {/* EXCAVATION PHASE */}
-          <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm relative overflow-hidden">
-            <div className="absolute left-0 top-0 bottom-0 w-1.5 bg-orange-400"></div>
+          <div className="bg-surface border border-input rounded-card p-5 shadow-card relative overflow-hidden">
+            <div className="absolute left-0 top-0 bottom-0 w-1.5 bg-code-b"></div>
             <div className="flex justify-between items-center mb-4 pl-2">
-              <h3 className="text-xs font-black text-slate-700 flex items-center gap-2 uppercase tracking-widest">Excavation Phase <span className="text-[10px] text-slate-400 font-medium normal-case">(ขุดเจาะ)</span></h3>
-              <select name="excavShift" value={formData.excavShift} onChange={handleInputChange} className="text-[10px] font-bold bg-orange-50 text-orange-700 px-2 py-1 rounded outline-none cursor-pointer border border-orange-100">
+              <h3 className="text-xs font-semibold text-ink flex items-center gap-2 uppercase tracking-widest">Excavation Phase <span className="text-[10px] text-ink-3 font-medium normal-case">(ขุดเจาะ)</span></h3>
+              <select name="excavShift" value={formData.excavShift} onChange={handleInputChange} className="text-[10px] font-semibold bg-code-b/10 text-code-b px-2 py-1 rounded-badge outline-none cursor-pointer border border-code-b/30">
                 <option value="Day">☀️ Day Shift</option>
                 <option value="Night">🌙 Night Shift</option>
               </select>
@@ -150,33 +161,33 @@ const SegmentRecordView = ({ projectInfo, handleProjectInfoChange, segmentRecord
 
             <div className="grid grid-cols-2 gap-4 mb-4 pl-2">
               <div>
-                <label className="text-[10px] font-bold text-slate-500 block mb-1.5 flex items-center gap-1"><Clock size={10} className="text-orange-500" /> Start</label>
-                <input type="time" name="excavStartTime" value={formData.excavStartTime} onChange={handleInputChange} className="border border-slate-200 rounded-xl p-2.5 w-full bg-slate-50 outline-none font-mono font-bold text-slate-700 focus:border-orange-400 transition-colors text-sm" />
+                <label className="text-[10px] font-semibold text-ink-3 block mb-1.5 flex items-center gap-1"><Clock size={10} className="text-code-b" /> Start</label>
+                <input type="time" name="excavStartTime" value={formData.excavStartTime} onChange={handleInputChange} className="border border-input rounded-input p-2.5 w-full bg-surface-alt outline-none font-mono font-semibold text-ink focus:border-code-b transition-colors text-sm" />
               </div>
               <div>
-                <label className="text-[10px] font-bold text-slate-500 block mb-1.5 flex items-center gap-1"><Clock size={10} className="text-orange-500" /> Finish</label>
-                <input type="time" name="excavEndTime" value={formData.excavEndTime} onChange={handleInputChange} className="border border-slate-200 rounded-xl p-2.5 w-full bg-slate-50 outline-none font-mono font-bold text-slate-700 focus:border-orange-400 transition-colors text-sm" />
+                <label className="text-[10px] font-semibold text-ink-3 block mb-1.5 flex items-center gap-1"><Clock size={10} className="text-code-b" /> Finish</label>
+                <input type="time" name="excavEndTime" value={formData.excavEndTime} onChange={handleInputChange} className="border border-input rounded-input p-2.5 w-full bg-surface-alt outline-none font-mono font-semibold text-ink focus:border-code-b transition-colors text-sm" />
               </div>
             </div>
 
             <div className="pl-2 space-y-4">
               <div>
-                <label className="text-[10px] font-bold text-slate-500 block mb-1.5">ลักษณะชั้นดิน (Soil Type)</label>
-                <input type="text" name="soilType" value={formData.soilType} onChange={handleInputChange} className="border border-slate-200 rounded-xl p-2.5 w-full outline-none text-sm font-medium text-slate-700 focus:border-orange-400 transition-colors" placeholder="เช่น ดินเหนียวปนทราย, Soft Clay..." />
+                <label className="text-[10px] font-semibold text-ink-3 block mb-1.5">ลักษณะชั้นดิน (Soil Type)</label>
+                <input type="text" name="soilType" value={formData.soilType} onChange={handleInputChange} className="border border-input rounded-input p-2.5 w-full outline-none text-sm font-medium text-ink focus:border-code-b transition-colors" placeholder="เช่น ดินเหนียวปนทราย, Soft Clay..." />
               </div>
               <div>
-                <label className="text-[10px] font-bold text-slate-500 block mb-1.5 flex items-center gap-1"><Camera size={10} /> ภาพถ่ายชั้นดิน (ไม่มีข้าม)</label>
-                <input type="file" accept="image/*" onChange={(e) => handleFileUpload(e, setFormData)} className="text-xs text-slate-500 w-full file:mr-3 file:py-2 file:px-4 file:rounded-xl file:border-0 file:bg-orange-50 file:text-orange-700 file:font-bold hover:file:bg-orange-100 transition-colors cursor-pointer" />
+                <label className="text-[10px] font-semibold text-ink-3 block mb-1.5 flex items-center gap-1"><Camera size={10} /> ภาพถ่ายชั้นดิน (ไม่มีข้าม)</label>
+                <input type="file" accept="image/*" onChange={(e) => handleFileUpload(e, setFormData)} className="text-xs text-ink-3 w-full file:mr-3 file:py-2 file:px-4 file:rounded-input file:border-0 file:bg-code-b/10 file:text-code-b file:font-semibold hover:file:bg-code-b/20 transition-colors cursor-pointer" />
               </div>
             </div>
           </div>
 
           {/* INSTALLATION PHASE */}
-          <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm relative overflow-hidden">
-            <div className="absolute left-0 top-0 bottom-0 w-1.5 bg-emerald-500"></div>
+          <div className="bg-surface border border-input rounded-card p-5 shadow-card relative overflow-hidden">
+            <div className="absolute left-0 top-0 bottom-0 w-1.5 bg-sgreen-med"></div>
             <div className="flex justify-between items-center mb-4 pl-2">
-              <h3 className="text-xs font-black text-slate-700 flex items-center gap-2 uppercase tracking-widest">Installation Phase <span className="text-[10px] text-slate-400 font-medium normal-case">(ประกอบ)</span></h3>
-              <select name="installShift" value={formData.installShift} onChange={handleInputChange} className="text-[10px] font-bold bg-emerald-50 text-emerald-700 px-2 py-1 rounded outline-none cursor-pointer border border-emerald-100">
+              <h3 className="text-xs font-semibold text-ink flex items-center gap-2 uppercase tracking-widest">Installation Phase <span className="text-[10px] text-ink-3 font-medium normal-case">(ประกอบ)</span></h3>
+              <select name="installShift" value={formData.installShift} onChange={handleInputChange} className="text-[10px] font-semibold bg-sgreen-med/10 text-sgreen-dark px-2 py-1 rounded-badge outline-none cursor-pointer border border-sgreen-med/30">
                 <option value="Day">☀️ Day Shift</option>
                 <option value="Night">🌙 Night Shift</option>
               </select>
@@ -184,12 +195,12 @@ const SegmentRecordView = ({ projectInfo, handleProjectInfoChange, segmentRecord
 
             <div className="grid grid-cols-2 gap-4 pl-2 mb-5">
               <div>
-                <label className="text-[10px] font-bold text-slate-500 block mb-1.5 flex items-center gap-1"><Clock size={10} className="text-emerald-500" /> Start</label>
-                <input type="time" name="installStartTime" value={formData.installStartTime} onChange={handleInputChange} className="border border-slate-200 rounded-xl p-2.5 w-full bg-slate-50 outline-none font-mono font-bold text-slate-700 focus:border-emerald-500 transition-colors text-sm" />
+                <label className="text-[10px] font-semibold text-ink-3 block mb-1.5 flex items-center gap-1"><Clock size={10} className="text-sgreen-med" /> Start</label>
+                <input type="time" name="installStartTime" value={formData.installStartTime} onChange={handleInputChange} className="border border-input rounded-input p-2.5 w-full bg-surface-alt outline-none font-mono font-semibold text-ink focus:border-sgreen-med transition-colors text-sm" />
               </div>
               <div>
-                <label className="text-[10px] font-bold text-slate-500 block mb-1.5 flex items-center gap-1"><Clock size={10} className="text-emerald-500" /> Finish</label>
-                <input type="time" name="installEndTime" value={formData.installEndTime} onChange={handleInputChange} className="border border-slate-200 rounded-xl p-2.5 w-full bg-slate-50 outline-none font-mono font-bold text-slate-700 focus:border-emerald-500 transition-colors text-sm" />
+                <label className="text-[10px] font-semibold text-ink-3 block mb-1.5 flex items-center gap-1"><Clock size={10} className="text-sgreen-med" /> Finish</label>
+                <input type="time" name="installEndTime" value={formData.installEndTime} onChange={handleInputChange} className="border border-input rounded-input p-2.5 w-full bg-surface-alt outline-none font-mono font-semibold text-ink focus:border-sgreen-med transition-colors text-sm" />
               </div>
             </div>
 
@@ -197,28 +208,28 @@ const SegmentRecordView = ({ projectInfo, handleProjectInfoChange, segmentRecord
               <div className="space-y-4">
                 <div className="flex flex-col gap-2">
                   <div className="flex justify-between items-center">
-                    <label className="text-[8px] font-extrabold text-slate-400 uppercase tracking-widest">Status & Length</label>
-                    <select name="status" value={formData.status} onChange={handleInputChange} className="text-[10px] font-bold bg-orange-100 text-orange-700 px-2 py-0.5 rounded outline-none appearance-none cursor-pointer"><option value="In Progress">⏳ In Progress</option><option value="Completed">✅ Completed</option></select>
+                    <label className="text-[8px] font-semibold text-ink-3 uppercase tracking-widest">Status & Length</label>
+                    <select name="status" value={formData.status} onChange={handleInputChange} className="text-[10px] font-semibold bg-code-b/10 text-code-b px-2 py-0.5 rounded-badge outline-none appearance-none cursor-pointer"><option value="In Progress">⏳ In Progress</option><option value="Completed">✅ Completed</option></select>
                   </div>
-                  <input type="number" step="0.01" name="length" value={formData.length} onChange={handleInputChange} className="w-full border border-slate-200 rounded-xl p-2.5 text-center font-black text-slate-800 outline-none focus:border-emerald-500 text-base shadow-inner bg-white" placeholder="1.40" />
+                  <input type="number" step="0.01" name="length" value={formData.length} onChange={handleInputChange} className="w-full border border-input rounded-input p-2.5 text-center font-semibold text-ink outline-none focus:border-sgreen-med text-base shadow-card bg-surface" placeholder="1.40" />
                 </div>
-                <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-3 text-center">
-                  <label className="text-[9px] font-extrabold text-emerald-600 uppercase tracking-widest block mb-1">Soil Vol. (ดินขุด)</label>
-                  <div className="font-black text-emerald-700 text-lg">{currentSoilVol} <span className="text-xs font-bold">m³</span></div>
+                <div className="bg-sgreen-med/10 border border-sgreen-med/30 rounded-input p-3 text-center">
+                  <label className="text-[9px] font-semibold text-sgreen-dark uppercase tracking-widest block mb-1">Soil Vol. (ดินขุด)</label>
+                  <div className="font-semibold text-sgreen-dark text-lg font-mono">{currentSoilVol} <span className="text-xs font-semibold">m³</span></div>
                 </div>
               </div>
 
               <div className="flex flex-col justify-between">
                 <div>
                   <div className="flex justify-between items-center mb-2">
-                    <label className="text-[9px] font-extrabold text-slate-400 uppercase tracking-widest">Key Pos</label>
-                    <span className="bg-emerald-100 text-emerald-700 font-black px-3 py-1 rounded-lg text-sm shadow-sm">K{formData.keyPos}</span>
+                    <label className="text-[9px] font-semibold text-ink-3 uppercase tracking-widest">Key Pos</label>
+                    <span className="bg-sgreen-med/10 text-sgreen-dark font-semibold px-3 py-1 rounded-input text-sm shadow-card">K{formData.keyPos}</span>
                   </div>
-                  <input type="range" min="1" max="16" step="1" name="keyPos" value={formData.keyPos} onChange={handleInputChange} className="w-full h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-emerald-600 mb-2" />
-                  <div className="flex justify-between text-[9px] text-slate-400 font-bold px-1 mb-4"><span>1</span><span>4</span><span>8</span><span>12</span><span>16</span></div>
+                  <input type="range" min="1" max="16" step="1" name="keyPos" value={formData.keyPos} onChange={handleInputChange} className="w-full h-1.5 bg-surface-alt rounded-lg appearance-none cursor-pointer accent-sgreen-dark mb-2" />
+                  <div className="flex justify-between text-[9px] text-ink-3 font-semibold px-1 mb-4"><span>1</span><span>4</span><span>8</span><span>12</span><span>16</span></div>
                 </div>
 
-                <select name="typeRing" value={formData.typeRing} onChange={handleInputChange} className="w-full border border-slate-200 rounded-xl p-2.5 font-bold text-slate-700 outline-none focus:border-emerald-500 bg-slate-50 text-sm cursor-pointer">
+                <select name="typeRing" value={formData.typeRing} onChange={handleInputChange} className="w-full border border-input rounded-input p-2.5 font-semibold text-ink outline-none focus:border-sgreen-med bg-surface-alt text-sm cursor-pointer">
                   <option value="C1">C1</option>
                   <option value="C2">C2</option>
                   <option value="B1">B1</option>
@@ -230,29 +241,32 @@ const SegmentRecordView = ({ projectInfo, handleProjectInfoChange, segmentRecord
             </div>
           </div>
 
-          {/* START / FINISH CH. */}
-          <div className="bg-slate-900 rounded-2xl p-4 flex items-center justify-between shadow-lg relative overflow-hidden">
+          {/* START / FINISH CH. — navy-dark dark section, white text for legibility */}
+          <div className="bg-navy-dark rounded-card p-4 flex items-center justify-between shadow-hover relative overflow-hidden">
             <div className="absolute right-0 top-0 w-32 h-32 bg-white/5 rounded-full blur-2xl -mr-10 -mt-10"></div>
             <div className="flex-1 relative z-10">
-              <label className="text-[9px] font-extrabold text-emerald-400 uppercase tracking-widest block mb-1">Start (CH.)</label>
-              <input type="text" name="startCH" value={formData.startCH} onChange={handleInputChange} onBlur={(e) => setFormData(prev => ({ ...prev, startCH: formatCH(prev.startCH) }))} className="w-full bg-slate-800/80 border border-slate-700 text-white rounded-xl p-3 text-center font-mono font-black outline-none focus:border-emerald-500 text-lg transition-colors shadow-inner" placeholder="0+000" />
+              <label className="text-[9px] font-semibold text-cyan uppercase tracking-widest block mb-1">Start (CH.)</label>
+              <input type="text" name="startCH" value={formData.startCH} onChange={handleInputChange} onBlur={(e) => setFormData(prev => ({ ...prev, startCH: formatCH(prev.startCH) }))} className="w-full bg-white/10 border border-white/20 text-white rounded-input p-3 text-center font-mono font-semibold outline-none focus:border-sgreen-med text-lg transition-colors shadow-card" placeholder="0+000" />
             </div>
-            <div className="px-4 relative z-10"><ChevronRight size={24} className="text-slate-500" /></div>
+            <div className="px-4 relative z-10"><ChevronRight size={24} className="text-white/40" /></div>
             <div className="flex-1 relative z-10">
-              <label className="text-[9px] font-extrabold text-emerald-400 uppercase tracking-widest block mb-1">Finish (CH.)</label>
-              <input type="text" name="finishCH" value={formData.finishCH} onChange={handleInputChange} onBlur={(e) => setFormData(prev => ({ ...prev, finishCH: formatCH(prev.finishCH) }))} className="w-full bg-slate-800/80 border border-slate-700 text-white rounded-xl p-3 text-center font-mono font-black outline-none focus:border-emerald-500 text-lg transition-colors shadow-inner" placeholder="0+000" />
+              <label className="text-[9px] font-semibold text-cyan uppercase tracking-widest block mb-1">Finish (CH.)</label>
+              <input type="text" name="finishCH" value={formData.finishCH} onChange={handleInputChange} onBlur={(e) => setFormData(prev => ({ ...prev, finishCH: formatCH(prev.finishCH) }))} className="w-full bg-white/10 border border-white/20 text-white rounded-input p-3 text-center font-mono font-semibold outline-none focus:border-sgreen-med text-lg transition-colors shadow-card" placeholder="0+000" />
             </div>
           </div>
 
           {/* REMARK */}
-          <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
-            <label className="text-[9px] font-extrabold text-slate-400 uppercase tracking-widest block mb-2">Problem / Remark</label>
-            <textarea name="remark" value={formData.remark} onChange={handleInputChange} rows="2" className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm font-medium text-slate-700 outline-none focus:border-emerald-500 transition-all resize-none" placeholder="ระบุปัญหาหรืออุปสรรค..."></textarea>
+          <div className="bg-surface border border-input rounded-card p-4 shadow-card">
+            <label className="text-[9px] font-semibold text-ink-3 uppercase tracking-widest block mb-2">Problem / Remark</label>
+            <textarea name="remark" value={formData.remark} onChange={handleInputChange} rows="2" className="w-full bg-surface-alt border border-input rounded-input p-3 text-sm font-medium text-ink outline-none focus:border-sgreen-med transition-all resize-none" placeholder="ระบุปัญหาหรืออุปสรรค..."></textarea>
           </div>
 
-          <button type="submit" disabled={isSaving} className="w-full bg-[#0b8261] hover:bg-[#065f46] text-white font-bold py-4 rounded-2xl flex justify-center items-center gap-2 shadow-lg shadow-emerald-500/30 transition-all active:scale-[0.98]">
-            {isSaving ? <Loader2 size={20} className="animate-spin" /> : <Save size={20} />} {formData.status === "In Progress" ? "Save Partial Status" : "Save Record"}
-          </button>
+          {/* Submit — wrapped in StickyActionBar for mobile reachability */}
+          <StickyActionBar>
+            <button type="submit" disabled={isSaving} className={`w-full text-white font-semibold py-4 rounded-input flex justify-center items-center gap-2 shadow-card transition-all active:scale-[0.98] ${isSaving ? 'bg-ink-3' : 'bg-sgreen-dark hover:opacity-90'}`}>
+              {isSaving ? <Loader2 size={20} className="animate-spin" /> : <Save size={20} />} {formData.status === "In Progress" ? "Save Partial Status" : "Save Record"}
+            </button>
+          </StickyActionBar>
         </div>
       </form>
     </div>

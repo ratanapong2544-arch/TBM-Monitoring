@@ -18,9 +18,9 @@ export const RingSegment = ({ cx, cy, r, startAngle, endAngle, label, posState, 
   const isSelected = isPrimary || isSecondary || isBoth;
 
   const fill = (isSecondary || isBoth) ? "url(#diagonalHatchOrange)" : isPrimary ? "url(#diagonalHatchBlue)" : "white";
-  const stroke = isBoth ? "#3B82F6" : isSecondary ? "#F97316" : isPrimary ? "#3B82F6" : "#E2E8F0";
+  const stroke = isBoth ? "#003B84" : isSecondary ? "#1E80BD" : isPrimary ? "#003B84" : "#E2E8F0";
   const strokeWidth = isSelected ? "2" : "1";
-  const labelFill = (isSecondary || isBoth) ? "#F97316" : isPrimary ? "#2563EB" : "#94A3B8";
+  const labelFill = (isSecondary || isBoth) ? "#1E80BD" : isPrimary ? "#003B84" : "#999999";
 
   return (
     <g onClick={onClick} style={{ cursor: "pointer" }}>
@@ -54,19 +54,19 @@ const RingVisualizer = ({ primaryPositions, secondaryPositions, selectedPosition
 
   return (
     <div className="relative flex flex-col items-center justify-center p-4">
-      <div className="absolute inset-0 bg-blue-50 rounded-full blur-3xl opacity-30"></div>
+      <div className="absolute inset-0 bg-navy/5 rounded-full blur-3xl opacity-30"></div>
       <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="relative z-10 drop-shadow-xl">
         <defs>
           <pattern id="diagonalHatchBlue" patternUnits="userSpaceOnUse" width="8" height="8">
-            <rect width="8" height="8" fill="#EFF6FF" />
-            <path d="M-2,2 l4,-4 M0,8 l8,-8 M6,10 l4,-4" stroke="#3B82F6" strokeWidth="2" strokeLinecap="round" />
+            <rect width="8" height="8" fill="#E5F1FF" />
+            <path d="M-2,2 l4,-4 M0,8 l8,-8 M6,10 l4,-4" stroke="#003B84" strokeWidth="2" strokeLinecap="round" />
           </pattern>
           <pattern id="diagonalHatchOrange" patternUnits="userSpaceOnUse" width="8" height="8">
-            <rect width="8" height="8" fill="#FFF7ED" />
-            <path d="M-2,2 l4,-4 M0,8 l8,-8 M6,10 l4,-4" stroke="#F97316" strokeWidth="2" strokeLinecap="round" />
+            <rect width="8" height="8" fill="#F5FAFF" />
+            <path d="M-2,2 l4,-4 M0,8 l8,-8 M6,10 l4,-4" stroke="#1E80BD" strokeWidth="2" strokeLinecap="round" />
           </pattern>
         </defs>
-        <circle cx={cx} cy={cy} r={r + 8} fill="none" stroke="#CBD5E1" strokeWidth="1" strokeDasharray="4,4" />
+        <circle cx={cx} cy={cy} r={r + 8} fill="none" stroke="#D8D8D8" strokeWidth="1" strokeDasharray="4,4" />
         <g transform={`rotate(${Number(rotation || 0)}, ${cx}, ${cy})`} className="transition-transform duration-700 cubic-bezier(0.34, 1.56, 0.64, 1)">
           {segments.map((seg) => {
             let posState = null;
@@ -79,11 +79,11 @@ const RingVisualizer = ({ primaryPositions, secondaryPositions, selectedPosition
 
             return <RingSegment key={seg.id} cx={cx} cy={cy} r={r} startAngle={seg.start} endAngle={seg.end} label={seg.label} posState={posState} onClick={() => onTogglePosition && onTogglePosition(seg.id)} />
           })}
-          <circle cx={cx} cy={cy} r="6" fill="#3B82F6" className="shadow-md" />
-          <path d={`M${cx},${cy - r + 25} L${cx},${cy - r + 45}`} stroke="#3B82F6" strokeWidth="3" strokeLinecap="round" />
+          <circle cx={cx} cy={cy} r="6" fill="#003B84" className="shadow-md" />
+          <path d={`M${cx},${cy - r + 25} L${cx},${cy - r + 45}`} stroke="#003B84" strokeWidth="3" strokeLinecap="round" />
         </g>
       </svg>
-      <div className="absolute bottom-0 bg-white/80 backdrop-blur px-4 py-1.5 rounded-full border border-slate-200 text-[10px] font-bold text-slate-600 shadow-sm">
+      <div className="absolute bottom-0 bg-white/80 backdrop-blur px-4 py-1.5 rounded-full border border-line text-[10px] font-bold text-ink-2 shadow-sm">
         Rotation: {Number(rotation || 0)}° (Key {String(ringKey)})
       </div>
     </div>

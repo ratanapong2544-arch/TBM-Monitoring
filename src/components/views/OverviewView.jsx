@@ -35,63 +35,109 @@ const OverviewView = ({ segmentRecords, groutRecords, setCurrentModule, setActiv
     return { pending: pendingCount, latestGrout, latestSeg };
   }, [segmentRecords, groutRecords]);
 
+  const statusAccent =
+    liveStatus.state === "EXCAVATING"   ? "border-code-b"    :
+    liveStatus.state === "INSTALLING"   ? "border-sgreen-med" :
+    liveStatus.state === "WAITING_INSTALL" ? "border-ink-3"  :
+    "border-navy";
+
+  const pingColor =
+    liveStatus.state === "EXCAVATING"   ? "bg-code-b"    :
+    liveStatus.state === "INSTALLING"   ? "bg-sgreen-med" :
+    "bg-navy";
+
+  const headingColor =
+    liveStatus.state === "EXCAVATING"   ? "text-code-b"    :
+    liveStatus.state === "INSTALLING"   ? "text-sgreen-dark" :
+    liveStatus.state === "WAITING_INSTALL" ? "text-ink-3"  :
+    "text-navy";
+
   return (
     <div className="max-w-4xl mx-auto space-y-6 pb-24 animate-fade-in">
-      <div className={`rounded-3xl p-8 sm:p-10 text-white relative overflow-hidden shadow-2xl ${liveStatus.state === "EXCAVATING" ? "bg-gradient-to-br from-amber-500 to-orange-600 shadow-orange-500/20" :
-        liveStatus.state === "INSTALLING" ? "bg-gradient-to-br from-emerald-500 to-teal-600 shadow-emerald-500/20" :
-          liveStatus.state === "WAITING_INSTALL" ? "bg-gradient-to-br from-slate-600 to-slate-800 shadow-slate-500/20" :
-            "bg-gradient-to-br from-blue-600 to-indigo-700 shadow-blue-500/20"
-        }`}>
-        <div className="absolute top-0 right-0 w-64 h-64 bg-white/10 rounded-full blur-3xl -mr-10 -mt-10 pointer-events-none"></div>
-        <div className="relative z-10">
-          <div className="flex items-center gap-2 mb-3">
-            {liveStatus.state !== "IDLE" && <span className="relative flex h-3 w-3"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span><span className="relative inline-flex rounded-full h-3 w-3 bg-white"></span></span>}
-            <span className="text-xs sm:text-sm font-extrabold uppercase tracking-widest opacity-90">Live Activity Status</span>
-          </div>
-          <h2 className="text-4xl sm:text-6xl font-black mb-2 tracking-tight drop-shadow-sm">
-            {liveStatus.state === "EXCAVATING" && "กำลังขุดเจาะดิน"}
-            {liveStatus.state === "INSTALLING" && "กำลังประกอบ Ring"}
-            {liveStatus.state === "WAITING_INSTALL" && "ขุดเจาะเสร็จ รอประกอบ"}
-            {liveStatus.state === "IDLE" && "เครื่องจักรจอดพัก"}
-            {liveStatus.state === "IN_PROGRESS" && "กำลังทำงาน"}
-          </h2>
-          <div className="text-xl sm:text-3xl font-bold opacity-90 mb-8 flex items-center gap-3">
-            Target Ring: <span className="bg-white/20 px-4 py-1 rounded-xl backdrop-blur-sm">{String(liveStatus.ring)}</span>
-          </div>
-          <div className="bg-black/20 backdrop-blur-md rounded-2xl p-4 sm:p-5 inline-flex items-center gap-3 border border-white/10 shadow-inner">
-            <Clock size={20} className="opacity-80" />
-            <p className="text-sm sm:text-base font-medium">{String(liveStatus.desc)}</p>
-          </div>
+      {/* Hero status card */}
+      <div className={`bg-surface border border-line rounded-card shadow-card border-l-4 ${statusAccent} p-8 sm:p-10`}>
+        <div className="flex items-center gap-2 mb-3">
+          {liveStatus.state !== "IDLE" && (
+            <span className="relative flex h-3 w-3">
+              <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${pingColor}`}></span>
+              <span className={`relative inline-flex rounded-full h-3 w-3 ${pingColor}`}></span>
+            </span>
+          )}
+          <span className="text-xs font-semibold uppercase tracking-widest text-ink-3">Live Activity Status</span>
+        </div>
+        <h2 className={`text-2xl sm:text-3xl font-semibold mb-3 tracking-tight ${headingColor}`}>
+          {liveStatus.state === "EXCAVATING"     && "กำลังขุดเจาะดิน"}
+          {liveStatus.state === "INSTALLING"     && "กำลังประกอบ Ring"}
+          {liveStatus.state === "WAITING_INSTALL" && "ขุดเจาะเสร็จ รอประกอบ"}
+          {liveStatus.state === "IDLE"           && "เครื่องจักรจอดพัก"}
+          {liveStatus.state === "IN_PROGRESS"    && "กำลังทำงาน"}
+        </h2>
+        <div className="text-base font-semibold text-ink-2 mb-6 flex items-center gap-3">
+          Target Ring:
+          <span className="font-mono bg-cyan-tint text-cyan-med px-3 py-1 rounded-input text-sm">
+            {String(liveStatus.ring)}
+          </span>
+        </div>
+        <div className="bg-surface-alt rounded-input px-4 py-3 inline-flex items-center gap-3">
+          <Clock size={16} className="text-ink-3 shrink-0" />
+          <p className="text-sm text-ink-2 font-medium">{String(liveStatus.desc)}</p>
         </div>
       </div>
 
+      {/* Action cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
-        <div className="bg-white p-6 sm:p-8 rounded-3xl border border-slate-200 shadow-sm hover:shadow-xl transition-all duration-300 cursor-pointer group flex flex-col justify-between" onClick={() => { setCurrentModule("segment"); setActiveTab("record"); }}>
+        {/* Segment card */}
+        <div
+          className="bg-surface border border-line rounded-card shadow-card hover:shadow-hover transition-shadow duration-200 cursor-pointer group flex flex-col justify-between p-6 sm:p-8"
+          onClick={() => { setCurrentModule("segment"); setActiveTab("record"); }}
+        >
           <div>
             <div className="flex justify-between items-start mb-6">
-              <div className="bg-emerald-50 text-emerald-600 p-4 rounded-2xl group-hover:scale-110 group-hover:rotate-6 transition-transform duration-300"><Layers size={32} /></div>
+              <div className="bg-sgreen-med/10 text-sgreen-dark p-3 rounded-input group-hover:scale-105 transition-transform duration-200">
+                <Layers size={28} />
+              </div>
               <div className="text-right">
-                <div className="text-[10px] sm:text-xs font-bold text-slate-400 uppercase tracking-widest">วงล่าสุดที่ติดตั้งเสร็จ</div>
-                <div className="text-3xl sm:text-4xl font-black text-slate-800 tracking-tight mt-1">{String(groutStatus.latestSeg)}</div>
+                <div className="text-[10px] sm:text-xs font-semibold text-ink-3 uppercase tracking-widest">วงล่าสุดที่ติดตั้งเสร็จ</div>
+                <div className="text-3xl sm:text-4xl font-mono font-semibold text-ink tracking-tight mt-1">{String(groutStatus.latestSeg)}</div>
               </div>
             </div>
-            <p className="text-sm text-slate-500 mb-8 font-medium leading-relaxed">เข้าสู่หน้าบันทึกข้อมูลเวลาการขุดเจาะและการประกอบ Segment แบบละเอียด (ขุดเจาะ & ประกอบ)</p>
+            <p className="text-sm text-ink-2 mb-8 font-medium leading-relaxed">เข้าสู่หน้าบันทึกข้อมูลเวลาการขุดเจาะและการประกอบ Segment แบบละเอียด (ขุดเจาะ & ประกอบ)</p>
           </div>
-          <button className="w-full py-4 bg-slate-50 group-hover:bg-emerald-50 text-slate-600 group-hover:text-emerald-700 text-sm font-bold rounded-2xl border border-slate-200 transition-colors flex justify-center items-center gap-2">บันทึกข้อมูล Segment <ChevronRight size={18} /></button>
+          <button className="w-full py-3 border border-line rounded-input text-ink-2 group-hover:bg-cyan-tint group-hover:text-navy text-sm font-semibold transition-colors flex justify-center items-center gap-2">
+            บันทึกข้อมูล Segment <ChevronRight size={16} />
+          </button>
         </div>
 
-        <div className="bg-white p-6 sm:p-8 rounded-3xl border border-slate-200 shadow-sm hover:shadow-xl transition-all duration-300 cursor-pointer group flex flex-col justify-between" onClick={() => { setCurrentModule("grout"); setActiveTab("record"); }}>
+        {/* Grout card */}
+        <div
+          className="bg-surface border border-line rounded-card shadow-card hover:shadow-hover transition-shadow duration-200 cursor-pointer group flex flex-col justify-between p-6 sm:p-8"
+          onClick={() => { setCurrentModule("grout"); setActiveTab("record"); }}
+        >
           <div>
             <div className="flex justify-between items-start mb-6">
-              <div className="bg-blue-50 text-blue-600 p-4 rounded-2xl group-hover:scale-110 group-hover:-rotate-6 transition-transform duration-300"><Droplet size={32} /></div>
+              <div className="bg-cyan-tint text-navy p-3 rounded-input group-hover:scale-105 transition-transform duration-200">
+                <Droplet size={28} />
+              </div>
               <div className="text-right">
-                <div className="text-[10px] sm:text-xs font-bold text-slate-400 uppercase tracking-widest">ค้างฉีด Primary Grout</div>
-                <div className="text-3xl sm:text-4xl font-black tracking-tight mt-1">{Number(groutStatus.pending) > 0 ? <span className="text-red-500">{Number(groutStatus.pending)} วง</span> : <span className="text-emerald-500">ครบถ้วน</span>}</div>
+                <div className="text-[10px] sm:text-xs font-semibold text-ink-3 uppercase tracking-widest">ค้างฉีด Primary Grout</div>
+                <div className="text-3xl sm:text-4xl font-mono font-semibold tracking-tight mt-1">
+                  {Number(groutStatus.pending) > 0
+                    ? <span className="text-code-d">{Number(groutStatus.pending)} วง</span>
+                    : <span className="text-sgreen-dark">ครบถ้วน</span>
+                  }
+                </div>
               </div>
             </div>
-            <p className="text-sm text-slate-500 mb-8 font-medium leading-relaxed">{Number(groutStatus.pending) > 0 ? `วงล่าสุดที่ฉีดคือ ${groutStatus.latestGrout} (ตามหลังอยู่ ${groutStatus.pending} วง)` : `ฉีด Grout ตามติด Segment ล่าสุดเรียบร้อยแล้ว`}</p>
+            <p className="text-sm text-ink-2 mb-8 font-medium leading-relaxed">
+              {Number(groutStatus.pending) > 0
+                ? `วงล่าสุดที่ฉีดคือ ${groutStatus.latestGrout} (ตามหลังอยู่ ${groutStatus.pending} วง)`
+                : `ฉีด Grout ตามติด Segment ล่าสุดเรียบร้อยแล้ว`
+              }
+            </p>
           </div>
-          <button className="w-full py-4 bg-slate-50 group-hover:bg-blue-50 text-slate-600 group-hover:text-blue-700 text-sm font-bold rounded-2xl border border-slate-200 transition-colors flex justify-center items-center gap-2">บันทึกข้อมูล Grout <ChevronRight size={18} /></button>
+          <button className="w-full py-3 border border-line rounded-input text-ink-2 group-hover:bg-cyan-tint group-hover:text-navy text-sm font-semibold transition-colors flex justify-center items-center gap-2">
+            บันทึกข้อมูล Grout <ChevronRight size={16} />
+          </button>
         </div>
       </div>
     </div>

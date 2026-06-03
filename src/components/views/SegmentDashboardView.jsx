@@ -6,6 +6,7 @@ import { formatDisplayDate, formatDisplayTime, parseCH, formatCH } from "../../u
 import { getRingNumeric, getLogicalShiftDate, calculateSoilVolume } from "../../utils/helpers";
 import { apiCall } from "../../utils/api";
 import { ResponsiveContainer, ComposedChart, CartesianGrid, XAxis, YAxis, Tooltip, Bar, Line } from "recharts";
+import { Badge } from "../../ui-ux-pro-max";
 
 const SegmentDashboardView = ({ segmentRecords, setSegmentRecords }) => {
   const [filterMode, setFilterMode] = useState("all");
@@ -272,35 +273,35 @@ const SegmentDashboardView = ({ segmentRecords, setSegmentRecords }) => {
   };
 
   return (
-    <div className="max-w-7xl mx-auto space-y-6 sm:space-y-8 animate-fade-in pb-24">
+    <div className="max-w-full mx-auto space-y-6 sm:space-y-8 animate-fade-in pb-24">
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard label="Permanent Rings" value={stats.permRings} subtext={`+ ${stats.tempRings} Temp. (Total: ${stats.totalRings})`} color="text-emerald-600" icon={Layers} />
-        <StatCard label="Perm. Distance" value={`${Number(stats.totalDistance || 0).toFixed(2)} m`} subtext={`ดินขุดรวม: ${Number(stats.totalSoilVol || 0).toFixed(2)} m³`} color="text-blue-600" icon={TrendingUp} />
-        <StatCard label="Daily Average" value={`${stats.avgRings} Rings`} subtext={`~ ${stats.avgDist} m / day`} color="text-orange-500" icon={Activity} />
-        <StatCard label="Current Position" value={stats.currentCH} subtext="Latest Finish CH." color="text-indigo-600" icon={MapPin} />
+        <StatCard label="Permanent Rings" value={stats.permRings} subtext={`+ ${stats.tempRings} Temp. (Total: ${stats.totalRings})`} color="text-sgreen-dark" icon={Layers} />
+        <StatCard label="Perm. Distance" value={`${Number(stats.totalDistance || 0).toFixed(2)} m`} subtext={`ดินขุดรวม: ${Number(stats.totalSoilVol || 0).toFixed(2)} m³`} color="text-navy" icon={TrendingUp} />
+        <StatCard label="Daily Average" value={`${stats.avgRings} Rings`} subtext={`~ ${stats.avgDist} m / day`} color="text-code-c" icon={Activity} />
+        <StatCard label="Current Position" value={stats.currentCH} subtext="Latest Finish CH." color="text-cyan-med" icon={MapPin} />
       </div>
 
       {/* Filter Controls */}
-      <div className="bg-white rounded-3xl shadow-sm border border-slate-100 p-5 sm:p-8">
-        <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center w-full bg-slate-50 p-2 rounded-xl border border-slate-100">
-          <div className="flex bg-white rounded-lg p-1 border border-slate-200 shadow-sm w-full sm:w-auto overflow-x-auto">
-            <button onClick={() => setFilterMode("all")} className={`flex-1 sm:flex-none px-3 py-1.5 text-xs rounded-md font-bold transition whitespace-nowrap ${filterMode === "all" ? "bg-emerald-600 text-white shadow" : "text-slate-500 hover:bg-slate-50"}`}>All</button>
-            <button onClick={() => setFilterMode("daily")} className={`flex-1 sm:flex-none px-3 py-1.5 text-xs rounded-md font-bold transition whitespace-nowrap ${filterMode === "daily" ? "bg-emerald-600 text-white shadow" : "text-slate-500 hover:bg-slate-50"}`}>Daily</button>
-            <button onClick={() => setFilterMode("monthly")} className={`flex-1 sm:flex-none px-3 py-1.5 text-xs rounded-md font-bold transition whitespace-nowrap ${filterMode === "monthly" ? "bg-emerald-600 text-white shadow" : "text-slate-500 hover:bg-slate-50"}`}>Monthly</button>
-            <button onClick={() => setFilterMode("range")} className={`flex-1 sm:flex-none px-3 py-1.5 text-xs rounded-md font-bold transition whitespace-nowrap ${filterMode === "range" ? "bg-emerald-600 text-white shadow" : "text-slate-500 hover:bg-slate-50"}`}>Range</button>
+      <div className="bg-surface rounded-card shadow-card border border-line p-5 sm:p-8">
+        <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center w-full bg-surface-alt p-2 rounded-input border border-line">
+          <div className="flex bg-surface rounded-input p-1 border border-line shadow-card w-full sm:w-auto overflow-x-auto">
+            <button onClick={() => setFilterMode("all")} className={`flex-1 sm:flex-none px-3 py-1.5 text-xs rounded-input font-semibold transition whitespace-nowrap ${filterMode === "all" ? "bg-navy text-white shadow" : "text-ink-2 hover:bg-surface-alt"}`}>All</button>
+            <button onClick={() => setFilterMode("daily")} className={`flex-1 sm:flex-none px-3 py-1.5 text-xs rounded-input font-semibold transition whitespace-nowrap ${filterMode === "daily" ? "bg-navy text-white shadow" : "text-ink-2 hover:bg-surface-alt"}`}>Daily</button>
+            <button onClick={() => setFilterMode("monthly")} className={`flex-1 sm:flex-none px-3 py-1.5 text-xs rounded-input font-semibold transition whitespace-nowrap ${filterMode === "monthly" ? "bg-navy text-white shadow" : "text-ink-2 hover:bg-surface-alt"}`}>Monthly</button>
+            <button onClick={() => setFilterMode("range")} className={`flex-1 sm:flex-none px-3 py-1.5 text-xs rounded-input font-semibold transition whitespace-nowrap ${filterMode === "range" ? "bg-navy text-white shadow" : "text-ink-2 hover:bg-surface-alt"}`}>Range</button>
           </div>
 
-          {filterMode === "daily" && <input type="date" value={filterDate} onChange={(e) => setFilterDate(e.target.value)} className="px-3 py-1.5 text-xs font-bold border border-slate-200 rounded-lg focus:ring-1 focus:ring-emerald-500 outline-none text-slate-700 w-full sm:w-auto" />}
-          {filterMode === "monthly" && <input type="month" value={filterMonth} onChange={(e) => setFilterMonth(e.target.value)} className="px-3 py-1.5 text-xs font-bold border border-slate-200 rounded-lg focus:ring-1 focus:ring-emerald-500 outline-none text-slate-700 w-full sm:w-auto" />}
+          {filterMode === "daily" && <input type="date" value={filterDate} onChange={(e) => setFilterDate(e.target.value)} className="px-3 py-1.5 text-xs font-semibold border border-line rounded-input focus:ring-1 focus:ring-navy focus:border-navy outline-none text-ink w-full sm:w-auto bg-surface" />}
+          {filterMode === "monthly" && <input type="month" value={filterMonth} onChange={(e) => setFilterMonth(e.target.value)} className="px-3 py-1.5 text-xs font-semibold border border-line rounded-input focus:ring-1 focus:ring-navy focus:border-navy outline-none text-ink w-full sm:w-auto bg-surface" />}
           {filterMode === "range" && (
             <div className="flex items-center gap-2 w-full sm:w-auto">
-              <input type="date" value={rangeStart} onChange={(e) => setRangeStart(e.target.value)} className="px-2 py-1.5 flex-1 sm:flex-none sm:w-[120px] text-xs font-bold border border-slate-200 rounded-lg focus:ring-1 focus:ring-emerald-500 outline-none text-slate-700" />
-              <span className="text-slate-400">-</span>
-              <input type="date" value={rangeEnd} onChange={(e) => setRangeEnd(e.target.value)} className="px-2 py-1.5 flex-1 sm:flex-none sm:w-[120px] text-xs font-bold border border-slate-200 rounded-lg focus:ring-1 focus:ring-emerald-500 outline-none text-slate-700" />
+              <input type="date" value={rangeStart} onChange={(e) => setRangeStart(e.target.value)} className="px-2 py-1.5 flex-1 sm:flex-none sm:w-[120px] text-xs font-semibold border border-line rounded-input focus:ring-1 focus:ring-navy focus:border-navy outline-none text-ink bg-surface" />
+              <span className="text-ink-3">-</span>
+              <input type="date" value={rangeEnd} onChange={(e) => setRangeEnd(e.target.value)} className="px-2 py-1.5 flex-1 sm:flex-none sm:w-[120px] text-xs font-semibold border border-line rounded-input focus:ring-1 focus:ring-navy focus:border-navy outline-none text-ink bg-surface" />
             </div>
           )}
-          <div className="w-px h-6 bg-slate-200 hidden sm:block"></div>
-          <select value={filterShift} onChange={(e) => setFilterShift(e.target.value)} className="px-3 py-1.5 text-xs font-bold border border-slate-200 rounded-lg focus:ring-1 focus:ring-emerald-500 outline-none text-slate-700 bg-white cursor-pointer w-full sm:w-auto">
+          <div className="w-px h-6 bg-line hidden sm:block"></div>
+          <select value={filterShift} onChange={(e) => setFilterShift(e.target.value)} className="px-3 py-1.5 text-xs font-semibold border border-line rounded-input focus:ring-1 focus:ring-navy focus:border-navy outline-none text-ink bg-surface cursor-pointer w-full sm:w-auto">
             <option value="All">All Shifts</option>
             <option value="Day">Day Shift</option>
             <option value="Night">Night Shift</option>
@@ -308,13 +309,14 @@ const SegmentDashboardView = ({ segmentRecords, setSegmentRecords }) => {
         </div>
       </div>
 
-      <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden">
-        <div className="px-6 py-5 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center">
-          <h3 className="font-bold text-slate-700 text-base">Segment Logs</h3>
+      {/* Table */}
+      <div className="bg-surface rounded-card shadow-card border border-line overflow-hidden">
+        <div className="px-6 py-5 border-b border-line bg-surface-alt flex justify-between items-center">
+          <h3 className="font-semibold text-ink text-base">Segment Logs</h3>
         </div>
         <div className="overflow-x-auto max-h-[500px]">
           <table className="w-full text-sm text-left relative whitespace-nowrap">
-            <thead className="text-xs text-slate-400 uppercase bg-slate-50 border-b border-slate-100 sticky top-0 z-10 shadow-sm">
+            <thead className="text-xs text-white uppercase bg-navy-dark border-b border-navy sticky top-0 z-10 shadow-sm">
               <tr>
                 <th className="px-6 py-4">Date / Shift</th>
                 <th className="px-6 py-4">Ring No.</th>
@@ -324,35 +326,35 @@ const SegmentDashboardView = ({ segmentRecords, setSegmentRecords }) => {
                 <th className="px-6 py-4 text-right">Length / Soil</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-50">
+            <tbody className="divide-y divide-line">
               {filteredTableRecords.length > 0 ? (
                 filteredTableRecords.map((rec, index) => (
-                  <tr key={`${rec.id}-${index}`} onClick={() => { setSelectedRecord(rec); setIsEditing(false); }} className="hover:bg-emerald-50/40 transition-colors cursor-pointer group">
+                  <tr key={`${rec.id}-${index}`} onClick={() => { setSelectedRecord(rec); setIsEditing(false); }} className={`hover:bg-cyan-tint transition-colors cursor-pointer group ${index % 2 === 0 ? "bg-surface" : "bg-surface-page"}`}>
                     <td className="px-6 py-4">
-                      <div className="font-bold text-slate-800 text-base">{formatDisplayDate(rec.date)}</div>
-                      <div className="text-xs text-slate-500 mt-1.5 font-mono"><span className="font-bold text-slate-400">Excav:</span> {formatDisplayTime(rec.excavStartTime)} - {formatDisplayTime(rec.excavEndTime)}</div>
-                      <div className="text-xs text-slate-500 mt-0.5 font-mono"><span className="font-bold text-slate-400">Inst:</span> {formatDisplayTime(rec.installStartTime || rec.startTime)} - {formatDisplayTime(rec.installEndTime || rec.endTime)}</div>
-                      <div className="text-xs text-slate-400 font-bold mt-1.5">{String(rec.shift)} Shift</div>
+                      <div className="font-semibold text-ink text-base">{formatDisplayDate(rec.date)}</div>
+                      <div className="text-xs text-ink-2 mt-1.5 font-mono"><span className="font-semibold text-ink-3">Excav:</span> {formatDisplayTime(rec.excavStartTime)} - {formatDisplayTime(rec.excavEndTime)}</div>
+                      <div className="text-xs text-ink-2 mt-0.5 font-mono"><span className="font-semibold text-ink-3">Inst:</span> {formatDisplayTime(rec.installStartTime || rec.startTime)} - {formatDisplayTime(rec.installEndTime || rec.endTime)}</div>
+                      <div className="text-xs text-ink-3 font-semibold mt-1.5">{String(rec.shift)} Shift</div>
                     </td>
                     <td className="px-6 py-4">
-                      <div className={`font-black text-lg ${rec.installType === "Temporary" ? "text-amber-600" : "text-emerald-700"}`}>{String(rec.ringNo)}</div>
-                      {rec.installType === "Temporary" && <div className="text-[10px] text-amber-500 font-bold mt-1 px-2 py-0.5 bg-amber-50 rounded inline-block">Temporary</div>}
-                      {rec.status === "In Progress" && <div className="text-[10px] text-orange-500 font-bold mt-1 px-2 py-0.5 bg-orange-50 rounded inline-block">In Progress</div>}
+                      <div className={`font-semibold text-lg font-mono ${rec.installType === "Temporary" ? "text-code-b" : "text-sgreen-dark"}`}>{String(rec.ringNo)}</div>
+                      {rec.installType === "Temporary" && <div className="text-[10px] text-code-b font-semibold mt-1 px-2 py-0.5 bg-code-b/10 rounded-badge inline-block border-l-2 border-code-b">Temporary</div>}
+                      {rec.status === "In Progress" && <div className="text-[10px] text-code-c font-semibold mt-1 px-2 py-0.5 bg-code-c/10 rounded-badge inline-block border-l-2 border-code-c">In Progress</div>}
                     </td>
                     <td className="px-6 py-4 text-center">
-                      <span className="bg-slate-100 px-3 py-1 rounded-lg text-xs font-bold text-slate-600 mr-2">{String(rec.typeRing)}</span>
-                      <span className="text-xs font-bold text-slate-400">K{String(rec.keyPos)}</span>
+                      <span className="bg-surface-alt px-3 py-1 rounded-input text-xs font-semibold text-ink-2 mr-2 border border-line">{String(rec.typeRing)}</span>
+                      <span className="text-xs font-semibold text-ink-3 font-mono">K{String(rec.keyPos)}</span>
                     </td>
-                    <td className="px-6 py-4 text-right font-mono text-slate-500 text-base">{String(rec.startCH)}</td>
-                    <td className="px-6 py-4 text-right font-mono text-slate-800 font-bold text-base">{String(rec.finishCH)}</td>
+                    <td className="px-6 py-4 text-right font-mono text-ink-2 text-base">{String(rec.startCH)}</td>
+                    <td className="px-6 py-4 text-right font-mono text-ink font-semibold text-base">{String(rec.finishCH)}</td>
                     <td className="px-6 py-4 text-right">
-                      <div className="text-emerald-600 font-black text-base">{Number(rec.length || 0).toFixed(2)} m</div>
-                      <div className="text-[10px] text-slate-500 font-medium mt-0.5">{Number(rec.soilVolume || calculateSoilVolume(rec.length)).toFixed(2)} m³</div>
+                      <div className="text-sgreen-dark font-semibold text-base font-mono">{Number(rec.length || 0).toFixed(2)} m</div>
+                      <div className="text-[10px] text-ink-3 font-medium mt-0.5 font-mono">{Number(rec.soilVolume || calculateSoilVolume(rec.length)).toFixed(2)} m³</div>
                     </td>
                   </tr>
                 ))
               ) : (
-                <tr><td colSpan="6" className="px-6 py-12 text-center text-slate-400">ไม่พบข้อมูล หรือกำลังรอเชื่อมต่อฐานข้อมูล...</td></tr>
+                <tr><td colSpan="6" className="px-6 py-12 text-center text-ink-3">ไม่พบข้อมูล หรือกำลังรอเชื่อมต่อฐานข้อมูล...</td></tr>
               )}
             </tbody>
           </table>
@@ -361,44 +363,44 @@ const SegmentDashboardView = ({ segmentRecords, setSegmentRecords }) => {
 
       {/* Segment Details Modal */}
       {selectedRecord && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fade-in no-print">
-          <div className="bg-white rounded-3xl w-full max-w-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] transform transition-all">
-            <div className="bg-gradient-to-r from-teal-600 to-emerald-700 px-6 py-4 text-white flex justify-between items-center shrink-0">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-navy-dark/50 backdrop-blur-sm animate-fade-in no-print">
+          <div className="bg-surface rounded-modal w-full max-w-2xl shadow-modal overflow-hidden flex flex-col max-h-[90vh] transform transition-all">
+            <div className="bg-navy px-6 py-4 text-white flex justify-between items-center shrink-0">
               <div>
-                <h3 className="font-bold text-lg flex items-center gap-2"><Layers size={20} /> Segment Details</h3>
-                <p className="text-emerald-100 text-xs mt-1">Record ID: {String(selectedRecord.id)}</p>
+                <h3 className="font-semibold text-lg flex items-center gap-2"><Layers size={20} /> Segment Details</h3>
+                <p className="text-white/70 text-xs mt-1">Record ID: {String(selectedRecord.id)}</p>
               </div>
               <div className="flex items-center gap-2">
                 {selectedRecord.imageUrl && selectedRecord.imageUrl !== "Attached" && (
                   <a href={selectedRecord.imageUrl} target="_blank" rel="noreferrer" className="p-2 bg-white/10 hover:bg-white/20 rounded-full transition-colors" title="View Photo"><Camera size={18} /></a>
                 )}
                 {!isEditing && <button onClick={() => { setEditFormData(selectedRecord); setIsEditing(true); }} className="p-2 bg-white/10 hover:bg-white/20 rounded-full transition-colors" title="Edit"><Edit size={18} /></button>}
-                <button onClick={() => setShowDeleteConfirm(true)} className="p-2 bg-white/10 hover:bg-red-500 rounded-full transition-colors" title="Delete"><Trash2 size={18} /></button>
+                <button onClick={() => setShowDeleteConfirm(true)} className="p-2 bg-white/10 hover:bg-code-d rounded-full transition-colors" title="Delete"><Trash2 size={18} /></button>
                 <button onClick={() => { setSelectedRecord(null); setShowDeleteConfirm(false); setIsEditing(false); }} className="p-2 bg-white/10 hover:bg-white/20 rounded-full transition-colors ml-2"><X size={20} /></button>
               </div>
             </div>
 
             {showDeleteConfirm && (
-              <div className="bg-red-50 p-4 flex justify-between items-center border-b border-red-100 shrink-0 animate-fade-in">
-                <span className="text-red-700 text-sm font-bold flex items-center gap-2"><Trash2 size={16} /> ยืนยันการลบข้อมูล Ring {String(selectedRecord.ringNo)} ใช่หรือไม่?</span>
+              <div className="bg-code-d/10 p-4 flex justify-between items-center border-b border-code-d/30 shrink-0 animate-fade-in">
+                <span className="text-code-d text-sm font-semibold flex items-center gap-2"><Trash2 size={16} /> ยืนยันการลบข้อมูล Ring {String(selectedRecord.ringNo)} ใช่หรือไม่?</span>
                 <div className="flex gap-2">
-                  <button onClick={() => setShowDeleteConfirm(false)} className="px-4 py-1.5 bg-white text-slate-600 rounded-lg shadow-sm text-xs font-bold border border-slate-200 hover:bg-slate-100">ยกเลิก</button>
-                  <button onClick={handleDeleteRecord} className="px-4 py-1.5 bg-red-600 text-white rounded-lg shadow-sm text-xs font-bold hover:bg-red-700 flex items-center gap-1">ลบ</button>
+                  <button onClick={() => setShowDeleteConfirm(false)} className="px-4 py-1.5 bg-surface text-ink-2 rounded-input shadow-card text-xs font-semibold border border-line hover:bg-surface-alt">ยกเลิก</button>
+                  <button onClick={handleDeleteRecord} className="px-4 py-1.5 bg-code-d text-white rounded-input shadow-card text-xs font-semibold hover:opacity-90 flex items-center gap-1">ลบ</button>
                 </div>
               </div>
             )}
 
             <div className="p-6 overflow-y-auto space-y-6 flex-1">
-              <div className="flex flex-wrap justify-between items-center bg-slate-50 p-4 rounded-2xl border border-slate-100 gap-3">
+              <div className="flex flex-wrap justify-between items-center bg-surface-alt p-4 rounded-card border border-line gap-3">
                 <div>
-                  <div className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">Ring No. & Type</div>
+                  <div className="text-xs font-semibold text-ink-3 uppercase tracking-widest mb-1">Ring No. & Type</div>
                   <div>
                     <div className="flex items-center gap-2">
-                      <div className={`text-2xl font-black ${selectedRecord.installType === "Temporary" ? "text-amber-600" : "text-slate-800"}`}>
-                        {isEditing ? <input type="text" name="ringNo" value={editFormData?.ringNo || ''} onChange={handleEditChange} className="w-32 bg-white border border-slate-200 rounded px-2 outline-none uppercase" /> : String(selectedRecord.ringNo)}
+                      <div className={`text-2xl font-semibold font-mono ${selectedRecord.installType === "Temporary" ? "text-code-b" : "text-ink"}`}>
+                        {isEditing ? <input type="text" name="ringNo" value={editFormData?.ringNo || ''} onChange={handleEditChange} className="w-32 bg-surface border border-line rounded-input px-2 outline-none uppercase focus:border-navy focus:ring-1 focus:ring-cyan-tint" /> : String(selectedRecord.ringNo)}
                       </div>
                       {isEditing ? (
-                        <select name="typeRing" value={editFormData?.typeRing || ''} onChange={handleEditChange} className="bg-white border border-slate-200 rounded px-2 py-1 text-sm font-bold text-slate-600 outline-none cursor-pointer">
+                        <select name="typeRing" value={editFormData?.typeRing || ''} onChange={handleEditChange} className="bg-surface border border-line rounded-input px-2 py-1 text-sm font-semibold text-ink-2 outline-none cursor-pointer focus:border-navy">
                           <option value="C1">C1</option>
                           <option value="C2">C2</option>
                           <option value="B1">B1</option>
@@ -407,55 +409,55 @@ const SegmentDashboardView = ({ segmentRecords, setSegmentRecords }) => {
                           <option value="K">K</option>
                         </select>
                       ) : (
-                        <span className="bg-slate-200 px-3 py-1 rounded-lg text-sm font-bold text-slate-600">{String(selectedRecord.typeRing)}</span>
+                        <span className="bg-surface-alt px-3 py-1 rounded-input text-sm font-semibold text-ink-2 border border-line">{String(selectedRecord.typeRing)}</span>
                       )}
                     </div>
                     <div className="flex items-center gap-2 mt-1.5">
                       {isEditing ? (
                         <div className="flex gap-2">
-                          <select name="installType" value={editFormData?.installType || ''} onChange={handleEditChange} className="bg-white border rounded text-[10px] font-bold px-1 outline-none text-slate-600">
+                          <select name="installType" value={editFormData?.installType || ''} onChange={handleEditChange} className="bg-surface border rounded-input text-[10px] font-semibold px-1 outline-none text-ink-2 focus:border-navy">
                             <option value="Permanent">Permanent</option>
                             <option value="Temporary">Temporary</option>
                           </select>
-                          <select name="status" value={editFormData?.status || ''} onChange={handleEditChange} className="bg-white border rounded text-[10px] font-bold px-1 outline-none text-slate-600">
+                          <select name="status" value={editFormData?.status || ''} onChange={handleEditChange} className="bg-surface border rounded-input text-[10px] font-semibold px-1 outline-none text-ink-2 focus:border-navy">
                             <option value="Completed">Completed</option>
                             <option value="In Progress">In Progress</option>
                           </select>
                         </div>
                       ) : (
                         <>
-                          {selectedRecord.installType === "Temporary" && <span className="bg-amber-100 text-amber-700 px-2 py-0.5 rounded text-[10px] font-bold">Temporary Ring</span>}
-                          {selectedRecord.status === "In Progress" && <span className="bg-orange-100 text-orange-700 px-2 py-0.5 rounded text-[10px] font-bold">In Progress</span>}
+                          {selectedRecord.installType === "Temporary" && <Badge code="b">Temporary Ring</Badge>}
+                          {selectedRecord.status === "In Progress" && <Badge code="c">In Progress</Badge>}
                         </>
                       )}
                     </div>
                   </div>
                 </div>
                 <div className="text-right">
-                  <div className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">Working Date & Shift</div>
-                  <div className="text-sm font-bold text-slate-700 flex items-center justify-end gap-1.5"><Calendar size={14} /> {isEditing ? <input type="date" name="date" value={editFormData?.date || ''} onChange={handleEditChange} className="bg-white border rounded px-1 outline-none" /> : formatDisplayDate(selectedRecord.date)}</div>
-                  <div className="text-xs text-slate-500 mt-1 flex items-center justify-end gap-1">
+                  <div className="text-xs font-semibold text-ink-3 uppercase tracking-widest mb-1">Working Date & Shift</div>
+                  <div className="text-sm font-semibold text-ink flex items-center justify-end gap-1.5"><Calendar size={14} /> {isEditing ? <input type="date" name="date" value={editFormData?.date || ''} onChange={handleEditChange} className="bg-surface border border-line rounded-input px-1 outline-none focus:border-navy" /> : formatDisplayDate(selectedRecord.date)}</div>
+                  <div className="text-xs text-ink-2 mt-1 flex items-center justify-end gap-1">
                     {isEditing ? (
-                      <select name="shift" value={editFormData?.shift || ''} onChange={handleEditChange} className="bg-white border rounded px-1 font-bold text-slate-600 outline-none">
+                      <select name="shift" value={editFormData?.shift || ''} onChange={handleEditChange} className="bg-surface border border-line rounded-input px-1 font-semibold text-ink-2 outline-none focus:border-navy">
                         <option value="Day">Day</option>
                         <option value="Night">Night</option>
                       </select>
-                    ) : <span className="font-bold text-slate-600">({String(selectedRecord.shift)})</span>}
+                    ) : <span className="font-semibold text-ink-2">({String(selectedRecord.shift)})</span>}
                   </div>
                 </div>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className="bg-slate-50 rounded-2xl border border-slate-100 p-4 flex flex-col items-center justify-center relative">
-                  <span className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2 text-center">Ring Orientation</span>
+                <div className="bg-surface-alt rounded-card border border-line p-4 flex flex-col items-center justify-center relative">
+                  <span className="text-xs font-semibold text-ink-3 uppercase tracking-widest mb-2 text-center">Ring Orientation</span>
                   {isEditing ? (
-                    <div className="flex flex-col items-center w-full max-w-xs mt-2 p-4 bg-white rounded-xl border border-slate-200">
+                    <div className="flex flex-col items-center w-full max-w-xs mt-2 p-4 bg-surface rounded-card border border-line">
                       <div className="flex justify-between items-center w-full mb-3">
-                        <label className="text-xs font-bold text-slate-500">Key Position</label>
-                        <span className="bg-emerald-100 text-emerald-700 font-black px-3 py-1 rounded-lg text-sm shadow-sm">K{editFormData?.keyPos || 1}</span>
+                        <label className="text-xs font-semibold text-ink-2">Key Position</label>
+                        <span className="bg-sgreen-med/10 text-sgreen-dark font-semibold px-3 py-1 rounded-input text-sm shadow-card border border-line">K{editFormData?.keyPos || 1}</span>
                       </div>
-                      <input type="range" min="1" max="16" step="1" name="keyPos" value={editFormData?.keyPos || 1} onChange={handleEditChange} className="w-full h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-emerald-600 mb-2" />
-                      <div className="flex justify-between w-full text-[10px] text-slate-400 font-bold px-1"><span>1</span><span>4</span><span>8</span><span>12</span><span>16</span></div>
+                      <input type="range" min="1" max="16" step="1" name="keyPos" value={editFormData?.keyPos || 1} onChange={handleEditChange} className="w-full h-1.5 bg-line rounded-full appearance-none cursor-pointer accent-navy mb-2" />
+                      <div className="flex justify-between w-full text-[10px] text-ink-3 font-semibold px-1"><span>1</span><span>4</span><span>8</span><span>12</span><span>16</span></div>
                     </div>
                   ) : (
                     <div className="scale-90 transform origin-top -mt-2">
@@ -465,49 +467,49 @@ const SegmentDashboardView = ({ segmentRecords, setSegmentRecords }) => {
                 </div>
 
                 <div className="space-y-4 flex flex-col justify-center">
-                  <div className="bg-emerald-50 rounded-2xl p-4 border border-emerald-100">
-                    <div className="text-xs font-bold text-emerald-600 uppercase tracking-widest mb-3">Chainage Data</div>
+                  <div className="bg-sgreen-med/10 rounded-card p-4 border border-sgreen-med/20">
+                    <div className="text-xs font-semibold text-sgreen-dark uppercase tracking-widest mb-3">Chainage Data</div>
                     <div className="grid grid-cols-2 gap-4 mb-4">
                       <div>
-                        <div className="text-xs text-slate-500 mb-1">Start CH.</div>
-                        <div className="font-mono text-base font-bold text-slate-700">{isEditing ? <input type="text" name="startCH" value={editFormData?.startCH || ''} onChange={handleEditChange} onBlur={(e) => setEditFormData(prev => ({ ...prev, startCH: formatCH(prev.startCH) }))} className="w-24 bg-white border border-emerald-200 rounded px-1 outline-none" /> : String(selectedRecord.startCH)}</div>
+                        <div className="text-xs text-ink-2 mb-1">Start CH.</div>
+                        <div className="font-mono text-base font-semibold text-ink">{isEditing ? <input type="text" name="startCH" value={editFormData?.startCH || ''} onChange={handleEditChange} onBlur={(e) => setEditFormData(prev => ({ ...prev, startCH: formatCH(prev.startCH) }))} className="w-24 bg-surface border border-sgreen-med/30 rounded-input px-1 outline-none focus:border-navy" /> : String(selectedRecord.startCH)}</div>
                       </div>
                       <div>
-                        <div className="text-xs text-slate-500 mb-1">Finish CH.</div>
-                        <div className="font-mono text-base font-bold text-slate-700">{isEditing ? <input type="text" name="finishCH" value={editFormData?.finishCH || ''} onChange={handleEditChange} onBlur={(e) => setEditFormData(prev => ({ ...prev, finishCH: formatCH(prev.finishCH) }))} className="w-24 bg-white border border-emerald-200 rounded px-1 outline-none" /> : String(selectedRecord.finishCH)}</div>
+                        <div className="text-xs text-ink-2 mb-1">Finish CH.</div>
+                        <div className="font-mono text-base font-semibold text-ink">{isEditing ? <input type="text" name="finishCH" value={editFormData?.finishCH || ''} onChange={handleEditChange} onBlur={(e) => setEditFormData(prev => ({ ...prev, finishCH: formatCH(prev.finishCH) }))} className="w-24 bg-surface border border-sgreen-med/30 rounded-input px-1 outline-none focus:border-navy" /> : String(selectedRecord.finishCH)}</div>
                       </div>
                     </div>
-                    <div className="border-t border-emerald-200/50 pt-4 flex justify-between items-center">
-                      <span className="text-xs text-slate-500">Length</span>
-                      <div className="text-xl font-black text-emerald-600">{Number(isEditing ? editFormData?.length : selectedRecord.length || 0).toFixed(2)} <span className="text-sm font-normal">m</span></div>
+                    <div className="border-t border-sgreen-med/20 pt-4 flex justify-between items-center">
+                      <span className="text-xs text-ink-2">Length</span>
+                      <div className="text-xl font-semibold text-sgreen-dark font-mono">{Number(isEditing ? editFormData?.length : selectedRecord.length || 0).toFixed(2)} <span className="text-sm font-normal">m</span></div>
                     </div>
                   </div>
 
-                  <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm flex flex-col gap-4">
+                  <div className="bg-surface rounded-card p-4 border border-line shadow-card flex flex-col gap-4">
                     <div className="flex justify-between items-center gap-2">
-                      <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest w-16">Excavate</div>
+                      <div className="text-[10px] font-semibold text-ink-3 uppercase tracking-widest w-16">Excavate</div>
                       <div className="flex-1 flex items-center justify-end gap-2">
-                        <div className="font-mono text-sm font-bold text-slate-700">
+                        <div className="font-mono text-sm font-semibold text-ink">
                           {isEditing ? (
                             <div className="flex gap-1">
-                              <input type="time" name="excavStartTime" value={editFormData?.excavStartTime?.slice(0, 5) || ''} onChange={handleEditChange} className="bg-white border rounded px-1 outline-none w-20" />
+                              <input type="time" name="excavStartTime" value={editFormData?.excavStartTime?.slice(0, 5) || ''} onChange={handleEditChange} className="bg-surface border border-line rounded-input px-1 outline-none w-20 focus:border-navy" />
                               <span>-</span>
-                              <input type="time" name="excavEndTime" value={editFormData?.excavEndTime?.slice(0, 5) || ''} onChange={handleEditChange} className="bg-white border rounded px-1 outline-none w-20" />
+                              <input type="time" name="excavEndTime" value={editFormData?.excavEndTime?.slice(0, 5) || ''} onChange={handleEditChange} className="bg-surface border border-line rounded-input px-1 outline-none w-20 focus:border-navy" />
                             </div>
                           ) : `${formatDisplayTime(selectedRecord.excavStartTime)} - ${formatDisplayTime(selectedRecord.excavEndTime)}`}
                         </div>
                       </div>
                     </div>
-                    <div className="border-t border-slate-100"></div>
+                    <div className="border-t border-line"></div>
                     <div className="flex justify-between items-center gap-2">
-                      <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest w-16">Install</div>
+                      <div className="text-[10px] font-semibold text-ink-3 uppercase tracking-widest w-16">Install</div>
                       <div className="flex-1 flex items-center justify-end gap-2">
-                        <div className="font-mono text-sm font-bold text-slate-700">
+                        <div className="font-mono text-sm font-semibold text-ink">
                           {isEditing ? (
                             <div className="flex gap-1">
-                              <input type="time" name="installStartTime" value={(editFormData?.installStartTime || editFormData?.startTime || '')?.slice(0, 5)} onChange={handleEditChange} className="bg-white border rounded px-1 outline-none w-20" />
+                              <input type="time" name="installStartTime" value={(editFormData?.installStartTime || editFormData?.startTime || '')?.slice(0, 5)} onChange={handleEditChange} className="bg-surface border border-line rounded-input px-1 outline-none w-20 focus:border-navy" />
                               <span>-</span>
-                              <input type="time" name="installEndTime" value={(editFormData?.installEndTime || editFormData?.endTime || '')?.slice(0, 5)} onChange={handleEditChange} className="bg-white border rounded px-1 outline-none w-20" />
+                              <input type="time" name="installEndTime" value={(editFormData?.installEndTime || editFormData?.endTime || '')?.slice(0, 5)} onChange={handleEditChange} className="bg-surface border border-line rounded-input px-1 outline-none w-20 focus:border-navy" />
                             </div>
                           ) : `${formatDisplayTime(selectedRecord.installStartTime || selectedRecord.startTime)} - ${formatDisplayTime(selectedRecord.installEndTime || selectedRecord.endTime)}`}
                         </div>
@@ -518,16 +520,16 @@ const SegmentDashboardView = ({ segmentRecords, setSegmentRecords }) => {
               </div>
 
               {(selectedRecord.remark || isEditing) && (
-                <div className="bg-orange-50/50 rounded-2xl p-4 border border-orange-100">
-                  <div className="text-xs font-bold text-orange-500 uppercase tracking-widest mb-2 flex items-center gap-1.5">Remarks (ปัญหา)</div>
-                  {isEditing ? <textarea name="remark" value={editFormData?.remark || ''} onChange={handleEditChange} className="w-full bg-white border border-slate-200 rounded-lg p-2 text-sm outline-none" rows="2" /> : <p className="text-sm text-slate-700 whitespace-pre-wrap leading-relaxed">{String(selectedRecord.remark)}</p>}
+                <div className="bg-code-b/5 rounded-card p-4 border border-code-b/20">
+                  <div className="text-xs font-semibold text-code-b uppercase tracking-widest mb-2 flex items-center gap-1.5">Remarks (ปัญหา)</div>
+                  {isEditing ? <textarea name="remark" value={editFormData?.remark || ''} onChange={handleEditChange} className="w-full bg-surface border border-line rounded-input p-2 text-sm outline-none focus:border-navy focus:ring-1 focus:ring-cyan-tint" rows="2" /> : <p className="text-sm text-ink whitespace-pre-wrap leading-relaxed">{String(selectedRecord.remark)}</p>}
                 </div>
               )}
 
               {isEditing && (
-                <div className="flex justify-end gap-2 pt-4 border-t border-slate-100 mt-4">
-                  <button onClick={() => setIsEditing(false)} className="px-4 py-2 bg-slate-100 text-slate-600 rounded-lg font-bold text-sm hover:bg-slate-200">Cancel</button>
-                  <button onClick={handleSaveEdit} className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold text-sm flex items-center gap-1"><Save size={16} /> Save Changes</button>
+                <div className="flex justify-end gap-2 pt-4 border-t border-line mt-4">
+                  <button onClick={() => setIsEditing(false)} className="px-4 py-2 bg-surface-alt text-ink-2 rounded-input font-semibold text-sm hover:bg-line">Cancel</button>
+                  <button onClick={handleSaveEdit} className="px-4 py-2 bg-navy hover:bg-navy-dark text-white rounded-input font-semibold text-sm flex items-center gap-1"><Save size={16} /> Save Changes</button>
                 </div>
               )}
             </div>
@@ -537,60 +539,60 @@ const SegmentDashboardView = ({ segmentRecords, setSegmentRecords }) => {
 
       {/* Plan Settings Modal */}
       {showPlanModal && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fade-in no-print">
-          <div className="bg-white rounded-3xl w-full max-w-lg shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
-            <div className="bg-slate-800 px-6 py-4 text-white flex justify-between items-center shrink-0">
-              <h3 className="font-bold text-lg flex items-center gap-2"><Settings size={20} /> ตั้งค่าแผนงาน (Plan Settings)</h3>
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-navy-dark/50 backdrop-blur-sm animate-fade-in no-print">
+          <div className="bg-surface rounded-modal w-full max-w-lg shadow-modal overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="bg-navy-dark px-6 py-4 text-white flex justify-between items-center shrink-0">
+              <h3 className="font-semibold text-lg flex items-center gap-2"><Settings size={20} /> ตั้งค่าแผนงาน (Plan Settings)</h3>
               <button onClick={() => setShowPlanModal(false)} className="p-2 bg-white/10 hover:bg-white/20 rounded-full transition-colors"><X size={20} /></button>
             </div>
             <div className="p-6 overflow-y-auto space-y-6">
-              <div className="bg-blue-50/50 p-4 rounded-xl border border-blue-100">
-                <h4 className="font-bold text-blue-800 mb-3 text-sm">ตั้งค่าพื้นฐาน (Baseline)</h4>
+              <div className="bg-cyan-tint p-4 rounded-card border border-line">
+                <h4 className="font-semibold text-navy mb-3 text-sm">ตั้งค่าพื้นฐาน (Baseline)</h4>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="text-xs font-bold text-slate-600 block mb-1">Baseline Actual (Rings)</label>
-                    <input type="number" value={planConfig.baseActualAcc} onChange={(e) => setPlanConfig({ ...planConfig, baseActualAcc: Number(e.target.value) })} className="w-full bg-white border border-slate-200 rounded-lg p-2 outline-none focus:border-blue-500 font-mono text-sm" />
+                    <label className="text-xs font-semibold text-ink-2 block mb-1">Baseline Actual (Rings)</label>
+                    <input type="number" value={planConfig.baseActualAcc} onChange={(e) => setPlanConfig({ ...planConfig, baseActualAcc: Number(e.target.value) })} className="w-full bg-surface border border-line rounded-input p-2 outline-none focus:border-navy font-mono text-sm" />
                   </div>
                   <div>
-                    <label className="text-xs font-bold text-slate-600 block mb-1">Baseline Plan (Rings)</label>
-                    <input type="number" value={planConfig.basePlanAcc} onChange={(e) => setPlanConfig({ ...planConfig, basePlanAcc: Number(e.target.value) })} className="w-full bg-white border border-slate-200 rounded-lg p-2 outline-none focus:border-blue-500 font-mono text-sm" />
+                    <label className="text-xs font-semibold text-ink-2 block mb-1">Baseline Plan (Rings)</label>
+                    <input type="number" value={planConfig.basePlanAcc} onChange={(e) => setPlanConfig({ ...planConfig, basePlanAcc: Number(e.target.value) })} className="w-full bg-surface border border-line rounded-input p-2 outline-none focus:border-navy font-mono text-sm" />
                   </div>
                 </div>
               </div>
 
               <div>
                 <div className="flex justify-between items-center mb-3">
-                  <h4 className="font-bold text-slate-800 text-sm">ช่วงเวลาแผนงาน (Plan Ranges)</h4>
-                  <button onClick={addPlanRange} className="text-emerald-600 hover:text-emerald-700 bg-emerald-50 hover:bg-emerald-100 px-2.5 py-1 rounded text-xs font-bold flex items-center gap-1 transition-colors"><Plus size={14} /> เพิ่มช่วง (Add Range)</button>
+                  <h4 className="font-semibold text-ink text-sm">ช่วงเวลาแผนงาน (Plan Ranges)</h4>
+                  <button onClick={addPlanRange} className="text-sgreen-dark hover:text-sgreen-dark bg-sgreen-med/10 hover:bg-sgreen-med/20 px-2.5 py-1 rounded-input text-xs font-semibold flex items-center gap-1 transition-colors border border-sgreen-med/20"><Plus size={14} /> เพิ่มช่วง (Add Range)</button>
                 </div>
                 <div className="space-y-3">
                   {(planConfig.ranges || []).map((range, index) => (
-                    <div key={index} className="flex items-center gap-2 bg-slate-50 p-3 rounded-xl border border-slate-200">
+                    <div key={index} className="flex items-center gap-2 bg-surface-alt p-3 rounded-card border border-line">
                       <div className="flex-1 grid grid-cols-2 gap-2">
                         <div>
-                          <label className="text-[10px] font-bold text-slate-400 block mb-1">เริ่ม (Start)</label>
-                          <input type="date" value={range.start} onChange={(e) => { const newRanges = [...(planConfig.ranges || [])]; newRanges[index].start = e.target.value; setPlanConfig({ ...planConfig, ranges: newRanges }); }} className="w-full bg-white border border-slate-200 rounded p-1.5 text-xs outline-none focus:border-emerald-500" />
+                          <label className="text-[10px] font-semibold text-ink-3 block mb-1">เริ่ม (Start)</label>
+                          <input type="date" value={range.start} onChange={(e) => { const newRanges = [...(planConfig.ranges || [])]; newRanges[index].start = e.target.value; setPlanConfig({ ...planConfig, ranges: newRanges }); }} className="w-full bg-surface border border-line rounded-input p-1.5 text-xs outline-none focus:border-navy" />
                         </div>
                         <div>
-                          <label className="text-[10px] font-bold text-slate-400 block mb-1">สิ้นสุด (End)</label>
-                          <input type="date" value={range.end} onChange={(e) => { const newRanges = [...(planConfig.ranges || [])]; newRanges[index].end = e.target.value; setPlanConfig({ ...planConfig, ranges: newRanges }); }} className="w-full bg-white border border-slate-200 rounded p-1.5 text-xs outline-none focus:border-emerald-500" />
+                          <label className="text-[10px] font-semibold text-ink-3 block mb-1">สิ้นสุด (End)</label>
+                          <input type="date" value={range.end} onChange={(e) => { const newRanges = [...(planConfig.ranges || [])]; newRanges[index].end = e.target.value; setPlanConfig({ ...planConfig, ranges: newRanges }); }} className="w-full bg-surface border border-line rounded-input p-1.5 text-xs outline-none focus:border-navy" />
                         </div>
                       </div>
                       <div className="w-20 shrink-0">
-                        <label className="text-[10px] font-bold text-slate-400 block mb-1">Plan/Day</label>
-                        <input type="number" step="0.5" value={range.dailyPlan} onChange={(e) => { const newRanges = [...(planConfig.ranges || [])]; newRanges[index].dailyPlan = Number(e.target.value); setPlanConfig({ ...planConfig, ranges: newRanges }); }} className="w-full bg-white border border-slate-200 rounded p-1.5 text-xs outline-none focus:border-emerald-500 font-mono text-center font-bold" />
+                        <label className="text-[10px] font-semibold text-ink-3 block mb-1">Plan/Day</label>
+                        <input type="number" step="0.5" value={range.dailyPlan} onChange={(e) => { const newRanges = [...(planConfig.ranges || [])]; newRanges[index].dailyPlan = Number(e.target.value); setPlanConfig({ ...planConfig, ranges: newRanges }); }} className="w-full bg-surface border border-line rounded-input p-1.5 text-xs outline-none focus:border-navy font-mono text-center font-semibold" />
                       </div>
-                      <button onClick={() => removePlanRange(index)} className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded mt-4 transition-colors" title="ลบ"><Trash2 size={16} /></button>
+                      <button onClick={() => removePlanRange(index)} className="p-1.5 text-code-d hover:text-code-d hover:bg-code-d/10 rounded-input mt-4 transition-colors" title="ลบ"><Trash2 size={16} /></button>
                     </div>
                   ))}
-                  {(planConfig.ranges || []).length === 0 && <div className="text-center p-4 text-xs text-slate-400 bg-slate-50 rounded-xl border border-dashed border-slate-200">ไม่พบช่วงเวลาแผนงาน (ใช้ Default 0 Ring/Day)</div>}
+                  {(planConfig.ranges || []).length === 0 && <div className="text-center p-4 text-xs text-ink-3 bg-surface-alt rounded-card border border-dashed border-line">ไม่พบช่วงเวลาแผนงาน (ใช้ Default 0 Ring/Day)</div>}
                 </div>
-                <p className="text-[10px] text-slate-500 mt-2">หมายเหตุ* : หากมีช่วงเวลาทับซ้อนกัน จะใช้ข้อมูลจากลำดับล่าสุดเป็นหลัก ส่วนวันที่อยู่นอกช่วงจะใช้แผนเป็น 0 Ring/Day</p>
+                <p className="text-[10px] text-ink-3 mt-2">หมายเหตุ* : หากมีช่วงเวลาทับซ้อนกัน จะใช้ข้อมูลจากลำดับล่าสุดเป็นหลัก ส่วนวันที่อยู่นอกช่วงจะใช้แผนเป็น 0 Ring/Day</p>
               </div>
             </div>
-            <div className="p-4 bg-slate-50 border-t border-slate-200 flex justify-end gap-2 shrink-0">
-              <button onClick={() => setShowPlanModal(false)} className="px-5 py-2.5 bg-white text-slate-600 rounded-xl text-sm font-bold border border-slate-200 hover:bg-slate-100 shadow-sm transition-colors">ยกเลิก</button>
-              <button onClick={handleSavePlanSettings} className="px-5 py-2.5 bg-emerald-600 text-white rounded-xl text-sm font-bold shadow-md hover:bg-emerald-700 transition-colors flex items-center gap-2"><Save size={16} /> บันทึกการตั้งค่า</button>
+            <div className="p-4 bg-surface-alt border-t border-line flex justify-end gap-2 shrink-0">
+              <button onClick={() => setShowPlanModal(false)} className="px-5 py-2.5 bg-surface text-ink-2 rounded-input text-sm font-semibold border border-line hover:bg-surface-alt shadow-card transition-colors">ยกเลิก</button>
+              <button onClick={handleSavePlanSettings} className="px-5 py-2.5 bg-navy text-white rounded-input text-sm font-semibold shadow-card hover:bg-navy-dark transition-colors flex items-center gap-2"><Save size={16} /> บันทึกการตั้งค่า</button>
             </div>
           </div>
         </div>

@@ -324,85 +324,85 @@ ${remarksText}
 
   return (
     <div className="max-w-5xl mx-auto space-y-6 pb-32">
-      <div className="no-print bg-white p-4 sm:p-5 rounded-3xl shadow-sm border border-slate-200 flex flex-col xl:flex-row justify-between items-start xl:items-center gap-4 sm:gap-5">
-        <div className="flex bg-slate-100 p-1.5 rounded-xl border border-slate-200 w-full xl:w-auto shrink-0">
-          <button onClick={() => setReportType("daily")} className={`flex-1 xl:flex-none px-5 py-2.5 rounded-lg text-sm font-bold transition-all ${reportType === "daily" ? "bg-white text-slate-800 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>Daily Report</button>
-          <button onClick={() => setReportType("monthly")} className={`flex-1 xl:flex-none px-5 py-2.5 rounded-lg text-sm font-bold transition-all ${reportType === "monthly" ? "bg-white text-slate-800 shadow-sm" : "text-slate-500 hover:text-slate-800"}`}>Monthly Report</button>
+      <div className="no-print bg-white p-4 sm:p-5 rounded-card shadow-card border border-line flex flex-col xl:flex-row justify-between items-start xl:items-center gap-4 sm:gap-5">
+        <div className="flex bg-surface-alt p-1.5 rounded-input border border-line w-full xl:w-auto shrink-0">
+          <button onClick={() => setReportType("daily")} className={`flex-1 xl:flex-none px-5 py-2.5 rounded-input text-sm font-semibold transition-all ${reportType === "daily" ? "bg-white text-ink shadow-sm" : "text-ink-3 hover:text-ink-2"}`}>Daily Report</button>
+          <button onClick={() => setReportType("monthly")} className={`flex-1 xl:flex-none px-5 py-2.5 rounded-input text-sm font-semibold transition-all ${reportType === "monthly" ? "bg-white text-ink shadow-sm" : "text-ink-3 hover:text-ink"}`}>Monthly Report</button>
         </div>
         <div className="flex flex-col lg:flex-row items-stretch lg:items-center gap-3 sm:gap-4 w-full xl:w-auto justify-end">
           <div className="flex flex-row items-center gap-2 sm:gap-3 w-full lg:w-auto shrink-0">
-            <select value={reportShift} onChange={(e) => setReportShift(e.target.value)} className="px-3 sm:px-4 py-2.5 border border-slate-200 rounded-xl text-sm font-bold text-slate-700 outline-none focus:border-blue-500 bg-white cursor-pointer flex-1 lg:flex-none min-w-[110px]">
+            <select value={reportShift} onChange={(e) => setReportShift(e.target.value)} className="px-3 sm:px-4 py-2.5 border border-input rounded-input text-sm font-semibold text-ink-2 outline-none focus:border-navy bg-white cursor-pointer flex-1 lg:flex-none min-w-[110px]">
               <option value="All">All Shifts</option><option value="Day">Day Shift</option><option value="Night">Night Shift</option>
             </select>
-            {reportType === "daily" ? <input type="date" value={reportDate} onChange={(e) => setReportDate(e.target.value)} className="px-3 sm:px-4 py-2.5 border border-slate-200 rounded-xl text-sm font-bold text-slate-700 outline-none focus:border-blue-500 flex-1 lg:flex-none" /> : <input type="month" value={reportMonth} onChange={(e) => setReportMonth(e.target.value)} className="px-3 sm:px-4 py-2.5 border border-slate-200 rounded-xl text-sm font-bold text-slate-700 outline-none focus:border-blue-500 flex-1 lg:flex-none" />}
+            {reportType === "daily" ? <input type="date" value={reportDate} onChange={(e) => setReportDate(e.target.value)} className="px-3 sm:px-4 py-2.5 border border-input rounded-input text-sm font-semibold text-ink-2 outline-none focus:border-navy flex-1 lg:flex-none" /> : <input type="month" value={reportMonth} onChange={(e) => setReportMonth(e.target.value)} className="px-3 sm:px-4 py-2.5 border border-input rounded-input text-sm font-semibold text-ink-2 outline-none focus:border-navy flex-1 lg:flex-none" />}
           </div>
           <div className="grid grid-cols-2 sm:flex sm:flex-row items-center gap-2 sm:gap-3 w-full lg:w-auto">
-            <button onClick={handleDownloadImage} disabled={isExportingImage} className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-white px-3 sm:px-4 py-2.5 rounded-xl flex items-center justify-center gap-1.5 font-bold shadow-md shadow-blue-200 transition-colors whitespace-nowrap text-xs sm:text-sm">{isExportingImage ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />} <span className="hidden sm:inline">เซฟรูปภาพ</span><span className="sm:hidden">เซฟรูป</span></button>
-            <button onClick={() => window.print()} className="w-full sm:w-auto bg-slate-800 hover:bg-slate-900 text-white px-3 sm:px-4 py-2.5 rounded-xl flex items-center justify-center gap-1.5 font-bold shadow-md transition-colors whitespace-nowrap text-xs sm:text-sm"><Printer size={16} /> <span className="hidden sm:inline">Print PDF</span><span className="sm:hidden">Print</span></button>
-            <button onClick={handleGenerateAISummary} className="col-span-2 w-full sm:w-auto bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white px-3 sm:px-4 py-2.5 rounded-xl flex items-center justify-center gap-1.5 font-bold shadow-md shadow-indigo-200 transition-all active:scale-95 whitespace-nowrap text-xs sm:text-sm"><Sparkles size={16} /> สรุปรายงานประจำวัน</button>
+            <button onClick={handleDownloadImage} disabled={isExportingImage} className="w-full sm:w-auto bg-navy hover:bg-navy-deepest text-white px-3 sm:px-4 py-2.5 rounded-input flex items-center justify-center gap-1.5 font-semibold shadow-card transition-colors whitespace-nowrap text-xs sm:text-sm">{isExportingImage ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />} <span className="hidden sm:inline">เซฟรูปภาพ</span><span className="sm:hidden">เซฟรูป</span></button>
+            <button onClick={() => window.print()} className="w-full sm:w-auto bg-navy hover:bg-navy-dark text-white px-3 sm:px-4 py-2.5 rounded-input flex items-center justify-center gap-1.5 font-semibold shadow-card transition-colors whitespace-nowrap text-xs sm:text-sm"><Printer size={16} /> <span className="hidden sm:inline">Print PDF</span><span className="sm:hidden">Print</span></button>
+            <button onClick={handleGenerateAISummary} className="col-span-2 w-full sm:w-auto bg-navy hover:bg-navy-dark text-white px-3 sm:px-4 py-2.5 rounded-input flex items-center justify-center gap-1.5 font-semibold shadow-card transition-all active:scale-95 whitespace-nowrap text-xs sm:text-sm"><Sparkles size={16} /> สรุปรายงานประจำวัน</button>
           </div>
         </div>
       </div>
 
-      <div id="stats-report-container" className="bg-white p-6 sm:p-10 md:p-14 rounded-[2rem] shadow-lg border border-slate-200 text-slate-800 print:p-0 print:m-0 print:shadow-none print:border-none">
-        <div className="border-b-4 border-slate-900 pb-5 sm:pb-8 mb-8 sm:mb-10 flex flex-col sm:flex-row justify-between items-start sm:items-end gap-4">
+      <div id="stats-report-container" className="bg-white p-6 sm:p-10 md:p-14 rounded-card shadow-card border border-line text-ink print:p-0 print:m-0 print:shadow-none print:border-none">
+        <div className="border-b-4 border-navy pb-5 sm:pb-8 mb-8 sm:mb-10 flex flex-col sm:flex-row justify-between items-start sm:items-end gap-4">
           <div>
-            <h1 className="text-2xl sm:text-4xl font-black text-slate-900 uppercase tracking-tight">TBM Construction Report</h1>
-            <p className="text-slate-500 font-bold mt-2 uppercase tracking-widest text-xs sm:text-sm">{reportType === "daily" ? "Daily Progress" : "Monthly Summary"}</p>
+            <h1 className="text-2xl sm:text-4xl font-semibold text-ink uppercase tracking-tight">TBM Construction Report</h1>
+            <p className="text-ink-3 font-semibold mt-2 uppercase tracking-widest text-xs sm:text-sm">{reportType === "daily" ? "Daily Progress" : "Monthly Summary"}</p>
           </div>
           <div className="text-left sm:text-right">
-            <div className="text-base sm:text-xl font-black text-slate-800 bg-slate-100 px-4 py-1.5 rounded-lg inline-block border border-slate-200 shadow-sm">{displayDateStr} {reportShift !== "All" && <span className="text-blue-600 ml-1">({reportShift})</span>}</div>
-            <div className="text-xs sm:text-sm text-slate-500 font-semibold mt-3">{projectInfo.tbmNo} | {projectInfo.location}</div>
+            <div className="text-base sm:text-xl font-semibold text-ink bg-surface-alt px-4 py-1.5 rounded-input inline-block border border-line shadow-sm">{displayDateStr} {reportShift !== "All" && <span className="text-cyan-med ml-1">({reportShift})</span>}</div>
+            <div className="text-xs sm:text-sm text-ink-3 font-semibold mt-3">{projectInfo.tbmNo} | {projectInfo.location}</div>
           </div>
         </div>
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 sm:gap-6 mb-8 sm:mb-12">
-          <div className="bg-slate-50 p-4 sm:p-6 rounded-2xl border border-slate-200 shadow-sm">
-            <div className="text-[10px] sm:text-xs uppercase font-extrabold text-slate-400 tracking-wider mb-2">Rings Installed</div>
-            <div className="text-2xl sm:text-3xl font-black text-emerald-600">{summary.permCount} <span className="text-xs sm:text-sm text-slate-400 font-bold ml-1">Perm.</span></div>
-            <div className="text-[10px] sm:text-xs font-bold text-slate-500 mt-2 bg-slate-200/50 px-2 py-1 rounded inline-block">+ {summary.tempCount} Temp (Total: {summary.totalSegments})</div>
+          <div className="bg-surface-alt p-4 sm:p-6 rounded-card border border-line shadow-card">
+            <div className="text-[10px] sm:text-xs uppercase font-semibold text-ink-3 tracking-wider mb-2">Rings Installed</div>
+            <div className="text-2xl sm:text-3xl font-semibold text-sgreen-dark font-mono">{summary.permCount} <span className="text-xs sm:text-sm text-ink-3 font-semibold ml-1">Perm.</span></div>
+            <div className="text-[10px] sm:text-xs font-semibold text-ink-3 mt-2 bg-surface px-2 py-1 rounded-badge inline-block">+ {summary.tempCount} Temp (Total: {summary.totalSegments})</div>
           </div>
-          <div className="bg-slate-50 p-4 sm:p-6 rounded-2xl border border-slate-200 shadow-sm">
-            <div className="text-[10px] sm:text-xs uppercase font-extrabold text-slate-400 tracking-wider mb-2">Total Perm. Distance</div>
-            <div className="text-2xl sm:text-3xl font-black text-blue-600">{summary.totalLength} <span className="text-xs sm:text-sm text-slate-400 font-bold ml-1">m</span></div>
-            <div className="text-[10px] sm:text-xs font-bold text-slate-500 mt-2 bg-slate-200/50 px-2 py-1 rounded inline-block">ดินขุดรวม: {summary.totalSoilVol} m³</div>
+          <div className="bg-surface-alt p-4 sm:p-6 rounded-card border border-line shadow-card">
+            <div className="text-[10px] sm:text-xs uppercase font-semibold text-ink-3 tracking-wider mb-2">Total Perm. Distance</div>
+            <div className="text-2xl sm:text-3xl font-semibold text-navy font-mono">{summary.totalLength} <span className="text-xs sm:text-sm text-ink-3 font-semibold ml-1">m</span></div>
+            <div className="text-[10px] sm:text-xs font-semibold text-ink-3 mt-2 bg-surface px-2 py-1 rounded-badge inline-block">ดินขุดรวม: {summary.totalSoilVol} m³</div>
           </div>
-          <div className="bg-slate-50 p-4 sm:p-6 rounded-2xl border border-slate-200 shadow-sm">
-            <div className="text-[10px] sm:text-xs uppercase font-extrabold text-slate-400 tracking-wider mb-2">Total Grout Vol</div>
-            <div className="text-2xl sm:text-3xl font-black text-indigo-600">{summary.totalGroutVol} <span className="text-xs sm:text-sm text-slate-400 font-bold ml-1">m³</span></div>
-            <div className="text-[10px] sm:text-xs font-bold text-slate-500 mt-2 bg-slate-200/50 px-2 py-1 rounded inline-block">{summary.uniqueGroutedRings} Rings Grouted</div>
+          <div className="bg-surface-alt p-4 sm:p-6 rounded-card border border-line shadow-card">
+            <div className="text-[10px] sm:text-xs uppercase font-semibold text-ink-3 tracking-wider mb-2">Total Grout Vol</div>
+            <div className="text-2xl sm:text-3xl font-semibold text-cyan-med font-mono">{summary.totalGroutVol} <span className="text-xs sm:text-sm text-ink-3 font-semibold ml-1">m³</span></div>
+            <div className="text-[10px] sm:text-xs font-semibold text-ink-3 mt-2 bg-surface px-2 py-1 rounded-badge inline-block">{summary.uniqueGroutedRings} Rings Grouted</div>
           </div>
-          <div className="bg-slate-50 p-4 sm:p-6 rounded-2xl border border-slate-200 shadow-sm">
-            <div className="text-[10px] sm:text-xs uppercase font-extrabold text-slate-400 tracking-wider mb-2">Avg Grout Ratio</div>
-            <div className={`text-2xl sm:text-3xl font-black ${Number(summary.avgGroutRatio) > 150 ? "text-purple-500" : Number(summary.avgGroutRatio) >= 100 ? "text-emerald-500" : "text-red-500"}`}>{summary.avgGroutRatio} <span className="text-xs sm:text-sm font-bold ml-1">%</span></div>
-            <div className="text-[10px] sm:text-xs font-bold text-slate-500 mt-2 bg-slate-200/50 px-2 py-1 rounded inline-block">Efficiency Target: 100%</div>
+          <div className="bg-surface-alt p-4 sm:p-6 rounded-card border border-line shadow-card">
+            <div className="text-[10px] sm:text-xs uppercase font-semibold text-ink-3 tracking-wider mb-2">Avg Grout Ratio</div>
+            <div className={`text-2xl sm:text-3xl font-semibold font-mono ${Number(summary.avgGroutRatio) > 150 ? "text-cyan-med" : Number(summary.avgGroutRatio) >= 100 ? "text-sgreen-dark" : "text-code-d"}`}>{summary.avgGroutRatio} <span className="text-xs sm:text-sm font-semibold ml-1">%</span></div>
+            <div className="text-[10px] sm:text-xs font-semibold text-ink-3 mt-2 bg-surface px-2 py-1 rounded-badge inline-block">Efficiency Target: 100%</div>
           </div>
-          <div className="bg-slate-50 p-4 sm:p-6 rounded-2xl border border-slate-200 shadow-sm">
-            <div className="text-[10px] sm:text-xs uppercase font-extrabold text-slate-400 tracking-wider mb-2">Latest Ring</div>
-            <div className="text-2xl sm:text-3xl font-black text-slate-800">{accumulation.latestPermRing}</div>
-            <div className="text-[10px] sm:text-xs font-bold text-slate-500 mt-2 bg-slate-200/50 px-2 py-1 rounded inline-block">วงล่าสุด (Permanent)</div>
+          <div className="bg-surface-alt p-4 sm:p-6 rounded-card border border-line shadow-card">
+            <div className="text-[10px] sm:text-xs uppercase font-semibold text-ink-3 tracking-wider mb-2">Latest Ring</div>
+            <div className="text-2xl sm:text-3xl font-semibold text-ink font-mono">{accumulation.latestPermRing}</div>
+            <div className="text-[10px] sm:text-xs font-semibold text-ink-3 mt-2 bg-surface px-2 py-1 rounded-badge inline-block">วงล่าสุด (Permanent)</div>
           </div>
-          <div className="bg-slate-50 p-4 sm:p-6 rounded-2xl border border-slate-200 shadow-sm">
-            <div className="text-[10px] sm:text-xs uppercase font-extrabold text-slate-400 tracking-wider mb-2">Accum. Rings</div>
-            <div className="text-2xl sm:text-3xl font-black text-emerald-600">{accumulation.permRings} <span className="text-xs sm:text-sm text-slate-400 font-bold ml-1">Perm.</span></div>
-            <div className="text-[10px] sm:text-xs font-bold text-slate-500 mt-2 bg-slate-200/50 px-2 py-1 rounded inline-block">+ {accumulation.tempRings} Temp (Total: {accumulation.totalRings})</div>
+          <div className="bg-surface-alt p-4 sm:p-6 rounded-card border border-line shadow-card">
+            <div className="text-[10px] sm:text-xs uppercase font-semibold text-ink-3 tracking-wider mb-2">Accum. Rings</div>
+            <div className="text-2xl sm:text-3xl font-semibold text-sgreen-dark font-mono">{accumulation.permRings} <span className="text-xs sm:text-sm text-ink-3 font-semibold ml-1">Perm.</span></div>
+            <div className="text-[10px] sm:text-xs font-semibold text-ink-3 mt-2 bg-surface px-2 py-1 rounded-badge inline-block">+ {accumulation.tempRings} Temp (Total: {accumulation.totalRings})</div>
           </div>
-          <div className="bg-slate-50 p-4 sm:p-6 rounded-2xl border border-slate-200 shadow-sm">
-            <div className="text-[10px] sm:text-xs uppercase font-extrabold text-slate-400 tracking-wider mb-2">Accum. Distance</div>
-            <div className="text-2xl sm:text-3xl font-black text-blue-600">{accumulation.totalAccumDist} <span className="text-xs sm:text-sm text-slate-400 font-bold ml-1">m</span></div>
-            <div className="text-[10px] sm:text-xs font-bold text-slate-500 mt-2 bg-slate-200/50 px-2 py-1 rounded inline-block">ระยะติดตั้งสะสม (Permanent)</div>
+          <div className="bg-surface-alt p-4 sm:p-6 rounded-card border border-line shadow-card">
+            <div className="text-[10px] sm:text-xs uppercase font-semibold text-ink-3 tracking-wider mb-2">Accum. Distance</div>
+            <div className="text-2xl sm:text-3xl font-semibold text-navy font-mono">{accumulation.totalAccumDist} <span className="text-xs sm:text-sm text-ink-3 font-semibold ml-1">m</span></div>
+            <div className="text-[10px] sm:text-xs font-semibold text-ink-3 mt-2 bg-surface px-2 py-1 rounded-badge inline-block">ระยะติดตั้งสะสม (Permanent)</div>
           </div>
-          <div className="bg-slate-50 p-4 sm:p-6 rounded-2xl border border-slate-200 shadow-sm">
-            <div className="text-[10px] sm:text-xs uppercase font-extrabold text-slate-400 tracking-wider mb-2">% ผลงานแล้วเสร็จ</div>
-            <div className="text-2xl sm:text-3xl font-black text-purple-600">{accumulation.progressPercent} <span className="text-xs sm:text-sm font-bold ml-1">%</span></div>
-            <div className="text-[10px] sm:text-xs font-bold text-slate-500 mt-2 bg-slate-200/50 px-2 py-1 rounded inline-block">จากระยะรวม {TOTAL_ROUTE_DISTANCE.toLocaleString()} ม.</div>
+          <div className="bg-surface-alt p-4 sm:p-6 rounded-card border border-line shadow-card">
+            <div className="text-[10px] sm:text-xs uppercase font-semibold text-ink-3 tracking-wider mb-2">% ผลงานแล้วเสร็จ</div>
+            <div className="text-2xl sm:text-3xl font-semibold text-cyan-med font-mono">{accumulation.progressPercent} <span className="text-xs sm:text-sm font-semibold ml-1">%</span></div>
+            <div className="text-[10px] sm:text-xs font-semibold text-ink-3 mt-2 bg-surface px-2 py-1 rounded-badge inline-block">จากระยะรวม {TOTAL_ROUTE_DISTANCE.toLocaleString()} ม.</div>
           </div>
         </div>
 
         <div className="mb-8 sm:mb-12 overflow-x-auto">
-          <h3 className="text-sm sm:text-base font-black text-slate-800 uppercase tracking-widest border-l-4 border-emerald-500 pl-3 mb-4 sm:mb-5">Segment Installation Logs</h3>
-          <table className="w-full text-xs sm:text-sm text-left border-collapse whitespace-nowrap shadow-sm rounded-xl overflow-hidden">
-            <thead className="bg-slate-100 text-slate-600 border-y border-slate-200 font-bold">
+          <h3 className="text-sm sm:text-base font-semibold text-ink uppercase tracking-widest border-l-4 border-sgreen-med pl-3 mb-4 sm:mb-5">Segment Installation Logs</h3>
+          <table className="w-full text-xs sm:text-sm text-left border-collapse whitespace-nowrap shadow-card rounded-card overflow-hidden">
+            <thead className="bg-navy-dark text-white border-y border-line font-semibold">
               <tr>
                 <th className="py-3 px-4 sm:px-5">Date/Shift</th>
                 <th className="py-3 px-4 sm:px-5">Ring No.</th>
@@ -412,43 +412,43 @@ ${remarksText}
                 <th className="py-3 px-4 sm:px-5 text-right">Length / Soil</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100 bg-white">
+            <tbody className="divide-y divide-line">
               {filteredSegments.length > 0 ? (
                 [...filteredSegments].reverse().map((r, i) => (
-                  <tr key={`${r.id}-${i}`} className="hover:bg-slate-50 transition-colors">
+                  <tr key={`${r.id}-${i}`} className={`hover:bg-cyan-tint transition-colors ${i % 2 === 0 ? "bg-surface" : "bg-surface-page"}`}>
                     <td className="py-3 px-4 sm:px-5">
-                      <div className="font-bold text-slate-800">{formatDisplayDate(r.date)} <span className="text-slate-400 font-medium ml-1">({String(r.installShift || r.shift)})</span></div>
-                      <div className="text-[10px] sm:text-xs text-slate-500 mt-1 font-mono"><span className="font-bold">EX:</span> {formatDisplayTime(r.excavStartTime)} - {formatDisplayTime(r.excavEndTime)}</div>
-                      <div className="text-[10px] sm:text-xs text-slate-500 mt-0.5 font-mono"><span className="font-bold">IN:</span> {formatDisplayTime(r.installStartTime || r.startTime)} - {formatDisplayTime(r.installEndTime || r.endTime)}</div>
+                      <div className="font-semibold text-ink">{formatDisplayDate(r.date)} <span className="text-ink-3 font-medium ml-1">({String(r.installShift || r.shift)})</span></div>
+                      <div className="text-[10px] sm:text-xs text-ink-3 mt-1 font-mono"><span className="font-semibold">EX:</span> {formatDisplayTime(r.excavStartTime)} - {formatDisplayTime(r.excavEndTime)}</div>
+                      <div className="text-[10px] sm:text-xs text-ink-3 mt-0.5 font-mono"><span className="font-semibold">IN:</span> {formatDisplayTime(r.installStartTime || r.startTime)} - {formatDisplayTime(r.installEndTime || r.endTime)}</div>
                     </td>
-                    <td className="py-3 px-4 sm:px-5 font-black text-slate-800 text-base">
-                      <span className={r.installType === "Temporary" ? "text-amber-600" : ""}>{String(r.ringNo)}</span>
-                      {r.installType === "Temporary" && <span className="text-amber-600 ml-2 font-bold text-[9px] bg-amber-50 px-1.5 py-0.5 rounded">(Temp)</span>}
-                      {r.status === "In Progress" && <span className="text-orange-500 ml-2 font-bold text-[9px] bg-orange-50 px-1.5 py-0.5 rounded">(In Prog)</span>}
+                    <td className="py-3 px-4 sm:px-5 font-semibold text-ink text-base font-mono">
+                      <span className={r.installType === "Temporary" ? "text-code-b" : ""}>{String(r.ringNo)}</span>
+                      {r.installType === "Temporary" && <span className="text-code-b ml-2 font-semibold text-[9px] bg-code-b/10 px-1.5 py-0.5 rounded-badge">(Temp)</span>}
+                      {r.status === "In Progress" && <span className="text-code-c ml-2 font-semibold text-[9px] bg-code-c/10 px-1.5 py-0.5 rounded-badge">(In Prog)</span>}
                     </td>
                     <td className="py-3 px-4 sm:px-5 text-center">
-                      <span className="bg-slate-100 px-2 py-1 rounded text-xs font-bold text-slate-600 mr-2">{String(r.typeRing)}</span>
-                      <span className="text-xs text-slate-500 font-bold ml-1">K{String(r.keyPos)}</span>
+                      <span className="bg-surface-alt px-2 py-1 rounded-badge text-xs font-semibold text-ink-2 mr-2">{String(r.typeRing)}</span>
+                      <span className="text-xs text-ink-3 font-semibold ml-1">K{String(r.keyPos)}</span>
                     </td>
-                    <td className="py-3 px-4 sm:px-5 text-right text-slate-500 font-mono font-medium">{String(r.startCH)}</td>
-                    <td className="py-3 px-4 sm:px-5 text-right text-slate-800 font-bold font-mono">{String(r.finishCH)}</td>
+                    <td className="py-3 px-4 sm:px-5 text-right text-ink-3 font-mono font-medium">{String(r.startCH)}</td>
+                    <td className="py-3 px-4 sm:px-5 text-right text-ink font-semibold font-mono">{String(r.finishCH)}</td>
                     <td className="py-3 px-4 sm:px-5 text-right">
-                      <div className="font-black text-emerald-600 text-base">{Number(r.length || 0).toFixed(2)} <span className="text-xs font-bold">m</span></div>
-                      <div className="text-[10px] text-slate-500 font-medium mt-0.5">{Number(r.soilVolume || calculateSoilVolume(r.length)).toFixed(2)} m³</div>
+                      <div className="font-semibold text-sgreen-dark text-base font-mono">{Number(r.length || 0).toFixed(2)} <span className="text-xs font-semibold">m</span></div>
+                      <div className="text-[10px] text-ink-3 font-medium mt-0.5">{Number(r.soilVolume || calculateSoilVolume(r.length)).toFixed(2)} m³</div>
                     </td>
                   </tr>
                 ))
               ) : (
-                <tr><td colSpan="6" className="py-8 text-center text-slate-400 italic">No segment data for this period.</td></tr>
+                <tr><td colSpan="6" className="py-8 text-center text-ink-3 italic">No segment data for this period.</td></tr>
               )}
             </tbody>
           </table>
         </div>
 
         <div className="mb-8 sm:mb-12 overflow-x-auto">
-          <h3 className="text-sm sm:text-base font-black text-slate-800 uppercase tracking-widest border-l-4 border-blue-500 pl-3 mb-4 sm:mb-5">Primary Grout Logs</h3>
-          <table className="w-full text-xs sm:text-sm text-left border-collapse whitespace-nowrap shadow-sm rounded-xl overflow-hidden">
-            <thead className="bg-slate-100 text-slate-600 border-y border-slate-200 font-bold">
+          <h3 className="text-sm sm:text-base font-semibold text-ink uppercase tracking-widest border-l-4 border-navy pl-3 mb-4 sm:mb-5">Primary Grout Logs</h3>
+          <table className="w-full text-xs sm:text-sm text-left border-collapse whitespace-nowrap shadow-card rounded-card overflow-hidden">
+            <thead className="bg-navy-dark text-white border-y border-line font-semibold">
               <tr>
                 <th className="py-3 px-4 sm:px-5">Ring No.</th>
                 <th className="py-3 px-4 sm:px-5">Excav. Ring</th>
@@ -460,45 +460,45 @@ ${remarksText}
                 <th className="py-3 px-4 sm:px-5 text-right">Ratio (%)</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100 bg-white">
+            <tbody className="divide-y divide-line">
               {filteredGrouts.length > 0 ? (
                 [...filteredGrouts].reverse().map((r, i) => (
-                  <tr key={`${r.id}-${i}`} className="hover:bg-slate-50 transition-colors">
-                    <td className="py-3 px-4 sm:px-5 font-black text-slate-800 text-base">
+                  <tr key={`${r.id}-${i}`} className={`hover:bg-cyan-tint transition-colors ${i % 2 === 0 ? "bg-surface" : "bg-surface-page"}`}>
+                    <td className="py-3 px-4 sm:px-5 font-semibold text-ink text-base font-mono">
                       {String(r.ringNo)}
-                      {r.groutPass === "Re-Grout" && <span className="text-purple-600 ml-2 font-bold text-[9px] bg-purple-50 px-1.5 py-0.5 rounded">(Re-Grout)</span>}
+                      {r.groutPass === "Re-Grout" && <span className="text-cyan-med ml-2 font-semibold text-[9px] bg-cyan-tint px-1.5 py-0.5 rounded-badge">(Re-Grout)</span>}
                     </td>
-                    <td className="py-3 px-4 sm:px-5 text-slate-500 font-medium">{String(r.excavRing)}</td>
+                    <td className="py-3 px-4 sm:px-5 text-ink-3 font-medium">{String(r.excavRing)}</td>
                     <td className="py-3 px-4 sm:px-5 text-right">
                       {r.pressure ? (
-                        <span className="font-bold font-mono text-rose-600 bg-rose-50 px-2 py-1 rounded-md border border-rose-100">{Number(r.pressure).toFixed(1)} <span className="text-[10px] font-semibold text-rose-400">bar</span></span>
+                        <span className="font-semibold font-mono text-code-d bg-code-d/10 px-2 py-1 rounded-input border border-code-d/20">{Number(r.pressure).toFixed(1)} <span className="text-[10px] font-semibold text-code-d/70">bar</span></span>
                       ) : (
-                        <span className="text-slate-300 italic">-</span>
+                        <span className="text-ink-3 italic">-</span>
                       )}
                     </td>
                     <td className="py-3 px-4 sm:px-5">
-                      <div className="font-bold text-slate-700 text-xs mb-1">K{String(r.key)}</div>
+                      <div className="font-semibold text-ink-2 text-xs mb-1">K{String(r.key)}</div>
                       <div className="flex gap-1 flex-wrap">
                         {r.groutPass === "Re-Grout" ? (
                           <>
-                            {Object.entries(Object.values(r.primaryPositions || {}).some(v => v === true) ? r.primaryPositions : (r.positions || {})).map(([pos, active]) => active && <span key={`p_${pos}`} className="px-1.5 py-0.5 bg-blue-50 text-blue-700 text-[9px] rounded border border-blue-100 font-bold leading-none">{String(pos)}</span>)}
-                            {Object.entries(r.secondaryPositions || {}).map(([pos, active]) => active && <span key={`s_${pos}`} className="px-1.5 py-0.5 bg-orange-50 text-orange-600 text-[9px] rounded border border-orange-200 font-bold leading-none">{String(pos)}</span>)}
+                            {Object.entries(Object.values(r.primaryPositions || {}).some(v => v === true) ? r.primaryPositions : (r.positions || {})).map(([pos, active]) => active && <span key={`p_${pos}`} className="px-1.5 py-0.5 bg-cyan-tint text-cyan-med text-[9px] rounded-badge border border-cyan-tint font-semibold leading-none">{String(pos)}</span>)}
+                            {Object.entries(r.secondaryPositions || {}).map(([pos, active]) => active && <span key={`s_${pos}`} className="px-1.5 py-0.5 bg-code-c/10 text-code-c text-[9px] rounded-badge border border-code-c/30 font-semibold leading-none">{String(pos)}</span>)}
                           </>
                         ) : (
-                          Object.entries(Object.values(r.primaryPositions || {}).some(v => v === true) ? r.primaryPositions : (r.positions || {})).map(([pos, active]) => active && <span key={pos} className="px-1.5 py-0.5 bg-blue-50 text-blue-700 text-[9px] rounded border border-blue-100 font-bold leading-none">{String(pos)}</span>)
+                          Object.entries(Object.values(r.primaryPositions || {}).some(v => v === true) ? r.primaryPositions : (r.positions || {})).map(([pos, active]) => active && <span key={pos} className="px-1.5 py-0.5 bg-cyan-tint text-cyan-med text-[9px] rounded-badge border border-cyan-tint font-semibold leading-none">{String(pos)}</span>)
                         )}
                       </div>
                     </td>
-                    <td className="py-3 px-4 sm:px-5 text-right text-slate-500 font-mono">{Number(r.partA || 0).toFixed(2)}</td>
-                    <td className="py-3 px-4 sm:px-5 text-right text-slate-500 font-mono">{Number(r.partB || 0).toFixed(2)}</td>
-                    <td className="py-3 px-4 sm:px-5 text-right font-black text-slate-800 text-base">{Number(r.total || 0).toFixed(2)}</td>
-                    <td className="py-3 px-4 sm:px-5 text-right font-black">
-                      <span className={`px-2 py-1 rounded-md ${Number(r.ratio) > 150 ? "bg-purple-50 text-purple-600" : Number(r.ratio) >= 100 ? "bg-emerald-50 text-emerald-600" : "bg-red-50 text-red-600"}`}>{Number(r.ratio || 0).toFixed(1)}%</span>
+                    <td className="py-3 px-4 sm:px-5 text-right text-ink-3 font-mono">{Number(r.partA || 0).toFixed(2)}</td>
+                    <td className="py-3 px-4 sm:px-5 text-right text-ink-3 font-mono">{Number(r.partB || 0).toFixed(2)}</td>
+                    <td className="py-3 px-4 sm:px-5 text-right font-semibold text-ink text-base font-mono">{Number(r.total || 0).toFixed(2)}</td>
+                    <td className="py-3 px-4 sm:px-5 text-right font-semibold">
+                      <span className={`px-2 py-1 rounded-badge ${Number(r.ratio) > 150 ? "bg-cyan-tint text-cyan-med" : Number(r.ratio) >= 100 ? "bg-sgreen-med/10 text-sgreen-dark" : "bg-code-d/10 text-code-d"}`}>{Number(r.ratio || 0).toFixed(1)}%</span>
                     </td>
                   </tr>
                 ))
               ) : (
-                <tr><td colSpan="8" className="py-8 text-center text-slate-400 italic">No grout data for this period.</td></tr>
+                <tr><td colSpan="8" className="py-8 text-center text-ink-3 italic">No grout data for this period.</td></tr>
               )}
             </tbody>
           </table>
@@ -506,12 +506,12 @@ ${remarksText}
 
         {summary.allRemarks.length > 0 && (
           <div>
-            <h3 className="text-sm sm:text-base font-black text-slate-800 uppercase tracking-widest border-l-4 border-orange-500 pl-3 mb-4 sm:mb-5">Issues & Remarks</h3>
-            <ul className="space-y-3 text-xs sm:text-sm text-slate-700 bg-orange-50/30 p-5 rounded-2xl border border-orange-100">
+            <h3 className="text-sm sm:text-base font-semibold text-ink uppercase tracking-widest border-l-4 border-code-b pl-3 mb-4 sm:mb-5">Issues & Remarks</h3>
+            <ul className="space-y-3 text-xs sm:text-sm text-ink-2 bg-code-b/5 p-5 rounded-card border border-code-b/20">
               {summary.allRemarks.map((rem, i) => (
-                <li key={i} className="flex flex-col sm:flex-row gap-2 sm:gap-3 items-start sm:items-center bg-white p-3 rounded-xl border border-orange-100 shadow-sm">
-                  <span className="font-bold text-orange-600 bg-orange-50 px-2 py-1 rounded whitespace-nowrap text-xs">[{String(rem.module)} - {String(rem.ring)}]</span>
-                  <span className="font-medium text-slate-600 whitespace-pre-wrap">{String(rem.text)}</span>
+                <li key={i} className="flex flex-col sm:flex-row gap-2 sm:gap-3 items-start sm:items-center bg-surface p-3 rounded-input border border-line shadow-sm">
+                  <span className="font-semibold text-code-b bg-code-b/10 px-2 py-1 rounded-badge whitespace-nowrap text-xs">[{String(rem.module)} - {String(rem.ring)}]</span>
+                  <span className="font-medium text-ink-2 whitespace-pre-wrap">{String(rem.text)}</span>
                 </li>
               ))}
             </ul>
@@ -521,32 +521,32 @@ ${remarksText}
 
       {/* AI Summary Modal */}
       {showAIModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 bg-slate-900/60 backdrop-blur-md animate-fade-in no-print">
-          <div className="bg-white rounded-[2rem] w-full max-w-2xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh] sm:max-h-[90vh] transform transition-all border border-white/20">
-            <div className="px-6 py-5 text-white flex justify-between items-center shrink-0 bg-gradient-to-r from-purple-600 to-indigo-600">
-              <h3 className="font-black text-lg sm:text-xl flex items-center gap-3 tracking-tight">
-                <Sparkles size={24} className="text-purple-200" />
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 bg-navy-dark/50 backdrop-blur-md animate-fade-in no-print">
+          <div className="bg-white rounded-modal w-full max-w-2xl shadow-modal overflow-hidden flex flex-col max-h-[85vh] sm:max-h-[90vh] transform transition-all border border-line">
+            <div className="px-6 py-5 text-white flex justify-between items-center shrink-0 bg-navy">
+              <h3 className="font-semibold text-lg sm:text-xl flex items-center gap-3 tracking-tight">
+                <Sparkles size={24} className="text-cyan-tint" />
                 AI Executive Summary
               </h3>
               <button onClick={() => setShowAIModal(false)} className="text-white/70 hover:text-white bg-white/10 hover:bg-white/20 rounded-full p-2 transition-colors"><X size={20} /></button>
             </div>
 
-            <div className="p-6 sm:p-8 bg-slate-50 relative min-h-[200px] overflow-y-auto flex-1 hide-scrollbar">
+            <div className="p-6 sm:p-8 bg-surface-alt relative min-h-[200px] overflow-y-auto flex-1 hide-scrollbar">
               {isGeneratingAI ? (
-                <div className="flex flex-col items-center justify-center py-12 text-indigo-500 h-full gap-4">
+                <div className="flex flex-col items-center justify-center py-12 text-cyan-med h-full gap-4">
                   <Loader2 size={48} className="animate-spin" />
-                  <p className="font-bold animate-pulse text-base sm:text-lg">กำลังวิเคราะห์ข้อมูลและร่างรายงาน...</p>
+                  <p className="font-semibold animate-pulse text-base sm:text-lg">กำลังวิเคราะห์ข้อมูลและร่างรายงาน...</p>
                 </div>
               ) : (
-                <div className="prose prose-sm sm:prose-base max-w-none text-slate-700 whitespace-pre-wrap leading-relaxed font-medium">{aiSummaryText}</div>
+                <div className="prose prose-sm sm:prose-base max-w-none text-ink-2 whitespace-pre-wrap leading-relaxed font-medium">{aiSummaryText}</div>
               )}
             </div>
 
             {!isGeneratingAI && aiSummaryText && (
-              <div className="bg-white px-6 py-4 border-t border-slate-100 flex flex-col sm:flex-row justify-between items-center shrink-0 gap-4">
-                <p className="text-[10px] sm:text-xs text-slate-400 font-bold flex items-center gap-1.5 text-center sm:text-left"><Sparkles size={12} /> เนื้อหาสร้างโดย AI โปรดตรวจสอบความถูกต้อง</p>
-                <button onClick={copyToClipboard} className="flex items-center justify-center gap-2 px-6 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl font-bold text-sm transition-colors shadow-lg active:scale-95 w-full sm:w-auto">
-                  {copied ? <Check size={18} className="text-emerald-400" /> : <Copy size={18} />}
+              <div className="bg-surface px-6 py-4 border-t border-line flex flex-col sm:flex-row justify-between items-center shrink-0 gap-4">
+                <p className="text-[10px] sm:text-xs text-ink-3 font-semibold flex items-center gap-1.5 text-center sm:text-left"><Sparkles size={12} /> เนื้อหาสร้างโดย AI โปรดตรวจสอบความถูกต้อง</p>
+                <button onClick={copyToClipboard} className="flex items-center justify-center gap-2 px-6 py-2.5 bg-navy hover:bg-navy-dark text-white rounded-input font-semibold text-sm transition-colors shadow-card active:scale-95 w-full sm:w-auto">
+                  {copied ? <Check size={18} className="text-sgreen-med" /> : <Copy size={18} />}
                   {copied ? "คัดลอกแล้ว!" : "คัดลอกรายงาน"}
                 </button>
               </div>

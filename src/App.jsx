@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { Layers, MapPin, Home, PlusCircle, LayoutDashboard, Clock, FileText, Loader2, AlertCircle, Activity, Database } from "lucide-react";
+import { Loader2, AlertCircle, Activity, Clock } from "lucide-react";
 
 import { GAS_URL } from "./utils/constants";
 import { formatDisplayTime, formatDisplayDate } from "./utils/formatters";
@@ -14,6 +14,7 @@ import ExecutiveDashboardView from "./components/views/ExecutiveDashboardView";
 import ReportView from "./components/views/ReportView";
 import ShiftReportView from "./components/views/ShiftReportView";
 
+import { Shell, NAV_GROUPS } from "./ui-ux-pro-max";
 import "./styles/globals.css";
 
 const PrimaryGroutApp = () => {
@@ -25,6 +26,7 @@ const PrimaryGroutApp = () => {
   const [groutRecords, setGroutRecords] = useState([]);
   const [segmentRecords, setSegmentRecords] = useState([]);
   const [shiftReports, setShiftReports] = useState([]);
+  const [moreOpen, setMoreOpen] = useState(false);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -112,6 +114,12 @@ const PrimaryGroutApp = () => {
 
   const handleProjectInfoChange = (e) => setProjectInfo({ ...projectInfo, [e.target.name]: e.target.value });
 
+  const handleNavigate = (item) => {
+    setActiveTab(item.tab);
+    if (item.module) setCurrentModule(item.module);
+    setMoreOpen(false);
+  };
+
   const liveHeaderStatus = useMemo(() => {
     if (segmentRecords.length === 0) return null;
     const map = new Map();
@@ -128,62 +136,64 @@ const PrimaryGroutApp = () => {
     return null;
   }, [segmentRecords]);
 
+  // Derive page title from NAV_GROUPS based on activeTab + currentModule
+  const pageTitle = useMemo(() => {
+    for (const group of NAV_GROUPS) {
+      for (const item of group.items) {
+        if (item.tab === activeTab && (item.module ? item.module === currentModule : !item.module || true)) {
+          // Prefer exact module match when tab has module items
+          if (item.module && item.module !== currentModule) continue;
+          return item.label;
+        }
+      }
+    }
+    return "TBM1 Monitoring";
+  }, [activeTab, currentModule]);
+
+  // Map liveHeaderStatus { text, color, icon } → Badge shape { code, label }
+  const shellLiveStatus = useMemo(() => {
+    if (!liveHeaderStatus) return null;
+    const colorCodeMap = {
+      "bg-amber-500": "b",
+      "bg-slate-500": "neutral",
+      "bg-emerald-500": "a",
+      "bg-blue-500": "info",
+    };
+    return {
+      code: colorCodeMap[liveHeaderStatus.color] || "neutral",
+      label: liveHeaderStatus.text,
+    };
+  }, [liveHeaderStatus]);
+
   if (isLoadingMain) return (
-    <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50">
-      <Loader2 className="animate-spin w-12 h-12 mb-5 text-blue-600" />
-      <div className="font-black text-slate-800 text-lg tracking-tight">Connecting to Server...</div>
-      <p className="text-slate-400 text-sm mt-2 font-medium">กำลังเตรียมข้อมูล TBM System</p>
+    <div className="min-h-screen flex flex-col items-center justify-center bg-surface-page font-sans">
+      <Loader2 className="animate-spin w-12 h-12 mb-5 text-navy" />
+      <div className="font-black text-navy text-lg tracking-tight">Connecting to Server...</div>
+      <p className="text-ink-3 text-sm mt-2 font-medium">กำลังเตรียมข้อมูล TBM System</p>
     </div>
   );
 
   return (
-    <div className="min-h-screen bg-slate-50/80 font-sans text-slate-800 selection:bg-blue-100 overflow-x-hidden print:overflow-visible print:bg-white print:min-h-0 print:block">
-      <header className="sticky top-0 z-30 bg-white/80 backdrop-blur-xl border-b border-slate-200/60 shadow-sm transition-all no-print">
-        <div className="max-w-7xl mx-auto px-4 py-3 flex flex-col md:flex-row justify-between items-center gap-4">
-          <div className="flex items-center gap-3 w-full md:w-auto">
-            <div className={`p-2.5 sm:p-3 rounded-2xl text-white shadow-lg transition-colors bg-gradient-to-br from-slate-800 to-slate-900`}><Layers size={20} className="sm:w-6 sm:h-6" strokeWidth={2.5} /></div>
-            <div>
-              <div className="flex items-center gap-2.5">
-                <h1 className="text-sm sm:text-base font-black text-slate-900 tracking-tight">TBM1 System</h1>
-                {liveHeaderStatus && <div className={`flex items-center gap-1.5 px-2.5 py-0.5 rounded-lg text-[9px] sm:text-[10px] font-bold text-white shadow-sm animate-pulse ${liveHeaderStatus.color}`}>{liveHeaderStatus.icon} {liveHeaderStatus.text}</div>}
-              </div>
-              <div className="flex items-center gap-1.5 text-[10px] sm:text-xs text-slate-500 font-semibold mt-0.5"><MapPin size={12} /><input type="text" name="location" value={projectInfo.location} onChange={handleProjectInfoChange} list="locations-list" className="bg-transparent border-none p-0 focus:ring-0 w-48 sm:w-72 outline-none cursor-pointer placeholder-slate-400 font-medium" placeholder="สถานที่..." /><datalist id="locations-list"><option value="อุโมงค์จากบ่อ IS4 ถึง บ่อ IS2" /></datalist></div>
-            </div>
-          </div>
-          {(activeTab === "record" || activeTab === "datalog") && (
-            <div className="flex bg-slate-100/80 p-1.5 rounded-2xl border border-slate-200 w-full md:w-auto">
-              <button onClick={() => { setCurrentModule("segment"); if (activeTab === "record") setActiveTab("record"); else setActiveTab("datalog"); }} className={`flex-1 md:flex-none px-6 py-2 rounded-xl text-xs font-black transition-all ${currentModule === "segment" ? "bg-white text-emerald-600 shadow-md shadow-slate-200" : "text-slate-500 hover:text-slate-800"}`}>Segment</button>
-              <button onClick={() => { setCurrentModule("grout"); if (activeTab === "record") setActiveTab("record"); else setActiveTab("datalog"); }} className={`flex-1 md:flex-none px-6 py-2 rounded-xl text-xs font-black transition-all ${currentModule === "grout" ? "bg-white text-blue-600 shadow-md shadow-slate-200" : "text-slate-500 hover:text-slate-800"}`}>Grout</button>
-            </div>
-          )}
-        </div>
-      </header>
-
-      <main className="px-3 sm:px-6 py-6 sm:py-10 max-w-7xl mx-auto print:p-0 print:m-0">
-        {loadError && <div className="mb-6 bg-red-50 border border-red-200 text-red-700 p-5 rounded-2xl text-center no-print font-bold shadow-sm">{loadError}</div>}
-        {activeTab === "overview" && <OverviewView segmentRecords={segmentRecords} groutRecords={groutRecords} setCurrentModule={setCurrentModule} setActiveTab={setActiveTab} />}
-        {activeTab === "record" && currentModule === "grout" && <GroutRecordView projectInfo={projectInfo} handleProjectInfoChange={handleProjectInfoChange} groutRecords={groutRecords} setGroutRecords={setGroutRecords} segmentRecords={segmentRecords} setCurrentModule={setCurrentModule} setActiveTab={setActiveTab} />}
-        {activeTab === "record" && currentModule === "segment" && <SegmentRecordView projectInfo={projectInfo} handleProjectInfoChange={handleProjectInfoChange} segmentRecords={segmentRecords} setSegmentRecords={setSegmentRecords} setCurrentModule={setCurrentModule} setActiveTab={setActiveTab} />}
-        {activeTab === "dashboard" && <ExecutiveDashboardView segmentRecords={segmentRecords} groutRecords={groutRecords} shiftReports={shiftReports} />}
-        {activeTab === "datalog" && currentModule === "grout" && <GroutDashboardView groutRecords={groutRecords} setGroutRecords={setGroutRecords} segmentRecords={segmentRecords} />}
-        {activeTab === "datalog" && currentModule === "segment" && <SegmentDashboardView segmentRecords={segmentRecords} setSegmentRecords={setSegmentRecords} />}
-        {activeTab === "report" && <ReportView segmentRecords={segmentRecords} groutRecords={groutRecords} projectInfo={projectInfo} shiftReports={shiftReports} />}
-        {activeTab === "shift_report" && <ShiftReportView projectInfo={projectInfo} segmentRecords={segmentRecords} shiftReports={shiftReports} setShiftReports={setShiftReports} />}
-      </main>
-
-      <nav className="fixed bottom-6 sm:bottom-8 left-1/2 transform -translate-x-1/2 z-40 no-print w-[95%] sm:w-auto max-w-2xl">
-        <div className="flex items-center justify-between sm:justify-center gap-1 sm:gap-2 bg-slate-900/95 backdrop-blur-2xl border border-white/10 shadow-[0_20px_40px_-10px_rgba(0,0,0,0.5)] p-2 rounded-full overflow-x-auto hide-scrollbar">
-          <button onClick={() => setActiveTab("overview")} className={`flex-none flex items-center justify-center gap-2 px-3 sm:px-5 py-3 rounded-full text-xs font-bold transition-all ${activeTab === "overview" ? "bg-white text-slate-900 shadow-lg" : "text-slate-300 hover:text-white hover:bg-white/10"}`}><Home size={16} /> <span className="hidden sm:inline tracking-wide">Home</span></button>
-          <div className="w-px h-8 bg-white/20 mx-0.5"></div>
-          <button onClick={() => setActiveTab("record")} className={`flex-none flex items-center justify-center gap-2 px-3 sm:px-5 py-3 rounded-full text-xs font-bold transition-all ${activeTab === "record" ? "bg-white text-slate-900 shadow-lg" : "text-slate-300 hover:text-white hover:bg-white/10"}`}><PlusCircle size={16} /> <span className="hidden sm:inline tracking-wide">Record</span><span className="sm:hidden">Rec</span></button>
-          <button onClick={() => setActiveTab("dashboard")} className={`flex-none flex items-center justify-center gap-2 px-3 sm:px-5 py-3 rounded-full text-xs font-bold transition-all ${activeTab === "dashboard" ? "bg-white text-slate-900 shadow-lg" : "text-slate-300 hover:text-white hover:bg-white/10"}`}><LayoutDashboard size={16} /> <span className="hidden sm:inline tracking-wide">Dashboard</span><span className="sm:hidden">Dash</span></button>
-          <button onClick={() => setActiveTab("datalog")} className={`flex-none flex items-center justify-center gap-2 px-3 sm:px-5 py-3 rounded-full text-xs font-bold transition-all ${activeTab === "datalog" ? "bg-white text-slate-900 shadow-lg" : "text-slate-300 hover:text-white hover:bg-white/10"}`}><Database size={16} /> <span className="hidden sm:inline tracking-wide">Data Log</span><span className="sm:hidden">Log</span></button>
-          <div className="w-px h-8 bg-white/20 mx-0.5"></div>
-          <button onClick={() => setActiveTab("shift_report")} className={`flex-none flex items-center justify-center gap-2 px-3 sm:px-5 py-3 rounded-full text-xs font-bold transition-all ${activeTab === "shift_report" ? "bg-white text-slate-900 shadow-lg" : "text-slate-300 hover:text-white hover:bg-white/10"}`}><Clock size={16} /> <span className="hidden sm:inline tracking-wide">Shift</span><span className="sm:hidden">Shift</span></button>
-          <button onClick={() => setActiveTab("report")} className={`flex-none flex items-center justify-center gap-2 px-3 sm:px-5 py-3 rounded-full text-xs font-bold transition-all ${activeTab === "report" ? "bg-white text-slate-900 shadow-lg" : "text-slate-300 hover:text-white hover:bg-white/10"}`}><FileText size={16} /> <span className="hidden sm:inline tracking-wide">Stats</span><span className="sm:hidden">Stats</span></button>
-        </div>
-      </nav>
-    </div>
+    <Shell
+      active={{ tab: activeTab, module: currentModule }}
+      onNavigate={handleNavigate}
+      title={pageTitle}
+      liveStatus={shellLiveStatus}
+      projectInfo={projectInfo}
+      onProjectChange={handleProjectInfoChange}
+      moreOpen={moreOpen}
+      setMoreOpen={setMoreOpen}
+    >
+      {loadError && <div className="mb-6 bg-code-d/10 border border-code-d/30 text-code-d p-4 rounded-card text-center no-print font-semibold">{loadError}</div>}
+      {activeTab === "overview" && <OverviewView segmentRecords={segmentRecords} groutRecords={groutRecords} setCurrentModule={setCurrentModule} setActiveTab={setActiveTab} />}
+      {activeTab === "record" && currentModule === "grout" && <GroutRecordView projectInfo={projectInfo} handleProjectInfoChange={handleProjectInfoChange} groutRecords={groutRecords} setGroutRecords={setGroutRecords} segmentRecords={segmentRecords} setCurrentModule={setCurrentModule} setActiveTab={setActiveTab} />}
+      {activeTab === "record" && currentModule === "segment" && <SegmentRecordView projectInfo={projectInfo} handleProjectInfoChange={handleProjectInfoChange} segmentRecords={segmentRecords} setSegmentRecords={setSegmentRecords} setCurrentModule={setCurrentModule} setActiveTab={setActiveTab} />}
+      {activeTab === "dashboard" && <ExecutiveDashboardView segmentRecords={segmentRecords} groutRecords={groutRecords} shiftReports={shiftReports} />}
+      {activeTab === "datalog" && currentModule === "grout" && <GroutDashboardView groutRecords={groutRecords} setGroutRecords={setGroutRecords} segmentRecords={segmentRecords} />}
+      {activeTab === "datalog" && currentModule === "segment" && <SegmentDashboardView segmentRecords={segmentRecords} setSegmentRecords={setSegmentRecords} />}
+      {activeTab === "report" && <ReportView segmentRecords={segmentRecords} groutRecords={groutRecords} projectInfo={projectInfo} shiftReports={shiftReports} />}
+      {activeTab === "shift_report" && <ShiftReportView projectInfo={projectInfo} segmentRecords={segmentRecords} shiftReports={shiftReports} setShiftReports={setShiftReports} />}
+    </Shell>
   );
 };
 

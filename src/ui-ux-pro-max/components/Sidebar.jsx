@@ -5,7 +5,7 @@ import { Layers } from "lucide-react";
 
 export default function Sidebar({ active = {}, onNavigate, liveStatus }) {
   return (
-    <aside className="hidden lg:flex flex-col w-60 bg-navy-dark min-h-screen shrink-0 print:hidden">
+    <aside className="hidden lg:flex flex-col w-60 bg-navy-dark h-screen sticky top-0 shrink-0 print:hidden">
       {/* Brand */}
       <div className="flex items-center gap-2.5 px-5 py-4 border-b border-white/10">
         <div className="w-8 h-8 rounded-md bg-navy flex items-center justify-center text-white shrink-0 border border-white/15">

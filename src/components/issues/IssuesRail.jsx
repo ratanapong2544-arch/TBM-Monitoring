@@ -5,7 +5,7 @@ import { openCount } from "../../utils/issues";
 
 export default function IssuesRail({ issues, onAdd, onEdit, onCloseIssue, onReopenIssue, onDeleteIssue }) {
   return (
-    <aside className="hidden lg:flex flex-col w-[360px] flex-shrink-0 border-l border-line bg-surface px-4 py-6 print:hidden">
+    <aside className="hidden lg:flex flex-col w-[300px] flex-shrink-0 lg:sticky lg:top-0 lg:self-start lg:max-h-screen border-l border-line bg-surface px-4 py-6 print:hidden">
       <div className="flex items-center justify-between mb-3">
         <h2 className="flex items-center gap-1.5 text-sm font-semibold text-ink">
           <AlertTriangle size={16} className="text-code-c" /> ปัญหา / อุปสรรค
@@ -15,7 +15,7 @@ export default function IssuesRail({ issues, onAdd, onEdit, onCloseIssue, onReop
           <Plus size={14} /> เพิ่ม
         </button>
       </div>
-      <div className="overflow-y-auto">
+      <div className="flex-1 min-h-0 overflow-y-auto">
         <IssuesList issues={issues} onEdit={onEdit} onCloseIssue={onCloseIssue} onReopenIssue={onReopenIssue} onDeleteIssue={onDeleteIssue} />
       </div>
     </aside>

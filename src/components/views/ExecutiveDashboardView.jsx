@@ -820,17 +820,14 @@ ${remarksText}
         <StatCard label="Daily Average" value={`${overallStats.avgRings} Rings`} subtext={`~ ${overallStats.avgDist} m / day`} color="text-code-c" icon={Activity} />
         <StatCard label="Current Position" value={overallStats.currentCH} subtext="Latest Finish CH." color="text-cyan-med" icon={MapPin} />
         <StatCard label="Grout Avg Volume" value={`${overallStats.groutAvgVol} m³`} subtext={`ล่าสุด: ${overallStats.latestGroutRing} (${overallStats.uniqueGroutedRings} วง)`} color="text-cyan-med" icon={Droplet} />
-        <div className={`bg-surface p-5 rounded-card shadow-card border border-line flex flex-col justify-between relative overflow-hidden`}>
-          <div className="flex items-start justify-between">
-            <div className={`p-2.5 rounded-input bg-surface-alt shadow-card border border-line ${Number(overallStats.groutAvgRatio) >= 100 ? "text-sgreen-dark" : "text-code-d"}`}><BarChart3 size={22} /></div>
-          </div>
-          <div className="mt-3">
-            <div className={`text-2xl sm:text-3xl font-semibold font-mono tracking-tight ${Number(overallStats.groutAvgRatio) > 150 ? "text-code-c" : Number(overallStats.groutAvgRatio) >= 100 ? "text-sgreen-dark" : "text-code-d"}`}>
-              {overallStats.groutAvgRatio}%
-            </div>
-            <div className="text-[10px] sm:text-xs text-ink-3 font-semibold mt-1">Grout Avg Ratio</div>
-          </div>
-        </div>
+        <StatCard
+          label="Grout Avg Ratio"
+          value={`${overallStats.groutAvgRatio}%`}
+          valueColor={Number(overallStats.groutAvgRatio) > 150 ? "text-code-c" : Number(overallStats.groutAvgRatio) >= 100 ? "text-sgreen-dark" : "text-code-d"}
+          color={Number(overallStats.groutAvgRatio) >= 100 ? "text-sgreen-dark" : "text-code-d"}
+          icon={BarChart3}
+          subtext="อัตราส่วนน้ำยาเฉลี่ยทุกวง"
+        />
       </div>
 
       {/* ═══ SECTION 5: Grout Pending & Section 6: Shift Comparison ═══ */}

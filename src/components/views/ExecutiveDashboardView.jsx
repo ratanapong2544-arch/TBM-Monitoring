@@ -6,6 +6,7 @@ import GlobalFilterBar from "../common/GlobalFilterBar";
 import useGlobalFilter from "../../hooks/useGlobalFilter";
 import { formatDisplayDate } from "../../utils/formatters";
 import { getRingNumeric, calculateSoilVolume } from "../../utils/helpers";
+import { TOTAL_ROUTE_DISTANCE } from "../../utils/constants";
 import { chartColors, tooltipStyle } from "../../ui-ux-pro-max/chartTheme";
 import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip } from "recharts";
 
@@ -90,6 +91,34 @@ const ExecutiveDashboardView = ({ segmentRecords, groutRecords }) => {
       groutAvgVol, groutAvgRatio, uniqueGroutedRings, latestGroutRing
     };
   }, [filteredSegments, filteredGrout]);
+
+  // Plan variance: planned distance accumulated to current month (from tbmDistancePlanConfig)
+  // vs actual. Mirrors the Route page's monthly plan accumulation. null when no plan set.
+  const planVariance = useMemo(() => {
+    let cfg = { ranges: [] };
+    try { const s = localStorage.getItem("tbmDistancePlanConfig"); if (s) { const p = JSON.parse(s); cfg = { ...cfg, ...p, ranges: p.ranges || [] }; } } catch (e) {}
+    if (!cfg.ranges || cfg.ranges.length === 0) return null;
+    const nowTH = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Bangkok" }));
+    const currentMonth = `${nowTH.getFullYear()}-${String(nowTH.getMonth() + 1).padStart(2, "0")}`;
+    let cur = "2024-11", planAcc = 0, loop = 0;
+    while (cur <= currentMonth && loop < 200) {
+      let mPlan = 0;
+      for (const r of cfg.ranges) {
+        if ((!r.startMonth || cur >= r.startMonth) && (!r.endMonth || cur <= r.endMonth)) {
+          mPlan = (r.mode === "distance")
+            ? (parseFloat(r.distancePerMonth) || 0)
+            : (parseFloat(r.ringsPerDay) || 0) * (parseFloat(r.avgLength) || 1.2) * 30;
+          break;
+        }
+      }
+      planAcc += mPlan;
+      if (planAcc > TOTAL_ROUTE_DISTANCE) planAcc = TOTAL_ROUTE_DISTANCE;
+      const [y, m] = cur.split("-"); let ny = +y, nm = +m + 1; if (nm > 12) { nm = 1; ny++; } cur = `${ny}-${String(nm).padStart(2, "0")}`; loop++;
+    }
+    if (planAcc <= 0) return null;
+    const actual = overallStats.totalDistance;
+    return { planToNow: planAcc, variance: actual - planAcc, behind: actual - planAcc < 0 };
+  }, [overallStats.totalDistance]);
 
   // ══════════════════════════════════════════════
   // SECTION: Grout Pending
@@ -176,7 +205,7 @@ const ExecutiveDashboardView = ({ segmentRecords, groutRecords }) => {
       {/* ═══ SECTION 2: KPI Summary Cards ═══ */}
       <div className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 ${printingChartId !== 'all' ? 'print:hidden' : ''}`}>
         <StatCard label="Permanent Rings" value={overallStats.permRings} subtext={`+ ${overallStats.tempRings} Temp. (Total: ${overallStats.totalRings})`} color="text-sgreen-dark" icon={Layers} />
-        <StatCard label="Total Distance" value={`${Number(overallStats.totalDistance || 0).toFixed(2)} m`} subtext={`ดินขุดรวม: ${Number(overallStats.totalSoilVol || 0).toFixed(2)} m³`} color="text-navy" icon={TrendingUp} />
+        <StatCard label="Total Distance" value={`${Number(overallStats.totalDistance || 0).toFixed(2)} m`} subtext={`ดินขุดรวม: ${Number(overallStats.totalSoilVol || 0).toFixed(2)} m³${planVariance ? (planVariance.behind ? ` · ⚠ ช้ากว่าแผน ${Math.abs(planVariance.variance).toLocaleString(undefined, { maximumFractionDigits: 1 })} ม.` : ` · นำแผน +${planVariance.variance.toLocaleString(undefined, { maximumFractionDigits: 1 })} ม.`) : ""}`} color="text-navy" icon={TrendingUp} />
         <StatCard label="Daily Average" value={`${overallStats.avgRings} Rings`} subtext={`~ ${overallStats.avgDist} m / day`} color="text-code-c" icon={Activity} />
         <StatCard label="Current Position" value={overallStats.currentCH} subtext="Latest Finish CH." color="text-cyan-med" icon={MapPin} />
         <StatCard label="Grout Avg Volume" value={`${overallStats.groutAvgVol} m³`} subtext={`ล่าสุด: ${overallStats.latestGroutRing} (${overallStats.uniqueGroutedRings} วง)`} color="text-cyan-med" icon={Droplet} />

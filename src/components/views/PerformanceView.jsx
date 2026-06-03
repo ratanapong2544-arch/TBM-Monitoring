@@ -17,7 +17,8 @@ const RECENT_RINGS = 20;
 const CYCLE_MAX_MIN = 1440;
 
 const CAT = {
-  operating: ["Excavation", "Segment Erection"],
+  // Operating (Excavation + Segment Erection) is NOT summed from events — those categories
+  // aren't persisted in saved events; Operating is derived from segment timestamps below.
   support: ["Locomotive / Rail System", "Survey", "Other 1", "Other 2"],
   delay: ["Power Supply", "TBM Equipment", "Clean Area", "Muck Full", "Other 3"],
   maintenance: ["Cleaning Belt conveyor", "Service / Maintenance", "Other 4"],
@@ -34,18 +35,13 @@ export default function PerformanceView({ segmentRecords = [], shiftReports = []
     // Shift-report events do NOT persist these — they are auto-derived from segments at display
     // time (mirror ShiftReportView). So we recompute per (logical date + shift) here.
     const fdt = formatDisplayTime;
-    const durMin = (a, b) => {
-      const p = (t) => { if (!t) return null; const [h, m] = fdt(t).split(":").map(Number); return isNaN(h) || isNaN(m) ? null : h * 60 + m; };
-      let A = p(a), B = p(b);
-      if (A === null || B === null) return null;
-      if (B < A) B += 1440;
-      return B - A;
-    };
     const shiftFor = (timeStr, explicitShift, recShift) => {
       if (explicitShift) return explicitShift;
       if (timeStr) { const h = Number(timeStr.split(":")[0]); if (!isNaN(h)) return h >= 7 && h < 19 ? "Day" : "Night"; }
       return recShift;
     };
+    // Per-event minutes via shiftEventMinutes (clamps to the shift window [0,720]) so Operating
+    // matches the auto-derived Excavation/Erection totals shown in ShiftReportView.
     const shiftOp = {};
     const segMap = new Map();
     filteredSegments.forEach((r) => segMap.set(r.ringNo, r));
@@ -54,15 +50,14 @@ export default function PerformanceView({ segmentRecords = [], shiftReports = []
       if (exStart && exEnd) {
         const exShift = shiftFor(exStart, rec.excavShift, rec.shift);
         const exDate = getLogicalShiftDate(exStart, exShift, rec.date, rec.shift);
-        const d = durMin(rec.excavStartTime, rec.excavEndTime);
-        if (d !== null) shiftOp[`${exDate}__${exShift}`] = (shiftOp[`${exDate}__${exShift}`] || 0) + d;
+        shiftOp[`${exDate}__${exShift}`] = (shiftOp[`${exDate}__${exShift}`] || 0) + shiftEventMinutes(exStart, exEnd, exShift);
       }
-      const inStart = fdt(rec.installStartTime), inEnd = fdt(rec.installEndTime);
+      // honor legacy install field aliases (startTime/endTime), like ShiftReportView
+      const inStart = fdt(rec.installStartTime || rec.startTime), inEnd = fdt(rec.installEndTime || rec.endTime);
       if (inStart && inEnd) {
         const inShift = shiftFor(inStart, rec.installShift, rec.shift);
         const inDate = getLogicalShiftDate(inStart, inShift, rec.date, rec.shift);
-        const d = durMin(rec.installStartTime, rec.installEndTime);
-        if (d !== null) shiftOp[`${inDate}__${inShift}`] = (shiftOp[`${inDate}__${inShift}`] || 0) + d;
+        shiftOp[`${inDate}__${inShift}`] = (shiftOp[`${inDate}__${inShift}`] || 0) + shiftEventMinutes(inStart, inEnd, inShift);
       }
     });
 

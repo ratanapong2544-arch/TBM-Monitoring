@@ -6,6 +6,7 @@ import useGlobalFilter from "../../hooks/useGlobalFilter";
 import GlobalFilterBar from "../common/GlobalFilterBar";
 import { formatDisplayDate, formatDisplayTime } from "../../utils/formatters";
 import { getRingNumeric } from "../../utils/helpers";
+import { TOTAL_ROUTE_DISTANCE } from "../../utils/constants";
 import { apiCall } from "../../utils/api";
 import { chartColors, axisTick, tooltipStyle } from "../../ui-ux-pro-max/chartTheme";
 import {
@@ -14,6 +15,23 @@ import {
 
 export default function SegmentAnalysisView({ segmentRecords = [] }) {
   const { state: gfState, setters: gfSetters, filteredSegments } = useGlobalFilter(segmentRecords);
+
+  const paceStats = useMemo(() => {
+    const map = new Map();
+    segmentRecords.forEach((r) => { if (r.installType !== "Temporary") map.set(r.ringNo, r); });
+    const perm = Array.from(map.values());
+    const doneRings = perm.length;
+    const totalDist = perm.reduce((s, r) => s + parseFloat(r.length || 0), 0);
+    const avgLen = doneRings > 0 ? totalDist / doneRings : 1.4;
+    const targetRings = Math.round(TOTAL_ROUTE_DISTANCE / avgLen);
+    const remainingRings = Math.max(0, targetRings - doneRings);
+    const dates = [...new Set(perm.map((r) => formatDisplayDate(r.date)))];
+    const currentPerDay = dates.length > 0 ? doneRings / dates.length : 0;
+    const nowTH = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Bangkok" }));
+    const daysLeft = Math.max(0, Math.ceil((new Date("2028-09-30") - nowTH) / 86400000));
+    const requiredPerDay = daysLeft > 0 ? remainingRings / daysLeft : 0;
+    return { doneRings, targetRings, remainingRings, currentPerDay, requiredPerDay, behind: requiredPerDay > currentPerDay };
+  }, [segmentRecords]);
 
   // ── Print State ──
   const [printingChartId, setPrintingChartId] = useState("all");
@@ -182,7 +200,7 @@ export default function SegmentAnalysisView({ segmentRecords = [] }) {
       return hourlyData.map(h => { curAcc += h.totalRings; return { ...h, actualAcc: curAcc }; });
     }
 
-    return sorted.map(day => {
+    const rows = sorted.map(day => {
       runningActual += day.dayRings + day.nightRings;
       if (prevDate) {
         let tempD = new Date(prevDate); tempD.setDate(tempD.getDate() + 1);
@@ -195,6 +213,11 @@ export default function SegmentAnalysisView({ segmentRecords = [] }) {
         displayDate: new Date(day.date).toLocaleDateString("th-TH", { day: "numeric", month: "short", timeZone: "Asia/Bangkok" }),
         actualAcc: runningActual, planAcc: Math.round(runningPlan * 10) / 10
       };
+    });
+    return rows.map((row, i) => {
+      const win = rows.slice(Math.max(0, i - 6), i + 1);
+      const ma = win.reduce((s, r) => s + (r.dayRings + r.nightRings), 0) / win.length;
+      return { ...row, ma7: Math.round(ma * 10) / 10 };
     });
   }, [baseSegmentRecords, planConfig, segFilterMode, segFilterDate, getPlanForDate]);
 
@@ -247,6 +270,18 @@ export default function SegmentAnalysisView({ segmentRecords = [] }) {
         title="Segment Filter"
         subtitle="กรองข้อมูลกราฟ Segment"
       />
+
+      {/* ═══ Required-Rate Banner ═══ */}
+      {paceStats.targetRings > 0 && (
+        <div className={`rounded-card border p-4 shadow-card flex items-center gap-3 ${paceStats.behind ? "bg-code-d/10 border-code-d/30" : "bg-sgreen-med/10 border-sgreen-med/30"}`}>
+          <TrendingUp size={22} className={paceStats.behind ? "text-code-d" : "text-sgreen-dark"} />
+          <div className="text-sm leading-snug">
+            <span className="font-semibold text-ink">เพื่อทันกำหนด ก.ย. 71 ต้องเร่งเป็น </span>
+            <span className={`font-mono font-bold ${paceStats.behind ? "text-code-d" : "text-sgreen-dark"}`}>{paceStats.requiredPerDay.toFixed(1)} วง/วัน</span>
+            <span className="text-ink-2"> (ปัจจุบันเฉลี่ย <span className="font-mono font-semibold text-ink">{paceStats.currentPerDay.toFixed(1)}</span> วง/วัน · เหลือ ~{paceStats.remainingRings.toLocaleString()} วง)</span>
+          </div>
+        </div>
+      )}
 
       {/* ═══ SECTION 3: Segment Installation Trend ═══ */}
       <div className={`bg-surface rounded-card shadow-card border border-line p-5 sm:p-8 overflow-hidden ${getPrintClass('segment')}`}>
@@ -316,6 +351,7 @@ export default function SegmentAnalysisView({ segmentRecords = [] }) {
                 <Bar yAxisId="left" dataKey="dayRings" stackId="a" fill={chartColors.dayShift} name="Perm. D/S" radius={[0, 0, 0, 0]} maxBarSize={40} isAnimationActive={printingChartId === "all"} />
                 <Bar yAxisId="left" dataKey="nightRings" stackId="a" fill={chartColors.nightShift} name="Perm. N/S" radius={[0, 0, 0, 0]} maxBarSize={40} isAnimationActive={printingChartId === "all"} />
                 <Bar yAxisId="left" dataKey="tempRings" stackId="a" fill={chartColors.temporary} name="Temporary" radius={[4, 4, 0, 0]} maxBarSize={40} isAnimationActive={printingChartId === "all"} />
+                {segFilterMode !== "daily" && <Line yAxisId="left" type="monotone" dataKey="ma7" stroke={chartColors.paid} strokeWidth={2} strokeDasharray="5 3" dot={false} name="MA 7 วัน" isAnimationActive={printingChartId === "all"} />}
                 {segFilterMode !== "daily" && <Line yAxisId="right" type="monotone" dataKey="planAcc" stroke={chartColors.planned} strokeWidth={2} dot={segChartData.length === 1 ? { r: 3, fill: chartColors.planned } : { r: 2, fill: chartColors.planned }} name="Plan Acc." isAnimationActive={printingChartId === "all"} />}
                 {segFilterMode !== "daily" && <Line yAxisId="right" type="monotone" dataKey="actualAcc" stroke={chartColors.actual} strokeWidth={3} dot={segChartData.length === 1 ? { r: 4, fill: chartColors.actual } : { r: 3, fill: chartColors.actual }} name="Actual Acc." label={{ position: "top", fill: chartColors.actual, fontSize: 10, fontWeight: "900" }} isAnimationActive={printingChartId === "all"} />}
               </ComposedChart>

@@ -11,7 +11,7 @@ export function getWeekString(dateObj) {
   return `${d.getFullYear()}-W${String(weekNo).padStart(2, "0")}`;
 }
 
-export default function useGlobalFilter(segmentRecords = [], groutRecords = []) {
+export default function useGlobalFilter(segmentRecords = [], groutRecords = [], shiftReports = []) {
   const [mode, setMode] = useState("all");
   const [date, setDate] = useState(new Date().toISOString().split("T")[0]);
   const [week, setWeek] = useState(() => getWeekString(new Date()));
@@ -42,11 +42,16 @@ export default function useGlobalFilter(segmentRecords = [], groutRecords = []) 
     () => (mode === "all" ? groutRecords : groutRecords.filter(passes)),
     [groutRecords, mode, date, week, month, rangeStart, rangeEnd]
   );
+  const filteredShiftReports = useMemo(
+    () => (mode === "all" ? shiftReports : shiftReports.filter(passes)),
+    [shiftReports, mode, date, week, month, rangeStart, rangeEnd]
+  );
 
   return {
     state: { mode, date, week, month, rangeStart, rangeEnd },
     setters: { setMode, setDate, setWeek, setMonth, setRangeStart, setRangeEnd },
     filteredSegments,
     filteredGrout,
+    filteredShiftReports,
   };
 }

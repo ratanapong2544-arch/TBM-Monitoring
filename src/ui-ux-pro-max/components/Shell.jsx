@@ -7,6 +7,7 @@ import { NAV_GROUPS, MOBILE_PRIMARY } from "./navModel";
 import IssuesRail from "../../components/issues/IssuesRail";
 import IssuesSheet from "../../components/issues/IssuesSheet";
 import IssuesBell from "../../components/issues/IssuesBell";
+import DashboardHeaderActions from "../../components/dashboard/DashboardHeaderActions";
 import IssueFormModal from "../../components/issues/IssueFormModal";
 import { openCount } from "../../utils/issues";
 
@@ -40,6 +41,9 @@ export default function Shell({
   onSaveIssue,
   onSetIssueStatus,
   onDeleteIssue,
+  segmentRecords = [],
+  groutRecords = [],
+  shiftReports = [],
   children,
 }) {
   const showIssues = ISSUE_TABS.includes(active.tab);
@@ -72,12 +76,17 @@ export default function Shell({
           projectInfo={projectInfo}
           onProjectChange={onProjectChange}
           compact={false}
-          rightSlot={showIssues ? <IssuesBell count={openCount(issues)} onClick={() => setSheetOpen(true)} /> : null}
+          rightSlot={
+            <div className="flex items-center gap-2">
+              {active.tab === "dashboard" && <DashboardHeaderActions segmentRecords={segmentRecords} groutRecords={groutRecords} shiftReports={shiftReports} />}
+              {showIssues && <IssuesBell count={openCount(issues)} onClick={() => setSheetOpen(true)} />}
+            </div>
+          }
         />
 
         <main className="flex-1 pb-[calc(64px+env(safe-area-inset-bottom))] lg:pb-0">
           {showIssues ? (
-            <div className="flex max-w-[1280px] mx-auto print:max-w-none print:mx-0">
+            <div className="flex max-w-[1500px] mx-auto print:max-w-none print:mx-0">
               <div className="flex-1 min-w-0 px-4 sm:px-6 py-6 w-full print:p-0 print:m-0">{children}</div>
               <IssuesRail {...railProps} />
             </div>

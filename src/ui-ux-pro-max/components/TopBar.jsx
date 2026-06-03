@@ -8,7 +8,7 @@ export default function TopBar({ title, liveStatus, projectInfo, onProjectChange
     projectInfo && typeof projectInfo === "object" ? projectInfo.location ?? "" : projectInfo ?? "";
 
   return (
-    <header className={`bg-surface border-b border-line flex items-center gap-4 px-5 print:hidden ${compact ? "py-2.5" : "py-3"}`}>
+    <header className={`bg-surface border-b border-line flex items-center gap-4 px-5 print:hidden sticky top-0 z-40 ${compact ? "py-2.5" : "py-3"}`}>
       {/* Page title + editable location */}
       <div className="flex-1 min-w-0">
         <h1 className={`font-semibold text-ink truncate ${compact ? "text-base" : "text-lg"}`}>

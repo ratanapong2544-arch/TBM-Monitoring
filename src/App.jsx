@@ -3,7 +3,7 @@ import { Loader2, AlertCircle, Activity, Clock } from "lucide-react";
 
 import { GAS_URL } from "./utils/constants";
 import { formatDisplayTime, formatDisplayDate } from "./utils/formatters";
-import { safeParseJSON } from "./utils/helpers";
+import { safeParseJSON, offsetRingNo } from "./utils/helpers";
 
 import OverviewView from "./components/views/OverviewView";
 import GroutRecordView from "./components/views/GroutRecordView";
@@ -160,7 +160,7 @@ const PrimaryGroutApp = () => {
       if (lastSeg.installStartTime && !lastSeg.installEndTime) return { text: `กำลังประกอบ ${lastSeg.ringNo}`, color: "bg-emerald-500", icon: <Activity size={12} /> };
       return { text: `กำลังทำงาน ${lastSeg.ringNo}`, color: "bg-blue-500", icon: <Activity size={12} /> };
     }
-    return null;
+    return { text: `เครื่องจักรจอดพัก · รอวง ${offsetRingNo(lastSeg.ringNo, 1)}`, color: "bg-slate-500", icon: <Clock size={12} /> };
   }, [segmentRecords]);
 
   // Derive page title from NAV_GROUPS based on activeTab + currentModule
@@ -214,6 +214,9 @@ const PrimaryGroutApp = () => {
       onSaveIssue={handleSaveIssue}
       onSetIssueStatus={handleSetIssueStatus}
       onDeleteIssue={handleDeleteIssue}
+      segmentRecords={segmentRecords}
+      groutRecords={groutRecords}
+      shiftReports={shiftReports}
     >
       {loadError && <div className="mb-6 bg-code-d/10 border border-code-d/30 text-code-d p-4 rounded-card text-center no-print font-semibold">{loadError}</div>}
       {activeTab === "overview" && <OverviewView segmentRecords={segmentRecords} groutRecords={groutRecords} setCurrentModule={setCurrentModule} setActiveTab={setActiveTab} />}

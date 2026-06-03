@@ -773,30 +773,6 @@ ${remarksText}
         </div>
       </div>
 
-      {/* ═══ SECTION 1: Project Header + Live Status ═══ */}
-      <div className={`bg-navy text-white rounded-card shadow-card sticky top-0 z-30 print:static print:shadow-none flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-5 py-3.5 ${printingChartId !== 'all' ? 'print:hidden' : ''}`}>
-        <div className="flex items-center gap-3 min-w-0">
-          {liveStatus.state !== "IDLE" && <span className="relative flex h-2.5 w-2.5 shrink-0"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span><span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-white"></span></span>}
-          <span className="text-base sm:text-lg font-bold tracking-tight truncate">
-            {liveStatus.state === "EXCAVATING" && "กำลังขุดเจาะดิน"}
-            {liveStatus.state === "INSTALLING" && "กำลังประกอบ Ring"}
-            {liveStatus.state === "WAITING" && "ขุดเจาะเสร็จ รอประกอบ"}
-            {liveStatus.state === "IDLE" && "เครื่องจักรจอดพัก"}
-            {liveStatus.state === "IN_PROGRESS" && "กำลังทำงาน"}
-          </span>
-          <span className="font-mono text-xs bg-white/20 px-2.5 py-0.5 rounded-input shrink-0">Ring {liveStatus.ring}</span>
-          <span className="hidden md:flex items-center gap-1.5 text-xs text-white/70 truncate"><Clock size={14} className="opacity-80 shrink-0" /> {liveStatus.desc}</span>
-        </div>
-        <div className="flex gap-2 shrink-0 print:hidden">
-          <button onClick={() => window.print()} className="bg-white/15 hover:bg-white/25 border border-white/25 text-white px-3.5 py-2 rounded-input flex items-center justify-center gap-1.5 font-semibold text-xs transition-colors active:scale-95 whitespace-nowrap">
-            <Printer size={15} /> <span className="hidden sm:inline">ปริ้น PDF</span>
-          </button>
-          <button onClick={handleGenerateDelaySummary} disabled={isGeneratingAI} className="bg-gradient-to-r from-code-c to-code-d hover:opacity-90 text-white px-3.5 py-2 rounded-input flex items-center justify-center gap-1.5 font-semibold text-xs transition-all active:scale-95 whitespace-nowrap">
-            <Sparkles size={15} /> <span className="hidden sm:inline">วิเคราะห์ AI</span>
-          </button>
-        </div>
-      </div>
-
       <section className="space-y-6">
       <SectionHeader title="ภาพรวมโครงการ" subtitle="Project Overview" icon={BarChart3} />
 

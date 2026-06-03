@@ -19,8 +19,12 @@ export const apiCall = async (action, data) => {
   }
 };
 
+// ⚠ STOPGAP (interim): key อ่านจาก .env (REACT_APP_GEMINI_KEY) แทน hardcode literal
+// หมายเหตุ: CRA bake ค่า REACT_APP_* ลง client bundle → ยัง "ไม่ลับจริง" เป็นแค่การเอา literal ออกจาก source
+// เป้าหมายถาวร: proxy ผ่าน GAS ด้วย apiCall('generateSummary', ...) — ดู gas/GEMINI_PROXY_SETUP.md
 export const generateGeminiSummary = async (promptText, systemText) => {
-  const apiKey = "AIzaSyCjGoPy_Ci-LgJTp9yLVDKg5ya0_gdY5gU";
+  const apiKey = process.env.REACT_APP_GEMINI_KEY;
+  if (!apiKey) throw new Error("ยังไม่ได้ตั้งค่า REACT_APP_GEMINI_KEY ใน .env (ดู .env.example)");
   const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey.trim()}`;
   const payload = {
     contents: [{ parts: [{ text: promptText }] }],

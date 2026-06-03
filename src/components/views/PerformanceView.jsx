@@ -4,8 +4,8 @@ import useGlobalFilter from "../../hooks/useGlobalFilter";
 import GlobalFilterBar from "../common/GlobalFilterBar";
 import SectionHeader from "../common/SectionHeader";
 import StatCard from "../common/StatCard";
-import { formatDisplayTime } from "../../utils/formatters";
-import { getRingNumeric, shiftEventMinutes } from "../../utils/helpers";
+import { formatDisplayTime, formatDisplayDate } from "../../utils/formatters";
+import { getRingNumeric, shiftEventMinutes, getLogicalShiftDate } from "../../utils/helpers";
 import { chartColors, axisTick, tooltipStyle } from "../../ui-ux-pro-max/chartTheme";
 import {
   ResponsiveContainer, PieChart, Pie, Cell, Tooltip,
@@ -30,8 +30,45 @@ export default function PerformanceView({ segmentRecords = [], shiftReports = []
     useGlobalFilter(segmentRecords, [], shiftReports);
 
   const util = useMemo(() => {
+    // Operating (Excavation + Segment Erection) from SEGMENT timestamps, attributed per shift.
+    // Shift-report events do NOT persist these — they are auto-derived from segments at display
+    // time (mirror ShiftReportView). So we recompute per (logical date + shift) here.
+    const fdt = formatDisplayTime;
+    const durMin = (a, b) => {
+      const p = (t) => { if (!t) return null; const [h, m] = fdt(t).split(":").map(Number); return isNaN(h) || isNaN(m) ? null : h * 60 + m; };
+      let A = p(a), B = p(b);
+      if (A === null || B === null) return null;
+      if (B < A) B += 1440;
+      return B - A;
+    };
+    const shiftFor = (timeStr, explicitShift, recShift) => {
+      if (explicitShift) return explicitShift;
+      if (timeStr) { const h = Number(timeStr.split(":")[0]); if (!isNaN(h)) return h >= 7 && h < 19 ? "Day" : "Night"; }
+      return recShift;
+    };
+    const shiftOp = {};
+    const segMap = new Map();
+    filteredSegments.forEach((r) => segMap.set(r.ringNo, r));
+    Array.from(segMap.values()).forEach((rec) => {
+      const exStart = fdt(rec.excavStartTime), exEnd = fdt(rec.excavEndTime);
+      if (exStart && exEnd) {
+        const exShift = shiftFor(exStart, rec.excavShift, rec.shift);
+        const exDate = getLogicalShiftDate(exStart, exShift, rec.date, rec.shift);
+        const d = durMin(rec.excavStartTime, rec.excavEndTime);
+        if (d !== null) shiftOp[`${exDate}__${exShift}`] = (shiftOp[`${exDate}__${exShift}`] || 0) + d;
+      }
+      const inStart = fdt(rec.installStartTime), inEnd = fdt(rec.installEndTime);
+      if (inStart && inEnd) {
+        const inShift = shiftFor(inStart, rec.installShift, rec.shift);
+        const inDate = getLogicalShiftDate(inStart, inShift, rec.date, rec.shift);
+        const d = durMin(rec.installStartTime, rec.installEndTime);
+        if (d !== null) shiftOp[`${inDate}__${inShift}`] = (shiftOp[`${inDate}__${inShift}`] || 0) + d;
+      }
+    });
+
     const catMin = {};
     let shifts = 0;
+    let operating = 0;
     filteredShiftReports.forEach((r) => {
       shifts += 1;
       const events = r.events || {};
@@ -40,9 +77,9 @@ export default function PerformanceView({ segmentRecords = [], shiftReports = []
         const mins = arr.reduce((s, ev) => s + shiftEventMinutes(ev.start, ev.end, r.shift), 0);
         catMin[cat] = (catMin[cat] || 0) + mins;
       });
+      operating += Math.min(SHIFT_MINUTES, shiftOp[`${formatDisplayDate(r.date)}__${r.shift}`] || 0);
     });
     const sumGroup = (keys) => keys.reduce((s, k) => s + (catMin[k] || 0), 0);
-    const operating = sumGroup(CAT.operating);
     const support = sumGroup(CAT.support);
     const delay = sumGroup(CAT.delay);
     const maintenance = sumGroup(CAT.maintenance);
@@ -74,7 +111,7 @@ export default function PerformanceView({ segmentRecords = [], shiftReports = []
       delayHours: delay / 60, maintHours: maintenance / 60,
       avgOperatingPerShift: shifts > 0 ? operating / shifts / 60 : 0,
     };
-  }, [filteredShiftReports]);
+  }, [filteredShiftReports, filteredSegments]);
 
   const cycle = useMemo(() => {
     const durMin = (a, b) => {

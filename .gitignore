@@ -1,2 +1,6 @@
 node_modules
 build
+
+# Secrets — local only (.env.example stays tracked)
+.env
+.env.local

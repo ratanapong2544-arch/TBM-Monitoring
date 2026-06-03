@@ -2,9 +2,9 @@
 export const STORAGE_KEY = "tbmIssues";
 
 export const SEVERITY = {
-  delay:   { label: "ล่าช้า",       badge: "d",    accent: "border-code-d" },
-  blocker: { label: "Blocker",       badge: "c",    accent: "border-code-c" },
-  info:    { label: "แจ้งเพื่อทราบ", badge: "info", accent: "border-cyan-med" },
+  delay:   { label: "ล่าช้า",       badge: "d",    accent: "border-l-code-d" },
+  blocker: { label: "Blocker",       badge: "c",    accent: "border-l-code-c" },
+  info:    { label: "แจ้งเพื่อทราบ", badge: "info", accent: "border-l-cyan-med" },
 };
 export const SEVERITY_ORDER = ["delay", "blocker", "info"];
 

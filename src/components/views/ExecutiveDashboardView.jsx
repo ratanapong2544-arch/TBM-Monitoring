@@ -774,43 +774,26 @@ ${remarksText}
       </div>
 
       {/* ═══ SECTION 1: Project Header + Live Status ═══ */}
-      <div className={`rounded-card p-6 sm:p-8 text-white relative overflow-hidden shadow-modal ${printingChartId !== 'all' ? 'print:hidden' : ''} ${liveStatus.state === "EXCAVATING" ? "bg-gradient-to-br from-code-b to-code-c" :
-        liveStatus.state === "INSTALLING" ? "bg-gradient-to-br from-sgreen-med to-sgreen-dark" :
-          liveStatus.state === "WAITING" ? "bg-gradient-to-br from-ink-3 to-navy-dark" :
-            "bg-gradient-to-br from-navy to-navy-deepest"
-        }`}>
-        <div className="absolute top-0 right-0 w-64 h-64 bg-white/10 rounded-full blur-3xl -mr-10 -mt-10 pointer-events-none"></div>
-        <div className="relative z-10 flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
-          <div>
-            <div className="flex items-center gap-2 mb-2">
-              {liveStatus.state !== "IDLE" && <span className="relative flex h-3 w-3"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span><span className="relative inline-flex rounded-full h-3 w-3 bg-white"></span></span>}
-              <span className="text-xs font-semibold uppercase tracking-widest opacity-90">TBM1 Executive Dashboard</span>
-            </div>
-            <h2 className="text-2xl sm:text-4xl font-semibold mb-1 tracking-tight drop-shadow-sm">
-              {liveStatus.state === "EXCAVATING" && "กำลังขุดเจาะดิน"}
-              {liveStatus.state === "INSTALLING" && "กำลังประกอบ Ring"}
-              {liveStatus.state === "WAITING" && "ขุดเจาะเสร็จ รอประกอบ"}
-              {liveStatus.state === "IDLE" && "เครื่องจักรจอดพัก"}
-              {liveStatus.state === "IN_PROGRESS" && "กำลังทำงาน"}
-            </h2>
-            <div className="flex flex-wrap items-center gap-3 text-lg sm:text-xl font-bold opacity-90">
-              <span>Ring: <span className="bg-white/20 px-3 py-0.5 rounded-xl backdrop-blur-sm">{liveStatus.ring}</span></span>
-              <span className="hidden sm:inline opacity-60">|</span>
-              <span className="flex items-center gap-1.5"><Clock size={16} className="opacity-80" /> {liveStatus.desc}</span>
-            </div>
-          </div>
-          <div className="flex flex-col sm:flex-row w-full md:w-auto gap-3 items-center print:hidden">
-            <button onClick={() => window.print()} className="w-full sm:w-auto bg-white/20 hover:bg-white/30 backdrop-blur-md border border-white/30 text-white px-5 py-3 rounded-xl flex items-center justify-center gap-2 font-bold shadow-sm transition-all active:scale-95 whitespace-nowrap text-sm">
-              <Printer size={18} />
-              <span className="hidden sm:inline">ปริ้นรายงาน (PDF)</span>
-              <span className="sm:hidden">ปริ้น PDF</span>
-            </button>
-            <button onClick={handleGenerateDelaySummary} disabled={isGeneratingAI} className="w-full sm:w-auto bg-gradient-to-r from-code-c to-code-d hover:opacity-90 border border-white/20 text-white px-5 py-3 rounded-xl flex items-center justify-center gap-2 font-bold shadow-lg transition-all active:scale-95 whitespace-nowrap text-sm">
-              <Sparkles size={18} /> 
-              <span className="hidden sm:inline">วิเคราะห์ปัญหา AI</span>
-              <span className="sm:hidden">วิเคราะห์ AI</span>
-            </button>
-          </div>
+      <div className={`bg-navy text-white rounded-card shadow-card sticky top-0 z-30 print:static print:shadow-none flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-5 py-3.5 ${printingChartId !== 'all' ? 'print:hidden' : ''}`}>
+        <div className="flex items-center gap-3 min-w-0">
+          {liveStatus.state !== "IDLE" && <span className="relative flex h-2.5 w-2.5 shrink-0"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span><span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-white"></span></span>}
+          <span className="text-base sm:text-lg font-bold tracking-tight truncate">
+            {liveStatus.state === "EXCAVATING" && "กำลังขุดเจาะดิน"}
+            {liveStatus.state === "INSTALLING" && "กำลังประกอบ Ring"}
+            {liveStatus.state === "WAITING" && "ขุดเจาะเสร็จ รอประกอบ"}
+            {liveStatus.state === "IDLE" && "เครื่องจักรจอดพัก"}
+            {liveStatus.state === "IN_PROGRESS" && "กำลังทำงาน"}
+          </span>
+          <span className="font-mono text-xs bg-white/20 px-2.5 py-0.5 rounded-input shrink-0">Ring {liveStatus.ring}</span>
+          <span className="hidden md:flex items-center gap-1.5 text-xs text-white/70 truncate"><Clock size={14} className="opacity-80 shrink-0" /> {liveStatus.desc}</span>
+        </div>
+        <div className="flex gap-2 shrink-0 print:hidden">
+          <button onClick={() => window.print()} className="bg-white/15 hover:bg-white/25 border border-white/25 text-white px-3.5 py-2 rounded-input flex items-center justify-center gap-1.5 font-semibold text-xs transition-colors active:scale-95 whitespace-nowrap">
+            <Printer size={15} /> <span className="hidden sm:inline">ปริ้น PDF</span>
+          </button>
+          <button onClick={handleGenerateDelaySummary} disabled={isGeneratingAI} className="bg-gradient-to-r from-code-c to-code-d hover:opacity-90 text-white px-3.5 py-2 rounded-input flex items-center justify-center gap-1.5 font-semibold text-xs transition-all active:scale-95 whitespace-nowrap">
+            <Sparkles size={15} /> <span className="hidden sm:inline">วิเคราะห์ AI</span>
+          </button>
         </div>
       </div>
 

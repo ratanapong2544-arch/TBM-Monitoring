@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from "react";
 import {
-  MapPin, Ruler, Settings, Printer, Maximize2, Plus, Save, Trash2, X, Loader2
+  MapPin, Ruler, Settings, Printer, Maximize2, Plus, Save, Trash2, X, Loader2, TrendingUp
 } from "lucide-react";
 import GlobalFilterBar from "../common/GlobalFilterBar";
 import useGlobalFilter from "../../hooks/useGlobalFilter";
@@ -254,6 +254,30 @@ const RouteScheduleView = ({ segmentRecords = [] }) => {
       return { ...seg, xPercent: Math.min(100, Math.max(0, xPercent)) };
     });
   }, []);
+
+  const forecast = useMemo(() => {
+    const data = distanceChartData;
+    if (!data || data.length === 0 || totalActualDistance <= 0) return null;
+    const firstIdx = data.findIndex((d) => d.actualAcc !== null && d.actualAcc > 0);
+    let lastIdx = -1;
+    for (let i = data.length - 1; i >= 0; i--) { if (data[i].actualAcc !== null && data[i].actualAcc > 0) { lastIdx = i; break; } }
+    if (firstIdx < 0 || lastIdx < 0) return null;
+    const elapsedMonths = Math.max(1, lastIdx - firstIdx + 1);
+    const currentRate = totalActualDistance / elapsedMonths; // m/month
+    const remaining = Math.max(0, TOTAL_ROUTE_DISTANCE - totalActualDistance);
+    const monthsToFinish = currentRate > 0 ? remaining / currentRate : null;
+    const [cy, cm] = data[lastIdx].month.split("-").map(Number);
+    const curIdx = cy * 12 + (cm - 1);
+    const thMonths = ["ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."];
+    const fmtThai = (idx) => `${thMonths[((idx % 12) + 12) % 12]} ${String(Math.floor(idx / 12) + 543).slice(-2)}`;
+    const finishIdx = monthsToFinish != null ? curIdx + Math.ceil(monthsToFinish) : null;
+    const forecastLabel = finishIdx != null ? fmtThai(finishIdx) : "—";
+    const deadlineIdx = 2028 * 12 + 8; // ก.ย. 2028 (month index 8)
+    const monthsToDeadline = Math.max(0, deadlineIdx - curIdx);
+    const requiredRate = monthsToDeadline > 0 ? remaining / monthsToDeadline : 0;
+    const onTime = finishIdx != null && finishIdx <= deadlineIdx;
+    return { currentRate, remaining, forecastLabel, requiredRate, onTime };
+  }, [distanceChartData, totalActualDistance]);
 
   return (
     <div className="max-w-full mx-auto pb-24 animate-fade-in space-y-6">
@@ -655,6 +679,29 @@ const RouteScheduleView = ({ segmentRecords = [] }) => {
           <div className="h-8"></div>
         </div>
       </div>
+
+      {forecast && (
+        <div className="bg-surface rounded-card p-5 shadow-card border border-line">
+          <h3 className="font-semibold text-ink text-base mb-3 flex items-center gap-2"><TrendingUp size={18} className="text-navy" /> คาดการณ์ (Forecast)</h3>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm">
+            <div>
+              <div className="text-xs font-semibold text-ink-3 uppercase mb-1">คาดเสร็จ (rate ปัจจุบัน)</div>
+              <div className={`text-xl font-semibold font-mono ${forecast.onTime ? "text-sgreen-dark" : "text-code-d"}`}>{forecast.forecastLabel}</div>
+              <div className="text-[11px] text-ink-2 mt-0.5">{forecast.onTime ? "✓ ทันกำหนด ก.ย. 71" : "⚠ ช้ากว่ากำหนด ก.ย. 71"}</div>
+            </div>
+            <div>
+              <div className="text-xs font-semibold text-ink-3 uppercase mb-1">rate ปัจจุบัน</div>
+              <div className="text-xl font-semibold font-mono text-navy">{forecast.currentRate.toFixed(0)} <span className="text-xs text-ink-3">ม./เดือน</span></div>
+              <div className="text-[11px] text-ink-2 mt-0.5">เหลืออีก {forecast.remaining.toLocaleString(undefined, { maximumFractionDigits: 0 })} ม.</div>
+            </div>
+            <div>
+              <div className="text-xs font-semibold text-ink-3 uppercase mb-1">ต้องเร่งเป็น</div>
+              <div className="text-xl font-semibold font-mono text-code-c">{forecast.requiredRate.toFixed(0)} <span className="text-xs text-ink-3">ม./เดือน</span></div>
+              <div className="text-[11px] text-ink-2 mt-0.5">เพื่อทันกำหนด ก.ย. 71</div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ═══ Distance Plan Settings Modal ═══ */}
       {showDistPlanModal && (

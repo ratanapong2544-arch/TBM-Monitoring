@@ -86,8 +86,10 @@ export default function Shell({
 
         <main className="flex-1 pb-[calc(64px+env(safe-area-inset-bottom))] lg:pb-0">
           {showIssues ? (
-            <div className="flex max-w-[1500px] mx-auto print:max-w-none print:mx-0">
-              <div className="flex-1 min-w-0 px-4 sm:px-6 py-6 w-full print:p-0 print:m-0">{children}</div>
+            <div className="flex w-full print:block">
+              <div className="flex-1 min-w-0 px-4 sm:px-6 py-6 print:p-0 print:m-0">
+                <div className="max-w-[1200px] mx-auto w-full print:max-w-none">{children}</div>
+              </div>
               <IssuesRail {...railProps} />
             </div>
           ) : (

@@ -53,7 +53,7 @@ const OverviewView = ({ segmentRecords, groutRecords, setCurrentModule, setActiv
     "text-navy";
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6 pb-24 animate-fade-in">
+    <div className="max-w-4xl space-y-6 pb-24 animate-fade-in">
       {/* Hero status card */}
       <div className={`bg-surface border border-line rounded-card shadow-card border-l-4 ${statusAccent} p-8 sm:p-10`}>
         <div className="flex items-center gap-2 mb-3">

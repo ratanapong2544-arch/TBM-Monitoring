@@ -13,6 +13,7 @@ import SegmentDashboardView from "./components/views/SegmentDashboardView";
 import ExecutiveDashboardView from "./components/views/ExecutiveDashboardView";
 import ReportView from "./components/views/ReportView";
 import ShiftReportView from "./components/views/ShiftReportView";
+import { loadIssues, persistIssues, upsertIssue, setIssueStatus, removeIssue } from "./utils/issues";
 
 import { Shell, NAV_GROUPS } from "./ui-ux-pro-max";
 import "./styles/globals.css";
@@ -27,6 +28,13 @@ const PrimaryGroutApp = () => {
   const [segmentRecords, setSegmentRecords] = useState([]);
   const [shiftReports, setShiftReports] = useState([]);
   const [moreOpen, setMoreOpen] = useState(false);
+
+  const [issues, setIssues] = useState(loadIssues);
+  useEffect(() => { persistIssues(issues); }, [issues]);
+
+  const handleSaveIssue = (form) => setIssues((prev) => upsertIssue(prev, form));
+  const handleSetIssueStatus = (id, status) => setIssues((prev) => setIssueStatus(prev, id, status));
+  const handleDeleteIssue = (id) => setIssues((prev) => removeIssue(prev, id));
 
   useEffect(() => {
     const fetchData = async () => {
@@ -183,6 +191,10 @@ const PrimaryGroutApp = () => {
       onProjectChange={handleProjectInfoChange}
       moreOpen={moreOpen}
       setMoreOpen={setMoreOpen}
+      issues={issues}
+      onSaveIssue={handleSaveIssue}
+      onSetIssueStatus={handleSetIssueStatus}
+      onDeleteIssue={handleDeleteIssue}
     >
       {loadError && <div className="mb-6 bg-code-d/10 border border-code-d/30 text-code-d p-4 rounded-card text-center no-print font-semibold">{loadError}</div>}
       {activeTab === "overview" && <OverviewView segmentRecords={segmentRecords} groutRecords={groutRecords} setCurrentModule={setCurrentModule} setActiveTab={setActiveTab} />}

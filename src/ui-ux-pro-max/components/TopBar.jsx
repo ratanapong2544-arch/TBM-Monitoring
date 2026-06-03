@@ -2,7 +2,7 @@ import React from "react";
 import { MapPin } from "lucide-react";
 import Badge from "./Badge";
 
-export default function TopBar({ title, liveStatus, projectInfo, onProjectChange, compact = false }) {
+export default function TopBar({ title, liveStatus, projectInfo, onProjectChange, compact = false, rightSlot = null }) {
   // projectInfo may be the full object { location, date, shift, tbmNo } or a plain string
   const location =
     projectInfo && typeof projectInfo === "object" ? projectInfo.location ?? "" : projectInfo ?? "";
@@ -38,6 +38,7 @@ export default function TopBar({ title, liveStatus, projectInfo, onProjectChange
           <Badge code={liveStatus.code || "neutral"}>{liveStatus.label || liveStatus}</Badge>
         </div>
       )}
+      {rightSlot && <div className="shrink-0">{rightSlot}</div>}
     </header>
   );
 }

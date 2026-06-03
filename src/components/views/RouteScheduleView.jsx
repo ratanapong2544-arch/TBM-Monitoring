@@ -8,7 +8,7 @@ import { formatDisplayDate } from "../../utils/formatters";
 import { getRingNumeric } from "../../utils/helpers";
 import { TOTAL_ROUTE_DISTANCE, ROUTE_SEGMENTS } from "../../utils/constants";
 import { apiCall } from "../../utils/api";
-import { chartColors, axisTick, gridProps, tooltipStyle } from "../../ui-ux-pro-max/chartTheme";
+import { chartColors, axisTick, tooltipStyle } from "../../ui-ux-pro-max/chartTheme";
 import {
   ResponsiveContainer, ComposedChart, CartesianGrid, XAxis, YAxis, Tooltip, Line, ReferenceLine
 } from "recharts";
@@ -54,7 +54,9 @@ const RouteScheduleView = ({ segmentRecords = [] }) => {
     setIsSavingDistPlan(true);
     try {
       localStorage.setItem('tbmDistancePlanConfig', JSON.stringify(distPlanConfig));
-      await apiCall("savePlanConfig", { distPlanConfig });
+      // ส่งทั้งคู่เหมือนเดิม (กัน GAS เขียนทับ planConfig ฝั่ง server) — ดึง segment plan จาก localStorage
+      const planConfig = JSON.parse(localStorage.getItem("tbmPlanConfig") || "null") || { basePlanAcc: 0, baseActualAcc: 0, ranges: [] };
+      await apiCall("savePlanConfig", { planConfig, distPlanConfig });
       setShowDistPlanModal(false);
     } catch (e) {
       console.error("Failed to save distance plan config", e);

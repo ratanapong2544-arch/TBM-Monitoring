@@ -7,10 +7,9 @@ import GlobalFilterBar from "../common/GlobalFilterBar";
 import { formatDisplayDate, formatDisplayTime } from "../../utils/formatters";
 import { getRingNumeric } from "../../utils/helpers";
 import { apiCall } from "../../utils/api";
-import { chartColors, SHIFT_COLORS as SHIFT_COLORS_THEME, axisTick, gridProps, tooltipStyle } from "../../ui-ux-pro-max/chartTheme";
+import { chartColors, axisTick, tooltipStyle } from "../../ui-ux-pro-max/chartTheme";
 import {
-  ResponsiveContainer, ComposedChart, CartesianGrid, XAxis, YAxis, Tooltip, Bar, Line,
-  Area, ReferenceLine, Legend
+  ResponsiveContainer, ComposedChart, CartesianGrid, XAxis, YAxis, Tooltip, Bar, Line
 } from "recharts";
 
 export default function SegmentAnalysisView({ segmentRecords = [] }) {
@@ -69,7 +68,9 @@ export default function SegmentAnalysisView({ segmentRecords = [] }) {
     setIsSavingPlan(true);
     try {
       localStorage.setItem("tbmPlanConfig", JSON.stringify(planConfig));
-      await apiCall("savePlanConfig", { planConfig });
+      // ส่งทั้งคู่เหมือนเดิม (กัน GAS เขียนทับ distPlanConfig ฝั่ง server) — ดึง distance plan จาก localStorage
+      const distPlanConfig = JSON.parse(localStorage.getItem("tbmDistancePlanConfig") || "null") || { ranges: [] };
+      await apiCall("savePlanConfig", { planConfig, distPlanConfig });
       setShowPlanModal(false);
     } catch (e) {
       console.error("Failed to save plan config", e);
@@ -81,11 +82,6 @@ export default function SegmentAnalysisView({ segmentRecords = [] }) {
 
   const addPlanRange = () => setPlanConfig({ ...planConfig, ranges: [...(planConfig.ranges || []), { start: "", end: "", dailyPlan: 0 }] });
   const removePlanRange = (index) => { const r = [...(planConfig.ranges || [])]; r.splice(index, 1); setPlanConfig({ ...planConfig, ranges: r }); };
-
-  // ── Filter button helper ──
-  const FilterBtn = ({ active, onClick, children }) => (
-    <button onClick={onClick} className={`flex-1 sm:flex-none px-3 py-1.5 text-xs rounded-md font-semibold transition whitespace-nowrap ${active ? "bg-navy text-white shadow-card" : "text-ink-3 hover:bg-surface-alt"}`}>{children}</button>
-  );
 
   // ── Deduplicate Helper ──
   const deduplicateRecords = (records) => {
@@ -105,8 +101,6 @@ export default function SegmentAnalysisView({ segmentRecords = [] }) {
     });
     return Array.from(map.values());
   };
-
-  const SHIFT_COLORS = SHIFT_COLORS_THEME;
 
   // ── Base Segment Records Memo ──
   // NOTE: globalFilteredSegments → filteredSegments (from useGlobalFilter hook)

@@ -13,6 +13,9 @@ import SegmentDashboardView from "./components/views/SegmentDashboardView";
 import ExecutiveDashboardView from "./components/views/ExecutiveDashboardView";
 import ReportView from "./components/views/ReportView";
 import ShiftReportView from "./components/views/ShiftReportView";
+import SegmentAnalysisView from "./components/views/SegmentAnalysisView";
+import GroutAnalysisView from "./components/views/GroutAnalysisView";
+import RouteScheduleView from "./components/views/RouteScheduleView";
 import { loadIssues, persistIssues, upsertIssue, setIssueStatus, removeIssue } from "./utils/issues";
 import { apiCall } from "./utils/api";
 
@@ -223,6 +226,9 @@ const PrimaryGroutApp = () => {
       {activeTab === "record" && currentModule === "grout" && <GroutRecordView projectInfo={projectInfo} handleProjectInfoChange={handleProjectInfoChange} groutRecords={groutRecords} setGroutRecords={setGroutRecords} segmentRecords={segmentRecords} setCurrentModule={setCurrentModule} setActiveTab={setActiveTab} />}
       {activeTab === "record" && currentModule === "segment" && <SegmentRecordView projectInfo={projectInfo} handleProjectInfoChange={handleProjectInfoChange} segmentRecords={segmentRecords} setSegmentRecords={setSegmentRecords} setCurrentModule={setCurrentModule} setActiveTab={setActiveTab} />}
       {activeTab === "dashboard" && <ExecutiveDashboardView segmentRecords={segmentRecords} groutRecords={groutRecords} shiftReports={shiftReports} />}
+      {activeTab === "analysis" && currentModule === "segment" && <SegmentAnalysisView segmentRecords={segmentRecords} />}
+      {activeTab === "analysis" && currentModule === "grout" && <GroutAnalysisView groutRecords={groutRecords} />}
+      {activeTab === "analysis" && currentModule === "route" && <RouteScheduleView segmentRecords={segmentRecords} />}
       {activeTab === "datalog" && currentModule === "grout" && <GroutDashboardView groutRecords={groutRecords} setGroutRecords={setGroutRecords} segmentRecords={segmentRecords} />}
       {activeTab === "datalog" && currentModule === "segment" && <SegmentDashboardView segmentRecords={segmentRecords} setSegmentRecords={setSegmentRecords} />}
       {activeTab === "report" && <ReportView segmentRecords={segmentRecords} groutRecords={groutRecords} projectInfo={projectInfo} shiftReports={shiftReports} />}

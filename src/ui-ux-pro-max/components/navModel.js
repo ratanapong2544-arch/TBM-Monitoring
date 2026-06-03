@@ -1,4 +1,4 @@
-import { Home, PlusCircle, LayoutDashboard, Database, Clock, FileText } from "lucide-react";
+import { Home, PlusCircle, LayoutDashboard, Database, Clock, FileText, TrendingUp, Droplet, MapPin } from "lucide-react";
 // tab = activeTab value เดิม, module = currentModule (ถ้ามี), short = label สั้นสำหรับ bottom nav มือถือ
 export const NAV_GROUPS = [
   { label: "ภาพรวม", items: [{ id:"overview", tab:"overview", label:"Home", short:"Home", icon:Home }] },
@@ -10,6 +10,11 @@ export const NAV_GROUPS = [
     { id:"dash", tab:"dashboard", label:"Executive Dashboard", short:"Dash", icon:LayoutDashboard },
     { id:"log-seg", tab:"datalog", module:"segment", label:"Data Log · Segment", short:"Log", icon:Database },
     { id:"log-grt", tab:"datalog", module:"grout",   label:"Data Log · Grout",   short:"Log", icon:Database },
+  ]},
+  { label: "วิเคราะห์ (Analysis)", items: [
+    { id:"anl-seg", tab:"analysis", module:"segment", label:"Segment Analysis", short:"Seg", icon:TrendingUp },
+    { id:"anl-grt", tab:"analysis", module:"grout",   label:"Grout Analysis",   short:"Grt", icon:Droplet },
+    { id:"anl-rte", tab:"analysis", module:"route",   label:"Route & Schedule", short:"Rte", icon:MapPin },
   ]},
   { label: "รายงาน", items: [
     { id:"shift",  tab:"shift_report", label:"Shift Report", short:"Shift", icon:Clock },

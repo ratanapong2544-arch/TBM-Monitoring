@@ -3,6 +3,7 @@ import {
   TrendingUp, Layers, Activity, MapPin, Droplet, BarChart3, Clock, Settings, Plus, Save, Trash2, X, Ruler, Maximize2, Loader2, AlertCircle, Check, Copy, Sparkles, Printer
 } from "lucide-react";
 import StatCard from "../common/StatCard";
+import SectionHeader from "../common/SectionHeader";
 import { formatDisplayDate, formatDisplayTime, parseCH } from "../../utils/formatters";
 import { getRingNumeric, calculateSoilVolume, offsetRingNo } from "../../utils/helpers";
 import { THEORETICAL_VOL, VOL_120, VOL_150, VOL_80, VOL_50, TOTAL_ROUTE_DISTANCE, ROUTE_SEGMENTS } from "../../utils/constants";
@@ -693,7 +694,7 @@ ${remarksText}
   };
 
   return (
-    <div className="max-w-full mx-auto space-y-6 sm:space-y-8 animate-fade-in pb-24 print:max-w-full print:w-full print:m-0 print:p-0 print:space-y-0 print:block">
+    <div className="max-w-full mx-auto space-y-8 sm:space-y-10 animate-fade-in pb-24 print:max-w-full print:w-full print:m-0 print:p-0 print:space-y-0 print:block">
       <style>{`
         @media print {
           @page { size: landscape; margin: 10mm; }
@@ -813,6 +814,9 @@ ${remarksText}
         </div>
       </div>
 
+      <section className="space-y-6">
+      <SectionHeader title="ภาพรวมโครงการ" subtitle="Project Overview" icon={BarChart3} />
+
       {/* ═══ SECTION 2: KPI Summary Cards ═══ */}
       <div className={`grid grid-cols-2 lg:grid-cols-3 gap-4 ${printingChartId !== 'all' ? 'print:hidden' : ''}`}>
         <StatCard label="Permanent Rings" value={overallStats.permRings} subtext={`+ ${overallStats.tempRings} Temp. (Total: ${overallStats.totalRings})`} color="text-sgreen-dark" icon={Layers} />
@@ -887,6 +891,11 @@ ${remarksText}
           </div>
         </div>
       </div>
+
+      </section>
+
+      <section className="space-y-6">
+      <SectionHeader title="ความก้าวหน้าการขุดเจาะ & เส้นทาง" subtitle="Tunneling Progress & Route" icon={TrendingUp} />
 
       {/* ═══ SECTION 3: Segment Installation Trend ═══ */}
       <div className={`bg-surface rounded-card shadow-card border border-line p-5 sm:p-8 overflow-hidden ${getPrintClass('segment')}`}>
@@ -1321,6 +1330,11 @@ ${remarksText}
         </div>
       </div>
 
+      </section>
+
+      <section className="space-y-6">
+      <SectionHeader title="Grout" subtitle="Grouting Records" icon={Droplet} />
+
       {/* ═══ SECTION 4: Grout Volume Trend ═══ */}
       <div className={`bg-surface rounded-card shadow-card border border-line p-5 sm:p-8 ${getPrintClass('grout')}`}>
         <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-6 gap-4">
@@ -1397,6 +1411,8 @@ ${remarksText}
           </ResponsiveContainer>
         </div>
       </div>
+
+      </section>
 
       {/* ═══ Plan Settings Modal ═══ */}
       {showPlanModal && (

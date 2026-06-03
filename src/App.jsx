@@ -16,6 +16,7 @@ import ShiftReportView from "./components/views/ShiftReportView";
 import SegmentAnalysisView from "./components/views/SegmentAnalysisView";
 import GroutAnalysisView from "./components/views/GroutAnalysisView";
 import RouteScheduleView from "./components/views/RouteScheduleView";
+import PerformanceView from "./components/views/PerformanceView";
 import { loadIssues, persistIssues, upsertIssue, setIssueStatus, removeIssue } from "./utils/issues";
 import { apiCall } from "./utils/api";
 
@@ -229,6 +230,7 @@ const PrimaryGroutApp = () => {
       {activeTab === "analysis" && currentModule === "segment" && <SegmentAnalysisView segmentRecords={segmentRecords} />}
       {activeTab === "analysis" && currentModule === "grout" && <GroutAnalysisView groutRecords={groutRecords} />}
       {activeTab === "analysis" && currentModule === "route" && <RouteScheduleView segmentRecords={segmentRecords} />}
+      {activeTab === "performance" && <PerformanceView segmentRecords={segmentRecords} shiftReports={shiftReports} />}
       {activeTab === "datalog" && currentModule === "grout" && <GroutDashboardView groutRecords={groutRecords} setGroutRecords={setGroutRecords} segmentRecords={segmentRecords} />}
       {activeTab === "datalog" && currentModule === "segment" && <SegmentDashboardView segmentRecords={segmentRecords} setSegmentRecords={setSegmentRecords} />}
       {activeTab === "report" && <ReportView segmentRecords={segmentRecords} groutRecords={groutRecords} projectInfo={projectInfo} shiftReports={shiftReports} />}

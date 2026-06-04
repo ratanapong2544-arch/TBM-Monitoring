@@ -1,4 +1,4 @@
-import { Home, PlusCircle, LayoutDashboard, Database, Clock, FileText, TrendingUp, Droplet, MapPin, Gauge } from "lucide-react";
+import { Home, PlusCircle, LayoutDashboard, Database, Clock, FileText, TrendingUp, Droplet, MapPin, Gauge, ClipboardList } from "lucide-react";
 // tab = activeTab value เดิม, module = currentModule (ถ้ามี), short = label สั้นสำหรับ bottom nav มือถือ
 export const NAV_GROUPS = [
   { label: "ภาพรวม", items: [{ id:"overview", tab:"overview", label:"Home", short:"Home", icon:Home }] },
@@ -20,6 +20,7 @@ export const NAV_GROUPS = [
   { label: "รายงาน", items: [
     { id:"shift",  tab:"shift_report", label:"Shift Report", short:"Shift", icon:Clock },
     { id:"report", tab:"report",       label:"Stats Report", short:"Stats", icon:FileText },
+    { id:"daily", tab:"daily_report", label:"Daily Report", short:"Daily", icon:ClipboardList },
   ]},
 ];
 // mobile bottom bar = 5 ปุ่มหลัก (Home·Rec·Dash·Shift·More), ที่เหลือเข้า More

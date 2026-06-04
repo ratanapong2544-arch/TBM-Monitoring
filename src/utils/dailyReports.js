@@ -23,16 +23,18 @@ function emptyWeather() {
   return o;
 }
 
-export function newDailyReport(machine = "TBM1") {
+export function newDailyReport(machine = "TBM1", kind = "itemized") {
   return {
     id: "",
     date: new Date().toISOString().split("T")[0],
     area: "",
     machine,
+    kind,
     weather: emptyWeather(),
     equipment: emptyCounts(EQUIPMENT),
     labor: emptyCounts(LABOR),
     workLog: [newItem()],
+    workLogText: "",
     problems: "",
     solutions: "",
     sign: { recorderName: "", recorderPos: "", checkerName: "", checkerPos: "" },
@@ -90,10 +92,12 @@ export function normalizeReport(r) {
     date: r.date || "",
     area: (r.area || r.driveShaft || "").trim(),
     machine: MACHINES.includes(r.machine) ? r.machine : "",
+    kind: r.kind === "excavation" ? "excavation" : "itemized",
     weather: normalizeWeather(r.weather),
     equipment: normalizeCounts(EQUIPMENT, r.equipment),
     labor: normalizeCounts(LABOR, r.labor),
     workLog: normalizeWorkLog(r.workLog || r.items),
+    workLogText: typeof r.workLogText === "string" ? r.workLogText.trim() : "",
     problems: (r.problems || "").trim(),
     solutions: (r.solutions || "").trim(),
     sign: {

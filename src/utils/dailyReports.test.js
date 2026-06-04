@@ -124,3 +124,26 @@ test("load/persist roundtrip + MACHINES", () => {
   persistDailyReports([{ id: "z" }]);
   expect(loadDailyReports()).toEqual([{ id: "z" }]);
 });
+
+test("newDailyReport defaults to itemized kind with empty workLogText", () => {
+  const r = newDailyReport("TBM1");
+  expect(r.kind).toBe("itemized");
+  expect(r.workLogText).toBe("");
+});
+
+test("newDailyReport accepts excavation kind", () => {
+  const r = newDailyReport("TBM2", "excavation");
+  expect(r.kind).toBe("excavation");
+  expect(r.machine).toBe("TBM2");
+});
+
+test("normalizeReport carries kind + workLogText (keeps newlines)", () => {
+  const n = normalizeReport({ date: "2026-06-05", area: "IS4", kind: "excavation", workLogText: "1. TBM1\n-x" });
+  expect(n.kind).toBe("excavation");
+  expect(n.workLogText).toBe("1. TBM1\n-x");
+});
+
+test("normalizeReport defaults unknown kind to itemized", () => {
+  expect(normalizeReport({ date: "d", area: "a" }).kind).toBe("itemized");
+  expect(normalizeReport({ date: "d", area: "a" }).workLogText).toBe("");
+});

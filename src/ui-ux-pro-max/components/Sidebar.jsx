@@ -1,7 +1,12 @@
 import React from "react";
 import { NAV_GROUPS } from "./navModel";
-import Badge from "./Badge";
 import { Layers } from "lucide-react";
+
+// สีจุดสถานะ — ต้องสว่างพออ่านบนพื้น navy
+const STATUS_DOT = {
+  a: "bg-sgreen-med", b: "bg-code-b", c: "bg-code-c", d: "bg-code-d",
+  info: "bg-cyan", neutral: "bg-cyan-tint",
+};
 
 export default function Sidebar({ active = {}, onNavigate, liveStatus }) {
   return (
@@ -20,10 +25,11 @@ export default function Sidebar({ active = {}, onNavigate, liveStatus }) {
       {/* Live status */}
       {liveStatus && (
         <div className="px-5 py-3 border-b border-white/10">
-          <div className="text-[10px] text-cyan-tint/60 uppercase font-semibold tracking-wide mb-1">TBM Status</div>
-          <Badge code={liveStatus.code || "neutral"} className="text-[10px]">
-            {liveStatus.label || liveStatus}
-          </Badge>
+          <div className="text-[10px] text-cyan-tint/60 uppercase font-semibold tracking-wide mb-1.5">TBM Status</div>
+          <div className="flex items-start gap-2 px-2.5 py-1.5 rounded-input bg-white/10 border border-white/15">
+            <span className={`w-2 h-2 rounded-full shrink-0 mt-1 ${STATUS_DOT[liveStatus.code] || STATUS_DOT.neutral}`}></span>
+            <span className="text-[11px] font-semibold text-white leading-snug">{liveStatus.label || liveStatus}</span>
+          </div>
         </div>
       )}
 

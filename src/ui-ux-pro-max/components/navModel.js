@@ -5,6 +5,7 @@ export const NAV_GROUPS = [
   { label: "บันทึกข้อมูล", items: [
     { id:"rec-seg", tab:"record", module:"segment", label:"Record · Segment", short:"Rec", icon:PlusCircle },
     { id:"rec-grt", tab:"record", module:"grout",   label:"Record · Grout",   short:"Rec", icon:PlusCircle },
+    { id:"daily",   tab:"daily_report", label:"Daily Report", short:"Daily", icon:ClipboardList },
   ]},
   { label: "Dashboard", items: [
     { id:"dash", tab:"dashboard", label:"Executive Dashboard", short:"Dash", icon:LayoutDashboard },
@@ -20,7 +21,6 @@ export const NAV_GROUPS = [
   { label: "รายงาน", items: [
     { id:"shift",  tab:"shift_report", label:"Shift Report", short:"Shift", icon:Clock },
     { id:"report", tab:"report",       label:"Stats Report", short:"Stats", icon:FileText },
-    { id:"daily", tab:"daily_report", label:"Daily Report", short:"Daily", icon:ClipboardList },
   ]},
 ];
 // mobile bottom bar = 5 ปุ่มหลัก (Home·Rec·Dash·Shift·More), ที่เหลือเข้า More

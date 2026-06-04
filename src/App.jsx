@@ -19,7 +19,7 @@ import RouteScheduleView from "./components/views/RouteScheduleView";
 import PerformanceView from "./components/views/PerformanceView";
 import DailyReportView from "./components/views/DailyReportView";
 import { loadIssues, persistIssues, upsertIssue, setIssueStatus, removeIssue } from "./utils/issues";
-import { loadDailyReports, persistDailyReports, upsertDailyReport, removeDailyReport } from "./utils/dailyReports";
+import { loadDailyReports, persistDailyReports, upsertDailyReport, removeDailyReport, normalize } from "./utils/dailyReports";
 import { apiCall } from "./utils/api";
 
 import { Shell, NAV_GROUPS } from "./ui-ux-pro-max";
@@ -39,7 +39,7 @@ const PrimaryGroutApp = () => {
   const [issues, setIssues] = useState(loadIssues);
   useEffect(() => { persistIssues(issues); }, [issues]);
 
-  const [dailyReports, setDailyReports] = useState(loadDailyReports);
+  const [dailyReports, setDailyReports] = useState(() => normalize(loadDailyReports()));
   const handleSaveDailyReport = (report) => { const next = upsertDailyReport(dailyReports, report); setDailyReports(next); persistDailyReports(next); };
   const handleDeleteDailyReport = (id) => { const next = removeDailyReport(dailyReports, id); setDailyReports(next); persistDailyReports(next); };
 

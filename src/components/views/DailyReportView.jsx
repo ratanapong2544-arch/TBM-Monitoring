@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { ClipboardList, Plus } from "lucide-react";
 import SectionHeader from "../common/SectionHeader";
 import { MACHINES, newItem, prefillFromLatest, sortReports } from "../../utils/dailyReports";
@@ -20,7 +20,7 @@ const toForm = (r) => ({
       .map((it) => ({ ...it, done: it.done ?? "", total: it.total ?? "" })),
 });
 
-export default function DailyReportView({ dailyReports = [], onSave, onDelete }) {
+export default function DailyReportView({ dailyReports = [], onSave, onDelete, pendingDraft = null, onConsumePendingDraft }) {
   const [machineFilter, setMachineFilter] = useState("All");
   const [editing, setEditing] = useState(null); // { form, carriedKeys } | null
 
@@ -38,6 +38,15 @@ export default function DailyReportView({ dailyReports = [], onSave, onDelete })
   const openEdit = (r) => setEditing({ form: toForm(r), carriedKeys: new Set() });
   const close = () => setEditing(null);
   const save = (form) => { onSave(form); close(); };
+
+  // bridge SP4: draft จาก ReportView → เปิดฟอร์ม excavation pre-filled
+  useEffect(() => {
+    if (!pendingDraft) return;
+    const carried = new Set();
+    Object.entries(pendingDraft.labor || {}).forEach(([k, v]) => { if (v !== "" && v != null) carried.add(k); });
+    setEditing({ form: pendingDraft, carriedKeys: carried });
+    if (onConsumePendingDraft) onConsumePendingDraft();
+  }, [pendingDraft]); // intentionally omits onConsumePendingDraft (stable callback ref)
 
   if (editing) {
     return (

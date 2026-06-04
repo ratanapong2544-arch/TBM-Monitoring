@@ -1,11 +1,13 @@
 import React, { useState, useMemo } from "react";
-import { Sparkles, AlertCircle, X, Check, Copy, Download, Printer, Loader2 } from "lucide-react";
-import { formatDisplayDate, formatDisplayTime, parseCH, formatThaiBuddhistDate, formatThaiBuddhistDateForFile } from "../../utils/formatters";
+import { Sparkles, X, Check, Copy, Download, Printer, Loader2, FileSpreadsheet } from "lucide-react";
+import { formatDisplayDate, formatDisplayTime, formatThaiBuddhistDate, formatThaiBuddhistDateForFile } from "../../utils/formatters";
 import { getLogicalShiftDate, getRingNumeric, calculateSoilVolume, loadHtml2Canvas } from "../../utils/helpers";
 import { generateGeminiSummary } from "../../utils/api";
 import { TOTAL_ROUTE_DISTANCE } from "../../utils/constants";
+import { composeExcavationWorkLog, mapManpowerToLabor } from "../../utils/worklogCompose";
+import { newDailyReport, MACHINES } from "../../utils/dailyReports";
 
-const ReportView = ({ segmentRecords, groutRecords, projectInfo, shiftReports }) => {
+const ReportView = ({ segmentRecords, groutRecords, projectInfo, shiftReports, onCreateDaily }) => {
   const [reportType, setReportType] = useState("daily");
   const [reportDate, setReportDate] = useState(new Date().toISOString().split("T")[0]);
   const [reportMonth, setReportMonth] = useState(new Date().toISOString().slice(0, 7));
@@ -217,91 +219,18 @@ const ReportView = ({ segmentRecords, groutRecords, projectInfo, shiftReports })
     setAiSummaryText("");
     setCopied(false);
 
-    const installedInShift = [...filteredSegments].filter(s => s.status !== "In Progress" && s.installType !== "Temporary" && (reportShift === "All" || (s.installShift || s.shift) === reportShift)).sort((a, b) => getRingNumeric(a.ringNo) - getRingNumeric(b.ringNo));
-    const excavatedInShift = [...filteredSegments].filter(s => (reportShift === "All" || (s.excavShift || s.shift) === reportShift)).sort((a, b) => getRingNumeric(a.ringNo) - getRingNumeric(b.ringNo));
-
-    const segmentDetails = installedInShift.map(s => `${s.ringNo} (K${s.keyPos})`).join(', ') || '-';
-    const excavRings = excavatedInShift.length > 0 ? (excavatedInShift.length === 1 ? excavatedInShift[0].ringNo : `${excavatedInShift[0].ringNo}-${excavatedInShift[excavatedInShift.length - 1].ringNo}`) : '-';
-
-    let startCH = excavatedInShift.length > 0 ? excavatedInShift[0].startCH : '-';
-    let finishCH = excavatedInShift.length > 0 ? excavatedInShift[excavatedInShift.length - 1].finishCH : '-';
-
-    const sortedGrouts = [...filteredGrouts].sort((a, b) => getRingNumeric(a.ringNo) - getRingNumeric(b.ringNo));
-    const groutDetails = sortedGrouts.map(g => `${g.ringNo} = ${Number(g.total || 0).toFixed(3)} m3 (${Number(g.ratio || 0).toFixed(2)}%)`).join(', ') || '-';
-    const groutRingRange = sortedGrouts.length > 0 ? (sortedGrouts.length === 1 ? sortedGrouts[0].ringNo : `${sortedGrouts[0].ringNo}-${sortedGrouts[sortedGrouts.length - 1].ringNo}`) : '-';
-    const latestGroutRing = sortedGrouts.length > 0 ? sortedGrouts[sortedGrouts.length - 1].ringNo : '-';
-    const soilTypes = [...new Set(excavatedInShift.map(s => s.soilType).filter(Boolean))].join(', ') || '-';
-
-    const totalAccumPermRings = accumulation.permRings;
-    const totalAccumTempRings = accumulation.tempRings;
-    const totalAccumDist = accumulation.totalAccumDist;
-
-    let shiftDelays = [];
-    filteredShiftReports.forEach(sr => {
-      Object.entries(sr.events || {}).forEach(([activityName, evs]) => {
-        if (!['Excavation', 'Segment Erection', 'Locomotive / Rail System', 'Survey', 'Other 1', 'Other 2'].includes(activityName)) {
-          evs.forEach(ev => {
-            let desc = activityName;
-            if (ev.label && String(ev.label).trim() !== '') {
-               desc = activityName.toLowerCase().startsWith('other') ? ev.label : `${activityName} (${ev.label})`;
-            }
-            shiftDelays.push(desc);
-          });
-        }
-      });
+    const body = composeExcavationWorkLog({
+      filteredSegments, filteredGrouts, filteredShiftReports,
+      summary, accumulation, projectInfo, reportShift,
     });
 
-    const uniqueDelays = [...new Set(shiftDelays)];
-    let combinedRemarks = [];
-    if (summary.allRemarks.length > 0) combinedRemarks.push(...summary.allRemarks.map(r => `${String(r.text)} (พบในวง ${r.ring})`));
-    if (uniqueDelays.length > 0) combinedRemarks.push(...uniqueDelays);
-    const remarksText = combinedRemarks.length > 0 ? '-' + combinedRemarks.join('\n-') : '-ไม่มี';
-
-    const calculatedExcavateDist = finishCH !== '-' ? (8830.488 - parseCH(finishCH)).toFixed(3) : "0.000";
-
-    const promptText = `
-=== TEMPLATE ที่ต้องใช้ (ส่งกลับมาเฉพาะข้อความตาม Template นี้เท่านั้น ห้ามอธิบายเพิ่ม) ===
-รายงานประจำวันที่ ${displayDateStr} ${reportShift} Shift
+    const promptText = `รายงานประจำวันที่ ${displayDateStr} ${reportShift} Shift
 
 🪏🪏งานขุดเจาะอุโมงค์ ${projectInfo.tbmNo}
 Drive Shaft : ${projectInfo.location}
 สภาพอากาศ : แจ่มใส
 
-1. ${projectInfo.tbmNo}
--เริ่มต้น CH 8+830.488 (Center Shaft IS4) ขุดเจาะถึง CH ${finishCH} = ${calculatedExcavateDist} m
--ขุดเจาะ ${excavRings} แล้วเสร็จ
-
-2.งานติดตั้งผนังอุโมงค์ (Segment)
--ประกอบ ${segmentDetails} = ${summary.permCount} Ring/Shift
--จำนวน Ring สะสม = Permanent ${totalAccumPermRings} Ring, Tempo ${totalAccumTempRings} Ring
--ระยะติดตั้ง ${summary.totalLength} m./Shift
--ระยะติดตั้งสะสม ${totalAccumDist} m
-
-3.Primary Grout
--Ring ${groutRingRange} = ${summary.uniqueGroutedRings} Ring/Shift
--Grout สะสมถึง = ${latestGroutRing}
--Grout Volumn ${groutDetails}
-
-4.สภาพดินที่ขุดเจาะ
--${soilTypes || "ไม่มีข้อมูล"}
-
-5. ตรวจสอบคุณภาพชิ้นส่วนอุโมงค์ (ภาคพื้นดิน)
-5.1 ตรวจสอบความเรียบร้อย Segment
--ไม่มี (ตรวจสอบไว้ล่วงหน้าแล้ว)
-
-6.งานทดสอบ Primary Grout & Secondary Grout
-6.1 Materials test
--ไม่มี
-6.2 ทดสอบ Compressive Strength
--ไม่มี
-
-7.งานอื่นๆ
--ไม่มี
-
-8. Delay Activities
-${remarksText}
-=== สิ้นสุด TEMPLATE ===
-    `;
+${body}`;
 
     const sysPrompt = "คุณคือวิศวกรควบคุมงาน หน้าที่ของคุณคือ Print ข้อความตามรูปแบบ TEMPLATE ที่กำหนดให้ออกมาเป๊ะๆ โดยข้อมูลในหัวข้อ 1-7 ห้ามเปลี่ยนแปลง คิดเอง หรือตัดทอนเด็ดขาด ให้พิมพ์ตามต้นฉบับทุกตัวอักษร แต่ในส่วน '8. Delay Activities' ให้คุณนำข้อมูลมาเรียบเรียงใหม่ให้อ่านดูเป็นภาษาวิศวกรหน้างานเชิงรายงาน หากมีกิจกรรมหรือรายการที่คล้ายกันให้จัดกลุ่มและสรุปรวมให้กระชับและเป็นมืออาชีพมากที่สุด (เช่น นำมารวมเป็น 1 บรรทัด หรือเรียบเรียง wording ใหม่ให้เป็นทางการ) ห้ามเพิ่มคำอธิบายทักทายใดๆ เด็ดขาด";
 
@@ -312,6 +241,23 @@ ${remarksText}
   };
 
 
+
+  const handleCreateDailyFromReport = () => {
+    const machine = MACHINES.includes(projectInfo.tbmNo) ? projectInfo.tbmNo : "TBM1";
+    const base = newDailyReport(machine, "excavation");
+    const draft = {
+      ...base,
+      date: reportType === "daily" ? reportDate : base.date,
+      area: projectInfo.location || "",
+      workLogText: composeExcavationWorkLog({
+        filteredSegments, filteredGrouts, filteredShiftReports,
+        summary, accumulation, projectInfo, reportShift,
+      }),
+      labor: { ...base.labor, ...mapManpowerToLabor(filteredShiftReports) },
+    };
+    setShowAIModal(false);
+    if (onCreateDaily) onCreateDaily(draft);
+  };
 
   const copyToClipboard = () => {
     const textArea = document.createElement("textarea");
@@ -542,13 +488,20 @@ ${remarksText}
               )}
             </div>
 
-            {!isGeneratingAI && aiSummaryText && (
+            {!isGeneratingAI && (
               <div className="bg-surface px-6 py-4 border-t border-line flex flex-col sm:flex-row justify-between items-center shrink-0 gap-4">
-                <p className="text-[10px] sm:text-xs text-ink-3 font-semibold flex items-center gap-1.5 text-center sm:text-left"><Sparkles size={12} /> เนื้อหาสร้างโดย AI โปรดตรวจสอบความถูกต้อง</p>
-                <button onClick={copyToClipboard} className="flex items-center justify-center gap-2 px-6 py-2.5 bg-navy hover:bg-navy-dark text-white rounded-input font-semibold text-sm transition-colors shadow-card active:scale-95 w-full sm:w-auto">
-                  {copied ? <Check size={18} className="text-sgreen-med" /> : <Copy size={18} />}
-                  {copied ? "คัดลอกแล้ว!" : "คัดลอกรายงาน"}
-                </button>
+                <p className="text-[10px] sm:text-xs text-ink-3 font-semibold flex items-center gap-1.5 text-center sm:text-left"><Sparkles size={12} /> เนื้อหา AI โปรดตรวจสอบ · "สร้าง Daily Report" ใช้ตัวเลขจากข้อมูลจริง (deterministic)</p>
+                <div className="flex items-center gap-2 w-full sm:w-auto">
+                  <button onClick={handleCreateDailyFromReport} className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-5 py-2.5 bg-sgreen-dark hover:opacity-90 text-white rounded-input font-semibold text-sm transition-colors shadow-card active:scale-95">
+                    <FileSpreadsheet size={18} /> สร้าง Daily Report
+                  </button>
+                  {aiSummaryText && (
+                    <button onClick={copyToClipboard} className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-5 py-2.5 bg-navy hover:bg-navy-dark text-white rounded-input font-semibold text-sm transition-colors shadow-card active:scale-95">
+                      {copied ? <Check size={18} className="text-sgreen-med" /> : <Copy size={18} />}
+                      {copied ? "คัดลอกแล้ว!" : "คัดลอกรายงาน"}
+                    </button>
+                  )}
+                </div>
               </div>
             )}
           </div>

@@ -40,6 +40,7 @@ const PrimaryGroutApp = () => {
   useEffect(() => { persistIssues(issues); }, [issues]);
 
   const [dailyReports, setDailyReports] = useState(() => normalize(loadDailyReports()));
+  const [pendingDailyDraft, setPendingDailyDraft] = useState(null);
   const handleSaveDailyReport = (report) => { const next = upsertDailyReport(dailyReports, report); setDailyReports(next); persistDailyReports(next); };
   const handleDeleteDailyReport = (id) => { const next = removeDailyReport(dailyReports, id); setDailyReports(next); persistDailyReports(next); };
 
@@ -239,9 +240,9 @@ const PrimaryGroutApp = () => {
       {activeTab === "performance" && <PerformanceView segmentRecords={segmentRecords} shiftReports={shiftReports} />}
       {activeTab === "datalog" && currentModule === "grout" && <GroutDashboardView groutRecords={groutRecords} setGroutRecords={setGroutRecords} segmentRecords={segmentRecords} />}
       {activeTab === "datalog" && currentModule === "segment" && <SegmentDashboardView segmentRecords={segmentRecords} setSegmentRecords={setSegmentRecords} />}
-      {activeTab === "report" && <ReportView segmentRecords={segmentRecords} groutRecords={groutRecords} projectInfo={projectInfo} shiftReports={shiftReports} />}
+      {activeTab === "report" && <ReportView segmentRecords={segmentRecords} groutRecords={groutRecords} projectInfo={projectInfo} shiftReports={shiftReports} onCreateDaily={(draft) => { setPendingDailyDraft(draft); setActiveTab("daily_report"); }} />}
       {activeTab === "shift_report" && <ShiftReportView projectInfo={projectInfo} segmentRecords={segmentRecords} shiftReports={shiftReports} setShiftReports={setShiftReports} />}
-      {activeTab === "daily_report" && <DailyReportView dailyReports={dailyReports} onSave={handleSaveDailyReport} onDelete={handleDeleteDailyReport} />}
+      {activeTab === "daily_report" && <DailyReportView dailyReports={dailyReports} onSave={handleSaveDailyReport} onDelete={handleDeleteDailyReport} pendingDraft={pendingDailyDraft} onConsumePendingDraft={() => setPendingDailyDraft(null)} />}
     </Shell>
   );
 };

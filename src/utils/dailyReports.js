@@ -1,4 +1,6 @@
-// Daily-report domain logic + localStorage (localStorage-first; GAS sync = future phase)
+// Daily-report domain logic + localStorage (localStorage-first; PDF gen = SP2/SP3)
+import { EQUIPMENT, LABOR, WEATHER_SLOTS } from "./dailyReportSchema";
+
 export const STORAGE_KEY = "tbmDailyReports";
 export const MACHINES = ["TBM1", "TBM2"];
 
@@ -10,15 +12,30 @@ export function newItem() {
   return { id: makeId("it"), title: "", done: "", total: "", note: "" };
 }
 
+function emptyCounts(catalog) {
+  const o = {};
+  catalog.forEach((c) => { o[c.key] = ""; });
+  return o;
+}
+function emptyWeather() {
+  const o = {};
+  WEATHER_SLOTS.forEach((s) => { o[s] = null; });
+  return o;
+}
+
 export function newDailyReport(machine = "TBM1") {
   return {
     id: "",
     date: new Date().toISOString().split("T")[0],
+    area: "",
     machine,
-    driveShaft: "",
-    weather: "",
-    items: [newItem()],
+    weather: emptyWeather(),
+    equipment: emptyCounts(EQUIPMENT),
+    labor: emptyCounts(LABOR),
+    workLog: [newItem()],
     problems: "",
+    solutions: "",
+    sign: { recorderName: "", recorderPos: "", checkerName: "", checkerPos: "" },
   };
 }
 
@@ -32,39 +49,99 @@ export function itemPercent(item) {
 export function validateReport(r) {
   const errors = {};
   if (!r.date) errors.date = "กรุณาเลือกวันที่";
-  if (!r.machine || !MACHINES.includes(r.machine)) errors.machine = "กรุณาเลือกเครื่อง";
-  const titled = (r.items || []).filter((it) => it.title && it.title.trim());
-  if (titled.length === 0) errors.items = "กรอกอย่างน้อย 1 รายการงาน";
+  if (!r.area || !r.area.trim()) errors.area = "กรุณากรอกพื้นที่ทำงาน";
   return { valid: Object.keys(errors).length === 0, errors };
 }
 
-function normalizeItems(items) {
-  return (items || [])
+function numOrNull(v) {
+  if (v === "" || v == null) return null;
+  const n = Number(v);
+  return isNaN(n) ? null : n;
+}
+function normalizeCounts(catalog, src) {
+  const o = {};
+  catalog.forEach((c) => { o[c.key] = numOrNull(src ? src[c.key] : null); });
+  return o;
+}
+function normalizeWeather(src) {
+  const o = {};
+  WEATHER_SLOTS.forEach((s) => {
+    const v = src && typeof src === "object" ? src[s] : null;
+    o[s] = v === "clear" || v === "light" || v === "heavy" ? v : null;
+  });
+  return o;
+}
+function normalizeWorkLog(src) {
+  return (Array.isArray(src) ? src : [])
     .filter((it) => it.title && it.title.trim())
     .map((it) => ({
       id: it.id || makeId("it"),
       title: it.title.trim(),
-      done: it.done === "" || it.done == null ? null : Number(it.done),
-      total: it.total === "" || it.total == null ? null : Number(it.total),
+      done: numOrNull(it.done),
+      total: numOrNull(it.total),
       note: (it.note || "").trim(),
     }));
 }
 
-function normalize(r) {
+export function normalizeReport(r) {
+  r = r && typeof r === "object" ? r : {};
+  const sign = r.sign || {};
   return {
     date: r.date || "",
-    machine: r.machine,
-    driveShaft: (r.driveShaft || "").trim(),
-    weather: (r.weather || "").trim(),
-    items: normalizeItems(r.items),
+    area: (r.area || r.driveShaft || "").trim(),
+    machine: MACHINES.includes(r.machine) ? r.machine : "",
+    weather: normalizeWeather(r.weather),
+    equipment: normalizeCounts(EQUIPMENT, r.equipment),
+    labor: normalizeCounts(LABOR, r.labor),
+    workLog: normalizeWorkLog(r.workLog || r.items),
     problems: (r.problems || "").trim(),
+    solutions: (r.solutions || "").trim(),
+    sign: {
+      recorderName: (sign.recorderName || "").trim(),
+      recorderPos: (sign.recorderPos || "").trim(),
+      checkerName: (sign.checkerName || "").trim(),
+      checkerPos: (sign.checkerPos || "").trim(),
+    },
+  };
+}
+
+export function normalize(list) {
+  return (Array.isArray(list) ? list : []).map((r) => ({
+    ...normalizeReport(r),
+    id: r.id,
+    createdAt: r.createdAt,
+    updatedAt: r.updatedAt,
+  }));
+}
+
+function countsToForm(counts) {
+  const o = {};
+  Object.keys(counts || {}).forEach((k) => { o[k] = counts[k] == null ? "" : String(counts[k]); });
+  return o;
+}
+
+export function prefillFromLatest(list, { machine = "TBM1" } = {}) {
+  const norm = normalize(list);
+  const pool = machine ? norm.filter((r) => r.machine === machine) : norm;
+  const latest = pool.slice().sort((a, b) =>
+    String(b.date || "").localeCompare(String(a.date || "")) ||
+    String(b.createdAt || "").localeCompare(String(a.createdAt || ""))
+  )[0];
+  const base = newDailyReport(latest ? latest.machine || machine : machine);
+  if (!latest) return base;
+  return {
+    ...base,
+    area: latest.area || "",
+    equipment: { ...base.equipment, ...countsToForm(latest.equipment) },
+    labor: { ...base.labor, ...countsToForm(latest.labor) },
+    sign: { ...base.sign, ...(latest.sign || {}) },
   };
 }
 
 export function upsertDailyReport(list, report, now = new Date().toISOString()) {
-  const base = normalize(report);
+  const base = normalizeReport(report);
   if (report.id) {
-    return list.map((r) => (r.id === report.id ? { ...r, ...base, updatedAt: now } : r));
+    return list.map((r) => (r.id === report.id ? { ...r, ...base, id: report.id, updatedAt: now } : r));
   }
   return [{ id: makeId("dr"), ...base, createdAt: now, updatedAt: now }, ...list];
 }

@@ -7,11 +7,12 @@ export default function CountGrid({ catalog, values, onChange, carriedKeys }) {
     <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
       {catalog.map(({ key, label }) => {
         const v = values[key] ?? "";
+        const carried = !!(carriedKeys && carriedKeys.has(key)); // เติมมาจากใบล่าสุด → ไฮไลต์ฟ้า
         return (
           <label
             key={key}
             className={`flex items-center justify-between gap-2 border rounded-input px-2.5 py-1.5 transition-colors ${
-              v !== "" ? "border-cyan-med bg-cyan-vtint" : "border-line-input bg-surface"
+              carried ? "border-cyan-med bg-cyan-tint" : "border-line-input bg-surface"
             }`}
             title={label}
           >

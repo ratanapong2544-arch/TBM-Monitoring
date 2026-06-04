@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { ClipboardList, Plus } from "lucide-react";
 import SectionHeader from "../common/SectionHeader";
-import { MACHINES, prefillFromLatest, sortReports } from "../../utils/dailyReports";
+import { MACHINES, newItem, prefillFromLatest, sortReports } from "../../utils/dailyReports";
 import DailyReportCard from "../dailyreport/DailyReportCard";
 import DailyReportForm from "../dailyreport/DailyReportForm";
 
@@ -16,7 +16,7 @@ const toForm = (r) => ({
   equipment: mapVals(r.equipment),
   labor: mapVals(r.labor),
   workLog:
-    (r.workLog && r.workLog.length ? r.workLog : [{ id: `it_${Date.now()}`, title: "", done: "", total: "", note: "" }])
+    (r.workLog && r.workLog.length ? r.workLog : [newItem()])
       .map((it) => ({ ...it, done: it.done ?? "", total: it.total ?? "" })),
 });
 

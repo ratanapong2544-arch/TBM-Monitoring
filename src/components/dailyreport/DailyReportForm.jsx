@@ -47,7 +47,7 @@ export default function DailyReportForm({ initial, carriedKeys, onCancel, onSave
     <div className="bg-surface rounded-card border border-line shadow-card overflow-hidden">
       {/* header */}
       <div className="bg-navy-dark px-5 py-4 text-white flex items-center justify-between">
-        <h2 className="font-semibold text-lg">{form.id ? "แก้ไขรายงานประจำวัน" : "บันทึกประจำวันใหม่"}</h2>
+        <h2 className="font-semibold text-lg">{form.id ? "แก้ไขรายงานประจำวัน" : (form.kind === "excavation" ? "บันทึกประจำวัน (งานขุดเจาะ)" : "บันทึกประจำวันใหม่")}</h2>
         <button type="button" onClick={onCancel} className="p-2 bg-white/10 hover:bg-white/20 rounded-full"><X size={18} /></button>
       </div>
 
@@ -96,28 +96,43 @@ export default function DailyReportForm({ initial, carriedKeys, onCancel, onSave
           <CountGrid catalog={LABOR} values={form.labor} onChange={(k, v) => setCount("labor", k, v)} carriedKeys={carriedKeys} />
         </Section>
 
-        <Section title="บันทึกการทำงาน" status={{ done: form.workLog.some((it) => it.title.trim()), label: `${form.workLog.filter((it) => it.title.trim()).length} รายการ` }}>
-          <div className="space-y-2">
-            {form.workLog.map((it) => {
-              const pct = itemPercent({ done: it.done, total: it.total });
-              return (
-                <div key={it.id} className="bg-surface-alt border border-line rounded-input p-2.5 space-y-2">
-                  <div className="flex items-center gap-2">
-                    <input type="text" value={it.title} onChange={(e) => setItem(it.id, { title: e.target.value })} placeholder="หัวข้องาน" className="flex-1 bg-surface border border-line rounded-input px-2 py-1.5 text-sm outline-none focus:border-navy" />
-                    <button type="button" onClick={() => removeItem(it.id)} className="p-1.5 text-code-d hover:bg-code-d/10 rounded-input shrink-0"><Trash2 size={15} /></button>
+        <Section title="บันทึกการทำงาน" status={form.kind === "excavation"
+          ? { done: !!(form.workLogText && form.workLogText.trim()), label: form.workLogText && form.workLogText.trim() ? "มีข้อความ" : "ว่าง" }
+          : { done: form.workLog.some((it) => it.title.trim()), label: `${form.workLog.filter((it) => it.title.trim()).length} รายการ` }}>
+          {form.kind === "excavation" ? (
+            <>
+              <textarea
+                value={form.workLogText || ""}
+                onChange={(e) => set({ workLogText: e.target.value })}
+                rows={16}
+                className={inputCls + " resize-y font-mono text-xs leading-relaxed whitespace-pre"}
+                placeholder="บันทึกการทำงาน (ดึงจาก dashboard) — แก้ไขได้"
+              />
+              <p className="text-xs text-ink-3 mt-2">ดึงจาก dashboard อัตโนมัติ — ตรวจ/แก้ก่อนบันทึก (ตัวเลขจากข้อมูลจริง)</p>
+            </>
+          ) : (
+            <div className="space-y-2">
+              {form.workLog.map((it) => {
+                const pct = itemPercent({ done: it.done, total: it.total });
+                return (
+                  <div key={it.id} className="bg-surface-alt border border-line rounded-input p-2.5 space-y-2">
+                    <div className="flex items-center gap-2">
+                      <input type="text" value={it.title} onChange={(e) => setItem(it.id, { title: e.target.value })} placeholder="หัวข้องาน" className="flex-1 bg-surface border border-line rounded-input px-2 py-1.5 text-sm outline-none focus:border-navy" />
+                      <button type="button" onClick={() => removeItem(it.id)} className="p-1.5 text-code-d hover:bg-code-d/10 rounded-input shrink-0"><Trash2 size={15} /></button>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <input type="number" min="0" value={it.done} onChange={(e) => setItem(it.id, { done: e.target.value })} placeholder="ทำได้" className="w-20 bg-surface border border-line rounded-input px-2 py-1.5 text-xs font-mono text-center outline-none focus:border-navy" />
+                      <span className="text-ink-3 text-xs">/</span>
+                      <input type="number" min="0" value={it.total} onChange={(e) => setItem(it.id, { total: e.target.value })} placeholder="ทั้งหมด" className="w-20 bg-surface border border-line rounded-input px-2 py-1.5 text-xs font-mono text-center outline-none focus:border-navy" />
+                      {pct !== null && <span className="text-xs font-semibold font-mono text-ink-2">{pct}%</span>}
+                      <input type="text" value={it.note} onChange={(e) => setItem(it.id, { note: e.target.value })} placeholder="โน้ต (ไม่บังคับ)" className="flex-1 bg-surface border border-line rounded-input px-2 py-1.5 text-xs outline-none focus:border-navy" />
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <input type="number" min="0" value={it.done} onChange={(e) => setItem(it.id, { done: e.target.value })} placeholder="ทำได้" className="w-20 bg-surface border border-line rounded-input px-2 py-1.5 text-xs font-mono text-center outline-none focus:border-navy" />
-                    <span className="text-ink-3 text-xs">/</span>
-                    <input type="number" min="0" value={it.total} onChange={(e) => setItem(it.id, { total: e.target.value })} placeholder="ทั้งหมด" className="w-20 bg-surface border border-line rounded-input px-2 py-1.5 text-xs font-mono text-center outline-none focus:border-navy" />
-                    {pct !== null && <span className="text-xs font-semibold font-mono text-ink-2">{pct}%</span>}
-                    <input type="text" value={it.note} onChange={(e) => setItem(it.id, { note: e.target.value })} placeholder="โน้ต (ไม่บังคับ)" className="flex-1 bg-surface border border-line rounded-input px-2 py-1.5 text-xs outline-none focus:border-navy" />
-                  </div>
-                </div>
-              );
-            })}
-            <button type="button" onClick={addItem} className="text-navy bg-cyan-tint px-2.5 py-1 rounded-input text-xs font-semibold inline-flex items-center gap-1"><Plus size={13} /> เพิ่มรายการ</button>
-          </div>
+                );
+              })}
+              <button type="button" onClick={addItem} className="text-navy bg-cyan-tint px-2.5 py-1 rounded-input text-xs font-semibold inline-flex items-center gap-1"><Plus size={13} /> เพิ่มรายการ</button>
+            </div>
+          )}
         </Section>
 
         <Section title="ปัญหา / อุปสรรค & แนวทางแก้ไข" status={null}>

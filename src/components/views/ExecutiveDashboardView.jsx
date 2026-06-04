@@ -3,10 +3,11 @@ import { TrendingUp, Layers, Activity, MapPin, Droplet, BarChart3, Printer } fro
 import StatCard from "../common/StatCard";
 import SectionHeader from "../common/SectionHeader";
 import GlobalFilterBar from "../common/GlobalFilterBar";
+import ImageSlideshow from "../dashboard/ImageSlideshow";
 import useGlobalFilter from "../../hooks/useGlobalFilter";
 import { formatDisplayDate } from "../../utils/formatters";
 import { getRingNumeric, calculateSoilVolume } from "../../utils/helpers";
-import { TOTAL_ROUTE_DISTANCE } from "../../utils/constants";
+import { TOTAL_ROUTE_DISTANCE, DRIVE_PHOTOS_FOLDER_ID } from "../../utils/constants";
 import { chartColors, tooltipStyle } from "../../ui-ux-pro-max/chartTheme";
 import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip } from "recharts";
 
@@ -225,6 +226,9 @@ const ExecutiveDashboardView = ({ segmentRecords, groutRecords }) => {
           subtext="อัตราส่วนน้ำยาเฉลี่ยทุกวง"
         />
       </div>
+
+      {/* ═══ Site Photos Slideshow ═══ */}
+      <ImageSlideshow folderId={DRIVE_PHOTOS_FOLDER_ID} />
 
       {/* ═══ SECTION 5: Grout Pending & Section 6: Shift Comparison ═══ */}
       <div className={`grid grid-cols-1 md:grid-cols-2 gap-4 ${printingChartId !== 'all' && printingChartId !== 'pie' ? 'print:hidden' : ''}`}>

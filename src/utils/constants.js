@@ -7,6 +7,7 @@ export const VOL_50 = 1.55;
 
 // Tunnel route constants
 export const CH_START_P36 = 8769.960; // CH เริ่มต้นของ P36
+export const CH_EXCAV_START = 8830.488; // CH เริ่มต้นขุดเจาะ (Center Shaft IS4)
 export const TOTAL_ROUTE_DISTANCE = 8874.683; // ระยะทางรวมทั้งหมด (เมตร)
 
 // Route segments: IS4-1 → IS3 → IS2 → IS1

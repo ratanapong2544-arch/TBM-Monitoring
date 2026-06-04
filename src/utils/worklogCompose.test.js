@@ -59,3 +59,27 @@ test("empty data → placeholders and -ไม่มี", () => {
   expect(txt).toContain("-ขุดเจาะ - แล้วเสร็จ");
   expect(txt).toMatch(/8\. Delay Activities\n-ไม่มี/);
 });
+
+import { mapManpowerToLabor } from "./worklogCompose";
+
+test("maps manpower keys to labor keys (max per key across reports)", () => {
+  const reports = [
+    { manpower: { Engineer: "2", Operator: "3", Surveyor: "1", Foreman: "1", CraneOp: "2" } },
+    { manpower: { Engineer: "4", Worker: "10", Machanic: "1", Electrician: "2" } },
+  ];
+  const labor = mapManpowerToLabor(reports);
+  expect(labor.lb_engineer).toBe("4");
+  expect(labor.lb_operator).toBe("3");
+  expect(labor.lb_surveyor).toBe("1");
+  expect(labor.lb_worker).toBe("10");
+  expect(labor.lb_mechanic).toBe("1");
+  expect(labor.lb_electrician).toBe("2");
+  expect(labor.lb_foreman).toBe("1");
+  expect(labor.lb_crane_op).toBeUndefined();
+});
+
+test("mapManpowerToLabor handles JSON-string manpower + empty", () => {
+  expect(mapManpowerToLabor([{ manpower: '{"Engineer":"5"}' }]).lb_engineer).toBe("5");
+  expect(mapManpowerToLabor([])).toEqual({});
+  expect(mapManpowerToLabor([{ manpower: { Engineer: "0" } }]).lb_engineer).toBeUndefined();
+});

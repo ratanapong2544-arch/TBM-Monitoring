@@ -103,3 +103,38 @@ export function composeExcavationWorkLog({
 8. Delay Activities
 ${delaysText}`;
 }
+
+// map manpower (shift report) → labor key (เฉพาะที่ตรงชัด; CraneOp เว้นว่าง — Zero Hallucination)
+const MANPOWER_TO_LABOR = {
+  Engineer: "lb_engineer",
+  Operator: "lb_operator",
+  Surveyor: "lb_surveyor",
+  Machanic: "lb_mechanic",      // หมายเหตุ: ต้นทางสะกด "Machanic"
+  Electrician: "lb_electrician",
+  Foreman: "lb_foreman",
+  Worker: "lb_worker",
+  // CraneOp: ไม่ map (ไม่มี labor key ตรง)
+};
+
+function parseManpower(mp) {
+  if (!mp) return {};
+  if (typeof mp === "string") { try { return JSON.parse(mp) || {}; } catch (e) { return {}; } }
+  return typeof mp === "object" ? mp : {};
+}
+
+// คืน labor object (form-ready strings) เฉพาะ key ที่ map ได้และ > 0; ใช้ค่ามากสุดต่อ key ในชุด report
+export function mapManpowerToLabor(shiftReports) {
+  const maxByKey = {};
+  (Array.isArray(shiftReports) ? shiftReports : []).forEach((sr) => {
+    const mp = parseManpower(sr.manpower);
+    Object.entries(mp).forEach(([k, v]) => {
+      const n = Number(v);
+      if (!isNaN(n) && n > 0) maxByKey[k] = Math.max(maxByKey[k] || 0, n);
+    });
+  });
+  const labor = {};
+  Object.entries(MANPOWER_TO_LABOR).forEach(([mpKey, lbKey]) => {
+    if (maxByKey[mpKey] != null) labor[lbKey] = String(maxByKey[mpKey]);
+  });
+  return labor;
+}

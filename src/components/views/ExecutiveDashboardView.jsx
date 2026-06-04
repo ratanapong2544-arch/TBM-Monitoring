@@ -211,10 +211,10 @@ const ExecutiveDashboardView = ({ segmentRecords, groutRecords }) => {
 
       {/* ═══ SECTION 2: KPI Summary Cards ═══ */}
       <div className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 ${printingChartId !== 'all' ? 'print:hidden' : ''}`}>
-        <StatCard label="Permanent Rings" value={overallStats.permRings} subtext={`+ ${overallStats.tempRings} Temp. (Total: ${overallStats.totalRings})`} color="text-sgreen-dark" icon={Layers} />
+        <StatCard label="Current Ring" value={overallStats.currentRing} subtext={`CH ${overallStats.currentCH} · ติดตั้งล่าสุด`} color="text-cyan-med" icon={MapPin} featured />
+        <StatCard label="Permanent Rings" value={overallStats.permRings} subtext={`ติดตั้งสะสม + ${overallStats.tempRings} Temp. (รวม ${overallStats.totalRings})`} color="text-sgreen-dark" icon={Layers} />
         <StatCard label="Total Distance" value={`${Number(overallStats.totalDistance || 0).toFixed(2)} m`} subtext={`ดินขุดรวม: ${Number(overallStats.totalSoilVol || 0).toFixed(2)} m³${planVariance ? (planVariance.behind ? ` · ⚠ ช้ากว่าแผน ${Math.abs(planVariance.variance).toLocaleString(undefined, { maximumFractionDigits: 1 })} ม.` : ` · นำแผน +${planVariance.variance.toLocaleString(undefined, { maximumFractionDigits: 1 })} ม.`) : ""}`} color="text-navy" icon={TrendingUp} />
         <StatCard label="Daily Average" value={`${overallStats.avgRings} Rings`} subtext={`~ ${overallStats.avgDist} m / day`} color="text-code-c" icon={Activity} />
-        <StatCard label="Current Ring" value={overallStats.currentRing} subtext={`CH ${overallStats.currentCH} · ติดตั้งล่าสุด`} color="text-cyan-med" icon={MapPin} />
         <StatCard label="Grout Avg Volume" value={`${overallStats.groutAvgVol} m³`} subtext={`ล่าสุด: ${overallStats.latestGroutRing} (${overallStats.uniqueGroutedRings} วง)`} color="text-cyan-med" icon={Droplet} />
         <StatCard
           label="Grout Avg Ratio"

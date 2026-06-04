@@ -16,3 +16,6 @@ export const ROUTE_SEGMENTS = [
   { id: "IS2", label: "IS2", distance: 7159.586, color: "#a855f7" },
   { id: "IS1", label: "IS1", distance: 8874.683, color: "#c084fc" },
 ];
+
+// Google Drive folder สำหรับสไลด์รูปภาพหน้างานบน Dashboard
+export const DRIVE_PHOTOS_FOLDER_ID = "1Jfk5jcbkGMHuiwgF9diQLEwmxt2eJaaB";

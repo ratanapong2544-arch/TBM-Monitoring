@@ -74,6 +74,13 @@ const ExecutiveDashboardView = ({ segmentRecords, groutRecords }) => {
       if (withCH.length > 0) currentCH = withCH[withCH.length - 1].finishCH;
     }
 
+    // วงล่าสุด (เลข ring มากสุด) — ตำแหน่งปัจจุบัน
+    let currentRing = "-";
+    if (permRings.length > 0) {
+      const byNum = [...permRings].sort((a, b) => getRingNumeric(a.ringNo) - getRingNumeric(b.ringNo));
+      currentRing = String(byNum[byNum.length - 1].ringNo);
+    }
+
     // Grout stats
     const groutAvgVol = filteredGrout.length > 0
       ? (filteredGrout.reduce((acc, r) => acc + Number(r.total || 0), 0) / filteredGrout.length).toFixed(2)
@@ -87,7 +94,7 @@ const ExecutiveDashboardView = ({ segmentRecords, groutRecords }) => {
     return {
       permRings: permRings.length, tempRings: tempRings.length,
       totalRings: permRings.length + tempRings.length,
-      totalDistance, totalSoilVol, avgRings, avgDist, currentCH,
+      totalDistance, totalSoilVol, avgRings, avgDist, currentCH, currentRing,
       groutAvgVol, groutAvgRatio, uniqueGroutedRings, latestGroutRing
     };
   }, [filteredSegments, filteredGrout]);
@@ -207,7 +214,7 @@ const ExecutiveDashboardView = ({ segmentRecords, groutRecords }) => {
         <StatCard label="Permanent Rings" value={overallStats.permRings} subtext={`+ ${overallStats.tempRings} Temp. (Total: ${overallStats.totalRings})`} color="text-sgreen-dark" icon={Layers} />
         <StatCard label="Total Distance" value={`${Number(overallStats.totalDistance || 0).toFixed(2)} m`} subtext={`ดินขุดรวม: ${Number(overallStats.totalSoilVol || 0).toFixed(2)} m³${planVariance ? (planVariance.behind ? ` · ⚠ ช้ากว่าแผน ${Math.abs(planVariance.variance).toLocaleString(undefined, { maximumFractionDigits: 1 })} ม.` : ` · นำแผน +${planVariance.variance.toLocaleString(undefined, { maximumFractionDigits: 1 })} ม.`) : ""}`} color="text-navy" icon={TrendingUp} />
         <StatCard label="Daily Average" value={`${overallStats.avgRings} Rings`} subtext={`~ ${overallStats.avgDist} m / day`} color="text-code-c" icon={Activity} />
-        <StatCard label="Current Position" value={overallStats.currentCH} subtext="Latest Finish CH." color="text-cyan-med" icon={MapPin} />
+        <StatCard label="Current Ring" value={overallStats.currentRing} subtext={`CH ${overallStats.currentCH} · ติดตั้งล่าสุด`} color="text-cyan-med" icon={MapPin} />
         <StatCard label="Grout Avg Volume" value={`${overallStats.groutAvgVol} m³`} subtext={`ล่าสุด: ${overallStats.latestGroutRing} (${overallStats.uniqueGroutedRings} วง)`} color="text-cyan-med" icon={Droplet} />
         <StatCard
           label="Grout Avg Ratio"

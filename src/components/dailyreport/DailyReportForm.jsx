@@ -1,10 +1,9 @@
 import React, { useState } from "react";
-import { ChevronDown, Plus, Trash2, X, Save, FileText, Loader2, ImagePlus } from "lucide-react";
+import { ChevronDown, Plus, Trash2, X, Save } from "lucide-react";
 import { EQUIPMENT, LABOR } from "../../utils/dailyReportSchema";
 import { MACHINES, newItem, itemPercent, validateReport } from "../../utils/dailyReports";
 import CountGrid from "./CountGrid";
 import WeatherGrid from "./WeatherGrid";
-import { checkHelper, buildPdf, downloadBundle, openPdfBlob } from "../../utils/pdfBridge";
 
 function Section({ title, hint, status, defaultOpen = true, children }) {
   const [open, setOpen] = useState(defaultOpen);
@@ -36,39 +35,6 @@ export default function DailyReportForm({ initial, carriedKeys, onCancel, onSave
   const setItem = (id, patch) => set({ workLog: form.workLog.map((it) => (it.id === id ? { ...it, ...patch } : it)) });
   const addItem = () => set({ workLog: [...form.workLog, newItem()] });
   const removeItem = (id) => set({ workLog: form.workLog.filter((it) => it.id !== id) });
-
-  const [building, setBuilding] = useState(false);
-  const [buildMsg, setBuildMsg] = useState("");
-
-  const readDataUrl = (file) => new Promise((resolve) => {
-    const r = new FileReader();
-    r.onload = () => resolve(r.result);
-    r.onerror = () => resolve(null);
-    r.readAsDataURL(file);
-  });
-  const addPhotos = async (fileList) => {
-    const urls = (await Promise.all([...fileList].map(readDataUrl))).filter(Boolean);
-    set({ _photos: [...(form._photos || []), ...urls] });
-  };
-  const removePhoto = (idx) => set({ _photos: (form._photos || []).filter((_, i) => i !== idx) });
-  const setScreenshot = async (file) => { const u = file ? await readDataUrl(file) : null; set({ _screenshot: u }); };
-
-  const handleBuildPdf = async () => {
-    setBuilding(true); setBuildMsg("");
-    const photos = form._photos || [];
-    const shot = form._screenshot || null;
-    try {
-      if (!(await checkHelper())) throw new Error("helper offline");
-      const blob = await buildPdf(form, photos, shot);
-      openPdfBlob(blob);
-      setBuildMsg("สร้าง PDF สำเร็จ — เปิดในแท็บใหม่แล้ว");
-    } catch (e) {
-      downloadBundle(form, photos, shot);
-      setBuildMsg("ไม่พบ helper — ดาวน์โหลดไฟล์ bundle ให้แล้ว รัน: python build_report.py --bundle <ไฟล์> --out report.pdf  (หรือเปิด python server.py แล้วลองใหม่)");
-    } finally {
-      setBuilding(false);
-    }
-  };
 
   const valid = validateReport(form).valid;
   const eqFilled = countFilled(form.equipment);
@@ -195,38 +161,11 @@ export default function DailyReportForm({ initial, carriedKeys, onCancel, onSave
           </div>
         </Section>
 
-        <Section title="เอกสารแนบ (สำหรับ PDF)" status={{ done: (form._photos || []).length > 0 || !!form._screenshot, label: `${(form._photos || []).length} รูป${form._screenshot ? " + screenshot" : ""}` }} defaultOpen={false}>
-          <div className="space-y-3">
-            <div>
-              <label className="text-xs font-semibold text-ink-2 block mb-1">รูปหน้างาน (เลือกได้หลายรูป)</label>
-              <label className="inline-flex items-center gap-1.5 bg-cyan-tint text-navy px-3 py-1.5 rounded-input text-xs font-semibold cursor-pointer hover:opacity-90">
-                <ImagePlus size={14} /> เพิ่มรูป
-                <input type="file" accept="image/*" multiple className="hidden" onChange={(e) => { addPhotos(e.target.files); e.target.value = ""; }} />
-              </label>
-              {(form._photos || []).length > 0 && (
-                <div className="flex flex-wrap gap-2 mt-2">
-                  {(form._photos || []).map((src, i) => (
-                    <div key={i} className="relative">
-                      <img src={src} alt={`p${i}`} className="w-16 h-16 object-cover rounded-input border border-line" />
-                      <button type="button" onClick={() => removePhoto(i)} className="absolute -top-1.5 -right-1.5 bg-code-d text-white rounded-full p-0.5"><X size={11} /></button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-            <div>
-              <label className="text-xs font-semibold text-ink-2 block mb-1">Screenshot dashboard (รูปเดียว — เซฟจากหน้า Stats Report "เซฟรูปภาพ")</label>
-              <input type="file" accept="image/*" onChange={(e) => setScreenshot(e.target.files[0])} className="text-xs" />
-              {form._screenshot && <img src={form._screenshot} alt="shot" className="w-32 h-auto rounded-input border border-line mt-2" />}
-            </div>
-          </div>
-        </Section>
       </div>
 
       {/* save bar */}
       <div className="px-5 py-4 bg-surface-alt border-t border-line flex items-center justify-end gap-2 flex-wrap">
-        <span className="text-xs mr-auto max-w-[60%]">{buildMsg ? <span className="text-ink-2">{buildMsg}</span> : (valid ? "" : <span className="text-code-d">ต้องกรอก พื้นที่ทำงาน + วันที่</span>)}</span>
-        <button type="button" onClick={handleBuildPdf} disabled={!valid || building} title="สร้างฟอร์มราชการ PDF ผ่าน helper" className="px-4 py-2.5 bg-sgreen-dark text-white rounded-input text-sm font-semibold inline-flex items-center gap-2 hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed shadow-card">{building ? <Loader2 size={16} className="animate-spin" /> : <FileText size={16} />} สร้าง PDF</button>
+        <span className="text-xs text-code-d mr-auto">{valid ? "" : "ต้องกรอก พื้นที่ทำงาน + วันที่"}</span>
         <button type="button" onClick={onCancel} className="px-5 py-2.5 bg-surface text-ink-2 rounded-input text-sm font-semibold border border-line hover:bg-surface-alt shadow-card">ยกเลิก</button>
         <button type="button" onClick={() => onSave(form)} disabled={!valid} className="px-5 py-2.5 bg-navy text-white rounded-input text-sm font-semibold shadow-hover hover:opacity-90 inline-flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"><Save size={16} /> บันทึก</button>
       </div>

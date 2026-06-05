@@ -6,7 +6,7 @@ import { TOTAL_ROUTE_DISTANCE } from "../../utils/constants";
 const fmt = (m) => `${(Number(m) || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })} ม.`;
 
 const PlanVsActualPanel = ({ machine = "TBM1", segmentRecords = [], onNavigate }) => {
-  const cfg = loadDistancePlan(machine);
+  const cfg = useMemo(() => loadDistancePlan(machine), [machine]);
   const hasPlan = Array.isArray(cfg.ranges) && cfg.ranges.length > 0;
 
   const planned = useMemo(

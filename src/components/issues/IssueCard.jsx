@@ -1,7 +1,7 @@
 import React from "react";
 import { Pencil, Check, RotateCcw, Trash2 } from "lucide-react";
 import Badge from "../../ui-ux-pro-max/components/Badge";
-import { SEVERITY, progressPct, effectiveCurrent } from "../../utils/issues";
+import { SEVERITY, progressPct, effectiveCurrent, MACHINE_LABEL } from "../../utils/issues";
 
 export default function IssueCard({ issue, onEdit, onCloseIssue, onReopenIssue, onDeleteIssue, currentRingNum = 0, alwaysShowActions = false }) {
   const sev = SEVERITY[issue.severity] || SEVERITY.info;
@@ -14,7 +14,10 @@ export default function IssueCard({ issue, onEdit, onCloseIssue, onReopenIssue, 
     <div className={`bg-surface border border-line ${sev.accent} border-l-4 rounded-card shadow-card p-3 group ${isClosed ? "opacity-60" : ""}`}>
       <div className="flex items-start justify-between gap-2">
         <div className={`font-semibold text-ink text-base leading-snug ${isClosed ? "line-through" : ""}`}>{issue.title}</div>
-        <Badge code={isClosed ? "neutral" : sev.badge}>{isClosed ? "ปิดแล้ว" : sev.label}</Badge>
+        <div className="flex items-center gap-1 shrink-0">
+          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-badge bg-cyan-tint text-navy">{MACHINE_LABEL[issue.machine || "TBM1"]}</span>
+          <Badge code={isClosed ? "neutral" : sev.badge}>{isClosed ? "ปิดแล้ว" : sev.label}</Badge>
+        </div>
       </div>
 
       {issue.qtyEnabled && (

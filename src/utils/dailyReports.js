@@ -182,3 +182,21 @@ export function persistDailyReports(list) {
     /* ignore quota / serialization errors */
   }
 }
+
+// สรุป daily report สำหรับ empty-state: จำนวน + วันที่ล่าสุด + ข้อความงานล่าสุด
+// list = activeDailyReports (กรองเครื่องมาแล้ว). reuse sortReports (date desc).
+export function dailyReportSummary(list) {
+  const sorted = sortReports(Array.isArray(list) ? list : []);
+  const latest = sorted[0] || null;
+  let latestText = "";
+  if (latest) {
+    const fromWorkLog = Array.isArray(latest.workLog)
+      ? latest.workLog.map((i) => i && i.title).filter(Boolean).join(", ")
+      : "";
+    latestText =
+      (latest.workLogText && latest.workLogText.trim()) ||
+      fromWorkLog ||
+      (latest.area || "");
+  }
+  return { count: sorted.length, latestDate: latest ? (latest.date || "") : "", latestText };
+}

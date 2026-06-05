@@ -2,7 +2,7 @@ import {
   STORAGE_KEY, MACHINES, makeId, newItem, newDailyReport, itemPercent,
   validateReport, normalizeReport, normalize, prefillFromLatest,
   upsertDailyReport, removeDailyReport, sortReports,
-  loadDailyReports, persistDailyReports,
+  loadDailyReports, persistDailyReports, dailyReportSummary,
 } from "./dailyReports";
 import { EQUIPMENT, LABOR, WEATHER_SLOTS } from "./dailyReportSchema";
 
@@ -146,4 +146,27 @@ test("normalizeReport carries kind + workLogText (keeps newlines)", () => {
 test("normalizeReport defaults unknown kind to itemized", () => {
   expect(normalizeReport({ date: "d", area: "a" }).kind).toBe("itemized");
   expect(normalizeReport({ date: "d", area: "a" }).workLogText).toBe("");
+});
+
+test("dailyReportSummary: ว่าง/ไม่ใช่ array → zeros", () => {
+  expect(dailyReportSummary([])).toEqual({ count: 0, latestDate: "", latestText: "" });
+  expect(dailyReportSummary(null)).toEqual({ count: 0, latestDate: "", latestText: "" });
+});
+
+test("dailyReportSummary: count + latest (date desc) + latestText เลือก workLogText ก่อน", () => {
+  const list = [
+    { id: "1", date: "2026-06-01", machine: "TBM2", workLogText: "เก่า", workLog: [], area: "A", createdAt: "x" },
+    { id: "2", date: "2026-06-03", machine: "TBM2", workLogText: "ขุดดิน 3 ม.", workLog: [{ title: "x" }], area: "B", createdAt: "y" },
+  ];
+  const s = dailyReportSummary(list);
+  expect(s.count).toBe(2);
+  expect(s.latestDate).toBe("2026-06-03");
+  expect(s.latestText).toBe("ขุดดิน 3 ม.");
+});
+
+test("dailyReportSummary: latestText fallback → workLog titles → area", () => {
+  const titles = dailyReportSummary([{ id: "1", date: "2026-06-02", workLogText: "", workLog: [{ title: "king post" }, { title: "ระบบไฟ" }], area: "AOB", createdAt: "x" }]);
+  expect(titles.latestText).toBe("king post, ระบบไฟ");
+  const areaOnly = dailyReportSummary([{ id: "1", date: "2026-06-02", workLogText: "", workLog: [], area: "AOB โซน A", createdAt: "x" }]);
+  expect(areaOnly.latestText).toBe("AOB โซน A");
 });

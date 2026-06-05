@@ -19,7 +19,7 @@ import RouteScheduleView from "./components/views/RouteScheduleView";
 import PerformanceView from "./components/views/PerformanceView";
 import DailyReportView from "./components/views/DailyReportView";
 import RecordDailyView from "./components/views/RecordDailyView";
-import { loadIssues, persistIssues, upsertIssue, setIssueStatus, removeIssue } from "./utils/issues";
+import { loadIssues, persistIssues, upsertIssue, setIssueStatus, removeIssue, forMachine } from "./utils/issues";
 import { loadDailyReports, persistDailyReports, upsertDailyReport, removeDailyReport, normalize } from "./utils/dailyReports";
 import { apiCall } from "./utils/api";
 import { getMachineConfig } from "./utils/machineConfig";
@@ -168,6 +168,7 @@ const PrimaryGroutApp = () => {
   const activeGrouts       = activeMachine === "TBM1" ? groutRecords   : [];
   const activeShiftReports = activeMachine === "TBM1" ? shiftReports   : [];
   const activeDailyReports = dailyReports.filter((r) => (r.machine || "TBM1") === activeMachine);
+  const activeIssues = forMachine(issues, activeMachine);
 
   const liveHeaderStatus = useMemo(() => {
     if (activeSegments.length === 0) return null;
@@ -232,7 +233,7 @@ const PrimaryGroutApp = () => {
       onProjectChange={handleProjectInfoChange}
       moreOpen={moreOpen}
       setMoreOpen={setMoreOpen}
-      issues={issues}
+      issues={activeIssues}
       onSaveIssue={handleSaveIssue}
       onSetIssueStatus={handleSetIssueStatus}
       onDeleteIssue={handleDeleteIssue}

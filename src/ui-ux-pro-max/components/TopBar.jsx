@@ -1,14 +1,16 @@
 import React from "react";
 import { MapPin } from "lucide-react";
 import Badge from "./Badge";
+import MachineSwitcher from "./MachineSwitcher";
 
-export default function TopBar({ title, liveStatus, projectInfo, onProjectChange, compact = false, rightSlot = null, machine }) {
+export default function TopBar({ title, liveStatus, projectInfo, onProjectChange, compact = false, rightSlot = null, machine, onMachineChange }) {
   // projectInfo may be the full object { location, date, shift, tbmNo } or a plain string
   const location =
     projectInfo && typeof projectInfo === "object" ? projectInfo.location ?? "" : projectInfo ?? "";
 
   return (
     <header className={`bg-surface border-b border-line flex items-center gap-4 px-5 print:hidden sticky top-0 z-40 ${compact ? "py-2.5" : "py-3"}`}>
+      {onMachineChange && <div className="shrink-0"><MachineSwitcher value={machine} onChange={onMachineChange} size="sm" /></div>}
       {/* Page title + editable location */}
       <div className="flex-1 min-w-0">
         <h1 className={`font-semibold text-ink truncate ${compact ? "text-base" : "text-lg"}`}>

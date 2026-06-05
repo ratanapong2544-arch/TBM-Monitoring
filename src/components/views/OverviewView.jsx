@@ -2,8 +2,9 @@ import React, { useMemo } from "react";
 import { Clock, Layers, Droplet, ChevronRight } from "lucide-react";
 import { formatDisplayTime } from "../../utils/formatters";
 import { offsetRingNo, getRingNumeric } from "../../utils/helpers";
+import MachineSwitcher from "../../ui-ux-pro-max/components/MachineSwitcher";
 
-const OverviewView = ({ segmentRecords, groutRecords, setCurrentModule, setActiveTab }) => {
+const OverviewView = ({ segmentRecords, groutRecords, setCurrentModule, setActiveTab, activeMachine, onMachineChange }) => {
   const liveStatus = useMemo(() => {
     if (segmentRecords.length === 0) return { state: "IDLE", ring: "-", desc: "ยังไม่มีข้อมูล", color: "slate" };
     const map = new Map();
@@ -54,6 +55,13 @@ const OverviewView = ({ segmentRecords, groutRecords, setCurrentModule, setActiv
 
   return (
     <div className="max-w-4xl mx-auto space-y-6 pb-24 animate-fade-in">
+      <div className="flex items-center justify-between gap-3 mb-5 no-print">
+        <div>
+          <div className="text-xs font-semibold text-ink-3 uppercase tracking-wider">หัวเจาะที่กำลังดู</div>
+          <div className="text-2xl font-semibold text-navy">{activeMachine}</div>
+        </div>
+        <MachineSwitcher value={activeMachine} onChange={onMachineChange} size="lg" />
+      </div>
       {/* Hero status card */}
       <div className={`bg-surface border border-line rounded-card shadow-card border-l-4 ${statusAccent} p-8 sm:p-10`}>
         <div className="flex items-center gap-2 mb-3">

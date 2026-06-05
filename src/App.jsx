@@ -18,6 +18,7 @@ import GroutAnalysisView from "./components/views/GroutAnalysisView";
 import RouteScheduleView from "./components/views/RouteScheduleView";
 import PerformanceView from "./components/views/PerformanceView";
 import DailyReportView from "./components/views/DailyReportView";
+import RecordDailyView from "./components/views/RecordDailyView";
 import { loadIssues, persistIssues, upsertIssue, setIssueStatus, removeIssue } from "./utils/issues";
 import { loadDailyReports, persistDailyReports, upsertDailyReport, removeDailyReport, normalize } from "./utils/dailyReports";
 import { apiCall } from "./utils/api";
@@ -40,7 +41,7 @@ const PrimaryGroutApp = () => {
   useEffect(() => { persistIssues(issues); }, [issues]);
 
   const [dailyReports, setDailyReports] = useState(() => normalize(loadDailyReports()));
-  const [pendingDailyDraft, setPendingDailyDraft] = useState(null);
+  const [pendingRecordForm, setPendingRecordForm] = useState(null);
   const handleSaveDailyReport = (report) => { const next = upsertDailyReport(dailyReports, report); setDailyReports(next); persistDailyReports(next); };
   const handleDeleteDailyReport = (id) => { const next = removeDailyReport(dailyReports, id); setDailyReports(next); persistDailyReports(next); };
 
@@ -240,9 +241,10 @@ const PrimaryGroutApp = () => {
       {activeTab === "performance" && <PerformanceView segmentRecords={segmentRecords} shiftReports={shiftReports} />}
       {activeTab === "datalog" && currentModule === "grout" && <GroutDashboardView groutRecords={groutRecords} setGroutRecords={setGroutRecords} segmentRecords={segmentRecords} />}
       {activeTab === "datalog" && currentModule === "segment" && <SegmentDashboardView segmentRecords={segmentRecords} setSegmentRecords={setSegmentRecords} />}
-      {activeTab === "report" && <ReportView segmentRecords={segmentRecords} groutRecords={groutRecords} projectInfo={projectInfo} shiftReports={shiftReports} onCreateDaily={(draft) => { setPendingDailyDraft(draft); setActiveTab("daily_report"); }} />}
+      {activeTab === "report" && <ReportView segmentRecords={segmentRecords} groutRecords={groutRecords} projectInfo={projectInfo} shiftReports={shiftReports} onCreateDaily={(draft) => { setPendingRecordForm(draft); setActiveTab("record_daily"); }} />}
       {activeTab === "shift_report" && <ShiftReportView projectInfo={projectInfo} segmentRecords={segmentRecords} shiftReports={shiftReports} setShiftReports={setShiftReports} />}
-      {activeTab === "daily_report" && <DailyReportView dailyReports={dailyReports} onSave={handleSaveDailyReport} onDelete={handleDeleteDailyReport} pendingDraft={pendingDailyDraft} onConsumePendingDraft={() => setPendingDailyDraft(null)} />}
+      {activeTab === "record_daily" && <RecordDailyView dailyReports={dailyReports} onSave={(form) => { handleSaveDailyReport(form); setActiveTab("daily_report"); }} pendingForm={pendingRecordForm} onConsumePendingForm={() => setPendingRecordForm(null)} />}
+      {activeTab === "daily_report" && <DailyReportView dailyReports={dailyReports} onSave={handleSaveDailyReport} onDelete={handleDeleteDailyReport} />}
     </Shell>
   );
 };

@@ -244,7 +244,7 @@ const PrimaryGroutApp = () => {
       {activeTab === "report" && <ReportView segmentRecords={segmentRecords} groutRecords={groutRecords} projectInfo={projectInfo} shiftReports={shiftReports} onCreateDaily={(draft) => { setPendingRecordForm(draft); setActiveTab("record_daily"); }} />}
       {activeTab === "shift_report" && <ShiftReportView projectInfo={projectInfo} segmentRecords={segmentRecords} shiftReports={shiftReports} setShiftReports={setShiftReports} />}
       {activeTab === "record_daily" && <RecordDailyView dailyReports={dailyReports} onSave={(form) => { handleSaveDailyReport(form); setActiveTab("daily_report"); }} pendingForm={pendingRecordForm} onConsumePendingForm={() => setPendingRecordForm(null)} />}
-      {activeTab === "daily_report" && <DailyReportView dailyReports={dailyReports} onSave={handleSaveDailyReport} onDelete={handleDeleteDailyReport} />}
+      {activeTab === "daily_report" && <DailyReportView dailyReports={dailyReports} onDelete={handleDeleteDailyReport} onEdit={(formReady) => { setPendingRecordForm(formReady); setActiveTab("record_daily"); }} onGoRecord={() => setActiveTab("record_daily")} />}
     </Shell>
   );
 };

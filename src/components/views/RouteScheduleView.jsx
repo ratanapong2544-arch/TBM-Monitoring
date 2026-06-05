@@ -13,7 +13,7 @@ import {
   ResponsiveContainer, ComposedChart, CartesianGrid, XAxis, YAxis, Tooltip, Line, ReferenceLine
 } from "recharts";
 
-const RouteScheduleView = ({ segmentRecords = [] }) => {
+const RouteScheduleView = ({ segmentRecords = [], projectInfo }) => {
   const { state: gfState, setters: gfSetters, filteredSegments } = useGlobalFilter(segmentRecords);
 
   // ── Print State ──
@@ -330,7 +330,7 @@ const RouteScheduleView = ({ segmentRecords = [] }) => {
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center">
           <div>
             <h2 className="text-xl sm:text-2xl font-semibold text-navy-dark tracking-tight">
-              แผนผังสถานะเส้นทางและตำแหน่ง TBM1 ปัจจุบัน
+              แผนผังสถานะเส้นทางและตำแหน่ง {projectInfo?.tbmNo || "TBM"} ปัจจุบัน
             </h2>
             <div className="text-xs sm:text-sm text-ink-2 mt-2 font-medium tracking-tight space-y-0.5">
               <p><span className="font-semibold text-ink">เฟส 1 (Main Bore):</span> IS4-1 → IS2 → IS1 TBM เจาะต่อเนื่อง (เฟสปัจจุบัน)</p>
@@ -667,10 +667,10 @@ const RouteScheduleView = ({ segmentRecords = [] }) => {
                 <div className="w-8 h-8 bg-navy border-[3px] border-white flex items-center justify-center rounded-badge rotate-90 relative z-10 shadow-hover overflow-hidden">
                   <div className="w-full h-[60%] bg-navy-dark absolute bottom-0 left-0"></div>
                   <div className="w-full h-[2px] bg-white opacity-50 absolute top-[40%] left-0"></div>
-                  <span className="text-[8px] text-white font-semibold z-10 -rotate-90">TBM1</span>
+                  <span className="text-[8px] text-white font-semibold z-10 -rotate-90">{projectInfo?.tbmNo || "TBM"}</span>
                 </div>
                 <div className="absolute -top-14 left-1/2 -translate-x-1/2 bg-navy-dark text-white text-[10px] px-3 py-1.5 rounded-input font-semibold whitespace-nowrap shadow-modal opacity-0 group-hover:opacity-100 transition-opacity z-40 pointer-events-none">
-                  TBM1: {totalActualDistance.toLocaleString()} m ({(totalActualDistance / TOTAL_ROUTE_DISTANCE * 100).toFixed(1)}%)
+                  {projectInfo?.tbmNo || "TBM"}: {totalActualDistance.toLocaleString()} m ({(totalActualDistance / TOTAL_ROUTE_DISTANCE * 100).toFixed(1)}%)
                 </div>
               </div>
             </div>
@@ -780,7 +780,7 @@ const RouteScheduleView = ({ segmentRecords = [] }) => {
           <div className="bg-surface rounded-modal w-full h-full max-w-[1400px] max-h-[90vh] shadow-modal overflow-hidden flex flex-col">
             <div className="bg-navy-dark px-6 py-4 text-white flex justify-between items-center shrink-0">
               <h3 className="font-semibold text-lg flex items-center gap-2">
-                <MapPin size={20} /> รายงานความก้าวหน้างานขุดเจาะอุโมงค์ TBM1
+                <MapPin size={20} /> รายงานความก้าวหน้างานขุดเจาะอุโมงค์ {projectInfo?.tbmNo || "TBM"}
               </h3>
               <button onClick={() => setExpandedChart(null)} className="p-2 bg-white/10 hover:bg-white/20 rounded-full transition-colors"><X size={20} /></button>
             </div>
@@ -955,10 +955,10 @@ const RouteScheduleView = ({ segmentRecords = [] }) => {
                         <div className="relative drop-shadow-xl group cursor-pointer">
                           <span className="absolute -inset-2 rounded-full opacity-40 animate-ping" style={{ backgroundColor: chartColors.delay }}></span>
                           <div className="w-8 h-8 bg-navy border-[3px] border-white flex items-center justify-center rounded-badge rotate-90 relative z-10 shadow-hover overflow-hidden">
-                            <div className="w-full h-[60%] bg-navy-dark absolute bottom-0 left-0"></div><div className="w-full h-[2px] bg-white opacity-50 absolute top-[40%] left-0"></div><span className="text-[8px] text-white font-semibold z-10 -rotate-90">TBM1</span>
+                            <div className="w-full h-[60%] bg-navy-dark absolute bottom-0 left-0"></div><div className="w-full h-[2px] bg-white opacity-50 absolute top-[40%] left-0"></div><span className="text-[8px] text-white font-semibold z-10 -rotate-90">{projectInfo?.tbmNo || "TBM"}</span>
                           </div>
                           <div className="absolute -top-7 left-1/2 -translate-x-1/2 whitespace-nowrap text-[9px] font-semibold text-ink bg-surface/90 backdrop-blur-sm px-1.5 py-0.5 rounded-badge shadow-card border border-line z-50">Progress : {((totalActualDistance / TOTAL_ROUTE_DISTANCE) * 100).toFixed(2)} %</div>
-                          <div className="absolute -top-14 left-1/2 -translate-x-1/2 bg-navy-dark text-white text-[10px] px-3 py-1.5 rounded-input font-semibold whitespace-nowrap shadow-modal opacity-0 group-hover:opacity-100 transition-opacity z-40 pointer-events-none">TBM1: {totalActualDistance.toLocaleString()} m ({(totalActualDistance / TOTAL_ROUTE_DISTANCE * 100).toFixed(1)}%)</div>
+                          <div className="absolute -top-14 left-1/2 -translate-x-1/2 bg-navy-dark text-white text-[10px] px-3 py-1.5 rounded-input font-semibold whitespace-nowrap shadow-modal opacity-0 group-hover:opacity-100 transition-opacity z-40 pointer-events-none">{projectInfo?.tbmNo || "TBM"}: {totalActualDistance.toLocaleString()} m ({(totalActualDistance / TOTAL_ROUTE_DISTANCE * 100).toFixed(1)}%)</div>
                         </div>
                       </div>
                     </div>

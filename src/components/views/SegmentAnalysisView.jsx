@@ -13,7 +13,7 @@ import {
   ResponsiveContainer, ComposedChart, CartesianGrid, XAxis, YAxis, Tooltip, Bar, Line
 } from "recharts";
 
-export default function SegmentAnalysisView({ segmentRecords = [] }) {
+export default function SegmentAnalysisView({ segmentRecords = [], projectInfo }) {
   const { state: gfState, setters: gfSetters, filteredSegments } = useGlobalFilter(segmentRecords);
 
   const paceStats = useMemo(() => {
@@ -290,9 +290,9 @@ export default function SegmentAnalysisView({ segmentRecords = [] }) {
         <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-8 gap-4 border-b border-line pb-5">
           <div className="flex flex-col gap-1 w-full lg:w-auto">
             <h2 className="text-xl sm:text-2xl font-semibold text-navy-dark tracking-tight flex items-center gap-2">
-              <TrendingUp className="text-sgreen-dark" size={28} /> รายงานความก้าวหน้างานขุดเจาะอุโมงค์ TBM1 (Rings/Day)
+              <TrendingUp className="text-sgreen-dark" size={28} /> รายงานความก้าวหน้างานขุดเจาะอุโมงค์ {projectInfo?.tbmNo || "TBM"} (Rings/Day)
             </h2>
-            <p className="text-sm text-ink-2 font-medium ml-9">TBM1 Segment Installation Tracking (Ring Progress)</p>
+            <p className="text-sm text-ink-2 font-medium ml-9">{projectInfo?.tbmNo || "TBM"} Segment Installation Tracking (Ring Progress)</p>
           </div>
 
           <div className="flex gap-4 text-xs font-semibold bg-surface-alt p-3 rounded-input border border-line shadow-card shrink-0 items-center justify-between sm:justify-end w-full lg:w-auto">

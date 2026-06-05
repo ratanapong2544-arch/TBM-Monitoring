@@ -169,9 +169,9 @@ const PrimaryGroutApp = () => {
   const activeDailyReports = dailyReports.filter((r) => (r.machine || "TBM1") === activeMachine);
 
   const liveHeaderStatus = useMemo(() => {
-    if (segmentRecords.length === 0) return null;
+    if (activeSegments.length === 0) return null;
     const map = new Map();
-    segmentRecords.forEach(rec => map.set(rec.ringNo, rec));
+    activeSegments.forEach(rec => map.set(rec.ringNo, rec));
     const deduped = Array.from(map.values());
     const lastSeg = deduped[deduped.length - 1];
 
@@ -182,7 +182,7 @@ const PrimaryGroutApp = () => {
       return { text: `กำลังทำงาน ${lastSeg.ringNo}`, color: "bg-blue-500", icon: <Activity size={12} /> };
     }
     return { text: `เครื่องจักรจอดพัก · รอวง ${offsetRingNo(lastSeg.ringNo, 1)}`, color: "bg-slate-500", icon: <Clock size={12} /> };
-  }, [segmentRecords]);
+  }, [activeSegments]);
 
   // Derive page title from NAV_GROUPS based on activeTab + currentModule
   const pageTitle = useMemo(() => {
@@ -246,9 +246,9 @@ const PrimaryGroutApp = () => {
       {activeTab === "record" && currentModule === "grout" && <GroutRecordView projectInfo={projectInfo} handleProjectInfoChange={handleProjectInfoChange} groutRecords={groutRecords} setGroutRecords={setGroutRecords} segmentRecords={segmentRecords} setCurrentModule={setCurrentModule} setActiveTab={setActiveTab} />}
       {activeTab === "record" && currentModule === "segment" && <SegmentRecordView projectInfo={projectInfo} handleProjectInfoChange={handleProjectInfoChange} segmentRecords={segmentRecords} setSegmentRecords={setSegmentRecords} setCurrentModule={setCurrentModule} setActiveTab={setActiveTab} />}
       {activeTab === "dashboard" && <ExecutiveDashboardView segmentRecords={activeSegments} groutRecords={activeGrouts} shiftReports={activeShiftReports} />}
-      {activeTab === "analysis" && currentModule === "segment" && <SegmentAnalysisView segmentRecords={activeSegments} />}
+      {activeTab === "analysis" && currentModule === "segment" && <SegmentAnalysisView segmentRecords={activeSegments} projectInfo={projectInfo} />}
       {activeTab === "analysis" && currentModule === "grout" && <GroutAnalysisView groutRecords={activeGrouts} />}
-      {activeTab === "analysis" && currentModule === "route" && <RouteScheduleView segmentRecords={activeSegments} />}
+      {activeTab === "analysis" && currentModule === "route" && <RouteScheduleView segmentRecords={activeSegments} projectInfo={projectInfo} />}
       {activeTab === "performance" && <PerformanceView segmentRecords={activeSegments} shiftReports={activeShiftReports} />}
       {activeTab === "datalog" && currentModule === "grout" && <GroutDashboardView groutRecords={groutRecords} setGroutRecords={setGroutRecords} segmentRecords={segmentRecords} />}
       {activeTab === "datalog" && currentModule === "segment" && <SegmentDashboardView segmentRecords={segmentRecords} setSegmentRecords={setSegmentRecords} />}

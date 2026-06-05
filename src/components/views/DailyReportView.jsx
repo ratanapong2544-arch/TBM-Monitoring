@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { ClipboardList, Plus } from "lucide-react";
 import SectionHeader from "../common/SectionHeader";
-import { MACHINES, newItem, sortReports } from "../../utils/dailyReports";
+import { newItem, sortReports } from "../../utils/dailyReports";
 import DailyReportCard from "../dailyreport/DailyReportCard";
 import DailyReportDetail from "../dailyreport/DailyReportDetail";
 
@@ -15,10 +15,9 @@ const toForm = (r) => ({
 });
 
 export default function DailyReportView({ dailyReports = [], onDelete, onEdit, onGoRecord }) {
-  const [machineFilter, setMachineFilter] = useState("All");
   const [selectedId, setSelectedId] = useState(null);
 
-  const list = sortReports(dailyReports, machineFilter);
+  const list = sortReports(dailyReports);
   const selected = selectedId ? dailyReports.find((r) => r.id === selectedId) : null;
 
   if (selected) {
@@ -39,11 +38,6 @@ export default function DailyReportView({ dailyReports = [], onDelete, onEdit, o
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <SectionHeader title="รายงานประจำวัน" subtitle="Daily Report" icon={ClipboardList} />
         <div className="flex items-center gap-2 shrink-0 print:hidden">
-          <div className="flex bg-surface-alt border border-line rounded-input p-1">
-            {["All", ...MACHINES].map((m) => (
-              <button key={m} onClick={() => setMachineFilter(m)} className={`px-3 py-1.5 text-xs font-semibold rounded-input transition ${machineFilter === m ? "bg-navy text-white shadow" : "text-ink-2 hover:bg-surface"}`}>{m === "All" ? "ทั้งหมด" : m}</button>
-            ))}
-          </div>
           <span className="text-xs text-ink-3">แสดง {list.length} รายการ</span>
           <button onClick={onGoRecord} className="inline-flex items-center gap-1.5 bg-navy hover:bg-navy-deepest text-white text-sm font-semibold px-3.5 py-2 rounded-input transition-colors"><Plus size={16} /> บันทึกใหม่</button>
         </div>

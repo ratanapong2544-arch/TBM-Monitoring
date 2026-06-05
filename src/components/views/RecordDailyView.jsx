@@ -11,9 +11,9 @@ const carriedFrom = (form) => {
   return s;
 };
 
-export default function RecordDailyView({ dailyReports = [], onSave, pendingForm = null, onConsumePendingForm }) {
+export default function RecordDailyView({ dailyReports = [], onSave, pendingForm = null, onConsumePendingForm, activeMachine = "TBM1" }) {
   const makeNew = () => {
-    const pre = prefillFromLatest(dailyReports, { machine: "TBM1" });
+    const pre = prefillFromLatest(dailyReports, { machine: activeMachine });
     return { form: pre, carriedKeys: carriedFrom(pre) };
   };
   const [editing, setEditing] = useState(makeNew);

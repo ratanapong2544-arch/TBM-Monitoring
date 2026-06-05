@@ -110,7 +110,7 @@ export default function Shell({
       {showIssues && (
         <>
           <IssuesSheet open={sheetOpen} onDismiss={() => setSheetOpen(false)} {...railProps} />
-          <IssueFormModal open={modal.open} initial={modal.editing} onSubmit={submitIssue} onClose={() => setModal({ open: false, editing: null })} currentRingNum={currentRingNum} />
+          <IssueFormModal open={modal.open} initial={modal.editing} onSubmit={submitIssue} onClose={() => setModal({ open: false, editing: null })} currentRingNum={currentRingNum} defaultMachine={activeMachine} />
         </>
       )}
     </div>

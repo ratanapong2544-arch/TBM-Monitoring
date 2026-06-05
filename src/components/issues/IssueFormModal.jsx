@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from "react";
 import { X } from "lucide-react";
 import Button from "../../ui-ux-pro-max/components/Button";
-import { SEVERITY, SEVERITY_ORDER, validateForm, effectiveCurrent } from "../../utils/issues";
+import { SEVERITY, SEVERITY_ORDER, ISSUE_MACHINES, MACHINE_LABEL, validateForm, effectiveCurrent } from "../../utils/issues";
 
-const EMPTY = { title: "", severity: "delay", qtyEnabled: false, qtyCurrent: "", qtyTarget: "", qtyUnit: "", qtyAuto: false, qtyOffset: "", date: "", detail: "", ringCH: "" };
+const EMPTY = { title: "", machine: "TBM1", severity: "delay", qtyEnabled: false, qtyCurrent: "", qtyTarget: "", qtyUnit: "", qtyAuto: false, qtyOffset: "", date: "", detail: "", ringCH: "" };
 
-export default function IssueFormModal({ open, initial, onSubmit, onClose, currentRingNum = 0 }) {
+export default function IssueFormModal({ open, initial, onSubmit, onClose, currentRingNum = 0, defaultMachine = "TBM1" }) {
   const [form, setForm] = useState(EMPTY);
   const [errors, setErrors] = useState({});
 
@@ -14,6 +14,7 @@ export default function IssueFormModal({ open, initial, onSubmit, onClose, curre
     setErrors({});
     setForm(initial ? {
       id: initial.id,
+      machine: initial.machine || "TBM1",
       title: initial.title,
       severity: initial.severity,
       qtyEnabled: !!initial.qtyEnabled,
@@ -25,7 +26,7 @@ export default function IssueFormModal({ open, initial, onSubmit, onClose, curre
       date: initial.date ?? "",
       detail: initial.detail ?? "",
       ringCH: initial.ringCH ?? "",
-    } : EMPTY);
+    } : { ...EMPTY, machine: defaultMachine });
   }, [open, initial]);
 
   if (!open) return null;
@@ -61,6 +62,18 @@ export default function IssueFormModal({ open, initial, onSubmit, onClose, curre
                 <button key={key} type="button" onClick={() => set("severity", key)}
                   className={`flex-1 text-xs font-semibold py-2 rounded-input border transition-colors ${form.severity === key ? "bg-navy text-white border-navy" : "bg-surface text-ink-2 border-line hover:bg-cyan-tint"}`}>
                   {SEVERITY[key].label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-ink-2 mb-1">หัวเจาะ</label>
+            <div className="flex gap-2">
+              {ISSUE_MACHINES.map((key) => (
+                <button key={key} type="button" onClick={() => set("machine", key)}
+                  className={`flex-1 text-xs font-semibold py-2 rounded-input border transition-colors ${form.machine === key ? "bg-navy text-white border-navy" : "bg-surface text-ink-2 border-line hover:bg-cyan-tint"}`}>
+                  {MACHINE_LABEL[key]}
                 </button>
               ))}
             </div>

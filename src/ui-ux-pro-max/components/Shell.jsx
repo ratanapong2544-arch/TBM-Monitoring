@@ -46,6 +46,7 @@ export default function Shell({
   shiftReports = [],
   activeMachine,
   onMachineChange,
+  currentRingNum,
   children,
 }) {
   const showIssues = ISSUE_TABS.includes(active.tab);
@@ -65,6 +66,7 @@ export default function Shell({
     onCloseIssue: closeIssue,
     onReopenIssue: reopenIssue,
     onDeleteIssue,
+    currentRingNum,
   };
 
   return (
@@ -108,7 +110,7 @@ export default function Shell({
       {showIssues && (
         <>
           <IssuesSheet open={sheetOpen} onDismiss={() => setSheetOpen(false)} {...railProps} />
-          <IssueFormModal open={modal.open} initial={modal.editing} onSubmit={submitIssue} onClose={() => setModal({ open: false, editing: null })} />
+          <IssueFormModal open={modal.open} initial={modal.editing} onSubmit={submitIssue} onClose={() => setModal({ open: false, editing: null })} currentRingNum={currentRingNum} />
         </>
       )}
     </div>

@@ -1,7 +1,7 @@
 import {
   SEVERITY, SEVERITY_ORDER, makeIssueId, progressPct, openCount,
   splitAndSort, validateForm, upsertIssue, setIssueStatus, removeIssue,
-  loadIssues, persistIssues, STORAGE_KEY,
+  loadIssues, persistIssues, STORAGE_KEY, effectiveCurrent,
 } from "./issues";
 
 const baseForm = { title: "ติดตั้ง Platform", severity: "delay", qtyEnabled: false,
@@ -81,4 +81,30 @@ test("loadIssues/persistIssues roundtrip ผ่าน localStorage", () => {
 test("makeIssueId ขึ้นต้น iss_ และไม่ซ้ำ", () => {
   expect(makeIssueId()).toMatch(/^iss_/);
   expect(makeIssueId()).not.toBe(makeIssueId());
+});
+
+test("effectiveCurrent: auto = currentRing + offset (clamp >=0)", () => {
+  expect(effectiveCurrent({ qtyAuto: true, qtyOffset: -80 }, 521)).toBe(441);
+  expect(effectiveCurrent({ qtyAuto: true, qtyOffset: 0 }, 521)).toBe(521);
+  expect(effectiveCurrent({ qtyAuto: true, qtyOffset: -600 }, 521)).toBe(0);
+});
+test("effectiveCurrent: manual = qtyCurrent (ignores ring)", () => {
+  expect(effectiveCurrent({ qtyAuto: false, qtyCurrent: 350 }, 521)).toBe(350);
+  expect(effectiveCurrent({ qtyCurrent: 350 }, 521)).toBe(350);
+});
+test("upsertIssue: auto stores qtyOffset + qtyCurrent null", () => {
+  const out = upsertIssue([], { ...baseForm, qtyEnabled: true, qtyAuto: true, qtyOffset: "-80", qtyTarget: "450" }, "t");
+  expect(out[0].qtyAuto).toBe(true);
+  expect(out[0].qtyOffset).toBe(-80);
+  expect(out[0].qtyCurrent).toBeNull();
+});
+test("upsertIssue: manual stores qtyCurrent + qtyOffset 0", () => {
+  const out = upsertIssue([], { ...baseForm, qtyEnabled: true, qtyCurrent: "350", qtyTarget: "450" }, "t");
+  expect(out[0].qtyAuto).toBe(false);
+  expect(out[0].qtyCurrent).toBe(350);
+  expect(out[0].qtyOffset).toBe(0);
+});
+test("validateForm: auto valid without qtyCurrent (needs target only)", () => {
+  expect(validateForm({ ...baseForm, qtyEnabled: true, qtyAuto: true, qtyOffset: "-80", qtyTarget: "450" }).valid).toBe(true);
+  expect(validateForm({ ...baseForm, qtyEnabled: true, qtyAuto: true, qtyOffset: "0", qtyTarget: "" }).valid).toBe(false);
 });

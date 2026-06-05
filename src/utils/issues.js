@@ -18,6 +18,13 @@ export function progressPct(current, target) {
   return Math.max(0, Math.min(100, Math.round((c / t) * 100)));
 }
 
+export function effectiveCurrent(issue, currentRingNum) {
+  if (issue && issue.qtyAuto) {
+    return Math.max(0, (Number(currentRingNum) || 0) + (Number(issue.qtyOffset) || 0));
+  }
+  return Number(issue ? issue.qtyCurrent : 0) || 0;
+}
+
 export function openCount(issues) {
   return issues.filter((i) => i.status === "open").length;
 }
@@ -37,8 +44,8 @@ export function validateForm(form) {
   if (!form.title || !form.title.trim()) errors.title = "กรุณากรอกหัวข้อ";
   if (!form.severity || !SEVERITY[form.severity]) errors.severity = "กรุณาเลือกระดับ";
   if (form.qtyEnabled) {
-    if (form.qtyCurrent === "" || isNaN(Number(form.qtyCurrent))) errors.qtyCurrent = "ตัวเลขไม่ถูกต้อง";
     if (form.qtyTarget === "" || isNaN(Number(form.qtyTarget))) errors.qtyTarget = "ตัวเลขไม่ถูกต้อง";
+    if (!form.qtyAuto && (form.qtyCurrent === "" || isNaN(Number(form.qtyCurrent)))) errors.qtyCurrent = "ตัวเลขไม่ถูกต้อง";
   }
   return { valid: Object.keys(errors).length === 0, errors };
 }
@@ -48,7 +55,9 @@ function normalize(form) {
     title: form.title.trim(),
     severity: form.severity,
     qtyEnabled: !!form.qtyEnabled,
-    qtyCurrent: form.qtyEnabled ? Number(form.qtyCurrent) : null,
+    qtyAuto: !!(form.qtyEnabled && form.qtyAuto),
+    qtyOffset: form.qtyEnabled && form.qtyAuto ? (Number(form.qtyOffset) || 0) : 0,
+    qtyCurrent: form.qtyEnabled && !form.qtyAuto ? Number(form.qtyCurrent) : null,
     qtyTarget: form.qtyEnabled ? Number(form.qtyTarget) : null,
     qtyUnit: form.qtyEnabled ? (form.qtyUnit || "").trim() : "",
     date: form.date || "",

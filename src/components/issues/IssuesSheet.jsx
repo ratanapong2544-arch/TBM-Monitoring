@@ -3,7 +3,7 @@ import { Plus, X, AlertTriangle } from "lucide-react";
 import IssuesList from "./IssuesList";
 import { openCount } from "../../utils/issues";
 
-export default function IssuesSheet({ open, issues, onAdd, onEdit, onCloseIssue, onReopenIssue, onDeleteIssue, onDismiss }) {
+export default function IssuesSheet({ open, issues, onAdd, onEdit, onCloseIssue, onReopenIssue, onDeleteIssue, onDismiss, currentRingNum = 0 }) {
   if (!open) return null;
   return (
     <div className="lg:hidden fixed inset-0 z-50 print:hidden" onClick={onDismiss}>
@@ -21,7 +21,7 @@ export default function IssuesSheet({ open, issues, onAdd, onEdit, onCloseIssue,
           </div>
         </div>
         <div className="px-5 pt-1 pb-5 overflow-y-auto">
-          <IssuesList issues={issues} onEdit={onEdit} onCloseIssue={onCloseIssue} onReopenIssue={onReopenIssue} onDeleteIssue={onDeleteIssue} />
+          <IssuesList issues={issues} onEdit={onEdit} onCloseIssue={onCloseIssue} onReopenIssue={onReopenIssue} onDeleteIssue={onDeleteIssue} currentRingNum={currentRingNum} alwaysShowActions={true} />
         </div>
       </div>
     </div>

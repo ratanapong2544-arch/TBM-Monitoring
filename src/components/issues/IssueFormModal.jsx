@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from "react";
 import { X } from "lucide-react";
 import Button from "../../ui-ux-pro-max/components/Button";
-import { SEVERITY, SEVERITY_ORDER, validateForm } from "../../utils/issues";
+import { SEVERITY, SEVERITY_ORDER, validateForm, effectiveCurrent } from "../../utils/issues";
 
-const EMPTY = { title: "", severity: "delay", qtyEnabled: false, qtyCurrent: "", qtyTarget: "", qtyUnit: "", date: "", detail: "", ringCH: "" };
+const EMPTY = { title: "", severity: "delay", qtyEnabled: false, qtyCurrent: "", qtyTarget: "", qtyUnit: "", qtyAuto: false, qtyOffset: "", date: "", detail: "", ringCH: "" };
 
-export default function IssueFormModal({ open, initial, onSubmit, onClose }) {
+export default function IssueFormModal({ open, initial, onSubmit, onClose, currentRingNum = 0 }) {
   const [form, setForm] = useState(EMPTY);
   const [errors, setErrors] = useState({});
 
@@ -20,6 +20,8 @@ export default function IssueFormModal({ open, initial, onSubmit, onClose }) {
       qtyCurrent: initial.qtyCurrent ?? "",
       qtyTarget: initial.qtyTarget ?? "",
       qtyUnit: initial.qtyUnit ?? "",
+      qtyAuto: !!initial.qtyAuto,
+      qtyOffset: initial.qtyOffset ?? "",
       date: initial.date ?? "",
       detail: initial.detail ?? "",
       ringCH: initial.ringCH ?? "",
@@ -70,11 +72,32 @@ export default function IssueFormModal({ open, initial, onSubmit, onClose }) {
               เก็บปริมาณ (ทำได้ / เป้า)
             </label>
             {form.qtyEnabled && (
-              <div className="flex items-center gap-2 mt-1">
-                <input type="number" value={form.qtyCurrent} onChange={(e) => set("qtyCurrent", e.target.value)} placeholder="350" className={`${inputCls} text-center`} />
-                <span className="text-ink-3">/</span>
-                <input type="number" value={form.qtyTarget} onChange={(e) => set("qtyTarget", e.target.value)} placeholder="450" className={`${inputCls} text-center`} />
-                <input value={form.qtyUnit} onChange={(e) => set("qtyUnit", e.target.value)} placeholder="วง" className={`${inputCls} w-24`} />
+              <div className="mt-1 space-y-2">
+                <label className="flex items-center gap-2 text-xs font-semibold text-cyan-med">
+                  <input type="checkbox" checked={form.qtyAuto} onChange={(e) => set("qtyAuto", e.target.checked)} />
+                  🔄 ติดตามวงปัจจุบันอัตโนมัติ
+                </label>
+                {form.qtyAuto ? (
+                  <>
+                    <div className="flex items-center gap-2 text-sm text-ink-2 flex-wrap">
+                      <span className="text-ink-3 shrink-0">วงปัจจุบัน {currentRingNum} +</span>
+                      <input type="number" value={form.qtyOffset} onChange={(e) => set("qtyOffset", e.target.value)} placeholder="0" className={`${inputCls} w-20 text-center`} />
+                      <span className="shrink-0">= ทำได้ <b className="text-navy">{effectiveCurrent({ qtyAuto: true, qtyOffset: form.qtyOffset }, currentRingNum)}</b></span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-ink-3 text-sm shrink-0">เป้า</span>
+                      <input type="number" value={form.qtyTarget} onChange={(e) => set("qtyTarget", e.target.value)} placeholder="450" className={`${inputCls} text-center`} />
+                      <input value={form.qtyUnit} onChange={(e) => set("qtyUnit", e.target.value)} placeholder="วง" className={`${inputCls} w-24`} />
+                    </div>
+                  </>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <input type="number" value={form.qtyCurrent} onChange={(e) => set("qtyCurrent", e.target.value)} placeholder="350" className={`${inputCls} text-center`} />
+                    <span className="text-ink-3">/</span>
+                    <input type="number" value={form.qtyTarget} onChange={(e) => set("qtyTarget", e.target.value)} placeholder="450" className={`${inputCls} text-center`} />
+                    <input value={form.qtyUnit} onChange={(e) => set("qtyUnit", e.target.value)} placeholder="วง" className={`${inputCls} w-24`} />
+                  </div>
+                )}
               </div>
             )}
             {(errors.qtyCurrent || errors.qtyTarget) && <p className="text-[11px] text-code-d mt-1">{errors.qtyCurrent || errors.qtyTarget}</p>}

@@ -8,6 +8,7 @@ import useGlobalFilter from "../../hooks/useGlobalFilter";
 import { formatDisplayDate } from "../../utils/formatters";
 import { getRingNumeric, calculateSoilVolume } from "../../utils/helpers";
 import { TOTAL_ROUTE_DISTANCE, DRIVE_PHOTOS_FOLDER_ID } from "../../utils/constants";
+import { loadDistancePlan, plannedDistanceToNow, currentMonthBKK } from "../../utils/planConfig";
 import { chartColors, tooltipStyle } from "../../ui-ux-pro-max/chartTheme";
 import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip } from "recharts";
 import ExecutiveEmptyState from "./ExecutiveEmptyState";
@@ -101,33 +102,15 @@ const ExecutiveDashboardView = ({ segmentRecords, groutRecords, dailyReports = [
     };
   }, [filteredSegments, filteredGrout]);
 
-  // Plan variance: planned distance accumulated to current month (from tbmDistancePlanConfig)
-  // vs actual. Mirrors the Route page's monthly plan accumulation. null when no plan set.
+  // Plan variance: แผนสะสมถึงเดือนปัจจุบัน (per-machine) vs actual. null เมื่อไม่มีแผน.
   const planVariance = useMemo(() => {
-    let cfg = { ranges: [] };
-    try { const s = localStorage.getItem("tbmDistancePlanConfig"); if (s) { const p = JSON.parse(s); cfg = { ...cfg, ...p, ranges: p.ranges || [] }; } } catch (e) {}
+    const cfg = loadDistancePlan(machine);
     if (!cfg.ranges || cfg.ranges.length === 0) return null;
-    const nowTH = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Bangkok" }));
-    const currentMonth = `${nowTH.getFullYear()}-${String(nowTH.getMonth() + 1).padStart(2, "0")}`;
-    let cur = "2024-11", planAcc = 0, loop = 0;
-    while (cur <= currentMonth && loop < 200) {
-      let mPlan = 0;
-      for (const r of cfg.ranges) {
-        if ((!r.startMonth || cur >= r.startMonth) && (!r.endMonth || cur <= r.endMonth)) {
-          mPlan = (r.mode === "distance")
-            ? (parseFloat(r.distancePerMonth) || 0)
-            : (parseFloat(r.ringsPerDay) || 0) * (parseFloat(r.avgLength) || 1.2) * 30;
-          break;
-        }
-      }
-      planAcc += mPlan;
-      if (planAcc > TOTAL_ROUTE_DISTANCE) planAcc = TOTAL_ROUTE_DISTANCE;
-      const [y, m] = cur.split("-"); let ny = +y, nm = +m + 1; if (nm > 12) { nm = 1; ny++; } cur = `${ny}-${String(nm).padStart(2, "0")}`; loop++;
-    }
+    const planAcc = plannedDistanceToNow(cfg, { asOfMonth: currentMonthBKK(), totalRouteDistance: machine === "TBM1" ? TOTAL_ROUTE_DISTANCE : 0 });
     if (planAcc <= 0) return null;
     const actual = overallStats.totalDistance;
     return { planToNow: planAcc, variance: actual - planAcc, behind: actual - planAcc < 0 };
-  }, [overallStats.totalDistance]);
+  }, [overallStats.totalDistance, machine]);
 
   // ══════════════════════════════════════════════
   // SECTION: Grout Pending

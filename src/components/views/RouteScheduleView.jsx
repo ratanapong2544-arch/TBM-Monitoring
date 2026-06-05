@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import {
   MapPin, Ruler, Settings, Printer, Maximize2, Plus, Save, Trash2, X, Loader2, TrendingUp
 } from "lucide-react";
@@ -8,12 +8,13 @@ import { formatDisplayDate } from "../../utils/formatters";
 import { getRingNumeric } from "../../utils/helpers";
 import { TOTAL_ROUTE_DISTANCE, ROUTE_SEGMENTS } from "../../utils/constants";
 import { apiCall } from "../../utils/api";
+import { loadDistancePlan, saveDistancePlan } from "../../utils/planConfig";
 import { chartColors, axisTick, tooltipStyle } from "../../ui-ux-pro-max/chartTheme";
 import {
   ResponsiveContainer, ComposedChart, CartesianGrid, XAxis, YAxis, Tooltip, Line, ReferenceLine
 } from "recharts";
 
-const RouteScheduleView = ({ segmentRecords = [], projectInfo }) => {
+const RouteScheduleView = ({ segmentRecords = [], projectInfo, machine = "TBM1" }) => {
   const { state: gfState, setters: gfSetters, filteredSegments } = useGlobalFilter(segmentRecords);
 
   // ── Print State ──
@@ -39,24 +40,21 @@ const RouteScheduleView = ({ segmentRecords = [], projectInfo }) => {
 
   // ── Distance Plan Config ──
   const [showDistPlanModal, setShowDistPlanModal] = useState(false);
-  const defaultDistPlanConfig = { ranges: [] };
-  const [distPlanConfig, setDistPlanConfig] = useState(() => {
-    try {
-      const saved = localStorage.getItem("tbmDistancePlanConfig");
-      if (saved) { const parsed = JSON.parse(saved); return { ...defaultDistPlanConfig, ...parsed, ranges: parsed.ranges || [] }; }
-    } catch (e) { }
-    return defaultDistPlanConfig;
-  });
+  const [distPlanConfig, setDistPlanConfig] = useState(() => loadDistancePlan(machine));
+  // โหลดแผนใหม่เมื่อสลับหัวขณะอยู่หน้านี้
+  useEffect(() => { setDistPlanConfig(loadDistancePlan(machine)); }, [machine]);
 
   // ── Distance Plan settings handlers ──
   const [isSavingDistPlan, setIsSavingDistPlan] = useState(false);
   const handleSaveDistPlanSettings = async () => {
     setIsSavingDistPlan(true);
     try {
-      localStorage.setItem('tbmDistancePlanConfig', JSON.stringify(distPlanConfig));
-      // ส่งทั้งคู่เหมือนเดิม (กัน GAS เขียนทับ planConfig ฝั่ง server) — ดึง segment plan จาก localStorage
-      const planConfig = JSON.parse(localStorage.getItem("tbmPlanConfig") || "null") || { basePlanAcc: 0, baseActualAcc: 0, ranges: [] };
-      await apiCall("savePlanConfig", { planConfig, distPlanConfig });
+      saveDistancePlan(machine, distPlanConfig);
+      // GAS sync เฉพาะ TBM1 (per-machine GAS = future); หัวอื่น = local-only
+      if (machine === "TBM1") {
+        const planConfig = JSON.parse(localStorage.getItem("tbmPlanConfig") || "null") || { basePlanAcc: 0, baseActualAcc: 0, ranges: [] };
+        await apiCall("savePlanConfig", { planConfig, distPlanConfig });
+      }
       setShowDistPlanModal(false);
     } catch (e) {
       console.error("Failed to save distance plan config", e);

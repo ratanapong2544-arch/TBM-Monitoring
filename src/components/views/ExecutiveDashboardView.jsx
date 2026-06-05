@@ -10,8 +10,9 @@ import { getRingNumeric, calculateSoilVolume } from "../../utils/helpers";
 import { TOTAL_ROUTE_DISTANCE, DRIVE_PHOTOS_FOLDER_ID } from "../../utils/constants";
 import { chartColors, tooltipStyle } from "../../ui-ux-pro-max/chartTheme";
 import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip } from "recharts";
+import ExecutiveEmptyState from "./ExecutiveEmptyState";
 
-const ExecutiveDashboardView = ({ segmentRecords, groutRecords }) => {
+const ExecutiveDashboardView = ({ segmentRecords, groutRecords, dailyReports = [], machine = "TBM1", onNavigate }) => {
   const { state: gfState, setters: gfSetters, filteredSegments, filteredGrout } = useGlobalFilter(segmentRecords, groutRecords);
 
   const [printingChartId, setPrintingChartId] = useState("all");
@@ -158,6 +159,11 @@ const ExecutiveDashboardView = ({ segmentRecords, groutRecords }) => {
       { name: "Night Shift", value: nightCount, color: chartColors.nightShift }
     ];
   }, [filteredSegments]);
+
+  // หัวที่ยังไม่มี ring → empty-state (generic, ไม่ hardcode machine; auto-transition เมื่อมี ring แรก)
+  if (segmentRecords.length === 0) {
+    return <ExecutiveEmptyState machine={machine} dailyReports={dailyReports} onNavigate={onNavigate} />;
+  }
 
   return (
     <div className="max-w-full mx-auto space-y-8 sm:space-y-10 animate-fade-in pb-24 print:max-w-full print:w-full print:m-0 print:p-0 print:space-y-0 print:block">

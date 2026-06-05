@@ -2,7 +2,7 @@ import React from "react";
 import { MapPin } from "lucide-react";
 import Badge from "./Badge";
 
-export default function TopBar({ title, liveStatus, projectInfo, onProjectChange, compact = false, rightSlot = null }) {
+export default function TopBar({ title, liveStatus, projectInfo, onProjectChange, compact = false, rightSlot = null, machine }) {
   // projectInfo may be the full object { location, date, shift, tbmNo } or a plain string
   const location =
     projectInfo && typeof projectInfo === "object" ? projectInfo.location ?? "" : projectInfo ?? "";
@@ -12,7 +12,7 @@ export default function TopBar({ title, liveStatus, projectInfo, onProjectChange
       {/* Page title + editable location */}
       <div className="flex-1 min-w-0">
         <h1 className={`font-semibold text-ink truncate ${compact ? "text-base" : "text-lg"}`}>
-          {title || "TBM1 Monitoring"}
+          {title || `${machine || "TBM"} Monitoring`}
         </h1>
         <div className="flex items-center gap-1 text-[11px] text-ink-3 mt-0.5">
           <MapPin size={12} className="shrink-0" />

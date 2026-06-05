@@ -22,6 +22,7 @@ import RecordDailyView from "./components/views/RecordDailyView";
 import { loadIssues, persistIssues, upsertIssue, setIssueStatus, removeIssue } from "./utils/issues";
 import { loadDailyReports, persistDailyReports, upsertDailyReport, removeDailyReport, normalize } from "./utils/dailyReports";
 import { apiCall } from "./utils/api";
+import { getMachineConfig } from "./utils/machineConfig";
 
 import { Shell, NAV_GROUPS } from "./ui-ux-pro-max";
 import "./styles/globals.css";
@@ -32,6 +33,9 @@ const PrimaryGroutApp = () => {
   const [isLoadingMain, setIsLoadingMain] = useState(true);
   const [loadError, setLoadError] = useState(null);
   const [projectInfo, setProjectInfo] = useState({ date: new Date().toISOString().split("T")[0], shift: "Day", location: "อุโมงค์จากบ่อ IS4 ถึง บ่อ IS2", tbmNo: "TBM1" });
+  const [activeMachine, setActiveMachine] = useState(() => localStorage.getItem("tbmActiveMachine") || "TBM1");
+  useEffect(() => { try { localStorage.setItem("tbmActiveMachine", activeMachine); } catch (e) {} }, [activeMachine]);
+  useEffect(() => { setProjectInfo((p) => ({ ...p, ...getMachineConfig(activeMachine) })); }, [activeMachine]);
   const [groutRecords, setGroutRecords] = useState([]);
   const [segmentRecords, setSegmentRecords] = useState([]);
   const [shiftReports, setShiftReports] = useState([]);
@@ -186,8 +190,8 @@ const PrimaryGroutApp = () => {
         }
       }
     }
-    return "TBM1 Monitoring";
-  }, [activeTab, currentModule]);
+    return `${activeMachine} Monitoring`;
+  }, [activeTab, currentModule, activeMachine]);
 
   // Map liveHeaderStatus { text, color, icon } → Badge shape { code, label }
   const shellLiveStatus = useMemo(() => {
@@ -229,9 +233,11 @@ const PrimaryGroutApp = () => {
       segmentRecords={segmentRecords}
       groutRecords={groutRecords}
       shiftReports={shiftReports}
+      activeMachine={activeMachine}
+      onMachineChange={setActiveMachine}
     >
       {loadError && <div className="mb-6 bg-code-d/10 border border-code-d/30 text-code-d p-4 rounded-card text-center no-print font-semibold">{loadError}</div>}
-      {activeTab === "overview" && <OverviewView segmentRecords={segmentRecords} groutRecords={groutRecords} setCurrentModule={setCurrentModule} setActiveTab={setActiveTab} />}
+      {activeTab === "overview" && <OverviewView segmentRecords={segmentRecords} groutRecords={groutRecords} setCurrentModule={setCurrentModule} setActiveTab={setActiveTab} activeMachine={activeMachine} onMachineChange={setActiveMachine} />}
       {activeTab === "record" && currentModule === "grout" && <GroutRecordView projectInfo={projectInfo} handleProjectInfoChange={handleProjectInfoChange} groutRecords={groutRecords} setGroutRecords={setGroutRecords} segmentRecords={segmentRecords} setCurrentModule={setCurrentModule} setActiveTab={setActiveTab} />}
       {activeTab === "record" && currentModule === "segment" && <SegmentRecordView projectInfo={projectInfo} handleProjectInfoChange={handleProjectInfoChange} segmentRecords={segmentRecords} setSegmentRecords={setSegmentRecords} setCurrentModule={setCurrentModule} setActiveTab={setActiveTab} />}
       {activeTab === "dashboard" && <ExecutiveDashboardView segmentRecords={segmentRecords} groutRecords={groutRecords} shiftReports={shiftReports} />}

@@ -44,6 +44,8 @@ export default function Shell({
   segmentRecords = [],
   groutRecords = [],
   shiftReports = [],
+  activeMachine,
+  onMachineChange,
   children,
 }) {
   const showIssues = ISSUE_TABS.includes(active.tab);
@@ -67,7 +69,7 @@ export default function Shell({
 
   return (
     <div className="flex min-h-screen bg-surface-page font-sans">
-      <Sidebar active={active} onNavigate={onNavigate} liveStatus={liveStatus} />
+      <Sidebar active={active} onNavigate={onNavigate} liveStatus={liveStatus} machine={activeMachine} />
 
       <div className="flex-1 flex flex-col min-w-0">
         <TopBar
@@ -76,6 +78,8 @@ export default function Shell({
           projectInfo={projectInfo}
           onProjectChange={onProjectChange}
           compact={false}
+          machine={activeMachine}
+          onMachineChange={onMachineChange}
           rightSlot={
             <div className="flex items-center gap-2">
               {active.tab === "dashboard" && <DashboardHeaderActions segmentRecords={segmentRecords} groutRecords={groutRecords} shiftReports={shiftReports} />}

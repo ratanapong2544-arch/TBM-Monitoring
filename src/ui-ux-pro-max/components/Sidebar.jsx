@@ -8,7 +8,7 @@ const STATUS_DOT = {
   info: "bg-cyan", neutral: "bg-cyan-tint",
 };
 
-export default function Sidebar({ active = {}, onNavigate, liveStatus }) {
+export default function Sidebar({ active = {}, onNavigate, liveStatus, machine }) {
   return (
     <aside className="hidden lg:flex flex-col w-60 bg-navy-dark h-screen sticky top-0 shrink-0 print:hidden">
       {/* Brand */}
@@ -17,7 +17,7 @@ export default function Sidebar({ active = {}, onNavigate, liveStatus }) {
           <Layers size={18} strokeWidth={2.5} />
         </div>
         <div className="leading-tight">
-          <div className="text-white font-semibold text-sm tracking-tight">TBM1 System</div>
+          <div className="text-white font-semibold text-sm tracking-tight">{(machine || "TBM")} System</div>
           <div className="text-cyan-tint/55 text-[10px] font-medium">Tunnel Monitoring</div>
         </div>
       </div>

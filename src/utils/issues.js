@@ -8,6 +8,9 @@ export const SEVERITY = {
 };
 export const SEVERITY_ORDER = ["delay", "blocker", "info"];
 
+export const ISSUE_MACHINES = ["TBM1", "TBM2", "all"];
+export const MACHINE_LABEL = { TBM1: "TBM1", TBM2: "TBM2", all: "ทั้งโครงการ" };
+
 export function makeIssueId() {
   return `iss_${Date.now()}_${Math.floor(Math.random() * 1e6)}`;
 }
@@ -27,6 +30,13 @@ export function effectiveCurrent(issue, currentRingNum) {
 
 export function openCount(issues) {
   return issues.filter((i) => i.status === "open").length;
+}
+
+export function forMachine(issues, machine) {
+  return (Array.isArray(issues) ? issues : []).filter((i) => {
+    const m = i.machine || "TBM1";
+    return m === "all" || m === machine;
+  });
 }
 
 export function splitAndSort(issues) {
@@ -52,6 +62,7 @@ export function validateForm(form) {
 
 function normalize(form) {
   return {
+    machine: ISSUE_MACHINES.includes(form.machine) ? form.machine : "TBM1",
     title: form.title.trim(),
     severity: form.severity,
     qtyEnabled: !!form.qtyEnabled,

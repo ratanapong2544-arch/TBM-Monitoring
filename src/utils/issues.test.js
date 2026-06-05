@@ -3,6 +3,7 @@ import {
   splitAndSort, validateForm, upsertIssue, setIssueStatus, removeIssue,
   loadIssues, persistIssues, STORAGE_KEY, effectiveCurrent,
 } from "./issues";
+import { forMachine, ISSUE_MACHINES, MACHINE_LABEL } from "./issues";
 
 const baseForm = { title: "ติดตั้ง Platform", severity: "delay", qtyEnabled: false,
   qtyCurrent: "", qtyTarget: "", qtyUnit: "", date: "", detail: "", ringCH: "" };
@@ -107,4 +108,28 @@ test("upsertIssue: manual stores qtyCurrent + qtyOffset 0", () => {
 test("validateForm: auto valid without qtyCurrent (needs target only)", () => {
   expect(validateForm({ ...baseForm, qtyEnabled: true, qtyAuto: true, qtyOffset: "-80", qtyTarget: "450" }).valid).toBe(true);
   expect(validateForm({ ...baseForm, qtyEnabled: true, qtyAuto: true, qtyOffset: "0", qtyTarget: "" }).valid).toBe(false);
+});
+
+test("upsertIssue: เซ็ต machine (valid→ตามเลือก; ไม่มี/ผิด→TBM1)", () => {
+  expect(upsertIssue([], { title: "a", severity: "delay", machine: "TBM2" }, "t")[0].machine).toBe("TBM2");
+  expect(upsertIssue([], { title: "b", severity: "delay", machine: "all" }, "t")[0].machine).toBe("all");
+  expect(upsertIssue([], { title: "c", severity: "delay" }, "t")[0].machine).toBe("TBM1");
+  expect(upsertIssue([], { title: "d", severity: "delay", machine: "bogus" }, "t")[0].machine).toBe("TBM1");
+});
+
+test("forMachine: TBM1 เห็น TBM1+all; TBM2 เห็น TBM2+all; legacy→TBM1; กัน non-array", () => {
+  const issues = [
+    { id: "1", machine: "TBM1" },
+    { id: "2", machine: "TBM2" },
+    { id: "3", machine: "all" },
+    { id: "4" },
+  ];
+  expect(forMachine(issues, "TBM1").map((i) => i.id)).toEqual(["1", "3", "4"]);
+  expect(forMachine(issues, "TBM2").map((i) => i.id)).toEqual(["2", "3"]);
+  expect(forMachine(null, "TBM1")).toEqual([]);
+});
+
+test("MACHINE_LABEL + ISSUE_MACHINES", () => {
+  expect(ISSUE_MACHINES).toEqual(["TBM1", "TBM2", "all"]);
+  expect(MACHINE_LABEL.all).toBe("ทั้งโครงการ");
 });

@@ -1,12 +1,13 @@
 import React from "react";
 import { Clock, ClipboardList, ChevronRight } from "lucide-react";
+import PlanVsActualPanel from "./PlanVsActualPanel";
 import ImageSlideshow from "../dashboard/ImageSlideshow";
 import { DRIVE_PHOTOS_FOLDER_ID } from "../../utils/constants";
 import { getMachineConfig } from "../../utils/machineConfig";
 import { dailyReportSummary } from "../../utils/dailyReports";
 import { formatDisplayDate } from "../../utils/formatters";
 
-const ExecutiveEmptyState = ({ machine = "TBM1", dailyReports = [], onNavigate }) => {
+const ExecutiveEmptyState = ({ machine = "TBM1", dailyReports = [], segmentRecords = [], onNavigate }) => {
   const cfg = getMachineConfig(machine);
   const { count, latestDate, latestText } = dailyReportSummary(dailyReports);
   const goDaily = () => onNavigate && onNavigate({ tab: "daily_report" });
@@ -24,6 +25,9 @@ const ExecutiveEmptyState = ({ machine = "TBM1", dailyReports = [], onNavigate }
           หน้าสรุปผลงานขุดเจาะจะแสดงอัตโนมัติเมื่อบันทึกวงแรก ระหว่างนี้ดูรายงานประจำวันและรูปหน้างานได้ด้านล่าง
         </p>
       </section>
+
+      {/* แผน vs ผลงานจริง */}
+      <PlanVsActualPanel machine={machine} segmentRecords={segmentRecords} onNavigate={onNavigate} />
 
       {/* Daily report summary (คลิกไปหน้า Daily Report) */}
       <button

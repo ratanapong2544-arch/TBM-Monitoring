@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { X } from "lucide-react";
 import Button from "../../ui-ux-pro-max/components/Button";
-import { SEVERITY, SEVERITY_ORDER, validateForm } from "../../utils/issues";
+import { SEVERITY, SEVERITY_ORDER, validateForm, effectiveCurrent } from "../../utils/issues";
 
 const EMPTY = { title: "", severity: "delay", qtyEnabled: false, qtyCurrent: "", qtyTarget: "", qtyUnit: "", qtyAuto: false, qtyOffset: "", date: "", detail: "", ringCH: "" };
 
@@ -82,7 +82,7 @@ export default function IssueFormModal({ open, initial, onSubmit, onClose, curre
                     <div className="flex items-center gap-2 text-sm text-ink-2 flex-wrap">
                       <span className="text-ink-3 shrink-0">วงปัจจุบัน {currentRingNum} +</span>
                       <input type="number" value={form.qtyOffset} onChange={(e) => set("qtyOffset", e.target.value)} placeholder="0" className={`${inputCls} w-20 text-center`} />
-                      <span className="shrink-0">= ทำได้ <b className="text-navy">{Math.max(0, currentRingNum + (Number(form.qtyOffset) || 0))}</b></span>
+                      <span className="shrink-0">= ทำได้ <b className="text-navy">{effectiveCurrent({ qtyAuto: true, qtyOffset: form.qtyOffset }, currentRingNum)}</b></span>
                     </div>
                     <div className="flex items-center gap-2">
                       <span className="text-ink-3 text-sm shrink-0">เป้า</span>

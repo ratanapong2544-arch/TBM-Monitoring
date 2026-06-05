@@ -3,7 +3,7 @@ import { Loader2, AlertCircle, Activity, Clock } from "lucide-react";
 
 import { GAS_URL } from "./utils/constants";
 import { formatDisplayTime, formatDisplayDate } from "./utils/formatters";
-import { safeParseJSON, offsetRingNo } from "./utils/helpers";
+import { safeParseJSON, offsetRingNo, getRingNumeric } from "./utils/helpers";
 
 import OverviewView from "./components/views/OverviewView";
 import GroutRecordView from "./components/views/GroutRecordView";
@@ -164,6 +164,7 @@ const PrimaryGroutApp = () => {
   };
 
   const activeSegments     = activeMachine === "TBM1" ? segmentRecords : [];
+  const currentRingNum = activeSegments.reduce((mx, s) => Math.max(mx, getRingNumeric(s.ringNo) || 0), 0);
   const activeGrouts       = activeMachine === "TBM1" ? groutRecords   : [];
   const activeShiftReports = activeMachine === "TBM1" ? shiftReports   : [];
   const activeDailyReports = dailyReports.filter((r) => (r.machine || "TBM1") === activeMachine);
@@ -240,6 +241,7 @@ const PrimaryGroutApp = () => {
       shiftReports={shiftReports}
       activeMachine={activeMachine}
       onMachineChange={setActiveMachine}
+      currentRingNum={currentRingNum}
     >
       {loadError && <div className="mb-6 bg-code-d/10 border border-code-d/30 text-code-d p-4 rounded-card text-center no-print font-semibold">{loadError}</div>}
       {activeTab === "overview" && <OverviewView segmentRecords={activeSegments} groutRecords={activeGrouts} setCurrentModule={setCurrentModule} setActiveTab={setActiveTab} activeMachine={activeMachine} onMachineChange={setActiveMachine} />}

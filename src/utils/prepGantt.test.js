@@ -62,3 +62,10 @@ test("ganttBounds + prepSummary", () => {
   expect(s.total).toBe(2);
   expect(s.done).toBe(1);
 });
+
+test("taskStatus: milestone (start===end) — เลยกำหนดยังไม่เสร็จ→behind, เสร็จ→done, อนาคต→notstarted", () => {
+  const m = { start: "2026-06-10", end: "2026-06-10", milestone: true, percent: 0 };
+  expect(taskStatus(m, "2026-06-15")).toBe("behind");
+  expect(taskStatus({ ...m, percent: 100 }, "2026-06-15")).toBe("done");
+  expect(taskStatus(m, "2026-06-01")).toBe("notstarted");
+});

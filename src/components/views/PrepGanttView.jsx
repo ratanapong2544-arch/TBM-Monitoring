@@ -110,7 +110,7 @@ const PrepGanttView = ({ machine = "TBM1" }) => {
                       {t.milestone ? (
                         <div className={`absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-3 h-3 rotate-45 ${color}`} style={{ left }} title={t.name} />
                       ) : (
-                        <div className={`absolute top-1/2 -translate-y-1/2 h-4 rounded ${color}/25 overflow-hidden`} style={{ left, width: Math.max(PX_PER_DAY, (dayDiff(t.start, t.end) + 1) * PX_PER_DAY) }} title={`${t.name} (${t.percent}%)`}>
+                        <div className={`absolute top-1/2 -translate-y-1/2 h-4 rounded ${color}/25 overflow-hidden`} style={{ left, width: Math.max(PX_PER_DAY, (dayDiff(t.start, t.end || t.start) + 1) * PX_PER_DAY) }} title={`${t.name} (${t.percent}%)`}>
                           <div className={`h-full ${color}`} style={{ width: `${t.percent}%` }} />
                         </div>
                       )}

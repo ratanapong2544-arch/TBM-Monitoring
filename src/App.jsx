@@ -19,6 +19,7 @@ import RouteScheduleView from "./components/views/RouteScheduleView";
 import PerformanceView from "./components/views/PerformanceView";
 import DailyReportView from "./components/views/DailyReportView";
 import RecordDailyView from "./components/views/RecordDailyView";
+import PrepGanttView from "./components/views/PrepGanttView";
 import { loadIssues, persistIssues, upsertIssue, setIssueStatus, removeIssue, forMachine } from "./utils/issues";
 import { loadDailyReports, persistDailyReports, upsertDailyReport, removeDailyReport, normalize } from "./utils/dailyReports";
 import { apiCall } from "./utils/api";
@@ -253,6 +254,7 @@ const PrimaryGroutApp = () => {
       {activeTab === "analysis" && currentModule === "grout" && <GroutAnalysisView groutRecords={activeGrouts} />}
       {activeTab === "analysis" && currentModule === "route" && <RouteScheduleView segmentRecords={activeSegments} projectInfo={projectInfo} machine={activeMachine} />}
       {activeTab === "performance" && <PerformanceView segmentRecords={activeSegments} shiftReports={activeShiftReports} />}
+      {activeTab === "prep_gantt" && <PrepGanttView machine={activeMachine} />}
       {activeTab === "datalog" && currentModule === "grout" && <GroutDashboardView groutRecords={groutRecords} setGroutRecords={setGroutRecords} segmentRecords={segmentRecords} />}
       {activeTab === "datalog" && currentModule === "segment" && <SegmentDashboardView segmentRecords={segmentRecords} setSegmentRecords={setSegmentRecords} />}
       {activeTab === "report" && <ReportView segmentRecords={activeSegments} groutRecords={activeGrouts} projectInfo={projectInfo} shiftReports={activeShiftReports} onCreateDaily={(draft) => { setPendingRecordForm(draft); setActiveTab("record_daily"); }} />}

@@ -1,13 +1,13 @@
 import React from "react";
 import { Clock, ClipboardList, ChevronRight } from "lucide-react";
-import PlanVsActualPanel from "./PlanVsActualPanel";
+import PrepGanttView from "./PrepGanttView";
 import ImageSlideshow from "../dashboard/ImageSlideshow";
 import { DRIVE_PHOTOS_FOLDER_ID } from "../../utils/constants";
 import { getMachineConfig } from "../../utils/machineConfig";
 import { dailyReportSummary } from "../../utils/dailyReports";
 import { formatDisplayDate } from "../../utils/formatters";
 
-const ExecutiveEmptyState = ({ machine = "TBM1", dailyReports = [], segmentRecords = [], onNavigate }) => {
+const ExecutiveEmptyState = ({ machine = "TBM1", dailyReports = [], onNavigate }) => {
   const cfg = getMachineConfig(machine);
   const { count, latestDate, latestText } = dailyReportSummary(dailyReports);
   const goDaily = () => onNavigate && onNavigate({ tab: "daily_report" });
@@ -26,8 +26,8 @@ const ExecutiveEmptyState = ({ machine = "TBM1", dailyReports = [], segmentRecor
         </p>
       </section>
 
-      {/* แผน vs ผลงานจริง */}
-      <PlanVsActualPanel machine={machine} segmentRecords={segmentRecords} onNavigate={onNavigate} />
+      {/* แผนเตรียมงาน (Gantt) */}
+      <PrepGanttView machine={machine} />
 
       {/* Daily report summary (คลิกไปหน้า Daily Report) */}
       <button

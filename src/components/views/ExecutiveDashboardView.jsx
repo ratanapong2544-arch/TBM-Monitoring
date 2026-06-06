@@ -145,7 +145,7 @@ const ExecutiveDashboardView = ({ segmentRecords, groutRecords, dailyReports = [
 
   // หัวที่ยังไม่มี ring → empty-state (generic, ไม่ hardcode machine; auto-transition เมื่อมี ring แรก)
   if (segmentRecords.length === 0) {
-    return <ExecutiveEmptyState machine={machine} dailyReports={dailyReports} segmentRecords={segmentRecords} onNavigate={onNavigate} />;
+    return <ExecutiveEmptyState machine={machine} dailyReports={dailyReports} onNavigate={onNavigate} />;
   }
 
   return (

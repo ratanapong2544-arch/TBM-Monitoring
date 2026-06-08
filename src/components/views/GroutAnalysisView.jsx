@@ -10,7 +10,7 @@ import { THEORETICAL_VOL, VOL_120, VOL_150, VOL_80, VOL_50 } from "../../utils/c
 import SectionHeader from "../common/SectionHeader";
 import StatCard from "../common/StatCard";
 
-export default function GroutAnalysisView({ groutRecords = [] }) {
+export default function GroutAnalysisView({ groutRecords = [], readOnly = false }) {
   // ── Print State ──
   const [printingChartId, setPrintingChartId] = useState("all");
 
@@ -139,7 +139,7 @@ export default function GroutAnalysisView({ groutRecords = [] }) {
             <div className="flex items-center gap-3">
               <h3 className="font-semibold text-ink text-lg flex items-center gap-2"><Droplet className="text-navy" size={22} /> Grout Volume Trend</h3>
               <div className="flex items-center gap-2 print:hidden">
-                <button onClick={() => handlePrintSpecificChart('grout')} className="p-1.5 text-ink-3 hover:text-navy bg-surface-alt hover:bg-cyan-tint rounded-input transition-colors border border-line shadow-card" title="Print Chart"><Printer size={16} /></button>
+                {!readOnly && (<button onClick={() => handlePrintSpecificChart('grout')} className="p-1.5 text-ink-3 hover:text-navy bg-surface-alt hover:bg-cyan-tint rounded-input transition-colors border border-line shadow-card" title="Print Chart"><Printer size={16} /></button>)}
                 <button onClick={() => setExpandedChart('grout')} className="p-1.5 text-ink-3 hover:text-navy bg-surface-alt hover:bg-cyan-tint rounded-input transition-colors border border-line shadow-card" title="Expand Chart"><Maximize2 size={16} /></button>
               </div>
             </div>

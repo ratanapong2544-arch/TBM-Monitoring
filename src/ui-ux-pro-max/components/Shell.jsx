@@ -122,7 +122,7 @@ export default function Shell({
         </main>
       </div>
 
-      <BottomNav items={mobileItems} activeTab={active.tab} onNavigate={onNavigate} onMore={isViewer ? () => {} : () => setMoreOpen(true)} />
+      <BottomNav items={mobileItems} activeTab={active.tab} onNavigate={onNavigate} onMore={isViewer ? undefined : () => setMoreOpen(true)} />
       <MoreSheet open={moreOpen} onClose={() => setMoreOpen(false)} onNavigate={onNavigate} />
 
       {showIssues && (

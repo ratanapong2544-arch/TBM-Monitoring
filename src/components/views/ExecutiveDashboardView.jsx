@@ -12,7 +12,7 @@ import { chartColors, tooltipStyle } from "../../ui-ux-pro-max/chartTheme";
 import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip } from "recharts";
 import ExecutiveEmptyState from "./ExecutiveEmptyState";
 
-const ExecutiveDashboardView = ({ segmentRecords, groutRecords, dailyReports = [], machine = "TBM1", onNavigate, filterState = {} }) => {
+const ExecutiveDashboardView = ({ segmentRecords, groutRecords, dailyReports = [], machine = "TBM1", onNavigate, filterState = {}, readOnly = false }) => {
   const filteredSegments = useMemo(() => filterByState(segmentRecords, filterState), [segmentRecords, filterState]);
   const filteredGrout = useMemo(() => filterByState(groutRecords, filterState), [groutRecords, filterState]);
 
@@ -242,7 +242,7 @@ const ExecutiveDashboardView = ({ segmentRecords, groutRecords, dailyReports = [
         <div className={`bg-surface rounded-card p-6 shadow-card border border-line relative ${getPrintClass('pie')}`}>
           <div className="flex justify-between items-center mb-2">
             <h3 className="font-semibold text-ink text-base">Day vs Night Shift</h3>
-            <button onClick={() => handlePrintSpecificChart('pie')} className="p-1.5 text-ink-3 hover:text-navy bg-surface-alt hover:bg-cyan-tint rounded-input transition-colors border border-line shadow-card print:hidden" title="Print Chart"><Printer size={16} /></button>
+            {!readOnly && (<button onClick={() => handlePrintSpecificChart('pie')} className="p-1.5 text-ink-3 hover:text-navy bg-surface-alt hover:bg-cyan-tint rounded-input transition-colors border border-line shadow-card print:hidden" title="Print Chart"><Printer size={16} /></button>)}
           </div>
           <div className="flex items-center gap-4 print:items-center print:justify-center">
             <div className="w-32 h-32 sm:w-36 sm:h-36 shrink-0 print:w-[350px] print:h-[350px] transition-all">

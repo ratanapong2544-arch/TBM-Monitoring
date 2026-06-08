@@ -10,7 +10,7 @@ export default function BottomNav({ items, activeTab, onNavigate, onMore }) {
             <it.icon size={20} /> <span className="leading-none">{it.short || it.label}</span>
           </button>
         ))}
-        <button onClick={onMore} className="flex-1 flex flex-col items-center gap-0.5 py-2.5 min-h-[48px] text-[10px] font-semibold text-cyan-tint/70">⋯ More</button>
+        {onMore && (<button onClick={onMore} className="flex-1 flex flex-col items-center gap-0.5 py-2.5 min-h-[48px] text-[10px] font-semibold text-cyan-tint/70">⋯ More</button>)}
       </div>
     </nav>
   );

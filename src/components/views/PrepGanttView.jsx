@@ -30,7 +30,7 @@ function monthTicks(startStr, endStr) {
   return ticks;
 }
 
-const PrepGanttView = ({ machine = "TBM1" }) => {
+const PrepGanttView = ({ machine = "TBM1", readOnly = false }) => {
   const [tasks, setTasks] = useState(() => loadPrepTasks(machine));
   const [modal, setModal] = useState({ open: false, editing: null });
   useEffect(() => { setTasks(loadPrepTasks(machine)); }, [machine]);
@@ -68,9 +68,11 @@ const PrepGanttView = ({ machine = "TBM1" }) => {
             <p className="text-xs text-ink-3 mt-0.5">{summary.done}/{summary.total} เสร็จ{summary.behind > 0 ? ` · ⚠ ${summary.behind} ช้ากว่าแผน` : ""}</p>
           )}
         </div>
-        <button onClick={() => setModal({ open: true, editing: null })} className="inline-flex items-center gap-1 bg-navy hover:bg-navy-deepest text-white text-xs font-semibold px-2.5 py-1.5 rounded-input transition-colors shrink-0">
-          <Plus size={14} /> เพิ่มงาน
-        </button>
+        {!readOnly && (
+          <button onClick={() => setModal({ open: true, editing: null })} className="inline-flex items-center gap-1 bg-navy hover:bg-navy-deepest text-white text-xs font-semibold px-2.5 py-1.5 rounded-input transition-colors shrink-0">
+            <Plus size={14} /> เพิ่มงาน
+          </button>
+        )}
       </div>
 
       {tasks.length === 0 ? (
@@ -87,8 +89,8 @@ const PrepGanttView = ({ machine = "TBM1" }) => {
                 <div className="w-12 px-1 text-right">%</div>
               </div>
               {tasks.map((t) => (
-                <div key={t.id} onClick={() => setModal({ open: true, editing: t })} style={{ height: ROW_H }}
-                  className="flex items-center cursor-pointer hover:bg-cyan-tint/40 border-b border-line/50">
+                <div key={t.id} onClick={readOnly ? undefined : () => setModal({ open: true, editing: t })} style={{ height: ROW_H }}
+                  className={`flex items-center border-b border-line/50 ${readOnly ? "" : "cursor-pointer hover:bg-cyan-tint/40"}`}>
                   <div className="w-40 px-2 truncate text-sm text-ink">{t.milestone ? "◆ " : ""}{t.name}</div>
                   <div className="w-16 px-1 text-center text-xs text-ink-3">{fmtTH(t.start)}</div>
                   <div className="w-16 px-1 text-center text-xs text-ink-3">{t.milestone ? "—" : fmtTH(t.end)}</div>

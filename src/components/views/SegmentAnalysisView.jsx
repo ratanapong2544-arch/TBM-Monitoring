@@ -12,7 +12,7 @@ import {
   ResponsiveContainer, ComposedChart, CartesianGrid, XAxis, YAxis, Tooltip, Bar, Line
 } from "recharts";
 
-export default function SegmentAnalysisView({ segmentRecords = [], projectInfo, machine = "TBM1", filterState = {} }) {
+export default function SegmentAnalysisView({ segmentRecords = [], projectInfo, machine = "TBM1", filterState = {}, readOnly = false }) {
   const filteredSegments = useMemo(() => filterByState(segmentRecords, filterState), [segmentRecords, filterState]);
 
   const paceStats = useMemo(() => {
@@ -82,6 +82,7 @@ export default function SegmentAnalysisView({ segmentRecords = [], projectInfo, 
   };
 
   const handleSavePlanSettings = async () => {
+    if (readOnly) return;
     setIsSavingPlan(true);
     try {
       localStorage.setItem("tbmPlanConfig", JSON.stringify(planConfig));
@@ -299,11 +300,15 @@ export default function SegmentAnalysisView({ segmentRecords = [], projectInfo, 
         {/* Filters and Controls */}
         <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-6 gap-4">
           <div className="flex items-center bg-surface-alt border border-line rounded-input p-1 shadow-card shrink-0 print:hidden">
-            <button onClick={() => handlePrintSpecificChart('segment')} className="px-3 py-1.5 flex items-center gap-2 text-xs font-semibold text-ink-2 hover:text-navy hover:bg-surface rounded-input transition-colors bg-surface border border-line shadow-card" title="Print Chart"><Printer size={16} /> ปริ้นกราฟ</button>
-            <div className="w-px h-5 bg-line mx-2 hidden sm:block"></div>
+            {!readOnly && (
+              <button onClick={() => handlePrintSpecificChart('segment')} className="px-3 py-1.5 flex items-center gap-2 text-xs font-semibold text-ink-2 hover:text-navy hover:bg-surface rounded-input transition-colors bg-surface border border-line shadow-card" title="Print Chart"><Printer size={16} /> ปริ้นกราฟ</button>
+            )}
+            {!readOnly && <div className="w-px h-5 bg-line mx-2 hidden sm:block"></div>}
             <button onClick={() => setExpandedChart('segment')} className="px-3 py-1.5 flex items-center gap-2 text-xs font-semibold text-ink-2 hover:text-navy hover:bg-surface rounded-input transition-colors border border-transparent" title="Expand Chart"><Maximize2 size={16} /> ขยายจอภาพ</button>
-            <div className="w-px h-5 bg-line mx-2 hidden sm:block"></div>
-            <button onClick={() => setShowPlanModal(true)} className="px-3 py-1.5 flex items-center gap-2 text-xs font-semibold text-ink-2 hover:text-sgreen-dark hover:bg-surface rounded-input transition-colors border border-transparent" title="Plan Settings"><Settings size={16} /> ตั้งค่าแผนงาน</button>
+            {!readOnly && <div className="w-px h-5 bg-line mx-2 hidden sm:block"></div>}
+            {!readOnly && (
+              <button onClick={() => setShowPlanModal(true)} className="px-3 py-1.5 flex items-center gap-2 text-xs font-semibold text-ink-2 hover:text-sgreen-dark hover:bg-surface rounded-input transition-colors border border-transparent" title="Plan Settings"><Settings size={16} /> ตั้งค่าแผนงาน</button>
+            )}
           </div>
 
           <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center w-full lg:w-auto bg-surface-alt p-2 rounded-input border border-line shrink-0 print:hidden">

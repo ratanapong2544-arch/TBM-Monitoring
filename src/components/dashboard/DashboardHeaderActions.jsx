@@ -13,7 +13,7 @@ function getDuration(start, end) {
   return mins2 - mins1;
 }
 
-export default function DashboardHeaderActions({ segmentRecords = [], groutRecords = [], shiftReports = [] }) {
+export default function DashboardHeaderActions({ segmentRecords = [], groutRecords = [], shiftReports = [], isViewer = false }) {
   const [isGeneratingAI, setIsGeneratingAI] = useState(false);
   const [showAIModal, setShowAIModal] = useState(false);
   const [aiSummaryText, setAiSummaryText] = useState("");
@@ -87,9 +87,11 @@ ${remarksText}
   return (
     <>
       <div className="flex gap-2 shrink-0 print:hidden">
-        <button onClick={() => window.print()} className="bg-surface hover:bg-cyan-tint border border-line text-ink-2 hover:text-navy px-3 py-2 rounded-input flex items-center gap-1.5 font-semibold text-xs transition-colors active:scale-95 whitespace-nowrap">
-          <Printer size={15} /> <span className="hidden sm:inline">ปริ้น PDF</span>
-        </button>
+        {!isViewer && (
+          <button onClick={() => window.print()} className="bg-surface hover:bg-cyan-tint border border-line text-ink-2 hover:text-navy px-3 py-2 rounded-input flex items-center gap-1.5 font-semibold text-xs transition-colors active:scale-95 whitespace-nowrap">
+            <Printer size={15} /> <span className="hidden sm:inline">ปริ้น PDF</span>
+          </button>
+        )}
         <button onClick={handleGenerateDelaySummary} disabled={isGeneratingAI} className="bg-gradient-to-r from-code-c to-code-d hover:opacity-90 text-white px-3 py-2 rounded-input flex items-center gap-1.5 font-semibold text-xs transition-all active:scale-95 whitespace-nowrap disabled:opacity-60">
           <Sparkles size={15} /> <span className="hidden sm:inline">วิเคราะห์ AI</span>
         </button>

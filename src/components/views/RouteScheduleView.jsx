@@ -13,7 +13,7 @@ import {
   ResponsiveContainer, ComposedChart, CartesianGrid, XAxis, YAxis, Tooltip, Line, ReferenceLine
 } from "recharts";
 
-const RouteScheduleView = ({ segmentRecords = [], projectInfo, machine = "TBM1", filterState = {} }) => {
+const RouteScheduleView = ({ segmentRecords = [], projectInfo, machine = "TBM1", filterState = {}, readOnly = false }) => {
   const filteredSegments = useMemo(() => filterByState(segmentRecords, filterState), [segmentRecords, filterState]);
 
   // ── Print State ──
@@ -46,6 +46,7 @@ const RouteScheduleView = ({ segmentRecords = [], projectInfo, machine = "TBM1",
   // ── Distance Plan settings handlers ──
   const [isSavingDistPlan, setIsSavingDistPlan] = useState(false);
   const handleSaveDistPlanSettings = async () => {
+    if (readOnly) return;
     setIsSavingDistPlan(true);
     try {
       saveDistancePlan(machine, distPlanConfig);
@@ -332,7 +333,9 @@ const RouteScheduleView = ({ segmentRecords = [], projectInfo, machine = "TBM1",
             </div>
           </div>
           <div className="text-right mt-4 md:mt-0 flex items-center gap-3">
-            <button onClick={() => handlePrintSpecificChart('distance')} className="p-2 text-ink-3 hover:text-navy bg-surface hover:bg-cyan-tint rounded-input transition-colors border border-line shadow-card print:hidden" title="Print Chart"><Printer size={18} /></button>
+            {!readOnly && (
+              <button onClick={() => handlePrintSpecificChart('distance')} className="p-2 text-ink-3 hover:text-navy bg-surface hover:bg-cyan-tint rounded-input transition-colors border border-line shadow-card print:hidden" title="Print Chart"><Printer size={18} /></button>
+            )}
             <button onClick={() => setExpandedChart('distance')} className="p-2 text-ink-3 hover:text-navy bg-surface hover:bg-cyan-tint rounded-input transition-colors border border-line shadow-card print:hidden" title="Expand Chart"><Maximize2 size={18} /></button>
             <span className="bg-navy-dark text-white text-xs font-semibold px-4 py-2 rounded-input shadow-card">
               อัปเดตล่าสุด: {formatDisplayDate(new Date())}
@@ -351,7 +354,9 @@ const RouteScheduleView = ({ segmentRecords = [], projectInfo, machine = "TBM1",
               <span className="flex items-center gap-0.5"><span className="w-3 h-3 rounded-full" style={{ backgroundColor: chartColors.planned }}></span><span className="w-5 h-1 rounded-full" style={{ backgroundColor: chartColors.planned }}></span></span>
               <span className="text-sm font-semibold text-ink">Plan Acc. (แผนงานสะสม)</span>
             </div>
-            <button onClick={() => setShowDistPlanModal(true)} className="p-1.5 text-ink-3 hover:text-navy hover:bg-cyan-tint rounded-input transition-colors border border-transparent shadow-card print:hidden" title="Distance Plan Settings"><Settings size={18} /></button>
+            {!readOnly && (
+              <button onClick={() => setShowDistPlanModal(true)} className="p-1.5 text-ink-3 hover:text-navy hover:bg-cyan-tint rounded-input transition-colors border border-transparent shadow-card print:hidden" title="Distance Plan Settings"><Settings size={18} /></button>
+            )}
           </div>
 
           {/* Project Delay Warning Box */}
@@ -480,7 +485,7 @@ const RouteScheduleView = ({ segmentRecords = [], projectInfo, machine = "TBM1",
                   </>
                 ) : (
                   <div className="w-full h-full flex items-center justify-center">
-                    <span className="text-ink-2 text-xs font-semibold">ยังไม่ตั้งค่าแผน — กดปุ่ม ⚙️ เพื่อตั้งค่า</span>
+                    <span className="text-ink-2 text-xs font-semibold">{readOnly ? "ยังไม่ตั้งค่าแผน" : "ยังไม่ตั้งค่าแผน — กดปุ่ม ⚙️ เพื่อตั้งค่า"}</span>
                   </div>
                 )}
               </div>

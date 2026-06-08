@@ -19,39 +19,9 @@ export const apiCall = async (action, data) => {
   }
 };
 
-// ⚠ STOPGAP (interim): key อ่านจาก .env (REACT_APP_GEMINI_KEY) แทน hardcode literal
-// หมายเหตุ: CRA bake ค่า REACT_APP_* ลง client bundle → ยัง "ไม่ลับจริง" เป็นแค่การเอา literal ออกจาก source
-// เป้าหมายถาวร: proxy ผ่าน GAS ด้วย apiCall('generateSummary', ...) — ดู gas/GEMINI_PROXY_SETUP.md
+// AI summary ผ่าน GAS proxy — ไม่มี API key ใน client bundle (key เก็บใน Script Properties ฝั่ง GAS)
 export const generateGeminiSummary = async (promptText, systemText) => {
-  const apiKey = process.env.REACT_APP_GEMINI_KEY;
-  if (!apiKey) throw new Error("ยังไม่ได้ตั้งค่า REACT_APP_GEMINI_KEY ใน .env (ดู .env.example)");
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey.trim()}`;
-  const payload = {
-    contents: [{ parts: [{ text: promptText }] }],
-    systemInstruction: { parts: [{ text: systemText || "คุณคือผู้ช่วยวิศวกรควบคุมงานก่อสร้างอุโมงค์ TBM หน้าที่ของคุณคือการนำข้อมูลดิบไปจัดเรียงและสรุปใส่ใน Template รายงานที่กำหนดให้อย่างถูกต้องและเป๊ะที่สุด" }] }
-  };
-
-  const retries = 3;
-  const delays = [1000, 2000, 4000];
-
-  for (let i = 0; i < retries; i++) {
-    try {
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-      if (!response.ok) {
-        const errDetails = await response.text();
-        throw new Error(`HTTP ${response.status} - ${errDetails}`);
-      }
-      const result = await response.json();
-      const text = result.candidates?.[0]?.content?.parts?.[0]?.text;
-      if (text) return text;
-      throw new Error("No text in response");
-    } catch (error) {
-      if (i === retries - 1) throw error;
-      await new Promise(res => setTimeout(res, delays[i]));
-    }
-  }
+  const res = await apiCall('generateSummary', { prompt: promptText, system: systemText });
+  if (res && res.status === 'success' && res.text) return res.text;
+  throw new Error((res && res.message) || 'AI summary ไม่สำเร็จ');
 };

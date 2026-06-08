@@ -28,3 +28,8 @@ export const NAV_GROUPS = [
 // mobile bottom bar = 5 ปุ่มหลัก (Home·Rec·Dash·Shift·More), ที่เหลือเข้า More
 export const MOBILE_PRIMARY = ["overview","record","dashboard","shift_report"]; // + More
 export const MOBILE_MORE_TABS = ["datalog","report","record_daily","daily_report","prep_gantt"];
+
+// กลุ่ม nav ที่ viewer เห็น = เฉพาะกลุ่ม "Dashboard"
+export function viewerGroups() {
+  return NAV_GROUPS.filter((g) => g.label === "Dashboard");
+}

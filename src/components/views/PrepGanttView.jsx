@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { Plus } from "lucide-react";
+import { apiCall } from "../../utils/api";
 import {
   loadPrepTasks, savePrepTasks, upsertPrepTask, removePrepTask,
   todayBKK, taskStatus, ganttBounds, prepSummary,
@@ -39,8 +40,18 @@ const PrepGanttView = ({ machine = "TBM1" }) => {
   const summary = useMemo(() => prepSummary(tasks, today), [tasks, today]);
 
   const persist = (next) => { setTasks(next); savePrepTasks(machine, next); };
-  const submit = (form) => { persist(upsertPrepTask(tasks, form)); setModal({ open: false, editing: null }); };
-  const del = (id) => { persist(removePrepTask(tasks, id)); setModal({ open: false, editing: null }); };
+  const submit = (form) => {
+    const next = upsertPrepTask(tasks, form);
+    persist(next);
+    const saved = form.id ? next.find((t) => t.id === form.id) : next.find((t) => !tasks.some((o) => o.id === t.id));
+    if (saved) apiCall("savePrepTask", { ...saved, machine }).catch((e) => console.warn("PrepTask sync (save) failed — kept locally:", e.message));
+    setModal({ open: false, editing: null });
+  };
+  const del = (id) => {
+    persist(removePrepTask(tasks, id));
+    apiCall("deletePrepTask", { id }).catch((e) => console.warn("PrepTask sync (delete) failed — kept locally:", e.message));
+    setModal({ open: false, editing: null });
+  };
 
   const axisStart = bounds ? bounds.minDate : today;
   const axisEnd = bounds ? bounds.maxDate : today;
@@ -52,7 +63,7 @@ const PrepGanttView = ({ machine = "TBM1" }) => {
     <section className="rounded-card border border-line bg-surface shadow-card p-5">
       <div className="flex items-center justify-between gap-3 mb-3">
         <div>
-          <h3 className="text-base font-semibold text-ink">แผนเตรียมงาน · {machine}</h3>
+          <h3 className="text-base font-semibold text-ink">Work Plan · {machine}</h3>
           {tasks.length > 0 && (
             <p className="text-xs text-ink-3 mt-0.5">{summary.done}/{summary.total} เสร็จ{summary.behind > 0 ? ` · ⚠ ${summary.behind} ช้ากว่าแผน` : ""}</p>
           )}
@@ -63,7 +74,7 @@ const PrepGanttView = ({ machine = "TBM1" }) => {
       </div>
 
       {tasks.length === 0 ? (
-        <p className="text-center text-ink-3 text-sm py-8">ยังไม่มีงานเตรียม — กด "เพิ่มงาน" เพื่อเริ่ม</p>
+        <p className="text-center text-ink-3 text-sm py-8">ยังไม่มีงาน — กด "เพิ่มงาน" เพื่อเริ่ม</p>
       ) : (
         <div className="overflow-x-auto">
           <div className="flex min-w-max">

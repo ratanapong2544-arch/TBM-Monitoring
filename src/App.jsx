@@ -25,6 +25,7 @@ import { loadIssues, persistIssues, upsertIssue, setIssueStatus, removeIssue, fo
 import { loadDailyReports, persistDailyReports, upsertDailyReport, removeDailyReport, normalize } from "./utils/dailyReports";
 import { apiCall } from "./utils/api";
 import { getMachineConfig } from "./utils/machineConfig";
+import { savePrepTasks } from "./utils/prepGantt";
 
 import { Shell, NAV_GROUPS } from "./ui-ux-pro-max";
 import "./styles/globals.css";
@@ -48,8 +49,16 @@ const PrimaryGroutApp = () => {
 
   const [dailyReports, setDailyReports] = useState(() => normalize(loadDailyReports()));
   const [pendingRecordForm, setPendingRecordForm] = useState(null);
-  const handleSaveDailyReport = (report) => { const next = upsertDailyReport(dailyReports, report); setDailyReports(next); persistDailyReports(next); };
-  const handleDeleteDailyReport = (id) => { const next = removeDailyReport(dailyReports, id); setDailyReports(next); persistDailyReports(next); };
+  const handleSaveDailyReport = (report) => {
+    const next = upsertDailyReport(dailyReports, report);
+    setDailyReports(next); persistDailyReports(next);
+    const saved = report.id ? next.find((r) => r.id === report.id) : next.find((r) => !dailyReports.some((o) => o.id === r.id));
+    if (saved) apiCall("saveDailyReport", { ...saved, machine: saved.machine || activeMachine }).catch((e) => console.warn("DailyReport sync (save) failed — kept locally:", e.message));
+  };
+  const handleDeleteDailyReport = (id) => {
+    const next = removeDailyReport(dailyReports, id); setDailyReports(next); persistDailyReports(next);
+    apiCall("deleteDailyReport", { id }).catch((e) => console.warn("DailyReport sync (delete) failed — kept locally:", e.message));
+  };
 
   const syncIssueToServer = (issue) => {
     apiCall("saveIssue", issue).catch((e) => console.warn("Issue sync (save) failed — kept locally:", e.message));
@@ -137,6 +146,12 @@ const PrimaryGroutApp = () => {
             const parsedShiftReports = (result.shiftReports || []).map(sr => ({ ...sr, events: safeParseJSON(sr.events, {}), manpower: safeParseJSON(sr.manpower, defaultManpower), result: safeParseJSON(sr.result, defaultResult) }));
             setShiftReports(parsedShiftReports);
             if (Array.isArray(result.issues)) { setIssues(result.issues); persistIssues(result.issues); }
+            if (Array.isArray(result.dailyReports) && result.dailyReports.length) { const dr = normalize(result.dailyReports); setDailyReports(dr); persistDailyReports(dr); }
+            if (Array.isArray(result.prepTasks) && result.prepTasks.length) {
+              const byM = {};
+              result.prepTasks.forEach((t) => { const m = t.machine || "TBM1"; (byM[m] = byM[m] || []).push(t); });
+              Object.keys(byM).forEach((m) => savePrepTasks(m, byM[m]));
+            }
             
             if (result.planConfig) {
               try {

@@ -2,8 +2,7 @@ import React, { useState, useMemo } from "react";
 import {
   TrendingUp, Settings, Plus, Save, Trash2, X, Maximize2, Loader2, Printer
 } from "lucide-react";
-import useGlobalFilter from "../../hooks/useGlobalFilter";
-import GlobalFilterBar from "../common/GlobalFilterBar";
+import { filterByState } from "../../hooks/useGlobalFilter";
 import { formatDisplayDate, formatDisplayTime } from "../../utils/formatters";
 import { getRingNumeric } from "../../utils/helpers";
 import { TOTAL_ROUTE_DISTANCE } from "../../utils/constants";
@@ -13,8 +12,8 @@ import {
   ResponsiveContainer, ComposedChart, CartesianGrid, XAxis, YAxis, Tooltip, Bar, Line
 } from "recharts";
 
-export default function SegmentAnalysisView({ segmentRecords = [], projectInfo }) {
-  const { state: gfState, setters: gfSetters, filteredSegments } = useGlobalFilter(segmentRecords);
+export default function SegmentAnalysisView({ segmentRecords = [], projectInfo, machine = "TBM1", filterState = {} }) {
+  const filteredSegments = useMemo(() => filterByState(segmentRecords, filterState), [segmentRecords, filterState]);
 
   const paceStats = useMemo(() => {
     const map = new Map();
@@ -88,7 +87,7 @@ export default function SegmentAnalysisView({ segmentRecords = [], projectInfo }
       localStorage.setItem("tbmPlanConfig", JSON.stringify(planConfig));
       // ส่งทั้งคู่เหมือนเดิม (กัน GAS เขียนทับ distPlanConfig ฝั่ง server) — ดึง distance plan จาก localStorage
       const distPlanConfig = JSON.parse(localStorage.getItem("tbmDistancePlanConfig") || "null") || { ranges: [] };
-      await apiCall("savePlanConfig", { planConfig, distPlanConfig });
+      await apiCall("savePlanConfig", { machine, planConfig, distPlanConfig });
       setShowPlanModal(false);
     } catch (e) {
       console.error("Failed to save plan config", e);
@@ -121,7 +120,6 @@ export default function SegmentAnalysisView({ segmentRecords = [], projectInfo }
   };
 
   // ── Base Segment Records Memo ──
-  // NOTE: globalFilteredSegments → filteredSegments (from useGlobalFilter hook)
   const baseSegmentRecords = useMemo(() => {
     let recordsToFilter = filteredSegments;
     if (segFilterShift !== "All") {
@@ -262,14 +260,6 @@ export default function SegmentAnalysisView({ segmentRecords = [], projectInfo }
           }
         ` : ""}
       `}</style>
-
-      {/* Global Filter Bar */}
-      <GlobalFilterBar
-        state={gfState}
-        setters={gfSetters}
-        title="Segment Filter"
-        subtitle="กรองข้อมูลกราฟ Segment"
-      />
 
       {/* ═══ Required-Rate Banner ═══ */}
       {paceStats.targetRings > 0 && (

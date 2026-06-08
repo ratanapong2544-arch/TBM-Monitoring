@@ -2,8 +2,7 @@ import React, { useState, useMemo, useEffect } from "react";
 import {
   MapPin, Ruler, Settings, Printer, Maximize2, Plus, Save, Trash2, X, Loader2, TrendingUp
 } from "lucide-react";
-import GlobalFilterBar from "../common/GlobalFilterBar";
-import useGlobalFilter from "../../hooks/useGlobalFilter";
+import { filterByState } from "../../hooks/useGlobalFilter";
 import { formatDisplayDate } from "../../utils/formatters";
 import { getRingNumeric } from "../../utils/helpers";
 import { TOTAL_ROUTE_DISTANCE, ROUTE_SEGMENTS } from "../../utils/constants";
@@ -14,8 +13,8 @@ import {
   ResponsiveContainer, ComposedChart, CartesianGrid, XAxis, YAxis, Tooltip, Line, ReferenceLine
 } from "recharts";
 
-const RouteScheduleView = ({ segmentRecords = [], projectInfo, machine = "TBM1" }) => {
-  const { state: gfState, setters: gfSetters, filteredSegments } = useGlobalFilter(segmentRecords);
+const RouteScheduleView = ({ segmentRecords = [], projectInfo, machine = "TBM1", filterState = {} }) => {
+  const filteredSegments = useMemo(() => filterByState(segmentRecords, filterState), [segmentRecords, filterState]);
 
   // ── Print State ──
   const [printingChartId, setPrintingChartId] = useState("all");
@@ -53,7 +52,7 @@ const RouteScheduleView = ({ segmentRecords = [], projectInfo, machine = "TBM1" 
       // GAS sync เฉพาะ TBM1 (per-machine GAS = future); หัวอื่น = local-only
       if (machine === "TBM1") {
         const planConfig = JSON.parse(localStorage.getItem("tbmPlanConfig") || "null") || { basePlanAcc: 0, baseActualAcc: 0, ranges: [] };
-        await apiCall("savePlanConfig", { planConfig, distPlanConfig });
+        await apiCall("savePlanConfig", { machine, planConfig, distPlanConfig });
       }
       setShowDistPlanModal(false);
     } catch (e) {
@@ -318,9 +317,6 @@ const RouteScheduleView = ({ segmentRecords = [], projectInfo, machine = "TBM1" 
           }
         ` : ""}
       `}</style>
-
-      {/* GlobalFilterBar */}
-      <GlobalFilterBar state={gfState} setters={gfSetters} title="Route Filter" subtitle="กรองข้อมูลเส้นทาง" />
 
       {/* ═══ SECTION 3.5: แผนผังสถานะเส้นทางและตำแหน่ง TBM1 ปัจจุบัน ═══ */}
       <div className={`bg-surface p-4 sm:p-6 rounded-card shadow-card border border-line flex flex-col gap-2 ${getPrintClass('distance')}`}>

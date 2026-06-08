@@ -1,23 +1,28 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Images, ChevronLeft, ChevronRight, Loader2, AlertCircle, RefreshCw } from "lucide-react";
 import { apiCall } from "../../utils/api";
 
 const AUTOPLAY_MS = 5000;
-const thumbUrl = (id) => `https://drive.google.com/thumbnail?id=${id}&sz=w1600`;
-const altUrl = (id) => `https://lh3.googleusercontent.com/d/${id}=w1600`;
+const IMG_W = 1200;
 
+// รูปโหลดผ่าน GAS proxy เป็น base64 (Drive block การ hotlink <img> จาก origin ภายนอก)
 export default function ImageSlideshow({ folderId }) {
-  const [images, setImages] = useState([]);
+  const [images, setImages] = useState([]); // { id, name }
   const [index, setIndex] = useState(0);
+  const [srcMap, setSrcMap] = useState({}); // id -> dataUri | "" (loading) | "ERR"
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [paused, setPaused] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
+  const inflight = useRef(new Set());
 
+  // โหลดรายการรูป (id + name)
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     setError(false);
+    setSrcMap({});
+    inflight.current = new Set();
     apiCall("getDriveImages", { folderId })
       .then((res) => {
         if (cancelled) return;
@@ -25,10 +30,7 @@ export default function ImageSlideshow({ folderId }) {
           ? res
           : res && Array.isArray(res.images) ? res.images
           : res && Array.isArray(res.data) ? res.data : [];
-        const imgs = list
-          .filter((it) => it && it.id)
-          .map((it) => ({ id: it.id, name: it.name || "", url: thumbUrl(it.id), triedAlt: false }));
-        setImages(imgs);
+        setImages(list.filter((it) => it && it.id).map((it) => ({ id: it.id, name: it.name || "" })));
         setIndex(0);
         setLoading(false);
       })
@@ -38,6 +40,22 @@ export default function ImageSlideshow({ folderId }) {
     return () => { cancelled = true; };
   }, [folderId, reloadKey]);
 
+  // โหลด base64 ของสไลด์ปัจจุบัน + preload สไลด์ถัดไป (ผ่าน GAS proxy)
+  useEffect(() => {
+    if (!images.length) return;
+    const wanted = [images[index], images[(index + 1) % images.length]].filter(Boolean).map((im) => im.id);
+    wanted.forEach((id) => {
+      if (srcMap[id] !== undefined || inflight.current.has(id)) return;
+      inflight.current.add(id);
+      setSrcMap((m) => ({ ...m, [id]: "" }));
+      apiCall("getImage", { id, w: IMG_W })
+        .then((r) => setSrcMap((m) => ({ ...m, [id]: r && r.status === "success" && r.dataUri ? r.dataUri : "ERR" })))
+        .catch(() => setSrcMap((m) => ({ ...m, [id]: "ERR" })))
+        .finally(() => inflight.current.delete(id));
+    });
+  }, [images, index, srcMap]);
+
+  // autoplay
   useEffect(() => {
     if (paused || images.length <= 1) return undefined;
     const t = setInterval(() => setIndex((i) => (i + 1) % images.length), AUTOPLAY_MS);
@@ -46,14 +64,6 @@ export default function ImageSlideshow({ folderId }) {
 
   const go = (d) => {
     if (images.length) setIndex((i) => (i + d + images.length) % images.length);
-  };
-
-  const handleImgError = (id) => {
-    setImages((prev) =>
-      prev
-        .map((im) => (im.id !== id ? im : im.triedAlt ? null : { ...im, url: altUrl(im.id), triedAlt: true }))
-        .filter(Boolean)
-    );
   };
 
   const Frame = ({ children }) => (
@@ -89,7 +99,7 @@ export default function ImageSlideshow({ folderId }) {
           <AlertCircle size={28} className="text-code-d" />
           <div className="text-sm font-semibold text-ink">โหลดรูปไม่สำเร็จ</div>
           <div className="text-xs text-ink-3 max-w-md leading-relaxed">
-            ตรวจว่าแชร์โฟลเดอร์เป็น "ทุกคนที่มีลิงก์ (Anyone with the link)" และ deploy GAS action <span className="font-mono">getDriveImages</span> แล้ว
+            ตรวจว่าแชร์โฟลเดอร์เป็น "ทุกคนที่มีลิงก์ (Anyone with the link)" และ deploy GAS action <span className="font-mono">getDriveImages</span> / <span className="font-mono">getImage</span> แล้ว
           </div>
           <button
             onClick={() => setReloadKey((k) => k + 1)}
@@ -112,6 +122,7 @@ export default function ImageSlideshow({ folderId }) {
   }
 
   const cur = images[Math.min(index, images.length - 1)];
+  const curSrc = cur ? srcMap[cur.id] : undefined;
   return (
     <Frame>
       <div
@@ -119,13 +130,22 @@ export default function ImageSlideshow({ folderId }) {
         onMouseEnter={() => setPaused(true)}
         onMouseLeave={() => setPaused(false)}
       >
-        <img
-          key={cur.id}
-          src={cur.url}
-          alt={cur.name}
-          onError={() => handleImgError(cur.id)}
-          className="w-full h-full object-cover animate-fade-in"
-        />
+        {curSrc && curSrc !== "ERR" ? (
+          <img
+            key={cur.id}
+            src={curSrc}
+            alt={cur.name}
+            className="w-full h-full object-cover animate-fade-in"
+          />
+        ) : curSrc === "ERR" ? (
+          <div className="w-full h-full flex flex-col items-center justify-center gap-2 text-white/70 text-sm">
+            <AlertCircle size={20} /> โหลดรูปนี้ไม่สำเร็จ
+          </div>
+        ) : (
+          <div className="w-full h-full flex items-center justify-center gap-2 text-white/70 text-sm">
+            <Loader2 size={18} className="animate-spin" /> กำลังโหลด…
+          </div>
+        )}
         {images.length > 1 && (
           <>
             <button onClick={() => go(-1)} aria-label="ก่อนหน้า" className="absolute left-3 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-navy-dark/55 border border-white/25 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity backdrop-blur-sm">

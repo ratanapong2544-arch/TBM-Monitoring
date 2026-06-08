@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import Sidebar from "./Sidebar";
 import TopBar from "./TopBar";
+import TopBarFilter from "./TopBarFilter";
 import BottomNav from "./BottomNav";
 import MoreSheet from "./MoreSheet";
 import { NAV_GROUPS, MOBILE_PRIMARY } from "./navModel";
@@ -47,9 +48,14 @@ export default function Shell({
   activeMachine,
   onMachineChange,
   currentRingNum,
+  globalFilter,
   children,
 }) {
   const showIssues = ISSUE_TABS.includes(active.tab);
+  const showFilter =
+    active.tab === "dashboard" ||
+    active.tab === "performance" ||
+    (active.tab === "analysis" && (active.module === "segment" || active.module === "route"));
   const [sheetOpen, setSheetOpen] = useState(false);
   const [modal, setModal] = useState({ open: false, editing: null });
 
@@ -84,6 +90,7 @@ export default function Shell({
           onMachineChange={onMachineChange}
           rightSlot={
             <div className="flex items-center gap-2">
+              {showFilter && globalFilter && <TopBarFilter state={globalFilter.state} setters={globalFilter.setters} />}
               {active.tab === "dashboard" && <DashboardHeaderActions segmentRecords={segmentRecords} groutRecords={groutRecords} shiftReports={shiftReports} />}
               {showIssues && <IssuesBell count={openCount(issues)} onClick={() => setSheetOpen(true)} />}
             </div>

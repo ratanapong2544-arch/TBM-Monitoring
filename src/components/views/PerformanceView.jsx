@@ -1,7 +1,6 @@
 import React, { useMemo } from "react";
 import { Gauge, Clock, AlertTriangle, Wrench, Activity, Timer, Layers, Zap } from "lucide-react";
-import useGlobalFilter from "../../hooks/useGlobalFilter";
-import GlobalFilterBar from "../common/GlobalFilterBar";
+import { filterByState } from "../../hooks/useGlobalFilter";
 import SectionHeader from "../common/SectionHeader";
 import StatCard from "../common/StatCard";
 import { formatDisplayTime, formatDisplayDate } from "../../utils/formatters";
@@ -26,9 +25,9 @@ const CAT = {
 
 const fmt1 = (v) => Number(v || 0).toFixed(1);
 
-export default function PerformanceView({ segmentRecords = [], shiftReports = [] }) {
-  const { state: gfState, setters: gfSetters, filteredSegments, filteredShiftReports } =
-    useGlobalFilter(segmentRecords, [], shiftReports);
+export default function PerformanceView({ segmentRecords = [], shiftReports = [], filterState = {} }) {
+  const filteredSegments = useMemo(() => filterByState(segmentRecords, filterState), [segmentRecords, filterState]);
+  const filteredShiftReports = useMemo(() => filterByState(shiftReports, filterState), [shiftReports, filterState]);
 
   const util = useMemo(() => {
     // Operating (Excavation + Segment Erection) from SEGMENT timestamps, attributed per shift.
@@ -156,8 +155,6 @@ export default function PerformanceView({ segmentRecords = [], shiftReports = []
 
   return (
     <div className="max-w-full mx-auto pb-24 animate-fade-in space-y-6">
-      <GlobalFilterBar state={gfState} setters={gfSetters} title="Performance Filter" subtitle="กรองช่วงเวลา (ใช้ฟิลเตอร์เดียวกับทั้งระบบ)" />
-
       <section className="space-y-4">
         <SectionHeader title="Utilization & Downtime" subtitle="การใช้งานเครื่อง & เวลาสูญเสีย" icon={Gauge} />
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">

@@ -11,6 +11,45 @@ export function getWeekString(dateObj) {
   return `${d.getFullYear()}-W${String(weekNo).padStart(2, "0")}`;
 }
 
+// Lifted filter state — App owns one instance (global); TopBar renders the toggle.
+export function useFilterState() {
+  const [mode, setMode] = useState("all");
+  const [date, setDate] = useState(new Date().toISOString().split("T")[0]);
+  const [week, setWeek] = useState(() => getWeekString(new Date()));
+  const [month, setMonth] = useState(new Date().toISOString().slice(0, 7));
+  const [rangeStart, setRangeStart] = useState("");
+  const [rangeEnd, setRangeEnd] = useState("");
+  const state = useMemo(
+    () => ({ mode, date, week, month, rangeStart, rangeEnd }),
+    [mode, date, week, month, rangeStart, rangeEnd]
+  );
+  const setters = useMemo(
+    () => ({ setMode, setDate, setWeek, setMonth, setRangeStart, setRangeEnd }),
+    []
+  );
+  return { state, setters };
+}
+
+// Pure date filter — apply a filter state to a records array.
+export function filterByState(records, state) {
+  const s = state || {};
+  const mode = s.mode || "all";
+  if (mode === "all") return records || [];
+  return (records || []).filter((r) => {
+    const dStr = r.date ? formatDisplayDate(r.date) : "";
+    if (!dStr) return false;
+    if (mode === "daily") return dStr === s.date;
+    if (mode === "weekly") return getWeekString(r.date) === s.week;
+    if (mode === "monthly") return dStr.startsWith(s.month || "");
+    if (mode === "range") {
+      if (s.rangeStart && dStr < s.rangeStart) return false;
+      if (s.rangeEnd && dStr > s.rangeEnd) return false;
+      return true;
+    }
+    return true;
+  });
+}
+
 export default function useGlobalFilter(segmentRecords = [], groutRecords = [], shiftReports = []) {
   const [mode, setMode] = useState("all");
   const [date, setDate] = useState(new Date().toISOString().split("T")[0]);

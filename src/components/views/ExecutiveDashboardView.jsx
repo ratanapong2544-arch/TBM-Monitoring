@@ -2,9 +2,8 @@ import React, { useState, useMemo } from "react";
 import { TrendingUp, Layers, Activity, MapPin, Droplet, BarChart3, Printer } from "lucide-react";
 import StatCard from "../common/StatCard";
 import SectionHeader from "../common/SectionHeader";
-import GlobalFilterBar from "../common/GlobalFilterBar";
 import ImageSlideshow from "../dashboard/ImageSlideshow";
-import useGlobalFilter from "../../hooks/useGlobalFilter";
+import { filterByState } from "../../hooks/useGlobalFilter";
 import { formatDisplayDate } from "../../utils/formatters";
 import { getRingNumeric, calculateSoilVolume } from "../../utils/helpers";
 import { TOTAL_ROUTE_DISTANCE, DRIVE_PHOTOS_FOLDER_ID } from "../../utils/constants";
@@ -13,8 +12,9 @@ import { chartColors, tooltipStyle } from "../../ui-ux-pro-max/chartTheme";
 import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip } from "recharts";
 import ExecutiveEmptyState from "./ExecutiveEmptyState";
 
-const ExecutiveDashboardView = ({ segmentRecords, groutRecords, dailyReports = [], machine = "TBM1", onNavigate }) => {
-  const { state: gfState, setters: gfSetters, filteredSegments, filteredGrout } = useGlobalFilter(segmentRecords, groutRecords);
+const ExecutiveDashboardView = ({ segmentRecords, groutRecords, dailyReports = [], machine = "TBM1", onNavigate, filterState = {} }) => {
+  const filteredSegments = useMemo(() => filterByState(segmentRecords, filterState), [segmentRecords, filterState]);
+  const filteredGrout = useMemo(() => filterByState(groutRecords, filterState), [groutRecords, filterState]);
 
   const [printingChartId, setPrintingChartId] = useState("all");
 
@@ -192,9 +192,6 @@ const ExecutiveDashboardView = ({ segmentRecords, groutRecords, dailyReports = [
           }
         ` : ""}
       `}</style>
-
-      {/* ═══ GLOBAL FILTER BAR ═══ */}
-      <GlobalFilterBar state={gfState} setters={gfSetters} title="Global Dashboard Filter" subtitle="กรองข้อมูลภาพรวมทั้งหน้าหลัก" />
 
       <section className="space-y-6">
       <SectionHeader title="ภาพรวมโครงการ" subtitle="Project Overview" icon={BarChart3} />

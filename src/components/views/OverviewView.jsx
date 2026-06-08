@@ -55,11 +55,8 @@ const OverviewView = ({ segmentRecords, groutRecords, setCurrentModule, setActiv
 
   return (
     <div className="max-w-4xl mx-auto space-y-6 pb-24 animate-fade-in">
-      <div className="flex items-center justify-between gap-3 mb-5 no-print">
-        <div>
-          <div className="text-xs font-semibold text-ink-3 uppercase tracking-wider">หัวเจาะที่กำลังดู</div>
-          <div className="text-2xl font-semibold text-navy">{activeMachine}</div>
-        </div>
+      <div className="mb-6 no-print">
+        <div className="text-xs font-semibold text-ink-3 uppercase tracking-wider mb-2">เลือกหัวเจาะ</div>
         <MachineSwitcher value={activeMachine} onChange={onMachineChange} size="lg" />
       </div>
       {/* Hero status card */}

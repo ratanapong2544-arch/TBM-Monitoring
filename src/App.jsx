@@ -20,6 +20,7 @@ import PerformanceView from "./components/views/PerformanceView";
 import DailyReportView from "./components/views/DailyReportView";
 import RecordDailyView from "./components/views/RecordDailyView";
 import PrepGanttView from "./components/views/PrepGanttView";
+import { useFilterState } from "./hooks/useGlobalFilter";
 import { loadIssues, persistIssues, upsertIssue, setIssueStatus, removeIssue, forMachine } from "./utils/issues";
 import { loadDailyReports, persistDailyReports, upsertDailyReport, removeDailyReport, normalize } from "./utils/dailyReports";
 import { apiCall } from "./utils/api";
@@ -72,10 +73,11 @@ const PrimaryGroutApp = () => {
   };
 
   useEffect(() => {
+    setSegmentRecords([]); setGroutRecords([]); setShiftReports([]);
     const fetchData = async () => {
       if (GAS_URL !== "YOUR_WEB_APP_URL_HERE" && GAS_URL.startsWith("http")) {
         try {
-          const response = await fetch(`${GAS_URL}?action=getData`, { redirect: "follow" });
+          const response = await fetch(`${GAS_URL}?action=getData&machine=${activeMachine}`, { redirect: "follow" });
           const textData = await response.text();
           if (textData.trim().startsWith("<")) throw new Error("Received HTML error.");
           const result = JSON.parse(textData);
@@ -154,7 +156,7 @@ const PrimaryGroutApp = () => {
       setIsLoadingMain(false);
     };
     fetchData();
-  }, []);
+  }, [activeMachine]);
 
   const handleProjectInfoChange = (e) => setProjectInfo({ ...projectInfo, [e.target.name]: e.target.value });
 
@@ -164,12 +166,13 @@ const PrimaryGroutApp = () => {
     setMoreOpen(false);
   };
 
-  const activeSegments     = activeMachine === "TBM1" ? segmentRecords : [];
+  const activeSegments     = segmentRecords;
   const currentRingNum = activeSegments.reduce((mx, s) => Math.max(mx, getRingNumeric(s.ringNo) || 0), 0);
-  const activeGrouts       = activeMachine === "TBM1" ? groutRecords   : [];
-  const activeShiftReports = activeMachine === "TBM1" ? shiftReports   : [];
+  const activeGrouts       = groutRecords;
+  const activeShiftReports = shiftReports;
   const activeDailyReports = dailyReports.filter((r) => (r.machine || "TBM1") === activeMachine);
   const activeIssues = forMachine(issues, activeMachine);
+  const dashFilter = useFilterState();
 
   const liveHeaderStatus = useMemo(() => {
     if (activeSegments.length === 0) return null;
@@ -244,16 +247,17 @@ const PrimaryGroutApp = () => {
       activeMachine={activeMachine}
       onMachineChange={setActiveMachine}
       currentRingNum={currentRingNum}
+      globalFilter={dashFilter}
     >
       {loadError && <div className="mb-6 bg-code-d/10 border border-code-d/30 text-code-d p-4 rounded-card text-center no-print font-semibold">{loadError}</div>}
       {activeTab === "overview" && <OverviewView segmentRecords={activeSegments} groutRecords={activeGrouts} setCurrentModule={setCurrentModule} setActiveTab={setActiveTab} activeMachine={activeMachine} onMachineChange={setActiveMachine} />}
       {activeTab === "record" && currentModule === "grout" && <GroutRecordView projectInfo={projectInfo} handleProjectInfoChange={handleProjectInfoChange} groutRecords={groutRecords} setGroutRecords={setGroutRecords} segmentRecords={segmentRecords} setCurrentModule={setCurrentModule} setActiveTab={setActiveTab} />}
       {activeTab === "record" && currentModule === "segment" && <SegmentRecordView projectInfo={projectInfo} handleProjectInfoChange={handleProjectInfoChange} segmentRecords={segmentRecords} setSegmentRecords={setSegmentRecords} setCurrentModule={setCurrentModule} setActiveTab={setActiveTab} />}
-      {activeTab === "dashboard" && <ExecutiveDashboardView segmentRecords={activeSegments} groutRecords={activeGrouts} shiftReports={activeShiftReports} dailyReports={activeDailyReports} machine={activeMachine} onNavigate={handleNavigate} />}
-      {activeTab === "analysis" && currentModule === "segment" && <SegmentAnalysisView segmentRecords={activeSegments} projectInfo={projectInfo} />}
+      {activeTab === "dashboard" && <ExecutiveDashboardView segmentRecords={activeSegments} groutRecords={activeGrouts} shiftReports={activeShiftReports} dailyReports={activeDailyReports} machine={activeMachine} onNavigate={handleNavigate} filterState={dashFilter.state} />}
+      {activeTab === "analysis" && currentModule === "segment" && <SegmentAnalysisView segmentRecords={activeSegments} projectInfo={projectInfo} filterState={dashFilter.state} />}
       {activeTab === "analysis" && currentModule === "grout" && <GroutAnalysisView groutRecords={activeGrouts} />}
-      {activeTab === "analysis" && currentModule === "route" && <RouteScheduleView segmentRecords={activeSegments} projectInfo={projectInfo} machine={activeMachine} />}
-      {activeTab === "performance" && <PerformanceView segmentRecords={activeSegments} shiftReports={activeShiftReports} />}
+      {activeTab === "analysis" && currentModule === "route" && <RouteScheduleView segmentRecords={activeSegments} projectInfo={projectInfo} machine={activeMachine} filterState={dashFilter.state} />}
+      {activeTab === "performance" && <PerformanceView segmentRecords={activeSegments} shiftReports={activeShiftReports} filterState={dashFilter.state} />}
       {activeTab === "prep_gantt" && <PrepGanttView machine={activeMachine} />}
       {activeTab === "datalog" && currentModule === "grout" && <GroutDashboardView groutRecords={groutRecords} setGroutRecords={setGroutRecords} segmentRecords={segmentRecords} />}
       {activeTab === "datalog" && currentModule === "segment" && <SegmentDashboardView segmentRecords={segmentRecords} setSegmentRecords={setSegmentRecords} />}

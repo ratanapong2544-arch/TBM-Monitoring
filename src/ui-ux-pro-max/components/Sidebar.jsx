@@ -1,5 +1,5 @@
 import React from "react";
-import { NAV_GROUPS } from "./navModel";
+import { NAV_GROUPS, viewerGroups } from "./navModel";
 import { Layers } from "lucide-react";
 
 // สีจุดสถานะ — ต้องสว่างพออ่านบนพื้น navy
@@ -8,7 +8,7 @@ const STATUS_DOT = {
   info: "bg-cyan", neutral: "bg-cyan-tint",
 };
 
-export default function Sidebar({ active = {}, onNavigate, liveStatus, machine }) {
+export default function Sidebar({ active = {}, onNavigate, liveStatus, machine, isViewer = false }) {
   return (
     <aside className="hidden lg:flex flex-col w-60 bg-navy-dark h-screen sticky top-0 shrink-0 print:hidden">
       {/* Brand */}
@@ -35,7 +35,7 @@ export default function Sidebar({ active = {}, onNavigate, liveStatus, machine }
 
       {/* Nav groups */}
       <nav className="flex-1 overflow-y-auto py-3 space-y-4">
-        {NAV_GROUPS.map((group) => (
+        {(isViewer ? viewerGroups() : NAV_GROUPS).map((group) => (
           <div key={group.label}>
             <div className="px-5 mb-1 text-[10px] font-semibold uppercase tracking-widest text-cyan-tint/70">
               {group.label}

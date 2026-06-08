@@ -1,10 +1,11 @@
 import React, { useState } from "react";
+import { Eye } from "lucide-react";
 import Sidebar from "./Sidebar";
 import TopBar from "./TopBar";
 import TopBarFilter from "./TopBarFilter";
 import BottomNav from "./BottomNav";
 import MoreSheet from "./MoreSheet";
-import { NAV_GROUPS, MOBILE_PRIMARY } from "./navModel";
+import { NAV_GROUPS, MOBILE_PRIMARY, viewerGroups } from "./navModel";
 import IssuesRail from "../../components/issues/IssuesRail";
 import IssuesSheet from "../../components/issues/IssuesSheet";
 import IssuesBell from "../../components/issues/IssuesBell";
@@ -49,9 +50,10 @@ export default function Shell({
   onMachineChange,
   currentRingNum,
   globalFilter,
+  isViewer = false,
   children,
 }) {
-  const showIssues = ISSUE_TABS.includes(active.tab);
+  const showIssues = !isViewer && ISSUE_TABS.includes(active.tab);
   const showFilter =
     active.tab === "dashboard" ||
     active.tab === "performance" ||
@@ -65,6 +67,10 @@ export default function Shell({
   const closeIssue = (id) => onSetIssueStatus(id, "closed");
   const reopenIssue = (id) => onSetIssueStatus(id, "open");
 
+  const mobileItems = isViewer
+    ? Object.values(viewerGroups()[0].items.reduce((m, it) => { if (!m[it.tab]) m[it.tab] = it; return m; }, {}))
+    : MOBILE_ITEMS;
+
   const railProps = {
     issues,
     onAdd: openAdd,
@@ -77,7 +83,7 @@ export default function Shell({
 
   return (
     <div className="flex min-h-screen bg-surface-page font-sans">
-      <Sidebar active={active} onNavigate={onNavigate} liveStatus={liveStatus} machine={activeMachine} />
+      <Sidebar active={active} onNavigate={onNavigate} liveStatus={liveStatus} machine={activeMachine} isViewer={isViewer} />
 
       <div className="flex-1 flex flex-col min-w-0">
         <TopBar
@@ -90,8 +96,13 @@ export default function Shell({
           onMachineChange={onMachineChange}
           rightSlot={
             <div className="flex items-center gap-2">
+              {isViewer && (
+                <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-navy bg-cyan-tint border border-line px-2 py-1 rounded-badge whitespace-nowrap">
+                  <Eye size={13} /> Viewer
+                </span>
+              )}
               {showFilter && globalFilter && <TopBarFilter state={globalFilter.state} setters={globalFilter.setters} />}
-              {active.tab === "dashboard" && <DashboardHeaderActions segmentRecords={segmentRecords} groutRecords={groutRecords} shiftReports={shiftReports} />}
+              {active.tab === "dashboard" && <DashboardHeaderActions segmentRecords={segmentRecords} groutRecords={groutRecords} shiftReports={shiftReports} isViewer={isViewer} />}
               {showIssues && <IssuesBell count={openCount(issues)} onClick={() => setSheetOpen(true)} />}
             </div>
           }
@@ -111,7 +122,7 @@ export default function Shell({
         </main>
       </div>
 
-      <BottomNav items={MOBILE_ITEMS} activeTab={active.tab} onNavigate={onNavigate} onMore={() => setMoreOpen(true)} />
+      <BottomNav items={mobileItems} activeTab={active.tab} onNavigate={onNavigate} onMore={isViewer ? () => {} : () => setMoreOpen(true)} />
       <MoreSheet open={moreOpen} onClose={() => setMoreOpen(false)} onNavigate={onNavigate} />
 
       {showIssues && (

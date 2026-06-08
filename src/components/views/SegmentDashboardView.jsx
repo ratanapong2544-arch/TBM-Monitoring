@@ -8,7 +8,7 @@ import { apiCall } from "../../utils/api";
 import { ResponsiveContainer, ComposedChart, CartesianGrid, XAxis, YAxis, Tooltip, Bar, Line } from "recharts";
 import { Badge } from "../../ui-ux-pro-max";
 
-const SegmentDashboardView = ({ segmentRecords, setSegmentRecords }) => {
+const SegmentDashboardView = ({ segmentRecords, setSegmentRecords, machine = "TBM1" }) => {
   const [filterMode, setFilterMode] = useState("all");
   const [filterDate, setFilterDate] = useState(new Date().toISOString().split("T")[0]);
   const [filterMonth, setFilterMonth] = useState(new Date().toISOString().slice(0, 7));
@@ -241,7 +241,7 @@ const SegmentDashboardView = ({ segmentRecords, setSegmentRecords }) => {
   const handleSaveEdit = async () => {
     try {
       const updatedRecord = { ...editFormData };
-      await apiCall("updateSegment", updatedRecord);
+      await apiCall("updateSegment", { ...updatedRecord, machine });
       setSegmentRecords((prev) => prev.map((r) => (r.id === updatedRecord.id ? updatedRecord : r)));
       setSelectedRecord(null);
       setIsEditing(false);
@@ -250,7 +250,7 @@ const SegmentDashboardView = ({ segmentRecords, setSegmentRecords }) => {
 
   const handleDeleteRecord = async () => {
     try {
-      await apiCall("deleteSegment", { id: selectedRecord.id });
+      await apiCall("deleteSegment", { id: selectedRecord.id, machine });
       setSegmentRecords((prev) => prev.filter((r) => r.id !== selectedRecord.id));
       setSelectedRecord(null);
       setShowDeleteConfirm(false);

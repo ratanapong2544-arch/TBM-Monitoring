@@ -6,7 +6,7 @@ import { apiCall } from "../../utils/api";
 import { SegmentedToggle } from "../../ui-ux-pro-max";
 import StickyActionBar from "../../ui-ux-pro-max/components/StickyActionBar";
 
-const SegmentRecordView = ({ projectInfo, handleProjectInfoChange, segmentRecords, setSegmentRecords, setCurrentModule, setActiveTab }) => {
+const SegmentRecordView = ({ projectInfo, handleProjectInfoChange, segmentRecords, setSegmentRecords, setCurrentModule, setActiveTab, machine = "TBM1" }) => {
   const [isSaving, setIsSaving] = useState(false);
   const [formData, setFormData] = useState({
     id: null, ringNo: "", typeRing: "C1", keyPos: "16", startCH: "", finishCH: "", length: "1.40", remark: "",
@@ -72,11 +72,11 @@ const SegmentRecordView = ({ projectInfo, handleProjectInfoChange, segmentRecord
     try {
       if (formData.id) {
         recordData.id = formData.id;
-        await apiCall("updateSegment", recordData);
+        await apiCall("updateSegment", { ...recordData, machine });
         setSegmentRecords((prev) => prev.map((r) => (r.id === recordData.id ? recordData : r)));
       } else {
         recordData.id = `seg_${Date.now()}`;
-        await apiCall("addSegment", recordData);
+        await apiCall("addSegment", { ...recordData, machine });
         setSegmentRecords((prev) => [...prev, recordData]);
       }
       setFormData((prev) => {

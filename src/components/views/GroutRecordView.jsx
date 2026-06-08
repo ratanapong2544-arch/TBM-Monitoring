@@ -8,7 +8,7 @@ import { apiCall } from "../../utils/api";
 import { SegmentedToggle } from "../../ui-ux-pro-max";
 import StickyActionBar from "../../ui-ux-pro-max/components/StickyActionBar";
 
-const GroutRecordView = ({ projectInfo, handleProjectInfoChange, groutRecords, setGroutRecords, segmentRecords, setCurrentModule, setActiveTab }) => {
+const GroutRecordView = ({ projectInfo, handleProjectInfoChange, groutRecords, setGroutRecords, segmentRecords, setCurrentModule, setActiveTab, machine = "TBM1" }) => {
   const [isSaving, setIsSaving] = useState(false);
   const [formData, setFormData] = useState({ ringNo: "", excavRing: "", pressure: "", partA: "", partB: "", keyType: "16", positions: { A: false, B1: false, B2: false, C1: false, C2: false, K: false }, remark: "", imageBase64: "", imageName: "" });
   const [isKeyLinked, setIsKeyLinked] = useState(false);
@@ -118,7 +118,7 @@ const GroutRecordView = ({ projectInfo, handleProjectInfoChange, groutRecords, s
           primaryPositions: JSON.stringify(updatedRecord.primaryPositions),
           secondaryPositions: JSON.stringify(updatedRecord.secondaryPositions)
         };
-        await apiCall("updateGrout", payloadRecord);
+        await apiCall("updateGrout", { ...payloadRecord, machine });
         if (updatedRecord.imageBase64) updatedRecord.imageUrl = "Attached";
         setGroutRecords((prev) => prev.map((r) => (r.id === updatedRecord.id ? updatedRecord : r)));
         resetFormAfterSave(true);
@@ -144,7 +144,7 @@ const GroutRecordView = ({ projectInfo, handleProjectInfoChange, groutRecords, s
           positions: JSON.stringify(newRecord.positions),
           primaryPositions: JSON.stringify(newRecord.primaryPositions)
         };
-        await apiCall("addGrout", payloadRecord);
+        await apiCall("addGrout", { ...payloadRecord, machine });
         if (newRecord.imageBase64) newRecord.imageUrl = "Attached";
         setGroutRecords((prev) => [...prev, newRecord]);
         resetFormAfterSave(false);

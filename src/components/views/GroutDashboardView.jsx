@@ -9,7 +9,7 @@ import RingVisualizer from "../common/RingVisualizer";
 import { ResponsiveContainer, AreaChart, CartesianGrid, XAxis, YAxis, Tooltip, ReferenceLine, Area } from "recharts";
 import { Badge } from "../../ui-ux-pro-max";
 
-const GroutDashboardView = ({ groutRecords, segmentRecords, setGroutRecords }) => {
+const GroutDashboardView = ({ groutRecords, segmentRecords, setGroutRecords, machine = "TBM1" }) => {
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 50;
   const [filterMode, setFilterMode] = useState("all");
@@ -90,7 +90,7 @@ const GroutDashboardView = ({ groutRecords, segmentRecords, setGroutRecords }) =
         primaryPositions: typeof updatedRecord.primaryPositions === 'object' ? JSON.stringify(updatedRecord.primaryPositions) : updatedRecord.primaryPositions,
         secondaryPositions: typeof updatedRecord.secondaryPositions === 'object' ? JSON.stringify(updatedRecord.secondaryPositions) : updatedRecord.secondaryPositions
       };
-      await apiCall("updateGrout", payloadRecord);
+      await apiCall("updateGrout", { ...payloadRecord, machine });
       setGroutRecords((prev) => prev.map((r) => (r.id === updatedRecord.id ? updatedRecord : r)));
       setSelectedRecord(updatedRecord);
       setIsEditing(false);
@@ -99,7 +99,7 @@ const GroutDashboardView = ({ groutRecords, segmentRecords, setGroutRecords }) =
 
   const handleDeleteRecord = async () => {
     try {
-      await apiCall("deleteGrout", { id: selectedRecord.id });
+      await apiCall("deleteGrout", { id: selectedRecord.id, machine });
       setGroutRecords((prev) => prev.filter((r) => r.id !== selectedRecord.id));
       setSelectedRecord(null);
       setShowDeleteConfirm(false);

@@ -4,7 +4,7 @@ import { formatDisplayDate, formatDisplayTime } from "../../utils/formatters";
 import { getLogicalShiftDate, getRingNumeric, loadHtml2Canvas } from "../../utils/helpers";
 import { apiCall } from "../../utils/api";
 
-const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftReports }) => {
+const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftReports, machine = "TBM1" }) => {
   const [isSaving, setIsSaving] = useState(false);
   const [isExportingImage, setIsExportingImage] = useState(false);
 
@@ -78,7 +78,7 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
     setIsSaving(true);
     const payload = { id: existingReport ? existingReport.id : `shift_${Date.now()}`, date: meta.date, shift: meta.shift, tbmNo: meta.tbmNo, location: meta.location, events: JSON.stringify(events), manpower: JSON.stringify(manpower), result: JSON.stringify(result) };
     try {
-      await apiCall(existingReport ? "updateShiftReport" : "addShiftReport", payload);
+      await apiCall(existingReport ? "updateShiftReport" : "addShiftReport", { ...payload, machine });
       const savedRecord = { ...payload, events: events, manpower: manpower, result: result };
       if (existingReport) setShiftReports(prev => prev.map(r => r.id === payload.id ? savedRecord : r));
       else setShiftReports(prev => [...prev, savedRecord]);
@@ -90,7 +90,7 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
   const triggerAutoSaveEvents = async (updatedEvents) => {
     const payload = { id: existingReport ? existingReport.id : `shift_${Date.now()}`, date: meta.date, shift: meta.shift, tbmNo: meta.tbmNo, location: meta.location, events: JSON.stringify(updatedEvents), manpower: JSON.stringify(manpower), result: JSON.stringify(result) };
     try {
-      await apiCall(existingReport ? "updateShiftReport" : "addShiftReport", payload);
+      await apiCall(existingReport ? "updateShiftReport" : "addShiftReport", { ...payload, machine });
       const savedRecord = { ...payload, events: updatedEvents, manpower, result };
       if (existingReport) setShiftReports(prev => prev.map(r => r.id === payload.id ? savedRecord : r));
       else setShiftReports(prev => [...prev, savedRecord]);

@@ -320,7 +320,7 @@ const RouteScheduleView = ({ segmentRecords = [], projectInfo, machine = "TBM1",
       `}</style>
 
       {/* ═══ SECTION 3.5: แผนผังสถานะเส้นทางและตำแหน่ง TBM1 ปัจจุบัน ═══ */}
-      <div className={`bg-surface p-4 sm:p-6 rounded-card shadow-card border border-line flex flex-col gap-2 ${getPrintClass('distance')}`}>
+      <div className={`bg-surface p-4 sm:p-6 rounded-card shadow-card border border-line flex flex-col gap-2 overflow-x-auto ${getPrintClass('distance')}`}>
         {/* Header แถวที่ 1 */}
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center">
           <div>

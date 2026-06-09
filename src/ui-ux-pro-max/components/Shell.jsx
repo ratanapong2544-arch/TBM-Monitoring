@@ -67,9 +67,7 @@ export default function Shell({
   const closeIssue = (id) => onSetIssueStatus(id, "closed");
   const reopenIssue = (id) => onSetIssueStatus(id, "open");
 
-  const mobileItems = isViewer
-    ? Object.values(viewerGroups()[0].items.reduce((m, it) => { if (!m[it.tab]) m[it.tab] = it; return m; }, {}))
-    : MOBILE_ITEMS;
+  const mobileItems = isViewer ? viewerGroups()[0].items : MOBILE_ITEMS;
 
   const railProps = {
     issues,
@@ -122,7 +120,7 @@ export default function Shell({
         </main>
       </div>
 
-      <BottomNav items={mobileItems} activeTab={active.tab} onNavigate={onNavigate} onMore={isViewer ? undefined : () => setMoreOpen(true)} />
+      <BottomNav items={mobileItems} activeTab={active.tab} activeModule={active.module} onNavigate={onNavigate} onMore={isViewer ? undefined : () => setMoreOpen(true)} />
       <MoreSheet open={moreOpen} onClose={() => setMoreOpen(false)} onNavigate={onNavigate} />
 
       {showIssues && (

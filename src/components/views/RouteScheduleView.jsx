@@ -22,6 +22,14 @@ const RouteScheduleView = ({ segmentRecords = [], projectInfo, machine = "TBM1",
   const handlePrintSpecificChart = (chartId) => {
     setPrintingChartId(chartId);
     setTimeout(() => {
+      // fit-to-one-page แนวนอน: วัดการ์ดจริง (รวม chart SVG ที่ไม่ reflow ตอนปริ้น) แล้วย่อให้พอดี A4 landscape หน้าเดียว
+      const el = document.querySelector(".print-target");
+      if (el && el.scrollWidth > 0 && el.scrollHeight > 0) {
+        const PAGE_W = 1040, PAGE_H = 710; // A4 landscape − margin 10mm @96dpi (เผื่อขอบ)
+        const s = Math.min(PAGE_W / el.scrollWidth, PAGE_H / el.scrollHeight, 1);
+        el.style.setProperty("--print-fit-width", `${el.scrollWidth}px`);
+        el.style.setProperty("--print-fit-scale", String(s));
+      }
       window.print();
       setPrintingChartId("all");
     }, 600);
@@ -311,9 +319,18 @@ const RouteScheduleView = ({ segmentRecords = [], projectInfo, machine = "TBM1",
           }
 
           @media print {
+            /* ยกเลิก scale 0.88 ของ globals (จะย่อด้วย --print-fit-scale แทน) */
+            main > div { transform: none !important; }
             .print-target {
               position: static !important;
               padding: 0 !important;
+              min-height: 0 !important;
+              /* freeze ความกว้าง layout ตามหน้าจอ (กัน recharts SVG ล้น/โดนตัด) แล้วย่อทั้งก้อนให้พอดี 1 หน้า */
+              width: var(--print-fit-width, auto) !important;
+              transform: scale(var(--print-fit-scale, 1)) !important;
+              transform-origin: top left !important;
+              overflow: visible !important;
+              page-break-inside: avoid !important;
             }
           }
         ` : ""}

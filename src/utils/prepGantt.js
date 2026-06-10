@@ -139,5 +139,9 @@ export function ganttTicks(startStr, endStr, pxPerDay) {
     }
   }
   if (bandStart !== null) weekendBands.push({ x: bandStart, width: (total + 1) * pxPerDay - bandStart });
+  // span = ความกว้าง (px) ของช่วงเดือนบนแกน — view ใช้ซ่อน label เดือนหัว/ท้ายที่โดนตัดจนแคบ (กัน label ซ้อนกัน)
+  months.forEach((m, i) => {
+    m.span = (i + 1 < months.length ? months[i + 1].x : (total + 1) * pxPerDay) - m.x;
+  });
   return { months, days, weekLines, weekendBands };
 }

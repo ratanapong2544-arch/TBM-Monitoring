@@ -23,6 +23,7 @@ const LEFT_W = COL_IDX + COL_NAME + COL_DATE * 2 + COL_PCT; // 428
 const MIN_ROW_H = 38;
 const HEADER_MONTH_H = 20;
 const HEADER_H = 40; // เดือน 20 + เลขวัน 20
+const MIN_MONTH_LABEL_PX = 56; // ช่วงเดือนแคบกว่านี้ (เดือนหัว/ท้ายโดนตัดจาก pad ±2 วัน) → ซ่อน label กันซ้อนกับเดือนถัดไป
 
 const _d = (s) => new Date(s + "T00:00:00");
 const dayDiff = (a, b) => Math.round((_d(b) - _d(a)) / 86400000);
@@ -124,9 +125,9 @@ const PrepGanttView = ({ machine = "TBM1", readOnly = false }) => {
                 <div className={`${cellBase} justify-center px-1`}>จบ</div>
                 <div className={`${cellBase} justify-end px-1 pr-2 border-r border-line`}>%</div>
                 <div className="border-b border-line/50">
-                  {/* ชั้นเดือน */}
+                  {/* ชั้นเดือน — ซ่อน label เดือนที่ช่วงแคบกว่าความยาวป้าย (เส้นแบ่งเดือนยังอยู่) */}
                   <div className="relative border-b border-line/30" style={{ height: HEADER_MONTH_H }}>
-                    {ticks.months.map((m) => (
+                    {ticks.months.filter((m) => m.span >= MIN_MONTH_LABEL_PX).map((m) => (
                       <span key={m.iso} className="absolute inset-y-0 flex items-center pl-1.5 text-[10px] font-medium text-ink-2 whitespace-nowrap normal-case" style={{ left: m.x }}>{m.label}</span>
                     ))}
                   </div>

@@ -87,7 +87,7 @@ test("computePxPerDay: clamp 8–36, invalid → 8", () => {
 
 test("ganttTicks: เดือนเดียว มิ.ย. 2026 — month/weekLines/weekendBands ถูกตำแหน่ง", () => {
   const t = ganttTicks("2026-06-01", "2026-06-30", 30); // 1 มิ.ย. 2026 = วันจันทร์
-  expect(t.months).toEqual([{ iso: "2026-06-01", x: 0, label: "มิ.ย. 69" }]);
+  expect(t.months).toEqual([{ iso: "2026-06-01", x: 0, label: "มิ.ย. 69", span: 900 }]); // span = 30 วัน × 30px
   expect(t.days).toHaveLength(30); // px 30 ≥ 22 → label ทุกวัน
   expect(t.weekLines).toEqual([210, 420, 630, 840]); // จันทร์ 8/15/22/29 มิ.ย.
   expect(t.weekendBands).toHaveLength(4);
@@ -101,11 +101,11 @@ test("ganttTicks: day-label step ตาม pxPerDay (anchor วันที่ 1
     .toEqual(["1", "6", "11", "16", "21", "26"]);
 });
 
-test("ganttTicks: ข้ามเดือน — month tick ที่ axisStart และวันที่ 1", () => {
+test("ganttTicks: ข้ามเดือน — month tick ที่ axisStart และวันที่ 1 + span เดือนหัวที่โดนตัด", () => {
   const t = ganttTicks("2026-05-30", "2026-06-03", 30); // 30 พ.ค. 2026 = วันเสาร์
   expect(t.months).toEqual([
-    { iso: "2026-05-30", x: 0, label: "พ.ค. 69" },
-    { iso: "2026-06-01", x: 60, label: "มิ.ย. 69" },
+    { iso: "2026-05-30", x: 0, label: "พ.ค. 69", span: 60 },  // เหลือ 2 วัน → แคบ (view ซ่อน label กันซ้อน)
+    { iso: "2026-06-01", x: 60, label: "มิ.ย. 69", span: 90 }, // 3 วันท้ายแกน
   ]);
   expect(t.weekendBands).toEqual([{ x: 0, width: 60 }]); // ส.30–อา.31
   expect(t.weekLines).toEqual([60]); // จันทร์ 1 มิ.ย.

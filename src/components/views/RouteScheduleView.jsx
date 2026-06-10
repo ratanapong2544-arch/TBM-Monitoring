@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo, useEffect, useRef } from "react";
 import {
   MapPin, Ruler, Settings, Printer, Maximize2, Plus, Save, Trash2, X, Loader2, TrendingUp
 } from "lucide-react";
@@ -19,20 +19,33 @@ const RouteScheduleView = ({ segmentRecords = [], projectInfo, machine = "TBM1",
   // ── Print State ──
   const [printingChartId, setPrintingChartId] = useState("all");
 
+  const printGroupRef = useRef(null);
+
   const handlePrintSpecificChart = (chartId) => {
     setPrintingChartId(chartId);
     setTimeout(() => {
-      // fit-to-one-page แนวนอน: วัดการ์ดจริง (รวม chart SVG ที่ไม่ reflow ตอนปริ้น) แล้วย่อให้พอดี A4 landscape หน้าเดียว
-      const el = document.querySelector(".print-target");
-      if (el && el.scrollWidth > 0 && el.scrollHeight > 0) {
+      // fit-to-one-page แนวนอน: วัด print group ใน layout ปกติ แล้วย่อด้วย CSS zoom (ย่อ layout box จริง
+      // ไม่เหลือกล่องสูงเกินไปดันหน้า 2 แบบ transform) — ตั้ง inline + !important ให้ชนะทุก stylesheet
+      const grp = printGroupRef.current;
+      const mainDiv = document.querySelector("main > div"); // globals สั่ง scale(0.88) ตอนปริ้น — ยกเลิกชั่วคราว
+      let cleanup = () => {};
+      if (grp && grp.scrollWidth > 0 && grp.scrollHeight > 0) {
         const PAGE_W = 1040, PAGE_H = 710; // A4 landscape − margin 10mm @96dpi (เผื่อขอบ)
-        const s = Math.min(PAGE_W / el.scrollWidth, PAGE_H / el.scrollHeight, 1);
-        el.style.setProperty("--print-fit-width", `${el.scrollWidth}px`);
-        el.style.setProperty("--print-fit-scale", String(s));
+        const W = grp.scrollWidth, H = grp.scrollHeight;
+        const s = Math.min(PAGE_W / W, PAGE_H / H, 1) * 0.99; // ×0.99 กันปัดเศษ zoom เกินหน้า
+        grp.style.setProperty("width", `${W}px`, "important"); // freeze layout กว้างเท่าจอ (recharts SVG ไม่ reflow ตอนปริ้น)
+        grp.style.zoom = String(s);
+        if (mainDiv) mainDiv.style.setProperty("transform", "none", "important");
+        cleanup = () => {
+          grp.style.removeProperty("width");
+          grp.style.zoom = "";
+          if (mainDiv) mainDiv.style.removeProperty("transform");
+        };
       }
       window.print();
+      cleanup();
       setPrintingChartId("all");
-    }, 600);
+    }, 350);
   };
 
   const getPrintClass = (id) => {
@@ -291,53 +304,14 @@ const RouteScheduleView = ({ segmentRecords = [], projectInfo, machine = "TBM1",
         @media print {
           @page { size: landscape; margin: 10mm; }
           body { background: white !important; }
+          .print-target { page-break-inside: avoid !important; }
         }
-
-        ${printingChartId !== "all" ? `
-          body { overflow: hidden !important; }
-
-          .print-target {
-            position: absolute !important;
-            top: 0 !important;
-            left: 0 !important;
-            right: 0 !important;
-            width: 100% !important;
-            min-height: 100vh !important;
-            height: auto !important;
-            margin: 0 !important;
-            padding: 20px !important;
-            background: white !important;
-            border: none !important;
-            box-shadow: none !important;
-            border-radius: 0 !important;
-            z-index: 99999 !important;
-            max-width: none !important;
-          }
-
-          .print-target * {
-            max-width: none !important;
-          }
-
-          @media print {
-            /* ยกเลิก scale 0.88 ของ globals (จะย่อด้วย --print-fit-scale แทน) */
-            main > div { transform: none !important; }
-            .print-target {
-              position: static !important;
-              padding: 0 !important;
-              min-height: 0 !important;
-              /* freeze ความกว้าง layout ตามหน้าจอ (กัน recharts SVG ล้น/โดนตัด) แล้วย่อทั้งก้อนให้พอดี 1 หน้า */
-              width: var(--print-fit-width, auto) !important;
-              transform: scale(var(--print-fit-scale, 1)) !important;
-              transform-origin: top left !important;
-              overflow: visible !important;
-              page-break-inside: avoid !important;
-            }
-          }
-        ` : ""}
       `}</style>
 
       {/* ═══ SECTION 3.5: แผนผังสถานะเส้นทางและตำแหน่ง TBM1 ปัจจุบัน ═══ */}
-      <div className={`bg-surface p-4 sm:p-6 rounded-card shadow-card border border-line flex flex-col gap-2 overflow-x-auto ${getPrintClass('distance')}`}>
+      {/* print group: การ์ด chart + การ์ดคาดการณ์ ปริ้นรวมกันหน้าเดียว (zoom-to-fit ใน handlePrintSpecificChart) */}
+      <div ref={printGroupRef} className={`space-y-6 ${getPrintClass('distance')}`}>
+      <div className="bg-surface p-4 sm:p-6 rounded-card shadow-card border border-line flex flex-col gap-2 overflow-x-auto">
         {/* Header แถวที่ 1 */}
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center">
           <div>
@@ -718,6 +692,7 @@ const RouteScheduleView = ({ segmentRecords = [], projectInfo, machine = "TBM1",
           </div>
         </div>
       )}
+      </div>{/* /print group */}
 
       {/* ═══ Distance Plan Settings Modal ═══ */}
       {showDistPlanModal && (

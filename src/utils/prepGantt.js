@@ -97,3 +97,47 @@ export function prepSummary(tasks, todayStr) {
   }
   return { total: list.length, done, behind };
 }
+
+// ---- Gantt axis helpers (MS-Project look) — pure, ใช้โดย PrepGanttView ----
+export const TH_MONTHS = ["ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."];
+
+const _iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
+export function addDays(dateStr, n) {
+  const d = _d(dateStr);
+  d.setDate(d.getDate() + n);
+  return _iso(d);
+}
+
+export function computePxPerDay(availWidth, totalDays) {
+  const w = Number(availWidth), days = Number(totalDays);
+  if (!isFinite(w) || !isFinite(days) || w <= 0 || days <= 0) return 8;
+  return Math.max(8, Math.min(36, Math.floor(w / days)));
+}
+
+export function ganttTicks(startStr, endStr, pxPerDay) {
+  const months = [], days = [], weekLines = [], weekendBands = [];
+  const total = _diff(startStr, endStr);
+  const step = pxPerDay >= 22 ? 1 : pxPerDay >= 11 ? 2 : 5;
+  let bandStart = null;
+  for (let i = 0; i <= total; i++) {
+    const cur = _d(startStr);
+    cur.setDate(cur.getDate() + i);
+    const x = i * pxPerDay;
+    const dow = cur.getDay(); // 0=อา. … 6=ส.
+    const dayNum = cur.getDate();
+    if (i === 0 || dayNum === 1) {
+      months.push({ iso: _iso(cur), x, label: `${TH_MONTHS[cur.getMonth()]} ${String(cur.getFullYear() + 543).slice(-2)}` });
+    }
+    if ((dayNum - 1) % step === 0) days.push({ iso: _iso(cur), x, label: String(dayNum) });
+    if (dow === 1 && i > 0) weekLines.push(x);
+    if (dow === 6 || dow === 0) {
+      if (bandStart === null) bandStart = x;
+    } else if (bandStart !== null) {
+      weekendBands.push({ x: bandStart, width: x - bandStart });
+      bandStart = null;
+    }
+  }
+  if (bandStart !== null) weekendBands.push({ x: bandStart, width: (total + 1) * pxPerDay - bandStart });
+  return { months, days, weekLines, weekendBands };
+}

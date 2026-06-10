@@ -1,6 +1,7 @@
 import {
   makePrepId, loadPrepTasks, savePrepTasks, normalizePrepTask,
   upsertPrepTask, removePrepTask, expectedPercent, taskStatus, ganttBounds, prepSummary,
+  addDays, computePxPerDay, ganttTicks,
 } from "./prepGantt";
 
 beforeEach(() => localStorage.clear());
@@ -68,4 +69,44 @@ test("taskStatus: milestone (start===end) — เลยกำหนดยัง�
   expect(taskStatus(m, "2026-06-15")).toBe("behind");
   expect(taskStatus({ ...m, percent: 100 }, "2026-06-15")).toBe("done");
   expect(taskStatus(m, "2026-06-01")).toBe("notstarted");
+});
+
+test("addDays: ข้ามเดือน/ปี", () => {
+  expect(addDays("2026-06-01", -2)).toBe("2026-05-30");
+  expect(addDays("2026-12-31", 1)).toBe("2027-01-01");
+  expect(addDays("2026-06-10", 0)).toBe("2026-06-10");
+});
+
+test("computePxPerDay: clamp 8–36, invalid → 8", () => {
+  expect(computePxPerDay(900, 31)).toBe(29);
+  expect(computePxPerDay(100, 31)).toBe(8);
+  expect(computePxPerDay(3000, 31)).toBe(36);
+  expect(computePxPerDay(0, 10)).toBe(8);
+  expect(computePxPerDay(500, 0)).toBe(8);
+});
+
+test("ganttTicks: เดือนเดียว มิ.ย. 2026 — month/weekLines/weekendBands ถูกตำแหน่ง", () => {
+  const t = ganttTicks("2026-06-01", "2026-06-30", 30); // 1 มิ.ย. 2026 = วันจันทร์
+  expect(t.months).toEqual([{ iso: "2026-06-01", x: 0, label: "มิ.ย. 69" }]);
+  expect(t.days).toHaveLength(30); // px 30 ≥ 22 → label ทุกวัน
+  expect(t.weekLines).toEqual([210, 420, 630, 840]); // จันทร์ 8/15/22/29 มิ.ย.
+  expect(t.weekendBands).toHaveLength(4);
+  expect(t.weekendBands[0]).toEqual({ x: 150, width: 60 }); // ส.6–อา.7
+});
+
+test("ganttTicks: day-label step ตาม pxPerDay (anchor วันที่ 1 ของเดือน)", () => {
+  expect(ganttTicks("2026-06-01", "2026-06-30", 12).days.map((d) => d.label))
+    .toEqual(["1", "3", "5", "7", "9", "11", "13", "15", "17", "19", "21", "23", "25", "27", "29"]);
+  expect(ganttTicks("2026-06-01", "2026-06-30", 8).days.map((d) => d.label))
+    .toEqual(["1", "6", "11", "16", "21", "26"]);
+});
+
+test("ganttTicks: ข้ามเดือน — month tick ที่ axisStart และวันที่ 1", () => {
+  const t = ganttTicks("2026-05-30", "2026-06-03", 30); // 30 พ.ค. 2026 = วันเสาร์
+  expect(t.months).toEqual([
+    { iso: "2026-05-30", x: 0, label: "พ.ค. 69" },
+    { iso: "2026-06-01", x: 60, label: "มิ.ย. 69" },
+  ]);
+  expect(t.weekendBands).toEqual([{ x: 0, width: 60 }]); // ส.30–อา.31
+  expect(t.weekLines).toEqual([60]); // จันทร์ 1 มิ.ย.
 });

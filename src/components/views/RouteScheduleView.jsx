@@ -30,7 +30,7 @@ const RouteScheduleView = ({ segmentRecords = [], projectInfo, machine = "TBM1",
       const mainDiv = document.querySelector("main > div"); // globals สั่ง scale(0.88) ตอนปริ้น — ยกเลิกชั่วคราว
       let cleanup = () => {};
       if (grp && grp.scrollWidth > 0 && grp.scrollHeight > 0) {
-        const PAGE_W = 1040, PAGE_H = 710; // A4 landscape − margin 10mm @96dpi (เผื่อขอบ)
+        const PAGE_W = 1020, PAGE_H = 680; // A4 landscape − margin 10mm @96dpi − เผื่อ header/footer ของ browser (ของจริงกินพื้นที่เกิน margin)
         const W = grp.scrollWidth, H = grp.scrollHeight;
         const s = Math.min(PAGE_W / W, PAGE_H / H, 1) * 0.99; // ×0.99 กันปัดเศษ zoom เกินหน้า
         grp.style.setProperty("width", `${W}px`, "important"); // freeze layout กว้างเท่าจอ (recharts SVG ไม่ reflow ตอนปริ้น)
@@ -309,7 +309,7 @@ const RouteScheduleView = ({ segmentRecords = [], projectInfo, machine = "TBM1",
       `}</style>
 
       {/* ═══ SECTION 3.5: แผนผังสถานะเส้นทางและตำแหน่ง TBM1 ปัจจุบัน ═══ */}
-      {/* print group: การ์ด chart + การ์ดคาดการณ์ ปริ้นรวมกันหน้าเดียว (zoom-to-fit ใน handlePrintSpecificChart) */}
+      {/* print group: zoom-to-fit หน้าเดียวใน handlePrintSpecificChart (การ์ดคาดการณ์อยู่นอก group + print:hidden) */}
       <div ref={printGroupRef} className={`space-y-6 ${getPrintClass('distance')}`}>
       <div className="bg-surface p-4 sm:p-6 rounded-card shadow-card border border-line flex flex-col gap-2 overflow-x-auto">
         {/* Header แถวที่ 1 */}
@@ -669,9 +669,11 @@ const RouteScheduleView = ({ segmentRecords = [], projectInfo, machine = "TBM1",
           <div className="h-8"></div>
         </div>
       </div>
+      </div>{/* /print group */}
 
+      {/* คาดการณ์ — ไม่พิมพ์ (user: "ไม่ต้องปริ้นส่วนนี้") */}
       {forecast && (
-        <div className="bg-surface rounded-card p-5 shadow-card border border-line">
+        <div className="bg-surface rounded-card p-5 shadow-card border border-line print:hidden">
           <h3 className="font-semibold text-ink text-base mb-3 flex items-center gap-2"><TrendingUp size={18} className="text-navy" /> คาดการณ์ (Forecast)</h3>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm">
             <div>
@@ -692,7 +694,6 @@ const RouteScheduleView = ({ segmentRecords = [], projectInfo, machine = "TBM1",
           </div>
         </div>
       )}
-      </div>{/* /print group */}
 
       {/* ═══ Distance Plan Settings Modal ═══ */}
       {showDistPlanModal && (

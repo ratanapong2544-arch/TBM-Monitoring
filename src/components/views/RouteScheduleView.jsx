@@ -299,12 +299,14 @@ const RouteScheduleView = ({ segmentRecords = [], projectInfo, machine = "TBM1",
   }, [distanceChartData, totalActualDistance]);
 
   return (
-    <div className="max-w-full mx-auto pb-24 animate-fade-in space-y-6">
+    <div className="max-w-full mx-auto pb-24 animate-fade-in space-y-6 print:pb-0">
       <style>{`
         @media print {
           @page { size: landscape; margin: 10mm; }
           body { background: white !important; }
           .print-target { page-break-inside: avoid !important; }
+          /* ตัด padding ท้าย container — กันความสูงเกินไปเปิดหน้า 2 เปล่า */
+          main > div { padding: 0 !important; }
         }
       `}</style>
 

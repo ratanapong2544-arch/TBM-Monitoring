@@ -3,9 +3,13 @@ import { Plus } from "lucide-react";
 import { apiCall } from "../../utils/api";
 import {
   loadPrepTasks, savePrepTasks, upsertPrepTask, removePrepTask,
-  todayBKK, taskStatus, ganttBounds, prepSummary,
+  todayBKK, taskStatus, prepSummary,
   TH_MONTHS, addDays, computePxPerDay, ganttTicks,
 } from "../../utils/prepGantt";
+import {
+  computeForecast, showSplit, setBaseline, forecastBounds,
+  loadForecastMode, saveForecastMode, depEndpoints,
+} from "../../utils/prepForecast";
 import PrepTaskModal from "./PrepTaskModal";
 
 const STATUS_BAR = { done: "bg-sgreen-dark", behind: "bg-code-d", ontrack: "bg-navy", notstarted: "bg-ink-3" };
@@ -53,7 +57,12 @@ const PrepGanttView = ({ machine = "TBM1", readOnly = false }) => {
   }, [hasTasks]);
 
   const today = todayBKK();
-  const bounds = useMemo(() => ganttBounds(tasks), [tasks]);
+  const [fcMode, setFcMode] = useState(() => loadForecastMode());
+  const changeMode = (m) => { setFcMode(m); saveForecastMode(m); };
+  const forecast = useMemo(() => computeForecast(tasks, today, fcMode), [tasks, today, fcMode]);
+  const anySplit = useMemo(() => tasks.some((t) => showSplit(t, forecast.byId[t.id])), [tasks, forecast]);
+  const anyDeps = useMemo(() => tasks.some((t) => Array.isArray(t.deps) && t.deps.length > 0), [tasks]);
+  const bounds = useMemo(() => forecastBounds(tasks, forecast.byId), [tasks, forecast]);
   const summary = useMemo(() => prepSummary(tasks, today), [tasks, today]);
 
   const persist = (next) => { setTasks(next); savePrepTasks(machine, next); };
@@ -70,8 +79,15 @@ const PrepGanttView = ({ machine = "TBM1", readOnly = false }) => {
     setModal({ open: false, editing: null });
   };
 
+  const onSetBaseline = () => {
+    if (!window.confirm(`Set Baseline (${machine}): บันทึกแผนปัจจุบันเป็นแผนเดิมสำหรับเทียบ — ทับ baseline เก่าทั้งหมด?`)) return;
+    const next = setBaseline(tasks);
+    persist(next);
+    next.forEach((t) => apiCall("savePrepTask", { ...t, machine }).catch((e) => console.warn("PrepTask sync (baseline) failed — kept locally:", e.message)));
+  };
+
   const axisStart = bounds ? addDays(bounds.minDate, -2) : today;
-  const axisEnd = bounds ? addDays(bounds.maxDate, 2) : today;
+  const axisEnd = bounds ? addDays(bounds.maxDate, anySplit ? 5 : 2) : today;
   const totalDays = dayDiff(axisStart, axisEnd) + 1;
   const pxPerDay = computePxPerDay(availW, totalDays);
   const width = totalDays * pxPerDay;
@@ -86,18 +102,37 @@ const PrepGanttView = ({ machine = "TBM1", readOnly = false }) => {
 
   return (
     <section className="rounded-card border border-line bg-surface shadow-card p-5">
-      <div className="flex items-center justify-between gap-3 mb-3">
+      <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
         <div>
           <h3 className="text-base font-semibold text-ink">Work Plan · {machine}</h3>
           {tasks.length > 0 && (
-            <p className="text-xs text-ink-3 mt-0.5">{summary.done}/{summary.total} เสร็จ{summary.behind > 0 ? ` · ⚠ ${summary.behind} ช้ากว่าแผน` : ""}</p>
+            <p className="text-xs text-ink-3 mt-0.5">
+              {summary.done}/{summary.total} เสร็จ{summary.behind > 0 ? ` · ⚠ ${summary.behind} ช้ากว่าแผน` : ""}
+              {forecast.project && anySplit && (
+                <span className={forecast.project.slipDays > 0 ? "text-code-d font-semibold" : ""}>
+                  {" · forecast: งานสุดท้ายจบ "}{fmtTH(forecast.project.fcEnd)}
+                  {forecast.project.slipDays !== 0 && ` (${forecast.project.slipDays > 0 ? "+" : "−"}${Math.abs(forecast.project.slipDays)} วัน)`}
+                </span>
+              )}
+            </p>
           )}
         </div>
-        {!readOnly && (
-          <button onClick={() => setModal({ open: true, editing: null })} className="inline-flex items-center gap-1 bg-navy hover:bg-navy-deepest text-white text-xs font-semibold px-2.5 py-1.5 rounded-input transition-colors shrink-0">
-            <Plus size={14} /> เพิ่มงาน
-          </button>
-        )}
+        <div className="flex items-center gap-2 flex-wrap">
+          {tasks.length > 0 && (
+            <div className="flex border border-line-input rounded-input overflow-hidden text-[11px] font-semibold print:hidden">
+              <button onClick={() => changeMode("remaining")} className={`px-2 py-1.5 transition-colors ${fcMode === "remaining" ? "bg-navy text-white" : "bg-surface text-ink-2 hover:bg-cyan-tint"}`}>เลื่อนตามงานเหลือ</button>
+              <button onClick={() => changeMode("rate")} className={`px-2 py-1.5 transition-colors ${fcMode === "rate" ? "bg-navy text-white" : "bg-surface text-ink-2 hover:bg-cyan-tint"}`}>ตาม rate จริง</button>
+            </div>
+          )}
+          {!readOnly && tasks.length > 0 && (
+            <button onClick={onSetBaseline} className="border border-navy text-navy hover:bg-cyan-tint text-xs font-semibold px-2.5 py-1.5 rounded-input transition-colors print:hidden">Set Baseline</button>
+          )}
+          {!readOnly && (
+            <button onClick={() => setModal({ open: true, editing: null })} className="inline-flex items-center gap-1 bg-navy hover:bg-navy-deepest text-white text-xs font-semibold px-2.5 py-1.5 rounded-input transition-colors shrink-0">
+              <Plus size={14} /> เพิ่มงาน
+            </button>
+          )}
+        </div>
       </div>
 
       {tasks.length === 0 ? (

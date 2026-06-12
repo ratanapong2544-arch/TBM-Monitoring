@@ -57,19 +57,6 @@ const PrepGanttView = ({ machine = "TBM1", readOnly = false }) => {
     return () => window.removeEventListener("resize", measure);
   }, [hasTasks]);
 
-  const gridRef = useRef(null);
-  const [overlay, setOverlay] = useState({ h: 0, ys: {} });
-  useLayoutEffect(() => {
-    const grid = gridRef.current;
-    if (!grid || !anyDeps) return;
-    const ys = {};
-    for (const t of tasks) {
-      const el = rowRefs.current[t.id];
-      if (el) ys[t.id] = el.offsetTop + el.offsetHeight / 2; // offsetParent = grid (มี class relative)
-    }
-    setOverlay({ h: grid.offsetHeight, ys });
-  }, [tasks, availW, pxPerDay, fcMode, anyDeps]);
-
   const today = todayBKK();
   const [fcMode, setFcMode] = useState(() => loadForecastMode());
   const changeMode = (m) => { setFcMode(m); saveForecastMode(m); };
@@ -105,6 +92,20 @@ const PrepGanttView = ({ machine = "TBM1", readOnly = false }) => {
   const totalDays = dayDiff(axisStart, axisEnd) + 1;
   const pxPerDay = computePxPerDay(availW, totalDays);
   const width = totalDays * pxPerDay;
+
+  const gridRef = useRef(null);
+  const [overlay, setOverlay] = useState({ h: 0, ys: {} });
+  useLayoutEffect(() => {
+    const grid = gridRef.current;
+    if (!grid || !anyDeps) return;
+    const ys = {};
+    for (const t of tasks) {
+      const el = rowRefs.current[t.id];
+      if (el) ys[t.id] = el.offsetTop + el.offsetHeight / 2; // offsetParent = grid (มี class relative)
+    }
+    setOverlay({ h: grid.offsetHeight, ys });
+  }, [tasks, availW, pxPerDay, fcMode, anyDeps]);
+
   const ticks = useMemo(
     () => (bounds ? ganttTicks(axisStart, axisEnd, pxPerDay) : { months: [], days: [], weekLines: [], weekendBands: [] }),
     [bounds, axisStart, axisEnd, pxPerDay]

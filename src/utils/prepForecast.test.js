@@ -1,6 +1,7 @@
 import {
   dayDiff, loadForecastMode, saveForecastMode, computeForecast,
   setBaseline, showSplit, forecastBounds, wouldCreateCycle, depEndpoints,
+  percentAsOf,
 } from "./prepForecast";
 
 beforeEach(() => localStorage.clear());
@@ -253,4 +254,22 @@ test("depEndpoints: จุดต่อลูกศรตาม link type", () =>
   expect(depEndpoints("SS", p, s, xOf)).toEqual({ x1: 0, x2: 70, intoLeft: true });
   expect(depEndpoints("FF", p, s, xOf)).toEqual({ x1: 50, x2: 100, intoLeft: false });
   expect(depEndpoints("SF", p, s, xOf)).toEqual({ x1: 0, x2: 100, intoLeft: false });
+});
+
+test("percentAsOf: วันนี้/อนาคต → % ปัจจุบัน ไม่ approx", () => {
+  const t = { percent: 60, plog: [{ d: "2026-06-05", p: 20 }] };
+  expect(percentAsOf(t, "2026-06-12", "2026-06-12")).toEqual({ p: 60, approx: false });
+  expect(percentAsOf(t, "2026-06-20", "2026-06-12")).toEqual({ p: 60, approx: false });
+});
+
+test("percentAsOf: อดีต → entry ล่าสุดที่ ≤ วันนั้น", () => {
+  const t = { percent: 60, plog: [{ d: "2026-06-05", p: 20 }, { d: "2026-06-10", p: 50 }] };
+  expect(percentAsOf(t, "2026-06-10", "2026-06-12")).toEqual({ p: 50, approx: false });
+  expect(percentAsOf(t, "2026-06-07", "2026-06-12")).toEqual({ p: 20, approx: false });
+});
+
+test("percentAsOf: ก่อน entry แรก / ไม่มี plog → fallback % ปัจจุบัน + approx", () => {
+  const t = { percent: 60, plog: [{ d: "2026-06-05", p: 20 }] };
+  expect(percentAsOf(t, "2026-06-01", "2026-06-12")).toEqual({ p: 60, approx: true });
+  expect(percentAsOf({ percent: 35 }, "2026-06-01", "2026-06-12")).toEqual({ p: 35, approx: true });
 });

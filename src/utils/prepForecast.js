@@ -207,3 +207,17 @@ export function depEndpoints(type, pred, succ, xOf) {
   const x2 = intoLeft ? xOf(succ.fcStart, false) : xOf(succ.fcEnd, true);
   return { x1, x2, intoLeft };
 }
+
+// % ของงาน ณ วันที่กำหนด จากประวัติ plog
+// วันนี้/อนาคต → % ปัจจุบัน · อดีต → entry ล่าสุดที่ d ≤ วันนั้น · ไม่มีครอบ → % ปัจจุบัน + approx (ก่อนเริ่มเก็บประวัติ)
+export function percentAsOf(task, dateStr, todayStr) {
+  const cur = Math.max(0, Math.min(100, Number(task && task.percent) || 0));
+  if (!dateStr || dateStr >= todayStr) return { p: cur, approx: false };
+  const log = Array.isArray(task && task.plog) ? task.plog : [];
+  let best = null;
+  for (const e of log) {
+    if (e && e.d && e.d <= dateStr && (!best || e.d > best.d)) best = e;
+  }
+  if (best) return { p: Math.max(0, Math.min(100, Number(best.p) || 0)), approx: false };
+  return { p: cur, approx: true };
+}

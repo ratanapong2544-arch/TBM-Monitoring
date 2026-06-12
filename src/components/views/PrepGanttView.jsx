@@ -204,10 +204,11 @@ const PrepGanttView = ({ machine = "TBM1", readOnly = false }) => {
                 const baseW = Math.max(pxPerDay, (dayDiff(baseS, baseE) + 1) * pxPerDay);
                 const fcLeft = f ? dayDiff(axisStart, f.fcStart) * pxPerDay : 0;
                 const fcW = f ? Math.max(pxPerDay, (dayDiff(f.fcStart, f.fcEnd) + 1) * pxPerDay) : 0;
-                // สีแบบ CPM: แดง = วิกฤต, navy = มี float, เขียว = เสร็จ
-                const fcColor = st === "done" ? "bg-sgreen-dark" : f && f.isCritical ? "bg-code-d" : "bg-navy";
+                // สี hybrid: แดง = งานตัวเองช้ากว่าแผน หรืออยู่บนสายวิกฤต (CPM), navy = ตามแผน/มี float, เขียว = เสร็จ
+                const fcRed = st === "behind" || (f && f.isCritical);
+                const fcColor = st === "done" ? "bg-sgreen-dark" : fcRed ? "bg-code-d" : "bg-navy";
                 const slip = f ? f.slipDays : 0;
-                const slipCls = slip > 0 ? (f && f.isCritical ? "text-code-d" : "text-ink-2") : "text-sgreen-dark";
+                const slipCls = slip > 0 ? (fcRed ? "text-code-d" : "text-ink-2") : "text-sgreen-dark";
                 const slipLabel = slip !== 0 ? `${slip > 0 ? "+" : "−"}${Math.abs(slip)} วัน` : "";
                 const fcTitle = f
                   ? `${t.name} — forecast ${fmtTH(f.fcStart)} → ${fmtTH(f.fcEnd)}${slip !== 0 ? ` (${slipLabel})` : ""} · float ${f.totalFloat} วัน`
@@ -230,8 +231,10 @@ const PrepGanttView = ({ machine = "TBM1", readOnly = false }) => {
                           <>
                             {/* แท่งบน = แผนเดิม (baseline) */}
                             <div className="absolute h-1.5 rounded-sm bg-ink-3/40" style={{ top: "calc(50% - 8px)", left: baseLeft, width: baseW }} />
-                            {/* แท่งล่าง = forecast สี CPM */}
-                            <div className={`absolute h-1.5 rounded-sm ${fcColor}`} style={{ top: "calc(50% + 2px)", left: fcLeft, width: fcW }} title={fcTitle} />
+                            {/* แท่งล่าง = forecast (โทนอ่อน + % fill เข้ม เหมือนแท่งเดี่ยว) */}
+                            <div className={`absolute h-2.5 rounded-sm ${fcColor}/20 overflow-hidden`} style={{ top: "calc(50% + 1px)", left: fcLeft, width: fcW }} title={fcTitle}>
+                              <div className={`h-full ${fcColor}`} style={{ width: `${t.percent}%` }} />
+                            </div>
                           </>
                         )
                       ) : t.milestone ? (
@@ -299,8 +302,8 @@ const PrepGanttView = ({ machine = "TBM1", readOnly = false }) => {
             {(anySplit || anyDeps) && (
               <>
                 <span className="inline-flex items-center gap-1.5 text-[11px] text-ink-3"><span className="w-3.5 h-1 rounded-sm bg-ink-3/40" /> แผนเดิม (แท่งบน)</span>
-                <span className="inline-flex items-center gap-1.5 text-[11px] text-ink-3"><span className="w-3.5 h-1 rounded-sm bg-code-d" /> งานวิกฤต (critical path)</span>
-                <span className="inline-flex items-center gap-1.5 text-[11px] text-ink-3"><span className="w-3.5 h-1 rounded-sm bg-navy" /> งานมี float</span>
+                <span className="inline-flex items-center gap-1.5 text-[11px] text-ink-3"><span className="w-3.5 h-1 rounded-sm bg-code-d" /> ช้ากว่าแผน / งานวิกฤต</span>
+                <span className="inline-flex items-center gap-1.5 text-[11px] text-ink-3"><span className="w-3.5 h-1 rounded-sm bg-navy" /> ตามแผน / มี float</span>
                 <span className="inline-flex items-center gap-1.5 text-[11px] text-ink-3">→ เชื่อมงาน</span>
               </>
             )}

@@ -38,6 +38,22 @@ export function normalizeDeps(raw) {
     }));
 }
 
+export function normalizePlog(raw) {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((e) => e && e.d)
+    .map((e) => ({ d: String(e.d), p: clampPct(e.p) }))
+    .sort((a, b) => (a.d < b.d ? -1 : a.d > b.d ? 1 : 0));
+}
+
+// append ประวัติ % — วันซ้ำแทนที่ (เก็บค่าสุดท้ายของวัน), เรียงวัน, cap 200 ตัวล่าสุด
+export function appendPlog(plog, d, p) {
+  const log = (Array.isArray(plog) ? plog : []).filter((e) => e && e.d && e.d !== d);
+  log.push({ d, p });
+  log.sort((a, b) => (a.d < b.d ? -1 : a.d > b.d ? 1 : 0));
+  return log.slice(-200);
+}
+
 export function normalizePrepTask(form) {
   const milestone = !!form.milestone;
   const start = form.start || "";
@@ -52,15 +68,24 @@ export function normalizePrepTask(form) {
   };
   if (form.baseStart) out.baseStart = form.baseStart;
   if (form.baseEnd) out.baseEnd = form.baseEnd;
+  out.parentId = form.parentId ? String(form.parentId) : undefined;
+  if (form.plog) out.plog = normalizePlog(form.plog);
   return out;
 }
 
-export function upsertPrepTask(tasks, form) {
+export function upsertPrepTask(tasks, form, todayStr) {
   const base = normalizePrepTask(form);
   if (form.id) {
-    return tasks.map((t) => (t.id === form.id ? { ...t, ...base, id: form.id } : t));
+    return tasks.map((t) => {
+      if (t.id !== form.id) return t;
+      const next = { ...t, ...base, id: form.id };
+      if (todayStr && next.percent !== t.percent) next.plog = appendPlog(t.plog, todayStr, next.percent);
+      return next;
+    });
   }
-  return [...tasks, { id: makePrepId(), ...base }];
+  const fresh = { id: makePrepId(), ...base };
+  if (todayStr && fresh.percent > 0) fresh.plog = appendPlog([], todayStr, fresh.percent);
+  return [...tasks, fresh];
 }
 
 export function removePrepTask(tasks, id) {

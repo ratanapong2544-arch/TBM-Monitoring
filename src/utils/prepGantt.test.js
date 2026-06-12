@@ -1,7 +1,7 @@
 import {
   makePrepId, loadPrepTasks, savePrepTasks, normalizePrepTask,
   upsertPrepTask, removePrepTask, expectedPercent, taskStatus, ganttBounds, prepSummary,
-  addDays, computePxPerDay, ganttTicks,
+  addDays, computePxPerDay, ganttTicks, appendPlog,
 } from "./prepGantt";
 
 beforeEach(() => localStorage.clear());
@@ -135,4 +135,46 @@ test("normalizePrepTask: ไม่มี deps/baseline → deps=[] และไ�
   expect(out.deps).toEqual([]);
   expect(out).not.toHaveProperty("baseStart");
   expect(out).not.toHaveProperty("baseEnd");
+});
+
+test("normalizePrepTask: parentId ว่าง → undefined (JSON ไม่เก็บ), มีค่า → string", () => {
+  const a = normalizePrepTask({ name: "a", start: "2026-06-01", end: "2026-06-05", percent: 0, parentId: "" });
+  expect(a.parentId).toBeUndefined();
+  const b = normalizePrepTask({ name: "b", start: "2026-06-01", end: "2026-06-05", percent: 0, parentId: "prep_x" });
+  expect(b.parentId).toBe("prep_x");
+});
+
+test("normalizePrepTask: plog sanitize (ตัดตัวเสีย, clamp %, เรียงวัน) — ใส่เฉพาะเมื่อ form มี", () => {
+  const out = normalizePrepTask({
+    name: "a", start: "2026-06-01", end: "2026-06-05", percent: 0,
+    plog: [{ d: "2026-06-10", p: 150 }, null, { d: "2026-06-05", p: "20" }, { p: 5 }],
+  });
+  expect(out.plog).toEqual([{ d: "2026-06-05", p: 20 }, { d: "2026-06-10", p: 100 }]);
+  const none = normalizePrepTask({ name: "a", start: "2026-06-01", end: "2026-06-05", percent: 0 });
+  expect(none).not.toHaveProperty("plog");
+});
+
+test("appendPlog: เพิ่มเรียงวัน, วันซ้ำแทนที่, cap 200", () => {
+  expect(appendPlog([{ d: "2026-06-05", p: 20 }], "2026-06-10", 50)).toEqual([{ d: "2026-06-05", p: 20 }, { d: "2026-06-10", p: 50 }]);
+  expect(appendPlog([{ d: "2026-06-05", p: 20 }], "2026-06-05", 30)).toEqual([{ d: "2026-06-05", p: 30 }]);
+  const big = Array.from({ length: 200 }, (_, i) => ({ d: `2025-${String(Math.floor(i / 28) + 1).padStart(2, "0")}-${String((i % 28) + 1).padStart(2, "0")}`, p: 1 }));
+  const capped = appendPlog(big, "2026-06-12", 99);
+  expect(capped).toHaveLength(200);
+  expect(capped[199]).toEqual({ d: "2026-06-12", p: 99 });
+  expect(capped[0]).not.toEqual(big[0]); // ตัวเก่าสุดถูกตัด
+});
+
+test("upsertPrepTask + todayStr: จด plog เมื่อ % เปลี่ยน / ไม่จดเมื่อไม่เปลี่ยนหรือไม่ส่งวัน", () => {
+  let tasks = upsertPrepTask([], { name: "a", start: "2026-06-01", end: "2026-06-05", percent: 0 }, "2026-06-12");
+  expect(tasks[0].plog).toBeUndefined(); // งานใหม่ 0% ไม่ต้องจด
+  tasks = upsertPrepTask([], { name: "a", start: "2026-06-01", end: "2026-06-05", percent: 40 }, "2026-06-12");
+  expect(tasks[0].plog).toEqual([{ d: "2026-06-12", p: 40 }]); // งานใหม่ % > 0 จดทันที
+  const id = tasks[0].id;
+  tasks = upsertPrepTask(tasks, { id, name: "a", start: "2026-06-01", end: "2026-06-05", percent: 60 }, "2026-06-13");
+  expect(tasks[0].plog).toEqual([{ d: "2026-06-12", p: 40 }, { d: "2026-06-13", p: 60 }]);
+  tasks = upsertPrepTask(tasks, { id, name: "a2", start: "2026-06-01", end: "2026-06-05", percent: 60 }, "2026-06-14");
+  expect(tasks[0].plog).toHaveLength(2); // % ไม่เปลี่ยน → ไม่จด
+  tasks = upsertPrepTask(tasks, { id, name: "a2", start: "2026-06-01", end: "2026-06-05", percent: 70 });
+  expect(tasks[0].plog).toHaveLength(2); // ไม่ส่ง todayStr → ไม่จด (backward compat)
+  expect(tasks[0].percent).toBe(70);
 });

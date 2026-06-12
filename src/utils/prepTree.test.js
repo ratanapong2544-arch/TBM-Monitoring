@@ -1,6 +1,6 @@
 import {
   buildTree, visibleOrder, leafTasks, wouldCreateParentCycle,
-  loadCollapsed, saveCollapsed,
+  loadCollapsed, saveCollapsed, rollupAll,
 } from "./prepTree";
 
 beforeEach(() => localStorage.clear());
@@ -58,4 +58,44 @@ test("collapse persist: save/load ต่อ machine, ค่าเสีย → S
   expect([...loadCollapsed("TBM2")]).toEqual([]);
   localStorage.setItem("tbmPrepCollapsed_TBM2", "{bad");
   expect([...loadCollapsed("TBM2")]).toEqual([]);
+});
+
+test("rollupAll: dates min/max, % ถ่วง duration, forecast/baseline รวม, slip", () => {
+  // A แม่ของ B(1–4 มิ.ย. 40%, base 1–3) และ C(3–10 มิ.ย. 0%, ไม่มี baseline → ใช้แผน)
+  const tasks = [
+    T("A"),
+    { ...T("B", "A"), start: "2026-06-01", end: "2026-06-04", percent: 40, baseStart: "2026-06-01", baseEnd: "2026-06-03" },
+    { ...T("C", "A"), start: "2026-06-03", end: "2026-06-10", percent: 0 },
+  ];
+  const fcById = {
+    B: { fcStart: "2026-06-01", fcEnd: "2026-06-06" },
+    C: { fcStart: "2026-06-12", fcEnd: "2026-06-19" },
+  };
+  const r = rollupAll(tasks, fcById).get("A");
+  // % = (40×4 + 0×8) / 12 = 13.33 → 13
+  expect(r).toMatchObject({
+    start: "2026-06-01", end: "2026-06-10", percent: 13,
+    fcStart: "2026-06-01", fcEnd: "2026-06-19",
+    baseStart: "2026-06-01", baseEnd: "2026-06-10",
+    slipDays: 9, allDone: false,
+  });
+});
+
+test("rollupAll: ลูกซ้อนหลายชั้น — แม่บนสุดรวมจาก leaf ทุกชั้น", () => {
+  const tasks = [
+    T("A"), T("B", "A"),
+    { ...T("C", "B"), start: "2026-06-01", end: "2026-06-02", percent: 100 },
+    { ...T("D", "B"), start: "2026-06-05", end: "2026-06-08", percent: 100 },
+  ];
+  const r = rollupAll(tasks, {});
+  expect(r.get("A")).toMatchObject({ start: "2026-06-01", end: "2026-06-08", percent: 100, allDone: true });
+  expect(r.get("B")).toMatchObject({ start: "2026-06-01", end: "2026-06-08", percent: 100 });
+});
+
+test("rollupAll: anyRed จาก predicate, ไม่มี fcById → ใช้แผนแทน forecast", () => {
+  const tasks = [T("A"), { ...T("B", "A"), percent: 10 }];
+  const r = rollupAll(tasks, {}, (l) => l.id === "B").get("A");
+  expect(r.anyRed).toBe(true);
+  expect(r.fcStart).toBe("2026-06-01");
+  expect(r.fcEnd).toBe("2026-06-05");
 });

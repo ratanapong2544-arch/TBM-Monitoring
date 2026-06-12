@@ -1,4 +1,5 @@
 // Tree/WBS helpers สำหรับ Prep Gantt — pure ทั้งไฟล์ (ยกเว้น collapse persist ที่แตะ localStorage)
+import { dayDiff } from "./prepForecast";
 
 // สร้างโครงต้นไม้จาก parentId — guard: parentId ผี/ชี้ตัวเอง/วงจรบรรพบุรุษ → treat เป็น root
 export function buildTree(tasks) {
@@ -55,6 +56,7 @@ export function visibleOrder(tree, collapsedSet) {
   });
 }
 
+// Convenience wrapper — ถ้ามี tree อยู่แล้ว ใช้ tree.order.filter((t) => !tree.isParent.has(t.id)) ตรงๆ จะไม่ build ซ้ำ
 // งานที่ไม่มีลูก (ชุดที่ส่งเข้า computeForecast / prepSummary / forecastBounds)
 export function leafTasks(tasks) {
   const tr = buildTree(tasks);
@@ -90,4 +92,53 @@ export function loadCollapsed(machine) {
 
 export function saveCollapsed(machine, set) {
   try { localStorage.setItem(COLLAPSE_PREFIX + machine, JSON.stringify([...set])); } catch (e) { /* ignore quota */ }
+}
+
+// สรุปงานแม่ทุกตัวจาก leaf descendants — คืน Map(parentId → rollup)
+// isRedFn(leafTask) = เงื่อนไขสีแดงของ leaf (view ส่ง behind||critical เข้ามา) — default ไม่แดง
+export function rollupAll(tasks, fcById, isRedFn = () => false) {
+  const tr = buildTree(tasks);
+  const rollups = new Map();
+  for (const t of tr.order) {
+    if (!tr.isParent.has(t.id)) continue;
+    // เก็บ leaf descendants ทุกชั้น
+    const leaves = [];
+    const stack = [...tr.childrenOf.get(t.id)];
+    while (stack.length) {
+      const c = stack.pop();
+      if (tr.isParent.has(c.id)) stack.push(...tr.childrenOf.get(c.id));
+      else leaves.push(c);
+    }
+    let start = null, end = null, fcS = null, fcE = null, bS = null, bE = null;
+    let wSum = 0, pSum = 0, anyRed = false, allDone = true;
+    for (const l of leaves) {
+      const planEnd = l.end || l.start;
+      if (!start || l.start < start) start = l.start;
+      if (!end || planEnd > end) end = planEnd;
+      const f = fcById && fcById[l.id];
+      const fs = f ? f.fcStart : l.start;
+      const fe = f ? f.fcEnd : planEnd;
+      if (!fcS || fs < fcS) fcS = fs;
+      if (!fcE || fe > fcE) fcE = fe;
+      const lbS = l.baseStart || l.start;
+      const lbE = l.baseEnd || planEnd;
+      if (!bS || lbS < bS) bS = lbS;
+      if (!bE || lbE > bE) bE = lbE;
+      const dur = Math.max(1, dayDiff(l.start, planEnd) + 1);
+      const pct = Number(l.percent) || 0;
+      wSum += dur;
+      pSum += pct * dur;
+      if (pct < 100) allDone = false;
+      if (isRedFn(l)) anyRed = true;
+    }
+    rollups.set(t.id, {
+      start, end,
+      percent: wSum ? Math.round(pSum / wSum) : 0,
+      fcStart: fcS, fcEnd: fcE,
+      baseStart: bS, baseEnd: bE,
+      slipDays: dayDiff(bE, fcE),
+      anyRed, allDone,
+    });
+  }
+  return rollups;
 }

@@ -8,7 +8,7 @@ import {
 } from "../../utils/prepGantt";
 import {
   computeForecast, showSplit, setBaseline, forecastBounds,
-  loadForecastMode, saveForecastMode, depEndpoints,
+  loadForecastMode, saveForecastMode, depEndpoints, percentAsOf,
 } from "../../utils/prepForecast";
 import { buildTree, visibleOrder, rollupAll, loadCollapsed, saveCollapsed } from "../../utils/prepTree";
 import PrepTaskModal from "./PrepTaskModal";
@@ -64,7 +64,24 @@ const PrepGanttView = ({ machine = "TBM1", readOnly = false }) => {
   const [fcMode, setFcMode] = useState(() => loadForecastMode());
   const changeMode = (m) => { setFcMode(m); saveForecastMode(m); };
 
-  const tree = useMemo(() => buildTree(tasks), [tasks]);
+  // ---- as-of date state ----
+  const [asOf, setAsOf] = useState(""); // "" = วันนี้
+  const viewDate = asOf || today;
+  const locked = readOnly || viewDate !== today; // ล็อกแก้ไขเมื่อดูย้อนวัน หรือ viewer mode
+  // แทนค่า % ตามวันที่ดู — วันนี้ = tasks จริงตรงๆ ไม่คำนวณซ้ำ
+  const asOfData = useMemo(() => {
+    if (viewDate === today) return { tasks, anyApprox: false };
+    let anyApprox = false;
+    const mapped = tasks.map((t) => {
+      const r = percentAsOf(t, viewDate, today);
+      if (r.approx && r.p > 0) anyApprox = true;
+      return { ...t, percent: r.p };
+    });
+    return { tasks: mapped, anyApprox };
+  }, [tasks, viewDate, today]); // today เป็น derived constant (todayBKK() ไม่เปลี่ยนใน session)
+  const vTasks = asOfData.tasks;
+
+  const tree = useMemo(() => buildTree(vTasks), [vTasks]);
   const leaves = useMemo(() => tree.order.filter((t) => !tree.isParent.has(t.id)), [tree]);
   const [collapsed, setCollapsed] = useState(() => loadCollapsed(machine));
   useEffect(() => { setCollapsed(loadCollapsed(machine)); }, [machine]);
@@ -76,19 +93,20 @@ const PrepGanttView = ({ machine = "TBM1", readOnly = false }) => {
   });
   const rows = useMemo(() => visibleOrder(tree, collapsed), [tree, collapsed]);
 
-  const forecast = useMemo(() => computeForecast(leaves, today, fcMode), [leaves, today, fcMode]);
+  const forecast = useMemo(() => computeForecast(leaves, viewDate, fcMode), [leaves, viewDate, fcMode]);
   const anySplit = useMemo(() => leaves.some((t) => showSplit(t, forecast.byId[t.id])), [leaves, forecast]);
   const anyDeps = useMemo(() => leaves.some((t) => Array.isArray(t.deps) && t.deps.length > 0), [leaves]);
   const bounds = useMemo(() => forecastBounds(leaves, forecast.byId), [leaves, forecast]);
-  const summary = useMemo(() => prepSummary(leaves, today), [leaves, today]);
+  const summary = useMemo(() => prepSummary(leaves, viewDate), [leaves, viewDate]);
   const rollups = useMemo(() => {
-    const isRedLeaf = (l) => taskStatus(l, today) === "behind" || !!(forecast.byId[l.id] && forecast.byId[l.id].isCritical);
-    return rollupAll(tasks, forecast.byId, isRedLeaf);
-  }, [tasks, forecast, today]);
+    const isRedLeaf = (l) => taskStatus(l, viewDate) === "behind" || !!(forecast.byId[l.id] && forecast.byId[l.id].isCritical);
+    return rollupAll(vTasks, forecast.byId, isRedLeaf);
+  }, [vTasks, forecast, viewDate]); // isRedLeaf เป็น inline fn — deps ครบผ่าน vTasks/forecast/viewDate
 
   const persist = (next) => { setTasks(next); savePrepTasks(machine, next); };
   const submit = (form) => {
-    const next = upsertPrepTask(tasks, form);
+    // จด plog ด้วยวันจริงเสมอ (ไม่ใช่ viewDate) — การเขียนข้อมูลใช้ tasks จริง
+    const next = upsertPrepTask(tasks, form, today);
     persist(next);
     const saved = form.id ? next.find((t) => t.id === form.id) : next.find((t) => !tasks.some((o) => o.id === t.id));
     if (saved) apiCall("savePrepTask", { ...saved, machine }).catch((e) => console.warn("PrepTask sync (save) failed — kept locally:", e.message));
@@ -100,9 +118,12 @@ const PrepGanttView = ({ machine = "TBM1", readOnly = false }) => {
     setModal({ open: false, editing: null });
   };
 
+  // baseline เฉพาะงาน leaf — งานแม่ derive จากลูกตอน render (กันค่า stale เมื่อแม่ถูกลดชั้น)
+  // ปุ่มนี้ถูก lock เมื่อดูย้อนวัน (locked=true) ซึ่งหมายความว่า viewDate===today เมื่อกดได้ → vTasks===tasks
   const onSetBaseline = () => {
     if (!window.confirm(`Set Baseline (${machine}): บันทึกแผนปัจจุบันเป็นแผนเดิมสำหรับเทียบ — ทับ baseline เก่าทั้งหมด?`)) return;
-    const next = setBaseline(tasks);
+    const baselined = new Map(setBaseline(leaves).map((t) => [t.id, t]));
+    const next = tasks.map((t) => baselined.get(t.id) || t);
     persist(next);
     next.forEach((t) => apiCall("savePrepTask", { ...t, machine }).catch((e) => console.warn("PrepTask sync (baseline) failed — kept locally:", e.message)));
   };
@@ -130,11 +151,13 @@ const PrepGanttView = ({ machine = "TBM1", readOnly = false }) => {
     () => (bounds ? ganttTicks(axisStart, axisEnd, pxPerDay) : { months: [], days: [], weekLines: [], weekendBands: [] }),
     [bounds, axisStart, axisEnd, pxPerDay]
   );
-  const todayX = bounds && today >= axisStart && today <= axisEnd ? dayDiff(axisStart, today) * pxPerDay : null;
+  // เส้น "วันนี้/ดู ณ" ใช้ viewDate เพื่อให้ chip เลื่อนตามวันที่เลือก
+  const todayX = bounds && viewDate >= axisStart && viewDate <= axisEnd ? dayDiff(axisStart, viewDate) * pxPerDay : null;
 
   const cellBase = "flex items-center border-b border-line/50";
   // sticky cell ต้องพื้นทึบ (chart ลอดด้านหลังตอน scroll) — hover จึงใช้ tint ทึบแทนแบบโปร่ง
-  const hoverCls = readOnly ? "" : "cursor-pointer group-hover:bg-cyan-tint";
+  // locked = readOnly || viewDate !== today → ล็อกทั้งสองกรณี
+  const hoverCls = locked ? "" : "cursor-pointer group-hover:bg-cyan-tint";
   const stickyCls = "sticky z-40 bg-surface";
 
   return (
@@ -161,10 +184,21 @@ const PrepGanttView = ({ machine = "TBM1", readOnly = false }) => {
               <button onClick={() => changeMode("rate")} className={`px-2 py-1.5 transition-colors ${fcMode === "rate" ? "bg-navy text-white" : "bg-surface text-ink-2 hover:bg-cyan-tint"}`}>ตาม rate จริง</button>
             </div>
           )}
-          {!readOnly && tasks.length > 0 && (
+          {tasks.length > 0 && (
+            <label className="flex items-center gap-1 text-[11px] text-ink-2 print:hidden">
+              ดู ณ
+              <input type="date" value={viewDate} onChange={(e) => setAsOf(e.target.value && e.target.value !== today ? e.target.value : "")} className="border border-line-input rounded-input px-1.5 py-1 text-[11px] bg-surface text-ink" />
+            </label>
+          )}
+          {viewDate !== today && (
+            <button onClick={() => setAsOf("")} title={asOfData.anyApprox ? "% บางงานเป็นค่าประมาณ (ก่อนเริ่มเก็บประวัติ) — คลิกเพื่อกลับวันนี้" : "คลิกเพื่อกลับวันนี้"} className="inline-flex items-center gap-1 bg-code-c hover:bg-code-c/90 text-white text-[11px] font-semibold px-2 py-1.5 rounded-input transition-colors print:hidden">
+              กำลังดู ณ {fmtTH(viewDate)} · แก้ไขถูกล็อก ✕
+            </button>
+          )}
+          {!locked && tasks.length > 0 && (
             <button onClick={onSetBaseline} className="border border-navy text-navy hover:bg-cyan-tint text-xs font-semibold px-2.5 py-1.5 rounded-input transition-colors print:hidden">Set Baseline</button>
           )}
-          {!readOnly && (
+          {!locked && (
             <button onClick={() => setModal({ open: true, editing: null })} className="inline-flex items-center gap-1 bg-navy hover:bg-navy-deepest text-white text-xs font-semibold px-2.5 py-1.5 rounded-input transition-colors shrink-0">
               <Plus size={14} /> เพิ่มงาน
             </button>
@@ -219,13 +253,13 @@ const PrepGanttView = ({ machine = "TBM1", readOnly = false }) => {
                 const roll = isParentRow ? rollups.get(t.id) : null;
 
                 if (isParentRow && roll) {
-                  const rollStatus = taskStatus({ start: roll.start, end: roll.end, percent: roll.percent }, today);
+                  const rollStatus = taskStatus({ start: roll.start, end: roll.end, percent: roll.percent }, viewDate);
                   const sumColor = roll.allDone ? "bg-sgreen-dark" : roll.anyRed ? "bg-code-d" : "bg-navy-dark";
                   const sumLeft = dayDiff(axisStart, roll.start) * pxPerDay;
                   const sumW = Math.max(pxPerDay, (dayDiff(roll.start, roll.end) + 1) * pxPerDay);
                   const sumTitle = `${t.name} — สรุปจากงานย่อย · forecast ${fmtTH(roll.fcStart)} → ${fmtTH(roll.fcEnd)}${roll.slipDays !== 0 ? ` (${roll.slipDays > 0 ? "+" : "−"}${Math.abs(roll.slipDays)} วัน)` : ""}`;
                   return (
-                    <div key={t.id} className="contents group" onClick={readOnly ? undefined : () => setModal({ open: true, editing: t })}>
+                    <div key={t.id} className="contents group" onClick={locked ? undefined : () => setModal({ open: true, editing: t })}>
                       <div className={`${cellBase} ${stickyCls} ${hoverCls} justify-center px-1 text-xs text-ink-3`} style={{ minHeight: MIN_ROW_H, left: STICKY_LEFTS[0] }}>{tree.numberOf.get(t.id)}</div>
                       <div className={`${cellBase} ${stickyCls} ${hoverCls} py-1.5 text-sm leading-snug text-ink font-semibold`} style={{ left: STICKY_LEFTS[1], paddingLeft: 8 + depth * 16, paddingRight: 8 }}>
                         <button onClick={(e) => { e.stopPropagation(); toggleCollapse(t.id); }} className="mr-1 text-ink-3 hover:text-ink" aria-label="ย่อ/ขยายงานย่อย">{collapsed.has(t.id) ? "▸" : "▾"}</button>
@@ -246,7 +280,7 @@ const PrepGanttView = ({ machine = "TBM1", readOnly = false }) => {
                 }
 
                 const left = dayDiff(axisStart, t.start) * pxPerDay;
-                const st = taskStatus(t, today);
+                const st = taskStatus(t, viewDate);
                 const color = STATUS_BAR[st] || "bg-navy";
                 const f = forecast.byId[t.id];
                 const split = showSplit(t, f);
@@ -267,7 +301,7 @@ const PrepGanttView = ({ machine = "TBM1", readOnly = false }) => {
                   ? `${t.name} — forecast ${fmtTH(f.fcStart)} → ${fmtTH(f.fcEnd)}${slip !== 0 ? ` (${slipLabel})` : ""} · float ${f.totalFloat} วัน`
                   : t.name;
                 return (
-                  <div key={t.id} className="contents group" onClick={readOnly ? undefined : () => setModal({ open: true, editing: t })}>
+                  <div key={t.id} className="contents group" onClick={locked ? undefined : () => setModal({ open: true, editing: t })}>
                     <div className={`${cellBase} ${stickyCls} ${hoverCls} justify-center px-1 text-xs text-ink-3`} style={{ minHeight: MIN_ROW_H, left: STICKY_LEFTS[0] }}>{tree.numberOf.get(t.id)}</div>
                     <div className={`${cellBase} ${stickyCls} ${hoverCls} py-1.5 text-sm leading-snug text-ink`} style={{ left: STICKY_LEFTS[1], paddingLeft: 8 + depth * 16, paddingRight: 8 }}>{t.milestone ? "◆ " : ""}{t.name}</div>
                     <div className={`${cellBase} ${stickyCls} ${hoverCls} justify-center px-1 text-xs text-ink-3`} style={{ left: STICKY_LEFTS[2] }}>{fmtTH(t.start)}</div>
@@ -333,12 +367,12 @@ const PrepGanttView = ({ machine = "TBM1", readOnly = false }) => {
                 </svg>
               )}
 
-              {/* เส้นวันนี้ + chip (บนสุด — วาดท้าย DOM) */}
+              {/* เส้นวันนี้/ดู ณ + chip (บนสุด — วาดท้าย DOM) */}
               {todayX !== null && (
                 <>
                   <div className="absolute w-px bg-code-c z-20" style={{ top: HEADER_MONTH_H, bottom: 0, left: LEFT_W + todayX }} />
                   <span className="absolute z-30 bg-code-c text-white text-[9px] font-semibold rounded px-1 py-px whitespace-nowrap" style={{ top: HEADER_MONTH_H + 2, left: LEFT_W + Math.min(todayX + 2, Math.max(0, width - 64)) }}>
-                    วันนี้ {fmtTH(today)}
+                    {viewDate === today ? `วันนี้ ${fmtTH(viewDate)}` : `ดู ณ ${fmtTH(viewDate)}`}
                   </span>
                 </>
               )}

@@ -57,6 +57,19 @@ const PrepGanttView = ({ machine = "TBM1", readOnly = false }) => {
     return () => window.removeEventListener("resize", measure);
   }, [hasTasks]);
 
+  const gridRef = useRef(null);
+  const [overlay, setOverlay] = useState({ h: 0, ys: {} });
+  useLayoutEffect(() => {
+    const grid = gridRef.current;
+    if (!grid || !anyDeps) return;
+    const ys = {};
+    for (const t of tasks) {
+      const el = rowRefs.current[t.id];
+      if (el) ys[t.id] = el.offsetTop + el.offsetHeight / 2; // offsetParent = grid (มี class relative)
+    }
+    setOverlay({ h: grid.offsetHeight, ys });
+  }, [tasks, availW, pxPerDay, fcMode, anyDeps]);
+
   const today = todayBKK();
   const [fcMode, setFcMode] = useState(() => loadForecastMode());
   const changeMode = (m) => { setFcMode(m); saveForecastMode(m); };
@@ -141,7 +154,7 @@ const PrepGanttView = ({ machine = "TBM1", readOnly = false }) => {
       ) : (
         <>
           <div ref={wrapRef} className="overflow-x-auto">
-            <div className="relative inline-grid" style={{ gridTemplateColumns: `${COL_IDX}px ${COL_NAME}px ${COL_DATE}px ${COL_DATE}px ${COL_PCT}px ${width}px` }}>
+            <div ref={gridRef} className="relative inline-grid" style={{ gridTemplateColumns: `${COL_IDX}px ${COL_NAME}px ${COL_DATE}px ${COL_DATE}px ${COL_PCT}px ${width}px` }}>
               {/* grid layers (ใต้ทุกอย่าง — วาดก่อนใน DOM, พิกัดอิง LEFT_W คงที่) */}
               {ticks.weekendBands.map((b) => (
                 <div key={`wb${b.x}`} className="absolute bg-line/20" style={{ top: HEADER_H, bottom: 0, left: LEFT_W + b.x, width: b.width }} />
@@ -236,6 +249,32 @@ const PrepGanttView = ({ machine = "TBM1", readOnly = false }) => {
                   </div>
                 );
               })}
+
+              {/* ลูกศร dependency (z-10 — ใต้เส้นวันนี้ z-20) */}
+              {anyDeps && overlay.h > 0 && (
+                <svg className="absolute pointer-events-none z-10" style={{ left: LEFT_W, top: 0 }} width={width} height={overlay.h} aria-hidden="true">
+                  <defs>
+                    <marker id="prepDepArrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto">
+                      <path d="M1 1 L7 4 L1 7" fill="none" stroke="#999999" strokeWidth="1.2" />
+                    </marker>
+                  </defs>
+                  {tasks.flatMap((t) =>
+                    (Array.isArray(t.deps) ? t.deps : []).map((d) => {
+                      const p = forecast.byId[d.id];
+                      const s = forecast.byId[t.id];
+                      const y1 = overlay.ys[d.id];
+                      const y2 = overlay.ys[t.id];
+                      if (!p || !s || y1 == null || y2 == null) return null;
+                      const xOf = (date, isEnd) => (dayDiff(axisStart, date) + (isEnd ? 1 : 0)) * pxPerDay;
+                      const { x1, x2, intoLeft } = depEndpoints(d.type, p, s, xOf);
+                      const a = intoLeft ? -6 : 6; // เผื่อระยะหัวลูกศรเข้าหา edge
+                      const midY = (y1 + y2) / 2;
+                      const path = `M${x1} ${y1} L${x1} ${midY} L${x2 + a} ${midY} L${x2 + a} ${y2} L${x2} ${y2}`;
+                      return <path key={`${t.id}_${d.id}`} d={path} fill="none" stroke="#999999" strokeWidth="1" markerEnd="url(#prepDepArrow)" />;
+                    })
+                  )}
+                </svg>
+              )}
 
               {/* เส้นวันนี้ + chip (บนสุด — วาดท้าย DOM) */}
               {todayX !== null && (

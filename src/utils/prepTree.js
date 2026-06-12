@@ -1,0 +1,93 @@
+// Tree/WBS helpers สำหรับ Prep Gantt — pure ทั้งไฟล์ (ยกเว้น collapse persist ที่แตะ localStorage)
+
+// สร้างโครงต้นไม้จาก parentId — guard: parentId ผี/ชี้ตัวเอง/วงจรบรรพบุรุษ → treat เป็น root
+export function buildTree(tasks) {
+  const list = (Array.isArray(tasks) ? tasks : []).filter((t) => t && t.id);
+  const byId = new Map(list.map((t) => [t.id, t]));
+  const rawParent = (t) => (t.parentId && byId.has(t.parentId) && t.parentId !== t.id ? t.parentId : null);
+  const parentOf = new Map();
+  for (const t of list) {
+    let p = rawParent(t);
+    if (p) {
+      const seen = new Set([t.id]);
+      let cur = p;
+      while (cur) {
+        if (seen.has(cur)) { p = null; break; } // วงจร → root
+        seen.add(cur);
+        cur = rawParent(byId.get(cur));
+      }
+    }
+    parentOf.set(t.id, p);
+  }
+  const childrenOf = new Map(list.map((t) => [t.id, []]));
+  const roots = [];
+  for (const t of list) {
+    const p = parentOf.get(t.id);
+    if (p) childrenOf.get(p).push(t);
+    else roots.push(t);
+  }
+  const order = [];
+  const depthOf = new Map();
+  const numberOf = new Map();
+  const walk = (nodes, depth, prefix) => {
+    nodes.forEach((t, i) => {
+      const num = prefix ? `${prefix}.${i + 1}` : String(i + 1);
+      order.push(t);
+      depthOf.set(t.id, depth);
+      numberOf.set(t.id, num);
+      walk(childrenOf.get(t.id), depth + 1, num);
+    });
+  };
+  walk(roots, 0, "");
+  const isParent = new Set(list.filter((t) => childrenOf.get(t.id).length > 0).map((t) => t.id));
+  return { order, childrenOf, parentOf, depthOf, numberOf, isParent };
+}
+
+// แถวที่มองเห็น — ตัดลูกหลานทุกชั้นของแม่ที่ย่อ
+export function visibleOrder(tree, collapsedSet) {
+  return tree.order.filter((t) => {
+    let p = tree.parentOf.get(t.id);
+    while (p) {
+      if (collapsedSet.has(p)) return false;
+      p = tree.parentOf.get(p);
+    }
+    return true;
+  });
+}
+
+// งานที่ไม่มีลูก (ชุดที่ส่งเข้า computeForecast / prepSummary / forecastBounds)
+export function leafTasks(tasks) {
+  const tr = buildTree(tasks);
+  return tr.order.filter((t) => !tr.isParent.has(t.id));
+}
+
+// เลือก candidateParentId เป็นแม่ของ taskId แล้ววนไหม (เดินขึ้นจาก candidate ตาม parentId)
+export function wouldCreateParentCycle(tasks, taskId, candidateParentId) {
+  if (!taskId) return false;
+  if (taskId === candidateParentId) return true;
+  const byId = new Map((Array.isArray(tasks) ? tasks : []).map((t) => [t.id, t]));
+  const seen = new Set();
+  let cur = candidateParentId;
+  while (cur) {
+    if (cur === taskId) return true;
+    if (seen.has(cur)) return true; // วงจรเดิมในข้อมูล — กันไว้
+    seen.add(cur);
+    const t = byId.get(cur);
+    cur = t ? t.parentId : null;
+  }
+  return false;
+}
+
+// ---- สถานะย่อ/ขยาย ต่อ machine ----
+const COLLAPSE_PREFIX = "tbmPrepCollapsed_";
+
+export function loadCollapsed(machine) {
+  try {
+    const arr = JSON.parse(localStorage.getItem(COLLAPSE_PREFIX + machine) || "[]");
+    return new Set(Array.isArray(arr) ? arr : []);
+  } catch (e) { return new Set(); }
+}
+
+export function saveCollapsed(machine, set) {
+  try { localStorage.setItem(COLLAPSE_PREFIX + machine, JSON.stringify([...set])); } catch (e) { /* ignore quota */ }
+}

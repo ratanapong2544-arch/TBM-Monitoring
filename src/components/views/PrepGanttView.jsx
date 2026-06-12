@@ -188,7 +188,7 @@ const PrepGanttView = ({ machine = "TBM1", readOnly = false }) => {
         </>
       )}
 
-      <PrepTaskModal open={modal.open} initial={modal.editing} onSubmit={submit} onDelete={del} onClose={() => setModal({ open: false, editing: null })} />
+      <PrepTaskModal open={modal.open} initial={modal.editing} tasks={tasks} onSubmit={submit} onDelete={del} onClose={() => setModal({ open: false, editing: null })} />
     </section>
   );
 };

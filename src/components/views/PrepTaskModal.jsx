@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from "react";
 import { X } from "lucide-react";
 import Button from "../../ui-ux-pro-max/components/Button";
+import { wouldCreateCycle } from "../../utils/prepForecast";
 
-const EMPTY = { name: "", start: "", end: "", percent: 0, milestone: false };
+const EMPTY = { name: "", start: "", end: "", percent: 0, milestone: false, deps: [] };
 
-export default function PrepTaskModal({ open, initial, onSubmit, onDelete, onClose }) {
+export default function PrepTaskModal({ open, initial, tasks = [], onSubmit, onDelete, onClose }) {
   const [form, setForm] = useState(EMPTY);
   const [err, setErr] = useState("");
 
@@ -18,15 +19,26 @@ export default function PrepTaskModal({ open, initial, onSubmit, onDelete, onClo
       end: initial.end ?? "",
       percent: initial.percent ?? 0,
       milestone: !!initial.milestone,
+      deps: Array.isArray(initial.deps) ? initial.deps.map((d) => ({ ...d })) : [],
     } : EMPTY);
   }, [open, initial]);
 
   if (!open) return null;
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
+
+  const depOptions = (currentId) =>
+    tasks.filter((t) => t.id !== form.id && (t.id === currentId || !wouldCreateCycle(tasks, form.id, t.id)));
+  const setDep = (i, k, v) => setForm((f) => ({ ...f, deps: f.deps.map((d, j) => (j === i ? { ...d, [k]: v } : d)) }));
+  const addDep = () => setForm((f) => ({ ...f, deps: [...f.deps, { id: "", type: "FS", lag: 0 }] }));
+  const delDep = (i) => setForm((f) => ({ ...f, deps: f.deps.filter((_, j) => j !== i) }));
+
   const submit = () => {
     if (!form.name.trim()) { setErr("กรุณากรอกชื่องาน"); return; }
     if (!form.start) { setErr("กรุณาเลือกวันเริ่ม"); return; }
     if (!form.milestone && form.end && form.end < form.start) { setErr("วันจบต้องไม่ก่อนวันเริ่ม"); return; }
+    if (form.deps.some((d) => !d.id)) { setErr("กรุณาเลือกงานก่อนหน้าให้ครบทุกแถว"); return; }
+    const ids = form.deps.map((d) => d.id);
+    if (ids.some((id, i) => ids.indexOf(id) !== i)) { setErr("เลือกงานก่อนหน้าซ้ำกัน"); return; }
     onSubmit(form);
   };
   const inputCls = "w-full border border-line rounded-input px-3 py-2 text-sm bg-surface text-ink focus:outline-none focus:border-navy";
@@ -63,6 +75,29 @@ export default function PrepTaskModal({ open, initial, onSubmit, onDelete, onClo
               </div>
             )}
           </div>
+
+          {tasks.length > 0 && (
+            <div>
+              <label className="block text-xs font-semibold text-ink-2 mb-1">งานก่อนหน้า (predecessor)</label>
+              {form.deps.map((d, i) => (
+                <div key={i} className="flex items-center gap-2 mb-2">
+                  <select value={d.id} onChange={(e) => setDep(i, "id", e.target.value)} className={`${inputCls} flex-1 min-w-0`}>
+                    <option value="">— เลือกงาน —</option>
+                    {depOptions(d.id).map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+                  </select>
+                  <select value={d.type} onChange={(e) => setDep(i, "type", e.target.value)} className={`${inputCls} w-20 shrink-0`}>
+                    {["FS", "SS", "FF", "SF"].map((x) => <option key={x} value={x}>{x}</option>)}
+                  </select>
+                  <input type="number" value={d.lag} onChange={(e) => setDep(i, "lag", e.target.value)} className={`${inputCls} w-16 shrink-0`} title="lag (วัน, ติดลบได้)" />
+                  <button onClick={() => delDep(i)} className="p-1 rounded-input text-ink-3 hover:bg-cyan-tint shrink-0"><X size={14} /></button>
+                </div>
+              ))}
+              <button onClick={addDep} className="text-xs font-semibold text-navy hover:underline">+ เพิ่มงานก่อนหน้า</button>
+              {form.deps.length > 0 && (
+                <p className="text-[10px] text-ink-3 mt-1">FS จบ→เริ่ม · SS เริ่มพร้อมกัน · FF จบพร้อมกัน · SF เริ่ม→จบ · lag = วัน (ติดลบได้)</p>
+              )}
+            </div>
+          )}
 
           {form.milestone ? (
             <label className="flex items-center gap-2 text-sm text-ink-2">

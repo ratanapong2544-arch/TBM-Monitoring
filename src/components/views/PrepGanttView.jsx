@@ -24,6 +24,8 @@ const LEGEND = [
 // คอลัมน์ซ้ายต้องกว้างคงที่ เพราะ overlay (แรเงา/เส้น/วันนี้) อิงพิกัด LEFT_W
 const COL_IDX = 28, COL_NAME = 224, COL_DATE = 64, COL_PCT = 48;
 const LEFT_W = COL_IDX + COL_NAME + COL_DATE * 2 + COL_PCT; // 428
+// คอลัมน์ซ้าย freeze (position: sticky) — scroll แนวนอนเลื่อนเฉพาะส่วน chart
+const STICKY_LEFTS = [0, COL_IDX, COL_IDX + COL_NAME, COL_IDX + COL_NAME + COL_DATE, COL_IDX + COL_NAME + COL_DATE * 2];
 const MIN_ROW_H = 38;
 const HEADER_MONTH_H = 20;
 const HEADER_H = 40; // เดือน 20 + เลขวัน 20
@@ -113,7 +115,9 @@ const PrepGanttView = ({ machine = "TBM1", readOnly = false }) => {
   const todayX = bounds && today >= axisStart && today <= axisEnd ? dayDiff(axisStart, today) * pxPerDay : null;
 
   const cellBase = "flex items-center border-b border-line/50";
-  const hoverCls = readOnly ? "" : "cursor-pointer group-hover:bg-cyan-tint/40";
+  // sticky cell ต้องพื้นทึบ (chart ลอดด้านหลังตอน scroll) — hover จึงใช้ tint ทึบแทนแบบโปร่ง
+  const hoverCls = readOnly ? "" : "cursor-pointer group-hover:bg-cyan-tint";
+  const stickyCls = "sticky z-40 bg-surface";
 
   return (
     <section className="rounded-card border border-line bg-surface shadow-card p-5">
@@ -169,11 +173,11 @@ const PrepGanttView = ({ machine = "TBM1", readOnly = false }) => {
 
               {/* header row */}
               <div className="contents text-[11px] font-semibold text-ink-3 uppercase">
-                <div className={`${cellBase} justify-center px-1`} style={{ height: HEADER_H }}>#</div>
-                <div className={`${cellBase} px-2`}>งาน</div>
-                <div className={`${cellBase} justify-center px-1`}>เริ่ม</div>
-                <div className={`${cellBase} justify-center px-1`}>จบ</div>
-                <div className={`${cellBase} justify-end px-1 pr-2 border-r border-line`}>%</div>
+                <div className={`${cellBase} ${stickyCls} justify-center px-1`} style={{ height: HEADER_H, left: STICKY_LEFTS[0] }}>#</div>
+                <div className={`${cellBase} ${stickyCls} px-2`} style={{ left: STICKY_LEFTS[1] }}>งาน</div>
+                <div className={`${cellBase} ${stickyCls} justify-center px-1`} style={{ left: STICKY_LEFTS[2] }}>เริ่ม</div>
+                <div className={`${cellBase} ${stickyCls} justify-center px-1`} style={{ left: STICKY_LEFTS[3] }}>จบ</div>
+                <div className={`${cellBase} ${stickyCls} justify-end px-1 pr-2 border-r border-line`} style={{ left: STICKY_LEFTS[4] }}>%</div>
                 <div className="border-b border-line/50">
                   {/* ชั้นเดือน — ซ่อน label เดือนที่ช่วงแคบกว่าความยาวป้าย (เส้นแบ่งเดือนยังอยู่) */}
                   <div className="relative border-b border-line/30" style={{ height: HEADER_MONTH_H }}>
@@ -215,11 +219,11 @@ const PrepGanttView = ({ machine = "TBM1", readOnly = false }) => {
                   : t.name;
                 return (
                   <div key={t.id} className="contents group" onClick={readOnly ? undefined : () => setModal({ open: true, editing: t })}>
-                    <div className={`${cellBase} ${hoverCls} justify-center px-1 text-xs text-ink-3`} style={{ minHeight: MIN_ROW_H }}>{i + 1}</div>
-                    <div className={`${cellBase} ${hoverCls} px-2 py-1.5 text-sm leading-snug text-ink`}>{t.milestone ? "◆ " : ""}{t.name}</div>
-                    <div className={`${cellBase} ${hoverCls} justify-center px-1 text-xs text-ink-3`}>{fmtTH(t.start)}</div>
-                    <div className={`${cellBase} ${hoverCls} justify-center px-1 text-xs text-ink-3`}>{t.milestone ? "—" : fmtTH(t.end)}</div>
-                    <div className={`${cellBase} ${hoverCls} justify-end px-1 pr-2 text-xs font-semibold border-r border-line ${STATUS_TEXT[st] || "text-ink-2"}`}>{t.milestone ? "" : `${t.percent}%`}</div>
+                    <div className={`${cellBase} ${stickyCls} ${hoverCls} justify-center px-1 text-xs text-ink-3`} style={{ minHeight: MIN_ROW_H, left: STICKY_LEFTS[0] }}>{i + 1}</div>
+                    <div className={`${cellBase} ${stickyCls} ${hoverCls} px-2 py-1.5 text-sm leading-snug text-ink`} style={{ left: STICKY_LEFTS[1] }}>{t.milestone ? "◆ " : ""}{t.name}</div>
+                    <div className={`${cellBase} ${stickyCls} ${hoverCls} justify-center px-1 text-xs text-ink-3`} style={{ left: STICKY_LEFTS[2] }}>{fmtTH(t.start)}</div>
+                    <div className={`${cellBase} ${stickyCls} ${hoverCls} justify-center px-1 text-xs text-ink-3`} style={{ left: STICKY_LEFTS[3] }}>{t.milestone ? "—" : fmtTH(t.end)}</div>
+                    <div className={`${cellBase} ${stickyCls} ${hoverCls} justify-end px-1 pr-2 text-xs font-semibold border-r border-line ${STATUS_TEXT[st] || "text-ink-2"}`} style={{ left: STICKY_LEFTS[4] }}>{t.milestone ? "" : `${t.percent}%`}</div>
                     <div ref={(el) => { rowRefs.current[t.id] = el; }} className="relative border-b border-line/50">
                       {split ? (
                         t.milestone ? (

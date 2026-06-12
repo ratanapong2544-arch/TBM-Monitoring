@@ -49,7 +49,7 @@ export function normalizePlog(raw) {
 // append ประวัติ % — วันซ้ำแทนที่ (เก็บค่าสุดท้ายของวัน), เรียงวัน, cap 200 ตัวล่าสุด
 export function appendPlog(plog, d, p) {
   const log = (Array.isArray(plog) ? plog : []).filter((e) => e && e.d && e.d !== d);
-  log.push({ d, p });
+  log.push({ d, p: clampPct(p) });
   log.sort((a, b) => (a.d < b.d ? -1 : a.d > b.d ? 1 : 0));
   return log.slice(-200);
 }

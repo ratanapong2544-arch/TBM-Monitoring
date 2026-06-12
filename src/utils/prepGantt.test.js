@@ -156,6 +156,7 @@ test("normalizePrepTask: plog sanitize (ตัดตัวเสีย, clamp %,
 
 test("appendPlog: เพิ่มเรียงวัน, วันซ้ำแทนที่, cap 200", () => {
   expect(appendPlog([{ d: "2026-06-05", p: 20 }], "2026-06-10", 50)).toEqual([{ d: "2026-06-05", p: 20 }, { d: "2026-06-10", p: 50 }]);
+  expect(appendPlog([], "2026-06-10", 150)).toEqual([{ d: "2026-06-10", p: 100 }]); // clamp ในตัว
   expect(appendPlog([{ d: "2026-06-05", p: 20 }], "2026-06-05", 30)).toEqual([{ d: "2026-06-05", p: 30 }]);
   const big = Array.from({ length: 200 }, (_, i) => ({ d: `2025-${String(Math.floor(i / 28) + 1).padStart(2, "0")}-${String((i % 28) + 1).padStart(2, "0")}`, p: 1 }));
   const capped = appendPlog(big, "2026-06-12", 99);

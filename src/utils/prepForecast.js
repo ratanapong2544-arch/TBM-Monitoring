@@ -1,5 +1,5 @@
 // Forecast engine (CPM) สำหรับ Prep Gantt — pure functions ทั้งไฟล์ (jest ตรงๆ ไม่ต้อง mock)
-import { addDays } from "./prepGantt"; // eslint-disable-line no-unused-vars
+import { addDays } from "./prepGantt";
 
 const _d = (s) => new Date(s + "T00:00:00");
 export const dayDiff = (a, b) => Math.round((_d(b) - _d(a)) / 86400000);
@@ -14,4 +14,117 @@ export function loadForecastMode() {
 
 export function saveForecastMode(mode) {
   try { localStorage.setItem(MODE_KEY, mode === "rate" ? "rate" : "remaining"); } catch (e) { /* ignore quota */ }
+}
+
+// ---- forecast หลัก ----
+// คืน { byId: {id: {fcStart, fcEnd, slipDays, totalFloat, isCritical}}, project, cycleIds }
+export function computeForecast(tasks, todayStr, mode = "remaining") {
+  const list = (Array.isArray(tasks) ? tasks : []).filter((t) => t && t.id && t.start);
+  const byIdTask = new Map(list.map((t) => [t.id, t]));
+  const validDeps = (t) =>
+    (Array.isArray(t.deps) ? t.deps : []).filter((d) => d && byIdTask.has(d.id) && d.id !== t.id);
+
+  // --- topological sort (Kahn) ---
+  const indeg = new Map(list.map((t) => [t.id, validDeps(t).length]));
+  const succs = new Map(list.map((t) => [t.id, []])); // pred id → [succ task]
+  list.forEach((t) => validDeps(t).forEach((d) => succs.get(d.id).push(t)));
+  const queue = list.filter((t) => indeg.get(t.id) === 0);
+  const order = [];
+  while (queue.length) {
+    const t = queue.shift();
+    order.push(t);
+    succs.get(t.id).forEach((s) => {
+      indeg.set(s.id, indeg.get(s.id) - 1);
+      if (indeg.get(s.id) === 0) queue.push(s);
+    });
+  }
+  const placed = new Set(order.map((t) => t.id));
+  const cycleIds = list.filter((t) => !placed.has(t.id)).map((t) => t.id);
+  const inCycle = new Set(cycleIds);
+  cycleIds.forEach((id) => order.push(byIdTask.get(id))); // งานในวงจรคำนวณแบบไม่มี dep
+
+  // --- forward pass ---
+  const fc = {};
+  for (const t of order) {
+    const planEnd = t.end || t.start;
+    const dur = Math.max(1, dayDiff(t.start, planEnd) + 1);
+    const pct = Number(t.percent) || 0;
+    let fcStart, fcEnd;
+    if (pct >= 100) {
+      fcStart = t.start;
+      fcEnd = planEnd;
+    } else if (pct > 0) {
+      // เริ่มจริงแล้ว — dep ไม่ดัน
+      fcStart = t.start;
+      let remDays;
+      if (mode === "rate") {
+        const elapsed = Math.max(1, dayDiff(t.start, todayStr) + 1);
+        remDays = Math.ceil((100 - pct) / (pct / elapsed));
+      } else {
+        remDays = Math.ceil(((100 - pct) / 100) * dur);
+      }
+      fcEnd = addDays(todayStr, remDays);
+    } else {
+      let s = t.start;
+      if (todayStr > s) s = todayStr; // ควรเริ่มแล้วแต่ยังไม่เริ่ม → ดันเป็นวันนี้
+      if (!inCycle.has(t.id)) {
+        for (const d of validDeps(t)) {
+          const p = fc[d.id];
+          if (!p) continue;
+          let cand;
+          if (d.type === "SS") cand = addDays(p.fcStart, d.lag);
+          else if (d.type === "FF") cand = addDays(addDays(p.fcEnd, d.lag), -(dur - 1));
+          else if (d.type === "SF") cand = addDays(addDays(p.fcStart, d.lag), -(dur - 1));
+          else cand = addDays(p.fcEnd, 1 + d.lag); // FS
+          if (cand > s) s = cand;
+        }
+      }
+      fcStart = s;
+      fcEnd = addDays(s, dur - 1);
+    }
+    if (fcEnd < fcStart) fcEnd = fcStart; // guard
+    fc[t.id] = { fcStart, fcEnd };
+  }
+
+  // --- project summary ---
+  let projFcEnd = null, projBaseEnd = null;
+  list.forEach((t) => {
+    const e = fc[t.id].fcEnd;
+    if (!projFcEnd || e > projFcEnd) projFcEnd = e;
+    const b = t.baseEnd || t.end || t.start;
+    if (!projBaseEnd || b > projBaseEnd) projBaseEnd = b;
+  });
+
+  // --- backward pass (CPM) — เติม logic จริงใน Task 5 ---
+  const late = {};
+  for (let i = order.length - 1; i >= 0; i--) {
+    const t = order[i];
+    const fdur = dayDiff(fc[t.id].fcStart, fc[t.id].fcEnd) + 1;
+    const lf = projFcEnd;
+    const ls = addDays(lf, -(fdur - 1));
+    late[t.id] = { lateStart: ls, lateFinish: lf };
+  }
+
+  // --- ประกอบผลลัพธ์ ---
+  const byId = {};
+  list.forEach((t) => {
+    const f = fc[t.id];
+    const baseEnd = t.baseEnd || t.end || t.start;
+    const pct = Number(t.percent) || 0;
+    const totalFloat = dayDiff(f.fcStart, late[t.id].lateStart);
+    byId[t.id] = {
+      ...f,
+      slipDays: dayDiff(baseEnd, f.fcEnd),
+      totalFloat,
+      isCritical: pct < 100 && totalFloat <= 0,
+    };
+  });
+
+  return {
+    byId,
+    project: projFcEnd
+      ? { fcEnd: projFcEnd, baseEnd: projBaseEnd, slipDays: dayDiff(projBaseEnd, projFcEnd) }
+      : null,
+    cycleIds,
+  };
 }

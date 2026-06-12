@@ -28,14 +28,14 @@ export default function PrepTaskModal({ open, initial, tasks = [], onSubmit, onD
   if (!open) return null;
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
 
+  const isParentOf = (id) => tasks.some((x) => x.parentId === id);
+  const hasChildren = !!form.id && isParentOf(form.id);
+
   const depOptions = (currentId) =>
-    tasks.filter((t) => t.id !== form.id && !isParentOf(t.id) && (t.id === currentId || !wouldCreateCycle(tasks, form.id, t.id)));
+    tasks.filter((t) => t.id !== form.id && (t.id === currentId || (!isParentOf(t.id) && !wouldCreateCycle(tasks, form.id, t.id))));
   const setDep = (i, k, v) => setForm((f) => ({ ...f, deps: f.deps.map((d, j) => (j === i ? { ...d, [k]: v } : d)) }));
   const addDep = () => setForm((f) => ({ ...f, deps: [...f.deps, { id: "", type: "FS", lag: 0 }] }));
   const delDep = (i) => setForm((f) => ({ ...f, deps: f.deps.filter((_, j) => j !== i) }));
-
-  const isParentOf = (id) => tasks.some((x) => x.parentId === id);
-  const hasChildren = !!form.id && isParentOf(form.id);
   // งานแม่ที่เลือกได้: ไม่ใช่ตัวเอง/ลูกหลานตัวเอง/milestone
   const parentOptions = tasks.filter((t) => t.id !== form.id && !t.milestone && !wouldCreateParentCycle(tasks, form.id, t.id));
 

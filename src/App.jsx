@@ -16,6 +16,7 @@ import ShiftReportView from "./components/views/ShiftReportView";
 import SegmentAnalysisView from "./components/views/SegmentAnalysisView";
 import GroutAnalysisView from "./components/views/GroutAnalysisView";
 import RouteScheduleView from "./components/views/RouteScheduleView";
+import Alignment3DView from "./components/views/Alignment3DView";
 import PerformanceView from "./components/views/PerformanceView";
 import DailyReportView from "./components/views/DailyReportView";
 import RecordDailyView from "./components/views/RecordDailyView";
@@ -278,6 +279,7 @@ const PrimaryGroutApp = () => {
       {activeTab === "analysis" && currentModule === "segment" && <SegmentAnalysisView segmentRecords={activeSegments} projectInfo={projectInfo} machine={activeMachine} filterState={dashFilter.state} readOnly={isViewer} />}
       {activeTab === "analysis" && currentModule === "grout" && <GroutAnalysisView groutRecords={activeGrouts} readOnly={isViewer} />}
       {activeTab === "analysis" && currentModule === "route" && <RouteScheduleView segmentRecords={activeSegments} projectInfo={projectInfo} machine={activeMachine} filterState={dashFilter.state} readOnly={isViewer} />}
+      {activeTab === "alignment3d" && <Alignment3DView segmentRecords={activeSegments} machine={activeMachine} readOnly={isViewer} />}
       {activeTab === "performance" && <PerformanceView segmentRecords={activeSegments} shiftReports={activeShiftReports} filterState={dashFilter.state} />}
       {activeTab === "prep_gantt" && <PrepGanttView machine={activeMachine} readOnly={isViewer} />}
       {activeTab === "datalog" && currentModule === "grout" && <GroutDashboardView groutRecords={groutRecords} setGroutRecords={setGroutRecords} segmentRecords={segmentRecords} machine={activeMachine} />}

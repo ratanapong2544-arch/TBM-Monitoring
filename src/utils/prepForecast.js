@@ -144,3 +144,66 @@ export function computeForecast(tasks, todayStr, mode = "remaining") {
     cycleIds,
   };
 }
+
+// ---- helpers สำหรับ View/Modal ----
+
+export function setBaseline(tasks) {
+  return (Array.isArray(tasks) ? tasks : []).map((t) => ({
+    ...t,
+    baseStart: t.start,
+    baseEnd: t.end || t.start,
+  }));
+}
+
+// แสดง split bar เมื่อ baseline ต่างจากแผน หรือ forecast ต่างจากแผน (display preservation)
+export function showSplit(task, f) {
+  if (!task || !f) return false;
+  const planEnd = task.end || task.start;
+  const baselineDiffers =
+    !!(task.baseStart && task.baseEnd) &&
+    (task.baseStart !== task.start || task.baseEnd !== planEnd);
+  const fcDiffers = f.fcStart !== task.start || f.fcEnd !== planEnd;
+  return baselineDiffers || fcDiffers;
+}
+
+// ขอบเขตแกนเวลา ครอบทั้งแผน + baseline + forecast
+export function forecastBounds(tasks, byId) {
+  let min = null, max = null;
+  for (const t of Array.isArray(tasks) ? tasks : []) {
+    if (!t || !t.start) continue;
+    const f = byId && byId[t.id];
+    for (const c of [t.start, t.baseStart, f && f.fcStart]) {
+      if (c && (!min || c < min)) min = c;
+    }
+    for (const c of [t.end || t.start, t.baseEnd, f && f.fcEnd]) {
+      if (c && (!max || c > max)) max = c;
+    }
+  }
+  return min ? { minDate: min, maxDate: max } : null;
+}
+
+// เพิ่ม predId เป็นงานก่อนหน้าของ taskId แล้ววนไหม? (เดินขึ้นตามโซ่ deps ของ predId)
+export function wouldCreateCycle(tasks, taskId, predId) {
+  if (!taskId) return false; // งานใหม่ยังไม่มีงานอื่นพึ่ง → ไม่มีทางวน
+  if (taskId === predId) return true;
+  const byId = new Map((Array.isArray(tasks) ? tasks : []).map((t) => [t.id, t]));
+  const stack = [predId];
+  const seen = new Set();
+  while (stack.length) {
+    const cur = stack.pop();
+    if (cur === taskId) return true;
+    if (seen.has(cur)) continue;
+    seen.add(cur);
+    const t = byId.get(cur);
+    (Array.isArray(t && t.deps) ? t.deps : []).forEach((d) => stack.push(d.id));
+  }
+  return false;
+}
+
+// จุดต่อลูกศรตาม link type — xOf(dateStr, isEnd) → px
+export function depEndpoints(type, pred, succ, xOf) {
+  const x1 = type === "SS" || type === "SF" ? xOf(pred.fcStart, false) : xOf(pred.fcEnd, true);
+  const intoLeft = type === "FS" || type === "SS";
+  const x2 = intoLeft ? xOf(succ.fcStart, false) : xOf(succ.fcEnd, true);
+  return { x1, x2, intoLeft };
+}

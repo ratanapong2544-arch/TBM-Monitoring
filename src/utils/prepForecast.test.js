@@ -1,5 +1,6 @@
 import {
   dayDiff, loadForecastMode, saveForecastMode, computeForecast,
+  setBaseline, showSplit, forecastBounds, wouldCreateCycle, depEndpoints,
 } from "./prepForecast";
 
 beforeEach(() => localStorage.clear());
@@ -205,4 +206,51 @@ test("CPM: หลายโซ่ — critical เฉพาะโซ่ที่�
   expect(r.byId.A2.isCritical).toBe(true);
   expect(r.byId.B1.isCritical).toBe(false);
   expect(r.byId.B2).toMatchObject({ totalFloat: 12, isCritical: false });
+});
+
+test("setBaseline: snapshot start/end ทุกงาน (milestone ใช้ start)", () => {
+  const out = setBaseline([
+    T({ id: "a", start: "2026-06-01", end: "2026-06-05" }),
+    T({ id: "m", start: "2026-06-09", end: "", milestone: true }),
+  ]);
+  expect(out[0]).toMatchObject({ baseStart: "2026-06-01", baseEnd: "2026-06-05" });
+  expect(out[1]).toMatchObject({ baseStart: "2026-06-09", baseEnd: "2026-06-09" });
+});
+
+test("showSplit: false เมื่อไม่มี baseline และ fc ตรงแผน / true เมื่อ fc เลื่อนหรือ baseline ต่าง", () => {
+  const t1 = T({ id: "a", start: "2026-06-20", end: "2026-06-22" });
+  expect(showSplit(t1, { fcStart: "2026-06-20", fcEnd: "2026-06-22" })).toBe(false);
+  expect(showSplit(t1, { fcStart: "2026-06-25", fcEnd: "2026-06-27" })).toBe(true);
+  const t2 = T({ id: "b", start: "2026-06-05", end: "2026-06-09", baseStart: "2026-06-01", baseEnd: "2026-06-05" });
+  expect(showSplit(t2, { fcStart: "2026-06-05", fcEnd: "2026-06-09" })).toBe(true);
+});
+
+test("forecastBounds: ครอบ baseline + forecast", () => {
+  const tasks = [T({ id: "a", start: "2026-06-05", end: "2026-06-10", baseStart: "2026-06-01", baseEnd: "2026-06-06" })];
+  const byId = { a: { fcStart: "2026-06-05", fcEnd: "2026-06-18" } };
+  expect(forecastBounds(tasks, byId)).toEqual({ minDate: "2026-06-01", maxDate: "2026-06-18" });
+  expect(forecastBounds([], {})).toBeNull();
+});
+
+test("wouldCreateCycle: ตรง/ทอดผ่าน/ตัวเอง/งานใหม่", () => {
+  const tasks = [
+    T({ id: "a", deps: [] , start: "2026-06-01"}),
+    T({ id: "b", deps: [{ id: "a", type: "FS", lag: 0 }], start: "2026-06-01" }),
+    T({ id: "c", deps: [{ id: "b", type: "FS", lag: 0 }], start: "2026-06-01" }),
+  ];
+  expect(wouldCreateCycle(tasks, "a", "c")).toBe(true);   // c พึ่ง a อยู่แล้ว (ผ่าน b)
+  expect(wouldCreateCycle(tasks, "a", "b")).toBe(true);   // ตรง
+  expect(wouldCreateCycle(tasks, "c", "a")).toBe(false);  // ทิศถูก
+  expect(wouldCreateCycle(tasks, "a", "a")).toBe(true);   // ตัวเอง
+  expect(wouldCreateCycle(tasks, null, "a")).toBe(false); // งานใหม่ยังไม่มีใครพึ่ง
+});
+
+test("depEndpoints: จุดต่อลูกศรตาม link type", () => {
+  const xOf = (date, isEnd) => dayDiff("2026-06-01", date) * 10 + (isEnd ? 10 : 0);
+  const p = { fcStart: "2026-06-01", fcEnd: "2026-06-05" };  // x: start 0, end 50
+  const s = { fcStart: "2026-06-08", fcEnd: "2026-06-10" };  // x: start 70, end 100
+  expect(depEndpoints("FS", p, s, xOf)).toEqual({ x1: 50, x2: 70, intoLeft: true });
+  expect(depEndpoints("SS", p, s, xOf)).toEqual({ x1: 0, x2: 70, intoLeft: true });
+  expect(depEndpoints("FF", p, s, xOf)).toEqual({ x1: 50, x2: 100, intoLeft: false });
+  expect(depEndpoints("SF", p, s, xOf)).toEqual({ x1: 0, x2: 100, intoLeft: false });
 });

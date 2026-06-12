@@ -116,6 +116,12 @@ test("SF: วันจบผูกกับ pred เริ่ม (ข้อจ�
   expect(r.byId.B).toMatchObject({ fcStart: "2026-06-12", fcEnd: "2026-06-14" });
 });
 
+test("SF binding: lag ใหญ่พอให้ข้อจำกัดชนะวันนี้", () => {
+  // A fc = 12–21 → candEnd = A.fcStart 12 + lag 10 = 22 → candStart = 22 − (dur 3 − 1) = 20 > วันนี้ 12
+  const r = computeForecast([A(), T({ id: "B", start: "2026-06-11", end: "2026-06-13", deps: [{ id: "A", type: "SF", lag: 10 }] })], "2026-06-12", "remaining");
+  expect(r.byId.B).toMatchObject({ fcStart: "2026-06-20", fcEnd: "2026-06-22" });
+});
+
 test("หลาย predecessor → ใช้ข้อจำกัดที่ช้าสุด", () => {
   const r = computeForecast([
     A(),

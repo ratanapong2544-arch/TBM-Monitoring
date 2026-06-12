@@ -83,3 +83,69 @@ test("ไม่มี task ที่ valid → project = null, byId ว่าง
   expect(r.project).toBeNull();
   expect(Object.keys(r.byId)).toHaveLength(0);
 });
+
+// ---- dependency forward pass tests ----
+// pred มาตรฐานของกลุ่มนี้: A 1–10 มิ.ย. ยังไม่เริ่ม วันนี้ 12 → A fc = 12–21
+const A = () => T({ id: "A", start: "2026-06-01", end: "2026-06-10", percent: 0 });
+
+test("FS: successor เริ่มหลัง pred forecast จบ +1", () => {
+  const r = computeForecast([A(), T({ id: "B", start: "2026-06-11", end: "2026-06-13", deps: [{ id: "A", type: "FS", lag: 0 }] })], "2026-06-12", "remaining");
+  expect(r.byId.A).toMatchObject({ fcStart: "2026-06-12", fcEnd: "2026-06-21" });
+  expect(r.byId.B).toMatchObject({ fcStart: "2026-06-22", fcEnd: "2026-06-24" });
+});
+
+test("FS lag บวก/ลบ", () => {
+  const r1 = computeForecast([A(), T({ id: "B", start: "2026-06-11", end: "2026-06-13", deps: [{ id: "A", type: "FS", lag: 2 }] })], "2026-06-12", "remaining");
+  expect(r1.byId.B.fcStart).toBe("2026-06-24");
+  const r2 = computeForecast([A(), T({ id: "B", start: "2026-06-11", end: "2026-06-13", deps: [{ id: "A", type: "FS", lag: -3 }] })], "2026-06-12", "remaining");
+  expect(r2.byId.B.fcStart).toBe("2026-06-19"); // 21+1−3
+});
+
+test("SS: เริ่มตาม pred เริ่ม + lag", () => {
+  const r = computeForecast([A(), T({ id: "B", start: "2026-06-11", end: "2026-06-13", deps: [{ id: "A", type: "SS", lag: 1 }] })], "2026-06-12", "remaining");
+  expect(r.byId.B.fcStart).toBe("2026-06-13"); // max(แผน11→วันนี้12, A.fcStart 12 + 1)
+});
+
+test("FF: วันจบผูกกับ pred จบ", () => {
+  const r = computeForecast([A(), T({ id: "B", start: "2026-06-11", end: "2026-06-13", deps: [{ id: "A", type: "FF", lag: 0 }] })], "2026-06-12", "remaining");
+  expect(r.byId.B).toMatchObject({ fcStart: "2026-06-19", fcEnd: "2026-06-21" }); // end ≥ 21, dur 3
+});
+
+test("SF: วันจบผูกกับ pred เริ่ม (ข้อจำกัดอ่อนกว่าวันนี้ → ใช้วันนี้)", () => {
+  const r = computeForecast([A(), T({ id: "B", start: "2026-06-11", end: "2026-06-13", deps: [{ id: "A", type: "SF", lag: 0 }] })], "2026-06-12", "remaining");
+  expect(r.byId.B).toMatchObject({ fcStart: "2026-06-12", fcEnd: "2026-06-14" });
+});
+
+test("หลาย predecessor → ใช้ข้อจำกัดที่ช้าสุด", () => {
+  const r = computeForecast([
+    A(),
+    T({ id: "C", start: "2026-06-01", end: "2026-06-25", percent: 100 }),
+    T({ id: "B", start: "2026-06-11", end: "2026-06-13", deps: [{ id: "A", type: "FS", lag: 0 }, { id: "C", type: "FS", lag: 0 }] }),
+  ], "2026-06-12", "remaining");
+  expect(r.byId.B.fcStart).toBe("2026-06-26"); // C จบ 25 ช้ากว่า A จบ 21
+});
+
+test("dep ไม่ดันงานที่เริ่มแล้ว (% > 0)", () => {
+  const r = computeForecast([A(), T({ id: "B", start: "2026-06-05", end: "2026-06-13", percent: 30, deps: [{ id: "A", type: "FS", lag: 0 }] })], "2026-06-12", "remaining");
+  expect(r.byId.B.fcStart).toBe("2026-06-05"); // เริ่มจริงแล้ว
+});
+
+test("dep ชี้ id ที่ไม่มี → ข้ามเฉยๆ", () => {
+  const r = computeForecast([T({ id: "B", start: "2026-06-20", end: "2026-06-22", deps: [{ id: "ghost", type: "FS", lag: 0 }] })], "2026-06-12", "remaining");
+  expect(r.byId.B).toMatchObject({ fcStart: "2026-06-20", fcEnd: "2026-06-22" });
+});
+
+test("วงจร A↔B → cycleIds ครบ และคำนวณแบบไม่มี dep ไม่ crash", () => {
+  const r = computeForecast([
+    T({ id: "A", start: "2026-06-01", end: "2026-06-05", deps: [{ id: "B", type: "FS", lag: 0 }] }),
+    T({ id: "B", start: "2026-06-06", end: "2026-06-10", deps: [{ id: "A", type: "FS", lag: 0 }] }),
+  ], "2026-06-12", "remaining");
+  expect(r.cycleIds.sort()).toEqual(["A", "B"]);
+  expect(r.byId.A.fcStart).toBe("2026-06-12");
+  expect(r.byId.B.fcStart).toBe("2026-06-12");
+});
+
+test("milestone โดนโซ่ดัน", () => {
+  const r = computeForecast([A(), T({ id: "M", start: "2026-06-19", end: "2026-06-19", milestone: true, deps: [{ id: "A", type: "FS", lag: 0 }] })], "2026-06-12", "remaining");
+  expect(r.byId.M).toMatchObject({ fcStart: "2026-06-22", fcEnd: "2026-06-22" });
+});

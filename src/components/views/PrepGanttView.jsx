@@ -180,8 +180,8 @@ const PrepGanttView = ({ machine = "TBM1", readOnly = false }) => {
         <div className="flex items-center gap-2 flex-wrap">
           {tasks.length > 0 && (
             <div className="flex border border-line-input rounded-input overflow-hidden text-[11px] font-semibold print:hidden">
-              <button onClick={() => changeMode("remaining")} className={`px-2 py-1.5 transition-colors ${fcMode === "remaining" ? "bg-navy text-white" : "bg-surface text-ink-2 hover:bg-cyan-tint"}`}>เลื่อนตามงานเหลือ</button>
-              <button onClick={() => changeMode("rate")} className={`px-2 py-1.5 transition-colors ${fcMode === "rate" ? "bg-navy text-white" : "bg-surface text-ink-2 hover:bg-cyan-tint"}`}>ตาม rate จริง</button>
+              <button onClick={() => changeMode("remaining")} title="เวลาที่เหลือ = % งานที่เหลือ × ระยะเวลาตามแผน — สมมุติว่าต่อจากนี้ทำได้ตามอัตราของแผน (แบบ MS Project)" className={`px-2 py-1.5 transition-colors ${fcMode === "remaining" ? "bg-navy text-white" : "bg-surface text-ink-2 hover:bg-cyan-tint"}`}>Planned Rate</button>
+              <button onClick={() => changeMode("rate")} title="เวลาที่เหลือ = % งานที่เหลือ ÷ อัตราผลงานจริงถึงวันนี้ — สมมุติว่าอนาคตทำได้เร็วเท่าที่ผ่านมา (แบบ EVM)" className={`px-2 py-1.5 transition-colors ${fcMode === "rate" ? "bg-navy text-white" : "bg-surface text-ink-2 hover:bg-cyan-tint"}`}>Actual Rate</button>
             </div>
           )}
           {tasks.length > 0 && (

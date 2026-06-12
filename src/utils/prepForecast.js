@@ -95,14 +95,30 @@ export function computeForecast(tasks, todayStr, mode = "remaining") {
     if (!projBaseEnd || b > projBaseEnd) projBaseEnd = b;
   });
 
-  // --- backward pass (CPM) — เติม logic จริงใน Task 5 ---
+  // --- backward pass (CPM) ---
+  // กลับทิศ link (เอาค่า min เมื่อมีหลาย successor):
+  //   FS: lateFinish ≤ succ.lateStart − 1 − lag   · SS: lateStart ≤ succ.lateStart − lag
+  //   FF: lateFinish ≤ succ.lateFinish − lag      · SF: lateStart ≤ succ.lateFinish − lag
+  // ข้อจำกัดฝั่ง start แปลงเป็น finish-equivalent ด้วย fdur − 1
   const late = {};
   for (let i = order.length - 1; i >= 0; i--) {
     const t = order[i];
     const fdur = dayDiff(fc[t.id].fcStart, fc[t.id].fcEnd) + 1;
-    const lf = projFcEnd;
-    const ls = addDays(lf, -(fdur - 1));
-    late[t.id] = { lateStart: ls, lateFinish: lf };
+    let lf = projFcEnd;
+    for (const s of succs.get(t.id) || []) {
+      if (inCycle.has(s.id) || inCycle.has(t.id) || !late[s.id]) continue;
+      // successor ที่เริ่มแล้ว/เสร็จแล้วไม่สร้างข้อจำกัดย้อนกลับ (forward ก็ไม่ดันมัน)
+      if ((Number(s.percent) || 0) > 0) continue;
+      const d = validDeps(s).find((x) => x.id === t.id);
+      if (!d) continue;
+      let cand;
+      if (d.type === "SS") cand = addDays(addDays(late[s.id].lateStart, -d.lag), fdur - 1);
+      else if (d.type === "FF") cand = addDays(late[s.id].lateFinish, -d.lag);
+      else if (d.type === "SF") cand = addDays(addDays(late[s.id].lateFinish, -d.lag), fdur - 1);
+      else cand = addDays(late[s.id].lateStart, -(1 + d.lag)); // FS
+      if (cand < lf) lf = cand;
+    }
+    late[t.id] = { lateStart: addDays(lf, -(fdur - 1)), lateFinish: lf };
   }
 
   // --- ประกอบผลลัพธ์ ---

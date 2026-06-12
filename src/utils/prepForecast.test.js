@@ -155,3 +155,54 @@ test("milestone โดนโซ่ดัน", () => {
   const r = computeForecast([A(), T({ id: "M", start: "2026-06-19", end: "2026-06-19", milestone: true, deps: [{ id: "A", type: "FS", lag: 0 }] })], "2026-06-12", "remaining");
   expect(r.byId.M).toMatchObject({ fcStart: "2026-06-22", fcEnd: "2026-06-22" });
 });
+
+// ---- CPM backward pass tests ----
+
+test("CPM: โซ่ A→B เป็น critical ทั้งคู่, งานอิสระที่จบก่อนมี float", () => {
+  const r = computeForecast([
+    T({ id: "A", start: "2026-06-01", end: "2026-06-10", percent: 0 }),                                   // fc 12–21
+    T({ id: "B", start: "2026-06-11", end: "2026-06-13", deps: [{ id: "A", type: "FS", lag: 0 }] }),      // fc 22–24 ← กำหนดวันจบโครงการ
+    T({ id: "D", start: "2026-06-20", end: "2026-06-22", percent: 0 }),                                   // fc 20–22, float 2
+  ], "2026-06-12", "remaining");
+  expect(r.byId.B).toMatchObject({ totalFloat: 0, isCritical: true });
+  expect(r.byId.A).toMatchObject({ totalFloat: 0, isCritical: true });
+  expect(r.byId.D).toMatchObject({ totalFloat: 2, isCritical: false });
+});
+
+test("CPM: งาน done ไม่เป็น critical แม้ float = 0", () => {
+  const r = computeForecast([T({ id: "a", start: "2026-06-01", end: "2026-06-10", percent: 100 })], "2026-06-12", "remaining");
+  expect(r.byId.a.totalFloat).toBe(0);
+  expect(r.byId.a.isCritical).toBe(false);
+});
+
+test("CPM: in-progress บนโซ่วิกฤต → critical", () => {
+  const r = computeForecast([
+    T({ id: "A", start: "2026-06-01", end: "2026-06-10", percent: 60 }),                                  // fc 1–16
+    T({ id: "B", start: "2026-06-11", end: "2026-06-13", deps: [{ id: "A", type: "FS", lag: 0 }] }),      // fc 17–19
+  ], "2026-06-12", "remaining");
+  expect(r.byId.A.isCritical).toBe(true);
+  expect(r.byId.B.isCritical).toBe(true);
+});
+
+test("CPM: backward ผ่าน SS link", () => {
+  // A fc 12–21 · B SS A lag 0 dur 13 → B fc 12–24 (กำหนดวันจบ) → A: ls ≤ B.ls − 0 → float 0 critical ทั้งคู่
+  const r = computeForecast([
+    A(),
+    T({ id: "B", start: "2026-06-11", end: "2026-06-23", deps: [{ id: "A", type: "SS", lag: 0 }] }),
+  ], "2026-06-12", "remaining");
+  expect(r.byId.B.isCritical).toBe(true);
+  expect(r.byId.A.totalFloat).toBe(0);
+});
+
+test("CPM: หลายโซ่ — critical เฉพาะโซ่ที่กำหนดวันจบโครงการ", () => {
+  const r = computeForecast([
+    T({ id: "A1", start: "2026-06-13", end: "2026-06-20", percent: 0 }),                                   // โซ่ยาว
+    T({ id: "A2", start: "2026-06-21", end: "2026-06-30", deps: [{ id: "A1", type: "FS", lag: 0 }] }),     // จบ 30 ← วันจบโครงการ
+    T({ id: "B1", start: "2026-06-13", end: "2026-06-15", percent: 0 }),                                   // โซ่สั้น
+    T({ id: "B2", start: "2026-06-16", end: "2026-06-18", deps: [{ id: "B1", type: "FS", lag: 0 }] }),     // จบ 18 → float 12
+  ], "2026-06-12", "remaining");
+  expect(r.byId.A1.isCritical).toBe(true);
+  expect(r.byId.A2.isCritical).toBe(true);
+  expect(r.byId.B1.isCritical).toBe(false);
+  expect(r.byId.B2).toMatchObject({ totalFloat: 12, isCritical: false });
+});

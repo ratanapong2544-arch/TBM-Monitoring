@@ -25,17 +25,34 @@ function clampPct(v) {
   return Math.max(0, Math.min(100, Math.round(n)));
 }
 
+const DEP_TYPES = ["FS", "SS", "FF", "SF"];
+
+export function normalizeDeps(raw) {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((d) => d && d.id)
+    .map((d) => ({
+      id: String(d.id),
+      type: DEP_TYPES.includes(d.type) ? d.type : "FS",
+      lag: Number.isFinite(Number(d.lag)) ? Math.round(Number(d.lag)) : 0,
+    }));
+}
+
 export function normalizePrepTask(form) {
   const milestone = !!form.milestone;
   const start = form.start || "";
   const end = milestone ? start : (form.end || start);
-  return {
+  const out = {
     name: (form.name || "").trim(),
     start,
     end,
     percent: clampPct(form.percent),
     milestone,
+    deps: normalizeDeps(form.deps),
   };
+  if (form.baseStart) out.baseStart = form.baseStart;
+  if (form.baseEnd) out.baseEnd = form.baseEnd;
+  return out;
 }
 
 export function upsertPrepTask(tasks, form) {

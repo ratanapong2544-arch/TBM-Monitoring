@@ -110,3 +110,29 @@ test("ganttTicks: ข้ามเดือน — month tick ที่ axisStart
   expect(t.weekendBands).toEqual([{ x: 0, width: 60 }]); // ส.30–อา.31
   expect(t.weekLines).toEqual([60]); // จันทร์ 1 มิ.ย.
 });
+
+test("normalizePrepTask: deps sanitize (type default FS, lag integer, ตัดตัวไม่มี id) + baseline pass-through", () => {
+  const out = normalizePrepTask({
+    name: "a", start: "2026-06-01", end: "2026-06-05", percent: 0,
+    deps: [
+      { id: "x", type: "SS", lag: "2" },
+      { id: "y", type: "BAD", lag: "abc" },
+      { id: "", type: "FS" },
+      null,
+    ],
+    baseStart: "2026-06-01", baseEnd: "2026-06-04",
+  });
+  expect(out.deps).toEqual([
+    { id: "x", type: "SS", lag: 2 },
+    { id: "y", type: "FS", lag: 0 },
+  ]);
+  expect(out.baseStart).toBe("2026-06-01");
+  expect(out.baseEnd).toBe("2026-06-04");
+});
+
+test("normalizePrepTask: ไม่มี deps/baseline → deps=[] และไม่มี field baseline (backward compat)", () => {
+  const out = normalizePrepTask({ name: "a", start: "2026-06-01", end: "2026-06-05", percent: 0 });
+  expect(out.deps).toEqual([]);
+  expect(out).not.toHaveProperty("baseStart");
+  expect(out).not.toHaveProperty("baseEnd");
+});

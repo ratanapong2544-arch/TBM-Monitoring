@@ -10,6 +10,7 @@ import {
   computeForecast, showSplit, setBaseline, forecastBounds,
   loadForecastMode, saveForecastMode, depEndpoints,
 } from "../../utils/prepForecast";
+import { buildTree, visibleOrder, rollupAll, loadCollapsed, saveCollapsed } from "../../utils/prepTree";
 import PrepTaskModal from "./PrepTaskModal";
 
 const STATUS_BAR = { done: "bg-sgreen-dark", behind: "bg-code-d", ontrack: "bg-navy", notstarted: "bg-ink-3" };
@@ -62,11 +63,28 @@ const PrepGanttView = ({ machine = "TBM1", readOnly = false }) => {
   const today = todayBKK();
   const [fcMode, setFcMode] = useState(() => loadForecastMode());
   const changeMode = (m) => { setFcMode(m); saveForecastMode(m); };
-  const forecast = useMemo(() => computeForecast(tasks, today, fcMode), [tasks, today, fcMode]);
-  const anySplit = useMemo(() => tasks.some((t) => showSplit(t, forecast.byId[t.id])), [tasks, forecast]);
-  const anyDeps = useMemo(() => tasks.some((t) => Array.isArray(t.deps) && t.deps.length > 0), [tasks]);
-  const bounds = useMemo(() => forecastBounds(tasks, forecast.byId), [tasks, forecast]);
-  const summary = useMemo(() => prepSummary(tasks, today), [tasks, today]);
+
+  const tree = useMemo(() => buildTree(tasks), [tasks]);
+  const leaves = useMemo(() => tree.order.filter((t) => !tree.isParent.has(t.id)), [tree]);
+  const [collapsed, setCollapsed] = useState(() => loadCollapsed(machine));
+  useEffect(() => { setCollapsed(loadCollapsed(machine)); }, [machine]);
+  const toggleCollapse = (id) => setCollapsed((prev) => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    saveCollapsed(machine, next);
+    return next;
+  });
+  const rows = useMemo(() => visibleOrder(tree, collapsed), [tree, collapsed]);
+
+  const forecast = useMemo(() => computeForecast(leaves, today, fcMode), [leaves, today, fcMode]);
+  const anySplit = useMemo(() => leaves.some((t) => showSplit(t, forecast.byId[t.id])), [leaves, forecast]);
+  const anyDeps = useMemo(() => leaves.some((t) => Array.isArray(t.deps) && t.deps.length > 0), [leaves]);
+  const bounds = useMemo(() => forecastBounds(leaves, forecast.byId), [leaves, forecast]);
+  const summary = useMemo(() => prepSummary(leaves, today), [leaves, today]);
+  const rollups = useMemo(() => {
+    const isRedLeaf = (l) => taskStatus(l, today) === "behind" || !!(forecast.byId[l.id] && forecast.byId[l.id].isCritical);
+    return rollupAll(tasks, forecast.byId, isRedLeaf);
+  }, [tasks, forecast, today]);
 
   const persist = (next) => { setTasks(next); savePrepTasks(machine, next); };
   const submit = (form) => {
@@ -101,12 +119,12 @@ const PrepGanttView = ({ machine = "TBM1", readOnly = false }) => {
     const grid = gridRef.current;
     if (!grid || !anyDeps) return;
     const ys = {};
-    for (const t of tasks) {
+    for (const t of rows) {
       const el = rowRefs.current[t.id];
       if (el) ys[t.id] = el.offsetTop + el.offsetHeight / 2; // offsetParent = grid (มี class relative)
     }
     setOverlay({ h: grid.offsetHeight, ys });
-  }, [tasks, availW, pxPerDay, fcMode, anyDeps]);
+  }, [rows, availW, pxPerDay, fcMode, anyDeps]);
 
   const ticks = useMemo(
     () => (bounds ? ganttTicks(axisStart, axisEnd, pxPerDay) : { months: [], days: [], weekLines: [], weekendBands: [] }),
@@ -195,7 +213,38 @@ const PrepGanttView = ({ machine = "TBM1", readOnly = false }) => {
               </div>
 
               {/* task rows — แถว grid เดียวกัน: ชื่อ wrap แสดงครบ แถวสูง auto, bar กึ่งกลางแถวเสมอ */}
-              {tasks.map((t, i) => {
+              {rows.map((t) => {
+                const depth = tree.depthOf.get(t.id) || 0;
+                const isParentRow = tree.isParent.has(t.id);
+                const roll = isParentRow ? rollups.get(t.id) : null;
+
+                if (isParentRow && roll) {
+                  const rollStatus = taskStatus({ start: roll.start, end: roll.end, percent: roll.percent }, today);
+                  const sumColor = roll.allDone ? "bg-sgreen-dark" : roll.anyRed ? "bg-code-d" : "bg-navy-dark";
+                  const sumLeft = dayDiff(axisStart, roll.start) * pxPerDay;
+                  const sumW = Math.max(pxPerDay, (dayDiff(roll.start, roll.end) + 1) * pxPerDay);
+                  const sumTitle = `${t.name} — สรุปจากงานย่อย · forecast ${fmtTH(roll.fcStart)} → ${fmtTH(roll.fcEnd)}${roll.slipDays !== 0 ? ` (${roll.slipDays > 0 ? "+" : "−"}${Math.abs(roll.slipDays)} วัน)` : ""}`;
+                  return (
+                    <div key={t.id} className="contents group" onClick={readOnly ? undefined : () => setModal({ open: true, editing: t })}>
+                      <div className={`${cellBase} ${stickyCls} ${hoverCls} justify-center px-1 text-xs text-ink-3`} style={{ minHeight: MIN_ROW_H, left: STICKY_LEFTS[0] }}>{tree.numberOf.get(t.id)}</div>
+                      <div className={`${cellBase} ${stickyCls} ${hoverCls} py-1.5 text-sm leading-snug text-ink font-semibold`} style={{ left: STICKY_LEFTS[1], paddingLeft: 8 + depth * 16, paddingRight: 8 }}>
+                        <button onClick={(e) => { e.stopPropagation(); toggleCollapse(t.id); }} className="mr-1 text-ink-3 hover:text-ink" aria-label="ย่อ/ขยายงานย่อย">{collapsed.has(t.id) ? "▸" : "▾"}</button>
+                        {t.name}
+                        {collapsed.has(t.id) && <span className="ml-1 font-normal text-xs text-ink-3">({tree.childrenOf.get(t.id).length} งานย่อย)</span>}
+                      </div>
+                      <div className={`${cellBase} ${stickyCls} ${hoverCls} justify-center px-1 text-xs text-ink-3`} style={{ left: STICKY_LEFTS[2] }}>{fmtTH(roll.start)}</div>
+                      <div className={`${cellBase} ${stickyCls} ${hoverCls} justify-center px-1 text-xs text-ink-3`} style={{ left: STICKY_LEFTS[3] }}>{fmtTH(roll.end)}</div>
+                      <div className={`${cellBase} ${stickyCls} ${hoverCls} justify-end px-1 pr-2 text-xs font-semibold border-r border-line ${STATUS_TEXT[rollStatus] || "text-ink-2"}`} style={{ left: STICKY_LEFTS[4] }}>{roll.percent}%</div>
+                      <div ref={(el) => { rowRefs.current[t.id] = el; }} className="relative border-b border-line/50">
+                        {/* แถบสรุปแบบ bracket: แท่ง 5px + ขีดลงสองปลาย */}
+                        <div className={`absolute top-1/2 -translate-y-1/2 h-[5px] ${sumColor}`} style={{ left: sumLeft, width: sumW }} title={sumTitle} />
+                        <div className={`absolute w-[3px] h-[10px] ${sumColor}`} style={{ top: "calc(50% - 5px)", left: sumLeft }} />
+                        <div className={`absolute w-[3px] h-[10px] ${sumColor}`} style={{ top: "calc(50% - 5px)", left: sumLeft + sumW - 3 }} />
+                      </div>
+                    </div>
+                  );
+                }
+
                 const left = dayDiff(axisStart, t.start) * pxPerDay;
                 const st = taskStatus(t, today);
                 const color = STATUS_BAR[st] || "bg-navy";
@@ -219,8 +268,8 @@ const PrepGanttView = ({ machine = "TBM1", readOnly = false }) => {
                   : t.name;
                 return (
                   <div key={t.id} className="contents group" onClick={readOnly ? undefined : () => setModal({ open: true, editing: t })}>
-                    <div className={`${cellBase} ${stickyCls} ${hoverCls} justify-center px-1 text-xs text-ink-3`} style={{ minHeight: MIN_ROW_H, left: STICKY_LEFTS[0] }}>{i + 1}</div>
-                    <div className={`${cellBase} ${stickyCls} ${hoverCls} px-2 py-1.5 text-sm leading-snug text-ink`} style={{ left: STICKY_LEFTS[1] }}>{t.milestone ? "◆ " : ""}{t.name}</div>
+                    <div className={`${cellBase} ${stickyCls} ${hoverCls} justify-center px-1 text-xs text-ink-3`} style={{ minHeight: MIN_ROW_H, left: STICKY_LEFTS[0] }}>{tree.numberOf.get(t.id)}</div>
+                    <div className={`${cellBase} ${stickyCls} ${hoverCls} py-1.5 text-sm leading-snug text-ink`} style={{ left: STICKY_LEFTS[1], paddingLeft: 8 + depth * 16, paddingRight: 8 }}>{t.milestone ? "◆ " : ""}{t.name}</div>
                     <div className={`${cellBase} ${stickyCls} ${hoverCls} justify-center px-1 text-xs text-ink-3`} style={{ left: STICKY_LEFTS[2] }}>{fmtTH(t.start)}</div>
                     <div className={`${cellBase} ${stickyCls} ${hoverCls} justify-center px-1 text-xs text-ink-3`} style={{ left: STICKY_LEFTS[3] }}>{t.milestone ? "—" : fmtTH(t.end)}</div>
                     <div className={`${cellBase} ${stickyCls} ${hoverCls} justify-end px-1 pr-2 text-xs font-semibold border-r border-line ${STATUS_TEXT[st] || "text-ink-2"}`} style={{ left: STICKY_LEFTS[4] }}>{t.milestone ? "" : `${t.percent}%`}</div>
@@ -266,7 +315,7 @@ const PrepGanttView = ({ machine = "TBM1", readOnly = false }) => {
                       <path d="M1 1 L7 4 L1 7" fill="none" stroke="#999999" strokeWidth="1.2" />
                     </marker>
                   </defs>
-                  {tasks.flatMap((t) =>
+                  {leaves.flatMap((t) =>
                     (Array.isArray(t.deps) ? t.deps : []).map((d) => {
                       const p = forecast.byId[d.id];
                       const s = forecast.byId[t.id];
@@ -303,6 +352,9 @@ const PrepGanttView = ({ machine = "TBM1", readOnly = false }) => {
                 <span className={`w-2 h-2 rounded-full ${c}`} /> {label}
               </span>
             ))}
+            {tree.isParent.size > 0 && (
+              <span className="inline-flex items-center gap-1.5 text-[11px] text-ink-3"><span className="w-3.5 h-1 bg-navy-dark" /> งานแม่ (สรุปจากงานย่อย)</span>
+            )}
             {(anySplit || anyDeps) && (
               <>
                 <span className="inline-flex items-center gap-1.5 text-[11px] text-ink-3"><span className="w-3.5 h-1 rounded-sm bg-ink-3/40" /> แผนเดิม (แท่งบน)</span>

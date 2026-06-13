@@ -92,9 +92,11 @@ ${remarksText}
             <Printer size={15} /> <span className="hidden sm:inline">ปริ้น PDF</span>
           </button>
         )}
-        <button onClick={handleGenerateDelaySummary} disabled={isGeneratingAI} className="bg-gradient-to-r from-code-c to-code-d hover:opacity-90 text-white px-3 py-2 rounded-input flex items-center gap-1.5 font-semibold text-xs transition-all active:scale-95 whitespace-nowrap disabled:opacity-60">
-          <Sparkles size={15} /> <span className="hidden sm:inline">วิเคราะห์ AI</span>
-        </button>
+        {!isViewer && (
+          <button onClick={handleGenerateDelaySummary} disabled={isGeneratingAI} className="bg-gradient-to-r from-code-c to-code-d hover:opacity-90 text-white px-3 py-2 rounded-input flex items-center gap-1.5 font-semibold text-xs transition-all active:scale-95 whitespace-nowrap disabled:opacity-60">
+            <Sparkles size={15} /> <span className="hidden sm:inline">วิเคราะห์ AI</span>
+          </button>
+        )}
       </div>
 
       {showAIModal && (

@@ -62,6 +62,27 @@ export default function Sidebar({ active = {}, onNavigate, liveStatus, machine, 
           </div>
         ))}
       </nav>
+
+      {/* Developer credit — TEAM Group */}
+      <div className="mt-auto px-5 py-4 border-t border-white/10">
+        <div className="text-cyan-tint/45 text-[9px] font-semibold uppercase tracking-[0.15em] mb-2">Developed by</div>
+        <div className="flex items-center gap-2.5">
+          <svg width="30" height="30" viewBox="0 0 40 40" className="shrink-0" role="img" aria-label="TEAM GROUP">
+            <defs><clipPath id="tgClip"><rect x="3" y="3" width="34" height="34" rx="5" /></clipPath></defs>
+            <rect x="3" y="3" width="34" height="34" rx="5" fill="#ffffff" />
+            <g fill="#0C2C65" clipPath="url(#tgClip)">
+              <path d="M20 20 L3 3 L20 3 Z" />
+              <path d="M20 20 L37 3 L37 20 Z" />
+              <path d="M20 20 L37 37 L20 37 Z" />
+              <path d="M20 20 L3 37 L3 20 Z" />
+            </g>
+          </svg>
+          <div className="leading-none">
+            <div className="text-white font-bold text-[15px] tracking-tight">TEAM<span className="font-medium text-cyan-tint/85"> GROUP</span></div>
+            <div className="text-cyan-tint/50 text-[8px] font-medium mt-1 leading-tight">Development for Sustainable Growth</div>
+          </div>
+        </div>
+      </div>
     </aside>
   );
 }

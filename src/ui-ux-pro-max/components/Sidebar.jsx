@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import { NAV_GROUPS, viewerGroups } from "./navModel";
 import { Layers } from "lucide-react";
 
@@ -9,6 +9,7 @@ const STATUS_DOT = {
 };
 
 export default function Sidebar({ active = {}, onNavigate, liveStatus, machine, isViewer = false }) {
+  const [logoOk, setLogoOk] = useState(true); // ใช้รูปจริงจาก public/ ถ้ามี, ไม่งั้น fallback เป็น emblem
   return (
     <aside className="hidden lg:flex flex-col w-60 bg-navy-dark h-screen sticky top-0 shrink-0 print:hidden">
       {/* Brand */}
@@ -66,23 +67,31 @@ export default function Sidebar({ active = {}, onNavigate, liveStatus, machine, 
       {/* Developer credit — TEAM Group */}
       <div className="mt-auto px-5 py-4 border-t border-white/10">
         <div className="text-cyan-tint/45 text-[9px] font-semibold uppercase tracking-[0.15em] mb-2">Developed by</div>
-        <div className="flex items-center gap-2.5">
-          <svg width="34" height="34" viewBox="0 0 48 48" className="shrink-0" role="img" aria-label="TEAM GROUP">
-            <rect x="1.5" y="1.5" width="45" height="45" rx="6" fill="#ffffff" />
-            <g stroke="#15407c" fill="none" strokeLinecap="round">
-              <rect x="6.5" y="6.5" width="35" height="35" rx="2.5" strokeWidth="2" />
-              <path strokeWidth="1.5" d="M24 6.5 V41.5 M6.5 24 H41.5
-                M6.5 6.5 L24 24 M24 6.5 L6.5 24
-                M24 6.5 L41.5 24 M41.5 6.5 L24 24
-                M6.5 24 L24 41.5 M24 24 L6.5 41.5
-                M24 24 L41.5 41.5 M41.5 24 L24 41.5" />
-            </g>
-          </svg>
-          <div className="leading-none">
-            <div className="text-white font-bold text-[15px] tracking-tight">TEAM<span className="font-medium text-cyan-tint/85"> GROUP</span></div>
-            <div className="text-cyan-tint/50 text-[8px] font-medium mt-1 leading-tight">Development for Sustainable Growth</div>
+        {logoOk ? (
+          /* รูปโลโก้จริง — เซฟไว้ที่ public/team-group-logo.png (วางบนการ์ดขาวให้โลโก้ navy เด่น) */
+          <div className="bg-white rounded-md px-3 py-2 inline-flex items-center max-w-full">
+            <img src="/team-group-logo.png" alt="TEAM GROUP" className="h-8 w-auto object-contain" onError={() => setLogoOk(false)} />
           </div>
-        </div>
+        ) : (
+          /* fallback: emblem + wordmark (ถ้ายังไม่ได้วางไฟล์รูป) */
+          <div className="flex items-center gap-2.5">
+            <svg width="34" height="34" viewBox="0 0 48 48" className="shrink-0" role="img" aria-label="TEAM GROUP">
+              <rect x="1.5" y="1.5" width="45" height="45" rx="6" fill="#ffffff" />
+              <g stroke="#15407c" fill="none" strokeLinecap="round">
+                <rect x="6.5" y="6.5" width="35" height="35" rx="2.5" strokeWidth="2" />
+                <path strokeWidth="1.5" d="M24 6.5 V41.5 M6.5 24 H41.5
+                  M6.5 6.5 L24 24 M24 6.5 L6.5 24
+                  M24 6.5 L41.5 24 M41.5 6.5 L24 24
+                  M6.5 24 L24 41.5 M24 24 L6.5 41.5
+                  M24 24 L41.5 41.5 M41.5 24 L24 41.5" />
+              </g>
+            </svg>
+            <div className="leading-none">
+              <div className="text-white font-bold text-[15px] tracking-tight">TEAM<span className="font-medium text-cyan-tint/85"> GROUP</span></div>
+              <div className="text-cyan-tint/50 text-[8px] font-medium mt-1 leading-tight">Development for Sustainable Growth</div>
+            </div>
+          </div>
+        )}
       </div>
     </aside>
   );

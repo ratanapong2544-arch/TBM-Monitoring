@@ -398,4 +398,28 @@ const CSS = `
 .a3m-notbm{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;z-index:3}
 .a3m-notbm div{background:rgba(255,255,255,.95);border:1px solid #E8E8E8;border-radius:12px;padding:18px 28px;text-align:center;box-shadow:0 8px 24px rgba(12,44,101,.14)}
 .a3m-notbm b{font-size:15px;color:#0C2C65}.a3m-notbm small{display:block;font-size:11px;color:#7c8aa0;margin-top:4px}
+/* มือถือ/จอแคบ — ย่อ overlay ไม่ให้บังแผนที่ */
+@media (max-width:640px){
+  .a3m-card{top:8px;right:8px;width:148px;padding:8px 10px;border-radius:9px}
+  .a3m-card .dot{width:8px;height:8px}
+  .a3m-card .ch b{font-size:10.5px}
+  .a3m-card .ch small{font-size:8px}
+  .a3m-card .big{font-size:18px}
+  .a3m-card .rows{margin-top:6px;gap:2px}
+  .a3m-card .rows div{font-size:8.5px}
+  .a3m-card .rows b{font-size:9px}
+  .a3m-card .nt{display:none}
+  .a3m-head-callout{padding:3px 7px;border-radius:7px}
+  .a3m-head-callout b{font-size:9.5px}
+  .a3m-head-callout span{font-size:8px}
+  .a3m-ctrl{bottom:10px;left:8px;gap:6px}
+  .a3m-ctrl button{font-size:10px;padding:5px 9px}
+  .a3m-shaft .lab{padding:2px 6px}
+  .a3m-shaft .lab b{font-size:9.5px}
+  .a3m-shaft .lab small{display:none}
+  .a3m-km{font-size:8px;padding:1px 4px}
+  .a3m-hdr{max-width:200px;padding:8px 11px}
+  .a3m-hdr h2{font-size:13px}
+  .a3m-hdr p,.a3m-hdr .demo{display:none}
+}
 `;

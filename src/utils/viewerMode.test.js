@@ -9,11 +9,11 @@ describe("isViewerMode", () => {
 });
 
 describe("VIEWER_TABS", () => {
-  test("covers dashboard group tabs", () => {
-    expect(VIEWER_TABS).toEqual(expect.arrayContaining(["dashboard", "analysis", "prep_gantt", "performance"]));
+  test("covers dashboard group tabs + shift report", () => {
+    expect(VIEWER_TABS).toEqual(expect.arrayContaining(["dashboard", "analysis", "prep_gantt", "performance", "shift_report"]));
   });
-  test("excludes record/overview/issues tabs", () => {
-    ["overview", "record", "datalog", "shift_report", "report", "record_daily", "daily_report"].forEach((t) =>
+  test("excludes record/overview/data-entry tabs", () => {
+    ["overview", "record", "datalog", "report", "record_daily", "daily_report"].forEach((t) =>
       expect(VIEWER_TABS).not.toContain(t));
   });
 });

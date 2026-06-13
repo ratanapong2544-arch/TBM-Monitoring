@@ -29,7 +29,11 @@ export const NAV_GROUPS = [
 export const MOBILE_PRIMARY = ["overview","record","dashboard","shift_report"]; // + More
 export const MOBILE_MORE_TABS = ["datalog","report","record_daily","daily_report","prep_gantt"];
 
-// กลุ่ม nav ที่ viewer เห็น = เฉพาะกลุ่ม "Dashboard"
+// กลุ่ม nav ที่ viewer เห็น = กลุ่ม "Dashboard" + Shift Report (จากกลุ่มรายงาน)
 export function viewerGroups() {
-  return NAV_GROUPS.filter((g) => g.label === "Dashboard");
+  const groups = NAV_GROUPS.filter((g) => g.label === "Dashboard").map((g) => ({ ...g }));
+  const reports = NAV_GROUPS.find((g) => g.label === "รายงาน");
+  const shift = reports ? reports.items.filter((it) => it.tab === "shift_report") : [];
+  if (shift.length) groups.push({ label: "รายงาน", items: shift });
+  return groups;
 }

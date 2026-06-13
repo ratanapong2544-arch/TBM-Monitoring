@@ -4,7 +4,7 @@ import { formatDisplayDate, formatDisplayTime } from "../../utils/formatters";
 import { getLogicalShiftDate, getRingNumeric, loadHtml2Canvas } from "../../utils/helpers";
 import { apiCall } from "../../utils/api";
 
-const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftReports, machine = "TBM1" }) => {
+const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftReports, machine = "TBM1", readOnly = false }) => {
   const [isSaving, setIsSaving] = useState(false);
   const [isExportingImage, setIsExportingImage] = useState(false);
 
@@ -271,12 +271,12 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
         <h1 className="text-xl font-semibold text-ink flex items-center gap-3"><FileText className="text-navy" size={24} />ระบบบันทึก TBM Shift Report</h1>
         <div className="flex w-full sm:w-auto gap-3">
           <button onClick={handleDownloadImage} disabled={isExportingImage} className="flex-1 sm:flex-none bg-navy hover:bg-navy-deepest text-white px-5 py-2.5 rounded-input flex items-center justify-center gap-2 transition-colors shadow-card font-semibold">{isExportingImage ? <Loader2 size={18} className="animate-spin" /> : <Download size={18} />} {isExportingImage ? "Saving..." : "เซฟรูปภาพ"}</button>
-          <button onClick={handleSaveToCloud} disabled={isSaving} className="flex-1 sm:flex-none bg-sgreen-dark hover:bg-sgreen-dark/90 text-white px-5 py-2.5 rounded-input flex items-center justify-center gap-2 transition-colors shadow-card font-semibold">{isSaving ? <Loader2 size={18} className="animate-spin" /> : <CloudUpload size={18} />} {isSaving ? "Saving..." : "Save to Cloud"}</button>
+          {!readOnly && (<button onClick={handleSaveToCloud} disabled={isSaving} className="flex-1 sm:flex-none bg-sgreen-dark hover:bg-sgreen-dark/90 text-white px-5 py-2.5 rounded-input flex items-center justify-center gap-2 transition-colors shadow-card font-semibold">{isSaving ? <Loader2 size={18} className="animate-spin" /> : <CloudUpload size={18} />} {isSaving ? "Saving..." : "Save to Cloud"}</button>)}
           <button onClick={handlePrint} className="flex-1 sm:flex-none bg-navy hover:bg-navy-dark text-white px-5 py-2.5 rounded-input flex items-center justify-center gap-2 transition-colors shadow-card font-semibold"><Printer size={18} /> Print PDF</button>
         </div>
       </div>
 
-      <div id="shift-report-container" className="bg-white border border-line shadow-modal print:shadow-none print:border-none rounded-modal overflow-hidden print:rounded-none">
+      <div id="shift-report-container" className={`bg-white border border-line shadow-modal print:shadow-none print:border-none rounded-modal overflow-hidden print:rounded-none ${readOnly ? "pointer-events-none" : ""}`}>
         <div className="p-8 border-b border-line print:border-black print:p-2 text-center bg-surface-alt print:bg-white">
           <h2 className="text-2xl print:text-lg font-semibold mb-2 tracking-tight text-ink print:text-black">บันทึกการทำงานการขุดเจาะอุโมงค์</h2>
           <p className="font-semibold text-ink-2 print:text-black text-sm mb-3">โครงการงานก่อสร้างอุโมงค์ระบายน้ำคลองเปรมประชากรจากคลองบางบัวลงสู่แม่น้ำเจ้าพระยา</p>

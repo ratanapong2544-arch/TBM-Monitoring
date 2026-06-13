@@ -67,7 +67,7 @@ export default function Shell({
   const closeIssue = (id) => onSetIssueStatus(id, "closed");
   const reopenIssue = (id) => onSetIssueStatus(id, "open");
 
-  const mobileItems = isViewer ? viewerGroups()[0].items : MOBILE_ITEMS;
+  const mobileItems = isViewer ? viewerGroups().flatMap((g) => g.items) : MOBILE_ITEMS;
 
   const railProps = {
     issues,

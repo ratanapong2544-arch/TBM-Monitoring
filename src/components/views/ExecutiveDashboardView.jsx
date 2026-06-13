@@ -6,11 +6,12 @@ import ImageSlideshow from "../dashboard/ImageSlideshow";
 import { filterByState } from "../../hooks/useGlobalFilter";
 import { formatDisplayDate } from "../../utils/formatters";
 import { getRingNumeric, calculateSoilVolume } from "../../utils/helpers";
-import { TOTAL_ROUTE_DISTANCE, DRIVE_PHOTOS_FOLDER_ID } from "../../utils/constants";
+import { TOTAL_ROUTE_DISTANCE, drivePhotosFolder } from "../../utils/constants";
 import { loadDistancePlan, plannedDistanceToNow, currentMonthBKK } from "../../utils/planConfig";
 import { chartColors, tooltipStyle } from "../../ui-ux-pro-max/chartTheme";
 import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip } from "recharts";
 import ExecutiveEmptyState from "./ExecutiveEmptyState";
+import AlignmentMapView from "./AlignmentMapView";
 
 const ExecutiveDashboardView = ({ segmentRecords, groutRecords, dailyReports = [], machine = "TBM1", onNavigate, filterState = {}, readOnly = false }) => {
   const filteredSegments = useMemo(() => filterByState(segmentRecords, filterState), [segmentRecords, filterState]);
@@ -194,6 +195,14 @@ const ExecutiveDashboardView = ({ segmentRecords, groutRecords, dailyReports = [
       `}</style>
 
       <section className="space-y-6">
+      {/* ═══ แนวอุโมงค์ 3D (อยู่บนสุด เหนือภาพรวมโครงการ) ═══ */}
+      <div className="print:hidden">
+        <SectionHeader title="ตำแหน่งหัวเจาะ · แนวอุโมงค์ 3D" subtitle="TBM Head Position · Live Alignment" icon={MapPin} />
+        <div className="mt-4 rounded-card overflow-hidden shadow-card border border-line">
+          <AlignmentMapView segmentRecords={segmentRecords} machine={machine} readOnly={readOnly} embedded />
+        </div>
+      </div>
+
       <SectionHeader title="ภาพรวมโครงการ" subtitle="Project Overview" icon={BarChart3} />
 
       {/* ═══ SECTION 2: KPI Summary Cards ═══ */}
@@ -214,7 +223,7 @@ const ExecutiveDashboardView = ({ segmentRecords, groutRecords, dailyReports = [
       </div>
 
       {/* ═══ Site Photos Slideshow ═══ */}
-      <ImageSlideshow folderId={DRIVE_PHOTOS_FOLDER_ID} />
+      <ImageSlideshow folderId={drivePhotosFolder(machine)} />
 
       {/* ═══ SECTION 5: Grout Pending & Section 6: Shift Comparison ═══ */}
       <div className={`grid grid-cols-1 md:grid-cols-2 gap-4 ${printingChartId !== 'all' && printingChartId !== 'pie' ? 'print:hidden' : ''}`}>

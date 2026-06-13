@@ -2,7 +2,7 @@ import React from "react";
 import { Clock, ClipboardList, ChevronRight } from "lucide-react";
 import PrepGanttView from "./PrepGanttView";
 import ImageSlideshow from "../dashboard/ImageSlideshow";
-import { DRIVE_PHOTOS_FOLDER_ID } from "../../utils/constants";
+import { drivePhotosFolder } from "../../utils/constants";
 import { getMachineConfig } from "../../utils/machineConfig";
 import { dailyReportSummary } from "../../utils/dailyReports";
 import { formatDisplayDate } from "../../utils/formatters";
@@ -54,7 +54,7 @@ const ExecutiveEmptyState = ({ machine = "TBM1", dailyReports = [], onNavigate }
       </button>
 
       {/* รูปหน้างาน */}
-      <ImageSlideshow folderId={DRIVE_PHOTOS_FOLDER_ID} />
+      <ImageSlideshow folderId={drivePhotosFolder(machine)} />
     </div>
   );
 };

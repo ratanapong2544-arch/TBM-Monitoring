@@ -18,5 +18,11 @@ export const ROUTE_SEGMENTS = [
   { id: "IS1", label: "IS1", distance: 8874.683, color: "#c084fc" },
 ];
 
-// Google Drive folder สำหรับสไลด์รูปภาพหน้างานบน Dashboard
-export const DRIVE_PHOTOS_FOLDER_ID = "1Jfk5jcbkGMHuiwgF9diQLEwmxt2eJaaB";
+// Google Drive folder สำหรับสไลด์รูปภาพหน้างานบน Dashboard (per-machine)
+// ⚠ โฟลเดอร์ต้องแชร์ให้บัญชีเจ้าของ GAS เข้าถึงได้ (Anyone with the link)
+export const DRIVE_PHOTOS_FOLDER = {
+  TBM1: "1gLXcr1A1xuzVbDxVyCsdGA7s_T91H2XU",
+  TBM2: "1gS059DzH6mjbVPKG2kLE_KwBe2ADXvr9",
+};
+export const drivePhotosFolder = (machine) => DRIVE_PHOTOS_FOLDER[machine] || DRIVE_PHOTOS_FOLDER.TBM1;
+export const DRIVE_PHOTOS_FOLDER_ID = DRIVE_PHOTOS_FOLDER.TBM1; // default (backward compat)

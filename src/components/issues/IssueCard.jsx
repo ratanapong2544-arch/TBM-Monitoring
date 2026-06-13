@@ -3,7 +3,7 @@ import { Pencil, Check, RotateCcw, Trash2 } from "lucide-react";
 import Badge from "../../ui-ux-pro-max/components/Badge";
 import { SEVERITY, progressPct, effectiveCurrent, MACHINE_LABEL } from "../../utils/issues";
 
-export default function IssueCard({ issue, onEdit, onCloseIssue, onReopenIssue, onDeleteIssue, currentRingNum = 0, alwaysShowActions = false }) {
+export default function IssueCard({ issue, onEdit, onCloseIssue, onReopenIssue, onDeleteIssue, currentRingNum = 0, alwaysShowActions = false, readOnly = false }) {
   const sev = SEVERITY[issue.severity] || SEVERITY.info;
   const isClosed = issue.status === "closed";
   const eff = effectiveCurrent(issue, currentRingNum);
@@ -45,6 +45,7 @@ export default function IssueCard({ issue, onEdit, onCloseIssue, onReopenIssue, 
         </div>
       )}
 
+      {!readOnly && (
       <div className={`flex items-center gap-1 mt-2.5 pt-2 border-t border-line/60 transition-opacity ${alwaysShowActions ? "" : "opacity-0 group-hover:opacity-100 focus-within:opacity-100"}`}>
         <button onClick={() => onEdit(issue)} title="แก้ไข" className="p-1.5 rounded-input text-ink-3 hover:bg-cyan-tint hover:text-navy transition-colors"><Pencil size={16} /></button>
         {isClosed ? (
@@ -54,6 +55,7 @@ export default function IssueCard({ issue, onEdit, onCloseIssue, onReopenIssue, 
         )}
         <button onClick={() => onDeleteIssue(issue.id)} title="ลบ" className="p-1.5 rounded-input text-ink-3 hover:bg-code-d/10 hover:text-code-d transition-colors ml-auto"><Trash2 size={16} /></button>
       </div>
+      )}
     </div>
   );
 }

@@ -199,7 +199,7 @@ const ExecutiveDashboardView = ({ segmentRecords, groutRecords, dailyReports = [
       <div className="print:hidden">
         <SectionHeader title="ตำแหน่งหัวเจาะ · แนวอุโมงค์ 3D" subtitle="TBM Head Position · Live Alignment" icon={MapPin} />
         <div className="mt-4 rounded-card overflow-hidden shadow-card border border-line">
-          <AlignmentMapView segmentRecords={segmentRecords} machine={machine} readOnly={readOnly} embedded />
+          <AlignmentMapView segmentRecords={segmentRecords} machine={machine} embedded />
         </div>
       </div>
 

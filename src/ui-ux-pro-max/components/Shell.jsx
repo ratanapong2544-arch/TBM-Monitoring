@@ -53,7 +53,7 @@ export default function Shell({
   isViewer = false,
   children,
 }) {
-  const showIssues = !isViewer && ISSUE_TABS.includes(active.tab);
+  const showIssues = ISSUE_TABS.includes(active.tab); // viewer ก็เห็น (read-only) — ส่ง readOnly ไป rail
   const showFilter =
     active.tab === "dashboard" ||
     active.tab === "performance" ||
@@ -77,6 +77,7 @@ export default function Shell({
     onReopenIssue: reopenIssue,
     onDeleteIssue,
     currentRingNum,
+    readOnly: isViewer,
   };
 
   return (

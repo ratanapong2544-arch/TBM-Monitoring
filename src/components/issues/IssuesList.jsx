@@ -2,10 +2,10 @@ import React, { useState } from "react";
 import IssueCard from "./IssueCard";
 import { splitAndSort } from "../../utils/issues";
 
-export default function IssuesList({ issues, onEdit, onCloseIssue, onReopenIssue, onDeleteIssue, currentRingNum = 0, alwaysShowActions = false }) {
+export default function IssuesList({ issues, onEdit, onCloseIssue, onReopenIssue, onDeleteIssue, currentRingNum = 0, alwaysShowActions = false, readOnly = false }) {
   const { open, closed } = splitAndSort(issues);
   const [showClosed, setShowClosed] = useState(false);
-  const cardProps = { onEdit, onCloseIssue, onReopenIssue, onDeleteIssue, currentRingNum, alwaysShowActions };
+  const cardProps = { onEdit, onCloseIssue, onReopenIssue, onDeleteIssue, currentRingNum, alwaysShowActions, readOnly };
 
   return (
     <div className="space-y-2">

@@ -117,7 +117,7 @@ function makeTBM(THREE, rimColor = 0xE03524) {
   return g;
 }
 
-export default function AlignmentMapView({ segmentRecords = [], machine = "TBM1", readOnly = false, embedded = false }) {
+export default function AlignmentMapView({ segmentRecords = [], machine = "TBM1", embedded = false }) {
   const isTBM1 = machine === "TBM1";
   const drilledM = useMemo(() => (isTBM1 ? drilledMetersFromRecords(segmentRecords) : 0), [segmentRecords, isTBM1]);
   const headChRaw = useMemo(() => (isTBM1 ? headChainageFromRecords(segmentRecords) : null), [segmentRecords, isTBM1]);
@@ -338,8 +338,8 @@ export default function AlignmentMapView({ segmentRecords = [], machine = "TBM1"
         </div>
       )}
 
-      {/* controls (ซ่อนใน viewer mode — สอดคล้องกับปุ่ม edit/print อื่นใน dashboard) */}
-      {isTBM1 && !readOnly && (
+      {/* controls (ปุ่มกล้องอย่างเดียว — เปิดให้กดได้ทุกโหมดรวม viewer) */}
+      {isTBM1 && (
         <div className="a3m-ov a3m-ctrl">
           <button onClick={flyToHead}>🎯 ตามหัวเจาะ</button>
           <button onClick={fitRoute}>🗺️ ดูทั้งแนว</button>

@@ -27,7 +27,9 @@ export const NAV_GROUPS = [
 ];
 // mobile bottom bar = 5 ปุ่มหลัก (Home·Rec·Dash·Shift·More), ที่เหลือเข้า More
 export const MOBILE_PRIMARY = ["overview","record","dashboard","shift_report"]; // + More
-export const MOBILE_MORE_TABS = ["datalog","report","record_daily","daily_report","prep_gantt"];
+// More sheet = ทุกหน้า Dashboard ที่ไม่ได้อยู่ bottom bar (analysis Trend/Grout/Route, Work Plan, Performance) + Data Log + รายงาน
+// ไม่รวม record_daily → ซ่อน "Record Daily" บนมือถือ
+export const MOBILE_MORE_TABS = ["analysis","prep_gantt","performance","datalog","report","daily_report"];
 
 // กลุ่ม nav ที่ viewer เห็น = กลุ่ม "Dashboard" + Shift Report (จากกลุ่มรายงาน)
 export function viewerGroups() {

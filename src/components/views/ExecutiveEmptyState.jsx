@@ -22,7 +22,7 @@ const ExecutiveEmptyState = ({ machine = "TBM1", dailyReports = [], onNavigate }
         <h2 className="text-xl font-semibold text-ink">ยังไม่เริ่มขุดเจาะ</h2>
         <p className="text-sm text-ink-3 mt-1">{cfg.tbmNo} · {cfg.location}</p>
         <p className="text-sm text-ink-2 mt-3 max-w-md mx-auto">
-          หน้าสรุปผลงานขุดเจาะจะแสดงอัตโนมัติเมื่อบันทึกวงแรก ระหว่างนี้ดูรายงานประจำวันและรูปหน้างานได้ด้านล่าง
+          หน้าสรุปผลงานขุดเจาะจะแสดงอัตโนมัติเมื่อบันทึก ring แรก ระหว่างนี้ดูรายงานประจำวันและรูปหน้างานได้ด้านล่าง
         </p>
       </section>
 

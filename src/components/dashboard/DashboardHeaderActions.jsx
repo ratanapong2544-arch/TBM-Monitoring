@@ -39,7 +39,7 @@ export default function DashboardHeaderActions({ segmentRecords = [], groutRecor
       });
     });
     const delayDetails = Object.entries(delaySummary).length > 0 ? Object.entries(delaySummary).map(([k, v]) => `- ${k}: ${v} นาที`).join("\n") : "- ไม่มีบันทึกเวลาหยุดชะงัก (Delay)";
-    const remarksText = allRemarks.length > 0 ? allRemarks.map((r) => `- [${r.module} วงที่ ${r.ring}] ${String(r.text)}`).join("\n") : "- ไม่มีปัญหาอุปสรรคที่ถูกบันทึก";
+    const remarksText = allRemarks.length > 0 ? allRemarks.map((r) => `- [${r.module} ring ${r.ring}] ${String(r.text)}`).join("\n") : "- ไม่มีปัญหาอุปสรรคที่ถูกบันทึก";
 
     const promptText = `อ้างอิงข้อมูลปัญหาและความล่าช้า:
 ช่วงเวลา: ทั้งหมด (All)

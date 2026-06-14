@@ -222,18 +222,18 @@ export default function PerformanceView({ segmentRecords = [], shiftReports = []
       </section>
 
       <section className="space-y-4">
-        <SectionHeader title="Cycle Time" subtitle="รอบเวลาการทำงานต่อวง" icon={Clock} />
+        <SectionHeader title="Cycle Time" subtitle="รอบเวลาการทำงานต่อ ring" icon={Clock} />
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <StatCard label="avg Cycle/วง" value={`${fmt1(cycle.avgCycle)} ชม.`} subtext="ขุด+รอ+ประกอบ" color="text-navy" valueColor="text-navy" icon={Clock} />
+          <StatCard label="avg Cycle/ring" value={`${fmt1(cycle.avgCycle)} ชม.`} subtext="ขุด+รอ+ประกอบ" color="text-navy" valueColor="text-navy" icon={Clock} />
           <StatCard label="avg ขุด" value={`${fmt1(cycle.avgExcav)} ชม.`} subtext="Excavation" color="text-navy" valueColor="text-navy" icon={Timer} />
           <StatCard label="avg ประกอบ" value={`${fmt1(cycle.avgErect)} ชม.`} subtext="Segment Erection" color="text-cyan-med" valueColor="text-cyan-med" icon={Layers} />
-          <StatCard label="เร็วสุด" value={`${fmt1(cycle.fastestH)} ชม.`} subtext={`วง ${cycle.fastestRing}`} color="text-sgreen-dark" valueColor="text-sgreen-dark" icon={Zap} />
+          <StatCard label="เร็วสุด" value={`${fmt1(cycle.fastestH)} ชม.`} subtext={`ring ${cycle.fastestRing}`} color="text-sgreen-dark" valueColor="text-sgreen-dark" icon={Zap} />
         </div>
         <div className="bg-surface rounded-card p-6 shadow-card border border-line">
-          <h3 className="font-semibold text-ink text-base">Cycle Time ต่อวง (ย้อนหลัง {RECENT_RINGS} วง)</h3>
-          <p className="text-xs text-ink-3 font-semibold mb-4">แต่ละแท่ง = 1 วง · ซ้อน ขุด → รอ → ประกอบ{cycle.skipped > 0 ? ` · ข้าม ${cycle.skipped} วง (เวลาไม่ครบ)` : ""}</p>
+          <h3 className="font-semibold text-ink text-base">Cycle Time ต่อ ring (ย้อนหลัง {RECENT_RINGS} rings)</h3>
+          <p className="text-xs text-ink-3 font-semibold mb-4">แต่ละแท่ง = 1 ring · ซ้อน ขุด → รอ → ประกอบ{cycle.skipped > 0 ? ` · ข้าม ${cycle.skipped} rings (เวลาไม่ครบ)` : ""}</p>
           {cycle.recent.length === 0 ? (
-            <div className="h-[300px] flex items-center justify-center text-ink-3 text-sm">ยังไม่มีวงที่เวลาครบในช่วงนี้</div>
+            <div className="h-[300px] flex items-center justify-center text-ink-3 text-sm">ยังไม่มี ring ที่เวลาครบในช่วงนี้</div>
           ) : (
             <div className="h-[340px] w-full">
               <ResponsiveContainer width="100%" height="100%">

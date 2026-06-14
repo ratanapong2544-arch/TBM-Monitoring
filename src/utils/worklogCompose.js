@@ -30,7 +30,7 @@ function collectDelays(filteredShiftReports, allRemarks) {
   });
   const unique = [...new Set(delays)];
   const combined = [];
-  if (allRemarks && allRemarks.length > 0) combined.push(...allRemarks.map((r) => `${String(r.text)} (พบในวง ${r.ring})`));
+  if (allRemarks && allRemarks.length > 0) combined.push(...allRemarks.map((r) => `${String(r.text)} (พบใน ring ${r.ring})`));
   if (unique.length > 0) combined.push(...unique);
   return combined.length > 0 ? "-" + combined.join("\n-") : "-ไม่มี";
 }

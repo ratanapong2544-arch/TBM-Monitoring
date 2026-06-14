@@ -88,19 +88,19 @@ export default function IssueFormModal({ open, initial, onSubmit, onClose, curre
               <div className="mt-1 space-y-2">
                 <label className="flex items-center gap-2 text-xs font-semibold text-cyan-med">
                   <input type="checkbox" checked={form.qtyAuto} onChange={(e) => set("qtyAuto", e.target.checked)} />
-                  🔄 ติดตามวงปัจจุบันอัตโนมัติ
+                  🔄 ติดตาม ring ปัจจุบันอัตโนมัติ
                 </label>
                 {form.qtyAuto ? (
                   <>
                     <div className="flex items-center gap-2 text-sm text-ink-2 flex-wrap">
-                      <span className="text-ink-3 shrink-0">วงปัจจุบัน {currentRingNum} +</span>
+                      <span className="text-ink-3 shrink-0">ring ปัจจุบัน {currentRingNum} +</span>
                       <input type="number" value={form.qtyOffset} onChange={(e) => set("qtyOffset", e.target.value)} placeholder="0" className={`${inputCls} w-20 text-center`} />
                       <span className="shrink-0">= ทำได้ <b className="text-navy">{effectiveCurrent({ qtyAuto: true, qtyOffset: form.qtyOffset }, currentRingNum)}</b></span>
                     </div>
                     <div className="flex items-center gap-2">
                       <span className="text-ink-3 text-sm shrink-0">เป้า</span>
                       <input type="number" value={form.qtyTarget} onChange={(e) => set("qtyTarget", e.target.value)} placeholder="450" className={`${inputCls} text-center`} />
-                      <input value={form.qtyUnit} onChange={(e) => set("qtyUnit", e.target.value)} placeholder="วง" className={`${inputCls} w-24`} />
+                      <input value={form.qtyUnit} onChange={(e) => set("qtyUnit", e.target.value)} placeholder="ring" className={`${inputCls} w-24`} />
                     </div>
                   </>
                 ) : (
@@ -108,7 +108,7 @@ export default function IssueFormModal({ open, initial, onSubmit, onClose, curre
                     <input type="number" value={form.qtyCurrent} onChange={(e) => set("qtyCurrent", e.target.value)} placeholder="350" className={`${inputCls} text-center`} />
                     <span className="text-ink-3">/</span>
                     <input type="number" value={form.qtyTarget} onChange={(e) => set("qtyTarget", e.target.value)} placeholder="450" className={`${inputCls} text-center`} />
-                    <input value={form.qtyUnit} onChange={(e) => set("qtyUnit", e.target.value)} placeholder="วง" className={`${inputCls} w-24`} />
+                    <input value={form.qtyUnit} onChange={(e) => set("qtyUnit", e.target.value)} placeholder="ring" className={`${inputCls} w-24`} />
                   </div>
                 )}
               </div>

@@ -268,8 +268,8 @@ export default function SegmentAnalysisView({ segmentRecords = [], projectInfo, 
           <TrendingUp size={22} className={paceStats.behind ? "text-code-d" : "text-sgreen-dark"} />
           <div className="text-sm leading-snug">
             <span className="font-semibold text-ink">เพื่อทันกำหนด ก.ย. 71 ต้องเร่งเป็น </span>
-            <span className={`font-mono font-bold ${paceStats.behind ? "text-code-d" : "text-sgreen-dark"}`}>{paceStats.requiredPerDay.toFixed(1)} วง/วัน</span>
-            <span className="text-ink-2"> (ปัจจุบันเฉลี่ย <span className="font-mono font-semibold text-ink">{paceStats.currentPerDay.toFixed(1)}</span> วง/วัน · เหลือ ~{paceStats.remainingRings.toLocaleString()} วง)</span>
+            <span className={`font-mono font-bold ${paceStats.behind ? "text-code-d" : "text-sgreen-dark"}`}>{paceStats.requiredPerDay.toFixed(1)} ring/วัน</span>
+            <span className="text-ink-2"> (ปัจจุบันเฉลี่ย <span className="font-mono font-semibold text-ink">{paceStats.currentPerDay.toFixed(1)}</span> ring/วัน · เหลือ ~{paceStats.remainingRings.toLocaleString()} rings)</span>
           </div>
         </div>
       )}

@@ -326,7 +326,7 @@ ${body}`;
           <div className="bg-surface-alt p-4 sm:p-6 rounded-card border border-line shadow-card">
             <div className="text-[10px] sm:text-xs uppercase font-semibold text-ink-3 tracking-wider mb-2">Latest Ring</div>
             <div className="text-2xl sm:text-3xl font-semibold text-ink font-mono">{accumulation.latestPermRing}</div>
-            <div className="text-[10px] sm:text-xs font-semibold text-ink-3 mt-2 bg-surface px-2 py-1 rounded-badge inline-block">วงล่าสุด (Permanent)</div>
+            <div className="text-[10px] sm:text-xs font-semibold text-ink-3 mt-2 bg-surface px-2 py-1 rounded-badge inline-block">ring ล่าสุด (Permanent)</div>
           </div>
           <div className="bg-surface-alt p-4 sm:p-6 rounded-card border border-line shadow-card">
             <div className="text-[10px] sm:text-xs uppercase font-semibold text-ink-3 tracking-wider mb-2">Accum. Rings</div>

@@ -128,6 +128,17 @@ const ExecutiveDashboardView = ({ segmentRecords, groutRecords, dailyReports = [
     return { pending, latestSeg, latestGrout };
   }, [filteredSegments, filteredGrout]);
 
+  // Grout Quality Rate — % ของ ring ที่ฉีดเกร้าท์ผ่านเกณฑ์ (ratio ≥ 100%) เทียบจำนวน ring ที่ฉีดทั้งหมด
+  const groutQuality = useMemo(() => {
+    const ringMap = new Map();
+    filteredGrout.forEach((r) => ringMap.set(r.ringNo, r));
+    const rings = Array.from(ringMap.values()).filter((r) => Number(r.ratio || 0) > 0);
+    const total = rings.length;
+    const passCount = rings.filter((r) => Number(r.ratio) >= 100).length;
+    const passRate = total > 0 ? (passCount / total) * 100 : 0;
+    return { total, passCount, passRate };
+  }, [filteredGrout]);
+
   // ══════════════════════════════════════════════
   // SECTION: Day vs Night
   // ══════════════════════════════════════════════
@@ -211,14 +222,14 @@ const ExecutiveDashboardView = ({ segmentRecords, groutRecords, dailyReports = [
         <StatCard label="Permanent Rings" value={overallStats.permRings} subtext={`ติดตั้งสะสม + ${overallStats.tempRings} Temp. (รวม ${overallStats.totalRings})`} color="text-sgreen-dark" icon={Layers} />
         <StatCard label="Total Distance" value={`${Number(overallStats.totalDistance || 0).toFixed(2)} m`} subtext={`ดินขุดรวม: ${Number(overallStats.totalSoilVol || 0).toFixed(2)} m³${planVariance ? (planVariance.behind ? ` · ⚠ ช้ากว่าแผน ${Math.abs(planVariance.variance).toLocaleString(undefined, { maximumFractionDigits: 1 })} ม.` : ` · นำแผน +${planVariance.variance.toLocaleString(undefined, { maximumFractionDigits: 1 })} ม.`) : ""}`} color="text-navy" icon={TrendingUp} />
         <StatCard label="Daily Average" value={`${overallStats.avgRings} Rings`} subtext={`~ ${overallStats.avgDist} m / day`} color="text-code-c" icon={Activity} />
-        <StatCard label="Grout Avg Volume" value={`${overallStats.groutAvgVol} m³`} subtext={`ล่าสุด: ${overallStats.latestGroutRing} (${overallStats.uniqueGroutedRings} วง)`} color="text-cyan-med" icon={Droplet} />
+        <StatCard label="Grout Avg Volume" value={`${overallStats.groutAvgVol} m³`} subtext={`ล่าสุด: ${overallStats.latestGroutRing} (${overallStats.uniqueGroutedRings} rings)`} color="text-cyan-med" icon={Droplet} />
         <StatCard
           label="Grout Avg Ratio"
           value={`${overallStats.groutAvgRatio}%`}
           valueColor={Number(overallStats.groutAvgRatio) > 150 ? "text-code-c" : Number(overallStats.groutAvgRatio) >= 100 ? "text-sgreen-dark" : "text-code-d"}
           color={Number(overallStats.groutAvgRatio) >= 100 ? "text-sgreen-dark" : "text-code-d"}
           icon={BarChart3}
-          subtext="อัตราส่วนน้ำยาเฉลี่ยทุกวง"
+          subtext="อัตราส่วนน้ำยาเฉลี่ยทุก ring"
         />
       </div>
 
@@ -228,12 +239,15 @@ const ExecutiveDashboardView = ({ segmentRecords, groutRecords, dailyReports = [
       {/* ═══ SECTION 5: Grout Pending & Section 6: Shift Comparison ═══ */}
       <div className={`grid grid-cols-1 md:grid-cols-2 gap-4 ${printingChartId !== 'all' && printingChartId !== 'pie' ? 'print:hidden' : ''}`}>
         {/* Grout Pending */}
-        <div className={`rounded-card p-6 shadow-card border relative overflow-hidden ${printingChartId !== 'all' ? 'print:hidden' : ''} ${groutPending.pending > 0 ? "bg-code-d/10 border-code-d/30" : "bg-sgreen-med/10 border-sgreen-med/30"}`}>
+        <div className={`rounded-card p-6 shadow-card border relative overflow-hidden ${printingChartId !== 'all' ? 'print:hidden' : ''} ${(groutQuality.total === 0 || groutQuality.passRate >= 90) ? "bg-sgreen-med/10 border-sgreen-med/30" : "bg-code-c/10 border-code-c/30"}`}>
           <div className="flex items-center justify-between mb-4">
-            <h3 className="font-semibold text-ink text-base flex items-center gap-2"><Droplet size={20} className={groutPending.pending > 0 ? "text-code-d" : "text-sgreen-dark"} /> Grout Status</h3>
-            <span className={`text-3xl font-semibold font-mono ${groutPending.pending > 0 ? "text-code-d" : "text-sgreen-dark"}`}>
-              {groutPending.pending > 0 ? `${groutPending.pending} วงค้าง` : "ครบถ้วน ✓"}
-            </span>
+            <h3 className="font-semibold text-ink text-base flex items-center gap-2"><Droplet size={20} className={(groutQuality.total === 0 || groutQuality.passRate >= 90) ? "text-sgreen-dark" : "text-code-c"} /> Grout Status</h3>
+            <div className="text-right">
+              <div className="text-[10px] font-semibold text-ink-3 uppercase tracking-wider">Quality Rate · ผ่านเกณฑ์ ≥100%</div>
+              <span className={`text-3xl font-semibold font-mono leading-none ${(groutQuality.total === 0 || groutQuality.passRate >= 90) ? "text-sgreen-dark" : "text-code-c"}`}>
+                {groutQuality.total > 0 ? `${groutQuality.passRate.toFixed(0)}%` : "—"}
+              </span>
+            </div>
           </div>
           <div className="grid grid-cols-2 gap-4 text-sm">
             <div className="bg-surface/80 p-3 rounded-input border border-line">

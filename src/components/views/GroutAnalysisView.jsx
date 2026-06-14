@@ -213,21 +213,21 @@ export default function GroutAnalysisView({ groutRecords = [], readOnly = false 
 
       {/* ── Grout Quality summary ── */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <StatCard label="Re-grout rate" value={`${groutQuality.reGroutRate.toFixed(1)}%`} subtext={`${groutQuality.reGroutCount} จาก ${groutQuality.uniqueRings} วง`} color="text-code-d" valueColor={groutQuality.reGroutRate > 10 ? "text-code-d" : "text-sgreen-dark"} icon={RefreshCw} />
-        <StatCard label="เฉลี่ย Ratio" value={`${groutQuality.avgRatio.toFixed(1)}%`} subtext="อัตราส่วนน้ำยาเฉลี่ยทุกวง" color="text-navy" valueColor={groutQuality.avgRatio >= 100 ? "text-sgreen-dark" : "text-code-d"} icon={Droplet} />
-        <StatCard label="วง < 100%" value={`${groutQuality.belowSpec} วง`} subtext="ต่ำกว่าทฤษฎี (ควรตรวจ)" color="text-code-c" valueColor={groutQuality.belowSpec > 0 ? "text-code-c" : "text-sgreen-dark"} icon={BarChart3} />
+        <StatCard label="Re-grout rate" value={`${groutQuality.reGroutRate.toFixed(1)}%`} subtext={`${groutQuality.reGroutCount} จาก ${groutQuality.uniqueRings} rings`} color="text-code-d" valueColor={groutQuality.reGroutRate > 10 ? "text-code-d" : "text-sgreen-dark"} icon={RefreshCw} />
+        <StatCard label="เฉลี่ย Ratio" value={`${groutQuality.avgRatio.toFixed(1)}%`} subtext="อัตราส่วนน้ำยาเฉลี่ยทุก ring" color="text-navy" valueColor={groutQuality.avgRatio >= 100 ? "text-sgreen-dark" : "text-code-d"} icon={Droplet} />
+        <StatCard label="Rings < 100%" value={`${groutQuality.belowSpec} rings`} subtext="ต่ำกว่าทฤษฎี (ควรตรวจ)" color="text-code-c" valueColor={groutQuality.belowSpec > 0 ? "text-code-c" : "text-sgreen-dark"} icon={BarChart3} />
       </div>
 
       {/* ── Ratio distribution histogram ── */}
       <div className="bg-surface rounded-card p-6 shadow-card border border-line">
         <h3 className="font-semibold text-ink text-base mb-1">การกระจายของ Grout Ratio</h3>
-        <p className="text-xs text-ink-3 font-semibold mb-4">จำนวนวงในแต่ละช่วง % เทียบทฤษฎี (3.1 m³ = 100%)</p>
+        <p className="text-xs text-ink-3 font-semibold mb-4">จำนวน rings ในแต่ละช่วง % เทียบทฤษฎี (3.1 m³ = 100%)</p>
         <div className="h-[280px] w-full">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={ratioBuckets} margin={{ top: 20, right: 16, left: 0, bottom: 8 }}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={chartColors.grid} />
               <XAxis dataKey="name" tick={axisTick} stroke={chartColors.axis} />
-              <YAxis allowDecimals={false} tick={axisTick} axisLine={false} tickLine={false} label={{ value: "จำนวนวง", angle: -90, position: "insideLeft", fill: chartColors.axisLabel, fontSize: 11 }} />
+              <YAxis allowDecimals={false} tick={axisTick} axisLine={false} tickLine={false} label={{ value: "จำนวน rings", angle: -90, position: "insideLeft", fill: chartColors.axisLabel, fontSize: 11 }} />
               <Tooltip {...tooltipStyle} />
               <Bar dataKey="count" radius={[4, 4, 0, 0]} maxBarSize={64}>
                 {ratioBuckets.map((b, i) => <Cell key={i} fill={b.color} />)}

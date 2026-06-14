@@ -18,12 +18,12 @@ const OverviewView = ({ segmentRecords, groutRecords, setCurrentModule, setActiv
       else if (lastSeg.installStartTime && !lastSeg.installEndTime) return { state: "INSTALLING", ring: String(lastSeg.ringNo), desc: `เริ่มประกอบเมื่อ ${formatDisplayTime(lastSeg.installStartTime)} น.`, color: "emerald" };
       return { state: "IN_PROGRESS", ring: String(lastSeg.ringNo), desc: "กำลังดำเนินการบันทึกข้อมูล...", color: "blue" };
     } else {
-      return { state: "IDLE", ring: String(offsetRingNo(lastSeg.ringNo, 1)), desc: "รอเริ่มขุดวงถัดไป", color: "slate" };
+      return { state: "IDLE", ring: String(offsetRingNo(lastSeg.ringNo, 1)), desc: "รอเริ่มขุด ring ถัดไป", color: "slate" };
     }
   }, [segmentRecords]);
 
   const groutStatus = useMemo(() => {
-    if (segmentRecords.length === 0) return { pending: 0, latestGrout: "-" };
+    if (segmentRecords.length === 0) return { pending: 0, latestGrout: "-", latestSeg: "-", avgRatio: 0 };
     const completedSegs = segmentRecords.filter(s => s.status === "Completed");
     const latestSeg = completedSegs.length > 0 ? String(completedSegs[completedSegs.length - 1].ringNo) : "-";
     const latestGrout = groutRecords.length > 0 ? String(groutRecords[groutRecords.length - 1].ringNo) : "-";
@@ -33,7 +33,12 @@ const OverviewView = ({ segmentRecords, groutRecords, setCurrentModule, setActiv
       const groutNum = getRingNumeric(latestGrout);
       pendingCount = Math.max(0, segNum - groutNum);
     }
-    return { pending: pendingCount, latestGrout, latestSeg };
+    // อัตราส่วนน้ำยาเฉลี่ย (Average Grout Ratio) — เฉลี่ยจาก record ล่าสุดของแต่ละ ring (ratio > 0)
+    const ringMap = new Map();
+    groutRecords.forEach((r) => ringMap.set(r.ringNo, r));
+    const ratios = Array.from(ringMap.values()).map((r) => Number(r.ratio || 0)).filter((v) => v > 0);
+    const avgRatio = ratios.length > 0 ? ratios.reduce((s, v) => s + v, 0) / ratios.length : 0;
+    return { pending: pendingCount, latestGrout, latestSeg, avgRatio };
   }, [segmentRecords, groutRecords]);
 
   const statusAccent =
@@ -102,7 +107,7 @@ const OverviewView = ({ segmentRecords, groutRecords, setCurrentModule, setActiv
                 <Layers size={28} />
               </div>
               <div className="text-right">
-                <div className="text-[10px] sm:text-xs font-semibold text-ink-3 uppercase tracking-widest">วงล่าสุดที่ติดตั้งเสร็จ</div>
+                <div className="text-[10px] sm:text-xs font-semibold text-ink-3 uppercase tracking-widest">ring ล่าสุดที่ติดตั้งเสร็จ</div>
                 <div className="text-3xl sm:text-4xl font-mono font-semibold text-ink tracking-tight mt-1">{String(groutStatus.latestSeg)}</div>
               </div>
             </div>
@@ -124,19 +129,19 @@ const OverviewView = ({ segmentRecords, groutRecords, setCurrentModule, setActiv
                 <Droplet size={28} />
               </div>
               <div className="text-right">
-                <div className="text-[10px] sm:text-xs font-semibold text-ink-3 uppercase tracking-widest">ค้างฉีด Primary Grout</div>
+                <div className="text-[10px] sm:text-xs font-semibold text-ink-3 uppercase tracking-widest">อัตราส่วนน้ำยาเฉลี่ย</div>
                 <div className="text-3xl sm:text-4xl font-mono font-semibold tracking-tight mt-1">
-                  {Number(groutStatus.pending) > 0
-                    ? <span className="text-code-d">{Number(groutStatus.pending)} วง</span>
-                    : <span className="text-sgreen-dark">ครบถ้วน</span>
+                  {groutStatus.avgRatio > 0
+                    ? <span className={groutStatus.avgRatio >= 100 ? "text-sgreen-dark" : "text-code-c"}>{groutStatus.avgRatio.toFixed(0)}%</span>
+                    : <span className="text-ink-3">—</span>
                   }
                 </div>
               </div>
             </div>
             <p className="text-sm text-ink-2 mb-8 font-medium leading-relaxed">
-              {Number(groutStatus.pending) > 0
-                ? `วงล่าสุดที่ฉีดคือ ${groutStatus.latestGrout} (ตามหลังอยู่ ${groutStatus.pending} วง)`
-                : `ฉีด Grout ตามติด Segment ล่าสุดเรียบร้อยแล้ว`
+              {groutStatus.avgRatio > 0
+                ? `อัตราส่วนน้ำยา Grout เฉลี่ยเทียบทฤษฎี (≥100% = ผ่านเกณฑ์) · ring ล่าสุดที่ฉีดคือ ${groutStatus.latestGrout}`
+                : `ยังไม่มีข้อมูลการฉีด Grout`
               }
             </p>
           </div>

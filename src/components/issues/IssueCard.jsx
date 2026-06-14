@@ -31,7 +31,7 @@ export default function IssueCard({ issue, onEdit, onCloseIssue, onReopenIssue, 
           </div>
           <div className="flex items-center justify-between mt-1 text-xs">
             <span className="text-ink-3">{remain > 0 ? `เหลือ ${remain} ${issue.qtyUnit}` : "ครบแล้ว ✓"}</span>
-            {issue.qtyAuto && <span className="text-cyan-med font-semibold">🔄 ตามวงปัจจุบัน</span>}
+            {issue.qtyAuto && <span className="text-cyan-med font-semibold">🔄 ตาม ring ปัจจุบัน</span>}
           </div>
         </div>
       )}

@@ -124,7 +124,6 @@ export default function AlignmentMapView({ segmentRecords = [], machine = "TBM1"
   const headCh = headChRaw != null ? headChRaw : CH_EXCAV_START - drilledM;
 
   const pct = TOTAL_ROUTE_DISTANCE > 0 ? (drilledM / TOTAL_ROUTE_DISTANCE) * 100 : 0;
-  const remainM = Math.max(0, TOTAL_ROUTE_DISTANCE - drilledM);
 
   const hostRef = useRef(null);
   const mapRef = useRef(null);
@@ -312,43 +311,52 @@ export default function AlignmentMapView({ segmentRecords = [], machine = "TBM1"
   return (
     <div className="a3m-root max-w-full mx-auto animate-fade-in">
       <style>{CSS}</style>
-      <div ref={hostRef} className="a3m-stage" style={embedded ? { height: "clamp(420px, 56vh, 600px)", minHeight: "420px" } : undefined} />
 
-      {/* header — ซ่อนเมื่อ embed (หน้า Dashboard มีหัวข้อ section อยู่แล้ว) */}
-      {!embedded && (
-      <div className="a3m-ov a3m-hdr">
-        <div className="eb">ความคืบหน้าการขุดเจาะ · TBM ALIGNMENT</div>
-        <h2>แนวอุโมงค์จริง · {machine}</h2>
-        <p>คลองเปรมประชากร · ภาพถ่ายดาวเทียม + แนว KMZ · หัวเจาะตามระยะขุดจริง</p>
-        <span className="demo">📍 chainage จริง · launch รัชดา IS4 (CH 8830) → เจาะลด CH</span>
-      </div>
-      )}
+      {/* map + overlay ทั้งหมด อยู่ใน wrapper เดียว → ปุ่ม/ป้าย absolute เกาะแผนที่ ไม่หลุดไปทับการ์ดใต้แผนที่ */}
+      <div className="a3m-mapwrap">
+        <div ref={hostRef} className="a3m-stage" style={embedded ? { height: "clamp(420px, 56vh, 600px)", minHeight: "420px" } : undefined} />
 
-      {/* progress card */}
-      {isTBM1 && (
-        <div className="a3m-ov a3m-card">
-          <div className="ch"><span className="dot" /><div><b>Route 1 · TBM1</b><small>ITD</small></div><div className="big">{pct.toFixed(1)}%</div></div>
-          <div className="rows">
-            <div><span>หน้าหัวเจาะ · CH</span><b>{fmtCH(headCh)}</b></div>
-            <div><span>ขุดแล้ว · Drilled</span><b>{drilledM.toFixed(1)} ม.</b></div>
-            <div><span>ระยะรวม · Total</span><b>{TOTAL_ROUTE_DISTANCE.toLocaleString()} ม.</b></div>
-            <div><span>คงเหลือ · Remaining</span><b>{remainM.toFixed(0)} ม.</b></div>
+        {/* header — ซ่อนเมื่อ embed (หน้า Dashboard มีหัวข้อ section อยู่แล้ว) */}
+        {!embedded && (
+        <div className="a3m-ov a3m-hdr">
+          <div className="eb">ความคืบหน้าการขุดเจาะ · TBM ALIGNMENT</div>
+          <h2>แนวอุโมงค์จริง · {machine}</h2>
+          <p>คลองเปรมประชากร · ภาพถ่ายดาวเทียม + แนว KMZ · หัวเจาะตามระยะขุดจริง</p>
+          <span className="demo">📍 chainage จริง · launch รัชดา IS4 (CH 8830) → เจาะลด CH</span>
+        </div>
+        )}
+
+        {/* controls (ปุ่มกล้องอย่างเดียว — เปิดให้กดได้ทุกโหมดรวม viewer) — overlay บนแผนที่ */}
+        {isTBM1 && (
+          <div className="a3m-ov a3m-ctrl">
+            <button onClick={flyToHead}>🎯 ตามหัวเจาะ</button>
+            <button onClick={fitRoute}>🗺️ ดูทั้งแนว</button>
           </div>
-          <div className="nt">ตำแหน่งหัวเจาะ = finishCH ที่น้อยสุดของ ring ถาวร (เจาะทิศ chainage ลดลง) · % เทียบระยะรวม {TOTAL_ROUTE_DISTANCE.toLocaleString()} ม.</div>
-        </div>
-      )}
+        )}
 
-      {/* controls (ปุ่มกล้องอย่างเดียว — เปิดให้กดได้ทุกโหมดรวม viewer) */}
+        {/* TBM1-only notice */}
+        {!isTBM1 && (
+          <div className="a3m-notbm"><div><b>แนวนี้สำหรับ TBM1</b><small>สลับเครื่องเป็น TBM1 เพื่อดูตำแหน่งหัวเจาะบนแผนที่</small></div></div>
+        )}
+      </div>
+
+      {/* progress card — ใต้แผนที่ สไตล์เดียวกับ dashboard · โชว์เฉพาะ % ความคืบหน้า (ไม่ซ้ำ KPI cards) */}
       {isTBM1 && (
-        <div className="a3m-ov a3m-ctrl">
-          <button onClick={flyToHead}>🎯 ตามหัวเจาะ</button>
-          <button onClick={fitRoute}>🗺️ ดูทั้งแนว</button>
+        <div className="mt-4 bg-surface border border-line rounded-card shadow-card p-5">
+          <div className="flex items-center justify-between gap-3 mb-3">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: "#C8500A" }} />
+              <div className="min-w-0">
+                <div className="text-sm font-semibold text-ink truncate">Route 1 · {machine}</div>
+                <div className="text-[11px] text-ink-3">ความคืบหน้าการขุดเจาะทั้งแนว</div>
+              </div>
+            </div>
+            <div className="text-2xl font-mono font-semibold shrink-0" style={{ color: "#C8500A" }}>{pct.toFixed(1)}%</div>
+          </div>
+          <div className="h-2.5 bg-line/50 rounded-full overflow-hidden">
+            <div className="h-full rounded-full transition-all" style={{ width: `${Math.min(100, pct)}%`, backgroundColor: "#C8500A" }} />
+          </div>
         </div>
-      )}
-
-      {/* TBM1-only notice */}
-      {!isTBM1 && (
-        <div className="a3m-notbm"><div><b>แนวนี้สำหรับ TBM1</b><small>สลับเครื่องเป็น TBM1 เพื่อดูตำแหน่งหัวเจาะบนแผนที่</small></div></div>
       )}
     </div>
   );
@@ -357,6 +365,7 @@ export default function AlignmentMapView({ segmentRecords = [], machine = "TBM1"
 
 const CSS = `
 .a3m-root{position:relative}
+.a3m-mapwrap{position:relative}
 .a3m-stage{position:relative;width:100%;height:78vh;min-height:480px;border-radius:12px;overflow:hidden;
   border:1px solid #E8E8E8;box-shadow:0 1px 2px rgba(12,44,101,.05),0 12px 32px rgba(12,44,101,.10)}
 .a3m-stage .maplibregl-ctrl-attrib{font-size:9px}
@@ -367,18 +376,6 @@ const CSS = `
 .a3m-hdr h2{font-size:16px;font-weight:700;color:#0C2C65;margin-top:3px}
 .a3m-hdr p{font-size:11px;color:#5a6b84;margin-top:2px}
 .a3m-hdr .demo{display:inline-block;margin-top:8px;font-size:10px;font-weight:700;color:#92400E;background:#FEF3C7;border:1px solid #FDE68A;padding:3px 9px;border-radius:999px}
-.a3m-card{top:14px;right:14px;width:262px;background:rgba(255,255,255,.95);backdrop-filter:blur(10px);
-  border:1px solid #E8E8E8;border-radius:12px;padding:12px 15px;box-shadow:0 8px 24px rgba(12,44,101,.12)}
-.a3m-card .ch{display:flex;align-items:center;gap:8px}
-.a3m-card .dot{width:10px;height:10px;border-radius:50%;background:#C8500A;flex:none}
-.a3m-card .ch b{font-size:13px;font-weight:700;color:#0C2C65;line-height:1.15}
-.a3m-card .ch small{font-size:9.5px;color:#7c8aa0;display:block}
-.a3m-card .big{margin-left:auto;font-family:'IBM Plex Mono',monospace;font-size:24px;font-weight:700;color:#C8500A;line-height:1}
-.a3m-card .rows{margin-top:9px;display:flex;flex-direction:column;gap:4px}
-.a3m-card .rows div{display:flex;justify-content:space-between;font-size:11px}
-.a3m-card .rows span{color:#7c8aa0}
-.a3m-card .rows b{font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:600;color:#14223c}
-.a3m-card .nt{font-size:9px;color:#7c8aa0;margin-top:7px;line-height:1.4;border-top:1px solid #E8E8E8;padding-top:6px}
 .a3m-ctrl{bottom:16px;left:14px;display:flex;gap:8px}
 .a3m-ctrl button{font-family:inherit;font-size:11px;font-weight:600;color:#0C2C65;background:rgba(255,255,255,.94);
   border:1px solid #E8E8E8;border-radius:8px;padding:7px 12px;cursor:pointer;box-shadow:0 4px 14px rgba(12,44,101,.12)}
@@ -400,15 +397,6 @@ const CSS = `
 .a3m-notbm b{font-size:15px;color:#0C2C65}.a3m-notbm small{display:block;font-size:11px;color:#7c8aa0;margin-top:4px}
 /* มือถือ/จอแคบ — ย่อ overlay ไม่ให้บังแผนที่ */
 @media (max-width:640px){
-  .a3m-card{top:8px;right:8px;width:148px;padding:8px 10px;border-radius:9px}
-  .a3m-card .dot{width:8px;height:8px}
-  .a3m-card .ch b{font-size:10.5px}
-  .a3m-card .ch small{font-size:8px}
-  .a3m-card .big{font-size:18px}
-  .a3m-card .rows{margin-top:6px;gap:2px}
-  .a3m-card .rows div{font-size:8.5px}
-  .a3m-card .rows b{font-size:9px}
-  .a3m-card .nt{display:none}
   .a3m-head-callout{padding:3px 7px;border-radius:7px}
   .a3m-head-callout b{font-size:9.5px}
   .a3m-head-callout span{font-size:8px}

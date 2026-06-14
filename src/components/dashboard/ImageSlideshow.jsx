@@ -131,12 +131,21 @@ export default function ImageSlideshow({ folderId }) {
         onMouseLeave={() => setPaused(false)}
       >
         {curSrc && curSrc !== "ERR" ? (
-          <img
-            key={cur.id}
-            src={curSrc}
-            alt={cur.name}
-            className="w-full h-full object-cover animate-fade-in"
-          />
+          <>
+            {/* backdrop เบลอจากรูปเดียวกัน → เติมช่องว่าง letterbox ไม่ให้พื้นที่ว่างโล่ง */}
+            <img
+              src={curSrc}
+              alt=""
+              aria-hidden="true"
+              className="absolute inset-0 w-full h-full object-cover blur-2xl scale-110 opacity-45"
+            />
+            <img
+              key={cur.id}
+              src={curSrc}
+              alt={cur.name}
+              className="relative w-full h-full object-contain animate-fade-in"
+            />
+          </>
         ) : curSrc === "ERR" ? (
           <div className="w-full h-full flex flex-col items-center justify-center gap-2 text-white/70 text-sm">
             <AlertCircle size={20} /> โหลดรูปนี้ไม่สำเร็จ

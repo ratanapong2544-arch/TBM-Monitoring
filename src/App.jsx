@@ -207,7 +207,7 @@ const PrimaryGroutApp = () => {
       if (lastSeg.installStartTime && !lastSeg.installEndTime) return { text: `กำลังประกอบ ${lastSeg.ringNo}`, color: "bg-emerald-500", icon: <Activity size={12} /> };
       return { text: `กำลังทำงาน ${lastSeg.ringNo}`, color: "bg-blue-500", icon: <Activity size={12} /> };
     }
-    return { text: `เครื่องจักรจอดพัก · รอวง ${offsetRingNo(lastSeg.ringNo, 1)}`, color: "bg-slate-500", icon: <Clock size={12} /> };
+    return { text: `เครื่องจักรจอดพัก · รอ ring ${offsetRingNo(lastSeg.ringNo, 1)}`, color: "bg-slate-500", icon: <Clock size={12} /> };
   }, [activeSegments]);
 
   // Derive page title from NAV_GROUPS based on activeTab + currentModule

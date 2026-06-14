@@ -6,7 +6,7 @@ import { openCount } from "../../utils/issues";
 export default function IssuesSheet({ open, issues, onAdd, onEdit, onCloseIssue, onReopenIssue, onDeleteIssue, onDismiss, currentRingNum = 0, readOnly = false }) {
   if (!open) return null;
   return (
-    <div className="lg:hidden fixed inset-0 z-50 print:hidden" onClick={onDismiss}>
+    <div className="xl:hidden fixed inset-0 z-50 print:hidden" onClick={onDismiss}>
       <div className="absolute inset-0 bg-navy-dark/35" />
       <div className="absolute bottom-0 inset-x-0 bg-surface rounded-t-modal shadow-modal max-h-[80vh] flex flex-col" style={{ paddingBottom: "env(safe-area-inset-bottom)" }} onClick={(e) => e.stopPropagation()}>
         <div className="flex justify-center pt-3 pb-1"><div className="w-10 h-1 rounded-full bg-line" /></div>

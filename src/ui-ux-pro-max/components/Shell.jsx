@@ -5,6 +5,7 @@ import TopBar from "./TopBar";
 import TopBarFilter from "./TopBarFilter";
 import BottomNav from "./BottomNav";
 import MoreSheet from "./MoreSheet";
+import MobileDashboardTabs from "./MobileDashboardTabs";
 import { NAV_GROUPS, MOBILE_PRIMARY, viewerGroups } from "./navModel";
 import IssuesRail from "../../components/issues/IssuesRail";
 import IssuesSheet from "../../components/issues/IssuesSheet";
@@ -29,6 +30,10 @@ function buildMobileItems() {
 
 const MOBILE_ITEMS = buildMobileItems();
 const ISSUE_TABS = ["overview", "dashboard"];
+// แท็บกลุ่ม Dashboard ทั้งหมด — ใช้แสดงแถบแท็บแนวนอนบนมือถือ (เห็นทุกหน้าโดยไม่ต้องเปิด More)
+const DASH_GROUP = NAV_GROUPS.find((g) => g.label === "Dashboard");
+const DASHBOARD_ITEMS = DASH_GROUP ? DASH_GROUP.items : [];
+const DASHBOARD_TABS = DASHBOARD_ITEMS.map((i) => i.tab);
 
 export default function Shell({
   active = {},
@@ -108,6 +113,9 @@ export default function Shell({
         />
 
         <main className="flex-1 pb-[calc(64px+env(safe-area-inset-bottom))] lg:pb-0">
+          {DASHBOARD_TABS.includes(active.tab) && (
+            <MobileDashboardTabs items={DASHBOARD_ITEMS} activeTab={active.tab} activeModule={active.module} onNavigate={onNavigate} />
+          )}
           {showIssues ? (
             <div className="flex w-full print:block">
               <div className="flex-1 min-w-0 px-4 sm:px-6 py-6 print:p-0 print:m-0">

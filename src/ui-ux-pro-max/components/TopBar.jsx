@@ -1,15 +1,22 @@
-import React from "react";
+import React, { useState } from "react";
 import { MapPin } from "lucide-react";
 import Badge from "./Badge";
 import MachineSwitcher from "./MachineSwitcher";
 
 export default function TopBar({ title, liveStatus, projectInfo, onProjectChange, compact = false, rightSlot = null, machine, onMachineChange }) {
+  const [logoOk, setLogoOk] = useState(true); // โลโก้แบรนด์มือถือ (เดสก์ท็อปมี Sidebar)
   // projectInfo may be the full object { location, date, shift, tbmNo } or a plain string
   const location =
     projectInfo && typeof projectInfo === "object" ? projectInfo.location ?? "" : projectInfo ?? "";
 
   return (
     <header className={`bg-surface border-b border-line flex flex-wrap items-center gap-x-2 gap-y-1.5 sm:gap-x-4 px-3 sm:px-5 print:hidden sticky top-0 z-40 ${compact ? "py-2.5" : "py-3"}`}>
+      {/* แบรนด์ TEAM GROUP — มือถือเท่านั้น (เดสก์ท็อปมี Sidebar) โชว์ตลอดที่หัวจอ */}
+      {logoOk ? (
+        <img src="/team-group-logo.png" alt="TEAM GROUP" className="lg:hidden h-6 w-auto object-contain shrink-0" onError={() => setLogoOk(false)} />
+      ) : (
+        <span className="lg:hidden text-xs font-bold text-navy tracking-tight shrink-0">TEAM<span className="text-ink-3"> GROUP</span></span>
+      )}
       {onMachineChange && <div className="shrink-0"><MachineSwitcher value={machine} onChange={onMachineChange} size="sm" /></div>}
       {/* Page title + editable location */}
       <div className="flex-1 min-w-0">

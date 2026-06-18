@@ -15,3 +15,28 @@ export function parseRingNo(ringNo) {
   const s = String(ringNo).trim();
   return /^\d+$/.test(s) ? parseInt(s, 10) : null;
 }
+
+// RL ของแนวออกแบบที่ chainage ch (interpolate เชิงเส้น) — null ถ้านอกช่วง
+export function designRLAtCh(designLine, ch) {
+  const pts = [...designLine].sort((a, b) => a.ch - b.ch);
+  if (ch < pts[0].ch || ch > pts[pts.length - 1].ch) return null;
+  for (let i = 1; i < pts.length; i++) {
+    if (pts[i].ch >= ch) {
+      const a = pts[i - 1], b = pts[i];
+      return linScale(ch, [a.ch, b.ch], [a.rl, b.rl]);
+    }
+  }
+  return pts[pts.length - 1].rl;
+}
+
+// RL ที่แสดง (ขยาย deviation ×exagg รอบเส้นออกแบบ)
+export function exaggeratedRL(designRL, devMM, exagg) {
+  return designRL + (devMM / 1000) * exagg;
+}
+
+// จัดประเภทค่าเบี่ยงเบนเทียบ tolerance (mm)
+export function classifyDeviation(devMM, tolMM = 75) {
+  if (devMM > tolMM) return "over";
+  if (devMM < -tolMM) return "under";
+  return "ok";
+}

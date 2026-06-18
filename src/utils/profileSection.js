@@ -42,3 +42,53 @@ export function classifyDeviation(devMM, tolMM = 75) {
   if (devMM < -tolMM) return "under";
   return "ok";
 }
+
+// เพิ่มท้าย src/utils/profileSection.js
+
+// แปลง records → จุดค่าเบี่ยงเบน (เฉพาะที่มี headV ตัวเลข), เรียงตาม chainage มาก→น้อย (ทิศเจาะ)
+export function deviationSeries(records = [], designLine = []) {
+  const out = [];
+  for (const r of records) {
+    if (r == null || r.headV == null || isNaN(parseFloat(r.headV))) continue;
+    const ch = parseCH(r.finishCH);
+    if (isNaN(ch)) continue;
+    const designRL = designRLAtCh(designLine, ch);
+    const headV = parseFloat(r.headV);
+    out.push({
+      ringNo: r.ringNo, ch, headV,
+      artV: r.artV == null ? null : parseFloat(r.artV),
+      tailV: r.tailV == null ? null : parseFloat(r.tailV),
+      vrt: r.vrt == null ? null : parseFloat(r.vrt),
+      designRL,
+      actualRL: designRL == null ? null : designRL + headV / 1000,
+    });
+  }
+  return out.sort((a, b) => b.ch - a.ch);
+}
+
+// ring ตัวเลขมากสุดที่มี headV → state สำหรับ callout หัวเจาะ; null ถ้าไม่มี
+export function latestRingState(records = []) {
+  let best = null, bestN = -Infinity;
+  for (const r of records) {
+    if (r == null || r.headV == null || isNaN(parseFloat(r.headV))) continue;
+    const n = parseRingNo(r.ringNo);
+    if (n == null || n <= bestN) continue;
+    bestN = n;
+    best = {
+      ringNo: r.ringNo,
+      ch: parseCH(r.finishCH),
+      headV: parseFloat(r.headV),
+      artV: r.artV == null ? null : parseFloat(r.artV),
+      tailV: r.tailV == null ? null : parseFloat(r.tailV),
+      vrt: r.vrt == null ? null : parseFloat(r.vrt),
+    };
+  }
+  return best;
+}
+
+// ring ที่เกิน tolerance (mm) จาก series → [{ringNo, ch, side}]
+export function toleranceBreaches(series = [], tolMM = 75) {
+  return series
+    .map((s) => ({ ringNo: s.ringNo, ch: s.ch, side: classifyDeviation(s.headV, tolMM) }))
+    .filter((s) => s.side !== "ok");
+}

@@ -1,4 +1,7 @@
-import { linScale, parseRingNo, parseCH } from "./profileSection";
+import {
+  linScale, parseRingNo, parseCH,
+  designRLAtCh, exaggeratedRL, classifyDeviation,
+} from "./profileSection";
 
 test("linScale: map ค่าเชิงเส้นระหว่างสองช่วง", () => {
   expect(linScale(5, [0, 10], [0, 100])).toBe(50);
@@ -23,9 +26,6 @@ test("parseCH (re-export) แปลง chainage string", () => {
   expect(parseCH("8+300")).toBe(8300);
 });
 
-// --- Task 3 ---
-import { designRLAtCh, exaggeratedRL, classifyDeviation } from "./profileSection";
-
 const DLINE = [{ ch: 8400, rl: -19.5 }, { ch: 8200, rl: -20.2 }, { ch: 8000, rl: -21.0 }];
 
 test("designRLAtCh: interpolate เชิงเส้น (ไม่สนลำดับ input)", () => {
@@ -33,6 +33,8 @@ test("designRLAtCh: interpolate เชิงเส้น (ไม่สนลำ�
   expect(designRLAtCh(DLINE, 8000)).toBeCloseTo(-21.0, 6);
   expect(designRLAtCh(DLINE, 8300)).toBeCloseTo(-19.85, 6);
   expect(designRLAtCh(DLINE, 9999)).toBeNull();
+  expect(designRLAtCh(DLINE, 7999)).toBeNull();   // below range
+  expect(designRLAtCh([], 8300)).toBeNull();        // empty designLine → null (guard)
 });
 
 test("exaggeratedRL: design + (devMM/1000)*exagg", () => {
@@ -47,4 +49,6 @@ test("classifyDeviation: ok/over/under เทียบ tolerance", () => {
   expect(classifyDeviation(76)).toBe("over");
   expect(classifyDeviation(-90)).toBe("under");
   expect(classifyDeviation(120, 100)).toBe("over");
+  expect(classifyDeviation(-75)).toBe("ok");    // boundary, exclusive
+  expect(classifyDeviation(-76)).toBe("under");
 });

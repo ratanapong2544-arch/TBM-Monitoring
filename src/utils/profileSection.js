@@ -19,6 +19,7 @@ export function parseRingNo(ringNo) {
 // RL ของแนวออกแบบที่ chainage ch (interpolate เชิงเส้น) — null ถ้านอกช่วง
 export function designRLAtCh(designLine, ch) {
   const pts = [...designLine].sort((a, b) => a.ch - b.ch);
+  if (!pts.length) return null;
   if (ch < pts[0].ch || ch > pts[pts.length - 1].ch) return null;
   for (let i = 1; i < pts.length; i++) {
     if (pts[i].ch >= ch) {
@@ -26,7 +27,7 @@ export function designRLAtCh(designLine, ch) {
       return linScale(ch, [a.ch, b.ch], [a.rl, b.rl]);
     }
   }
-  return pts[pts.length - 1].rl;
+  return pts[pts.length - 1].rl; // designLine จุดเดียว: ch ตรงจุดนั้นพอดี
 }
 
 // RL ที่แสดง (ขยาย deviation ×exagg รอบเส้นออกแบบ)
@@ -35,6 +36,7 @@ export function exaggeratedRL(designRL, devMM, exagg) {
 }
 
 // จัดประเภทค่าเบี่ยงเบนเทียบ tolerance (mm)
+// NaN (ข้อมูลขาด) ตกที่ "ok" — caller ต้อง pre-filter ถ้าไม่ต้องการ
 export function classifyDeviation(devMM, tolMM = 75) {
   if (devMM > tolMM) return "over";
   if (devMM < -tolMM) return "under";

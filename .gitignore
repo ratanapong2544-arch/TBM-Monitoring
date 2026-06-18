@@ -4,3 +4,6 @@ build
 # Secrets — local only (.env.example stays tracked)
 .env
 .env.local
+
+# Brainstorm visual-companion temp (superpowers)
+.superpowers/

@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Design — Profile ใต้ดิน + การเชิด/ตกของหัวเจาะ</title>
+<style>
+  :root{
+    --paper:#f6f3ec; --ink:#23262b; --muted:#6b6f76; --line:#e0dacd;
+    --navy:#1f3a5f; --navy2:#2c4a73; --accent:#9a7b3f; --accent2:#5f7355;
+    --code-bg:#1c2433; --code-ink:#dbe4f0; --ok:#5f7355; --warn:#a8632e;
+    --chip:#ece4d4;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{
+    margin:0; background:var(--paper); color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Sarabun",system-ui,sans-serif;
+    line-height:1.7; font-size:16px;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:880px; margin:0 auto; padding:56px 28px 96px}
+  /* header */
+  header.doc{border-bottom:2px solid var(--navy); padding-bottom:22px; margin-bottom:34px}
+  .kicker{font-size:12px; letter-spacing:.18em; text-transform:uppercase; color:var(--accent); font-weight:700; margin:0 0 10px}
+  h1{font-family:Georgia,"Times New Roman",serif; font-weight:600; font-size:30px; line-height:1.25; color:var(--navy); margin:0 0 16px}
+  .meta{display:flex; flex-wrap:wrap; gap:8px; font-size:13px}
+  .chip{background:var(--chip); border:1px solid var(--line); border-radius:999px; padding:3px 12px; color:#4a4e55}
+  .chip b{color:var(--navy)}
+  .chip.status{background:#eaf0e8; border-color:#c9d6c2; color:var(--ok); font-weight:600}
+  /* headings */
+  h2{font-family:Georgia,serif; font-size:21px; color:var(--navy); margin:42px 0 6px; padding-top:8px}
+  h2 .n{color:var(--accent); font-size:15px; font-weight:700; margin-right:10px; font-family:-apple-system,sans-serif; letter-spacing:.05em}
+  h2 + .sub{margin-top:0; color:var(--muted); font-size:14px}
+  h3{font-size:15.5px; color:var(--navy2); margin:24px 0 4px; font-weight:700}
+  hr{border:none; border-top:1px solid var(--line); margin:8px 0 0}
+  p{margin:10px 0}
+  ul{margin:10px 0; padding-left:22px}
+  li{margin:5px 0}
+  strong,b{color:#1a1d22}
+  blockquote{margin:16px 0; padding:12px 18px; background:#fbf6ea; border-left:3px solid var(--accent);
+    border-radius:0 8px 8px 0; color:#5a4a2c; font-size:14.5px}
+  blockquote b{color:#7a5e2a}
+  code{font-family:"SF Mono",ui-monospace,"Cascadia Code",Consolas,monospace; font-size:13px;
+    background:#ece6d8; padding:1.5px 6px; border-radius:5px; color:#3a3f47}
+  pre{background:var(--code-bg); color:var(--code-ink); border-radius:12px; padding:18px 20px;
+    overflow:auto; font-size:13px; line-height:1.6; margin:14px 0;
+    box-shadow:0 2px 14px rgba(31,58,95,.12)}
+  pre code{background:none; padding:0; color:inherit; font-size:13px}
+  /* tables */
+  table{border-collapse:collapse; width:100%; margin:16px 0; font-size:14.5px;
+    border:1px solid var(--line); border-radius:10px; overflow:hidden}
+  th,td{text-align:left; padding:10px 14px; border-bottom:1px solid var(--line); vertical-align:top}
+  th{background:var(--navy); color:#f6f3ec; font-weight:600; font-size:13px; letter-spacing:.02em}
+  tr:last-child td{border-bottom:none}
+  tbody tr:nth-child(even){background:#efeadd}
+  td b{color:var(--navy2)}
+  /* misc */
+  .arch{display:block; background:var(--code-bg); color:#cfe0f5; border-radius:12px; padding:16px 20px;
+    font-family:ui-monospace,monospace; font-size:12.5px; white-space:pre; overflow:auto; margin:14px 0}
+  .checklist li{list-style:none; position:relative; padding-left:30px; margin:8px 0}
+  .checklist li:before{content:"☐"; position:absolute; left:4px; color:var(--accent); font-size:16px}
+  .legend-pill{display:inline-block; padding:1px 8px; border-radius:6px; font-size:12.5px; font-weight:600}
+  .toc{background:#fbf9f2; border:1px solid var(--line); border-radius:12px; padding:16px 22px; margin:0 0 8px}
+  .toc h4{margin:0 0 8px; font-size:12px; letter-spacing:.12em; text-transform:uppercase; color:var(--accent)}
+  .toc ol{margin:0; padding-left:20px; columns:2; column-gap:32px; font-size:13.5px}
+  .toc a{color:var(--navy2); text-decoration:none}
+  .toc a:hover{text-decoration:underline}
+  .risk{color:var(--warn)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="doc">
+    <p class="kicker">Design Spec · Brainstorm Output</p>
+    <h1>Profile ใต้ดิน + การเชิด/ตกของหัวเจาะ<br><span style="font-size:18px;color:var(--muted);font-weight:400">Underground Geological Section + Head Deviation</span></h1>
+    <div class="meta">
+      <span class="chip">📅 <b>2026-06-18</b></span>
+      <span class="chip">โปรเจกต์ <b>TunnelBoringMonitoring</b></span>
+      <span class="chip">React 18 · Tailwind · GAS</span>
+      <span class="chip status">● Design → รอ review → writing-plans</span>
+      <span class="chip">เครื่อง <b>TBM1</b> ก่อน · TBM2 = empty-state</span>
+    </div>
+  </header>
+
+  <nav class="toc">
+    <h4>สารบัญ</h4>
+    <ol>
+      <li><a href="#s1">ที่มา &amp; เป้าหมาย</a></li>
+      <li><a href="#s2">ขอบเขต</a></li>
+      <li><a href="#s3">การตัดสินใจหลัก</a></li>
+      <li><a href="#s4">สถาปัตยกรรม</a></li>
+      <li><a href="#s5">Data model</a></li>
+      <li><a href="#s6">Pipeline สกัด DWG</a></li>
+      <li><a href="#s7">Geometry util</a></li>
+      <li><a href="#s8">UI/UX</a></li>
+      <li><a href="#s9">Integration</a></li>
+      <li><a href="#s10">การกรอก &amp; backfill</a></li>
+      <li><a href="#s11">Testing</a></li>
+      <li><a href="#s12">Phasing</a></li>
+      <li><a href="#s13">Open items</a></li>
+      <li><a href="#s14">ความเสี่ยง</a></li>
+    </ol>
+  </nav>
+
+  <h2 id="s1"><span class="n">1</span>ที่มา &amp; เป้าหมาย</h2>
+  <hr>
+  <p>ไฟล์ <code>01.TBM1 Daily Progress.dwg</code> คือ <b>alignment (plan) + profile (longitudinal geological section)</b> ของงานขุดเจาะ. ส่วน <b>alignment ทำเสร็จแล้ว</b> เป็น 3D Alignment (MapLibre + Esri + ท่อ 3D + หัวเจาะตาม chainage จาก KMZ — <code>alignmentGeo.js</code> + <code>AlignmentMapView.jsx</code>) ซึ่ง <b>ไม่มีมิติความลึก</b> (altitude = 0).</p>
+  <p>สิ่งที่ขาด = <b>profile ใต้ดิน</b> เพื่อ:</p>
+  <ul>
+    <li>รายงานชั้นดินตามแนวอุโมงค์ (รู้ว่าหัวเจาะอยู่ในดินอะไร)</li>
+    <li><b>เก็บและแสดงค่าเชิด/ตก (vertical deviation) ของหัวเจาะ</b> เทียบแนวออกแบบ tolerance ±75mm — แบบกราฟ "ค่าระดับหัวเจาะ TBM1" (Head/Art/Tail + VRT)</li>
+  </ul>
+  <blockquote><b>หมายเหตุ (verified):</b> schema <code>segments</code> ปัจจุบันมีแค่ <code>ringNo / startCH / finishCH / soilType / soilVolume / วันเวลา</code> — <b>ยังไม่มีฟิลด์ค่าระดับหัว/VRT</b> ดังนั้นกราฟตัวอย่างยังไม่ถูก back ด้วยข้อมูลในแอป ต้องเพิ่มทั้ง field + การกรอก.</blockquote>
+
+  <h2 id="s2"><span class="n">2</span>ขอบเขต</h2>
+  <hr>
+  <h3>In scope</h3>
+  <ul>
+    <li>ภาคตัดธรณีตามยาว (geology-first section) จาก DWG ซิงก์ตำแหน่งหัวเจาะ</li>
+    <li>แสดงค่าเชิด/ตก (vertical) ของหัวเจาะ: Head / Articulation / Tail deviation + VRT (pitch)</li>
+    <li>กรอกค่าต่อ ring + backfill ข้อมูลเก่าจากไฟล์ Excel/CSV</li>
+    <li>ฝังใน Executive Dashboard ใต้ 3D Alignment · viewer mode · per-machine</li>
+  </ul>
+  <h3>Out of scope (ตอนนี้)</h3>
+  <ul>
+    <li><b>Horizontal deviation (ซ้าย/ขวา) + roll</b> — ออกแบบ schema เผื่อ แต่ยังไม่ทำ</li>
+    <li>TBM2 profile (ยังไม่มีแบบ/ข้อมูล) — แค่ empty-state</li>
+    <li>การแก้ไฟล์ DWG / re-survey</li>
+  </ul>
+
+  <h2 id="s3"><span class="n">3</span>การตัดสินใจหลัก (จาก brainstorm)</h2>
+  <hr>
+  <table>
+    <thead><tr><th style="width:34%">หัวข้อ</th><th>เลือก</th></tr></thead>
+    <tbody>
+      <tr><td>รูปแบบ visualization</td><td><b>A — ภาคตัดธรณีรวม</b> (geology-first section เหมือน DWG, อุโมงค์วิ่งทะลุชั้นดิน, หัวเจาะเอียงตาม VRT)</td></tr>
+      <tr><td>การแสดง deviation</td><td><b>A2 + A1</b> — vertical exaggeration ×N (toggle ×10/×30/×50) ระบายแดงเมื่อเกิน ±75 + callout ตัวเลขจริงที่หัวเจาะ. A3 (กล่องซูม) = mode เสริม</td></tr>
+      <tr><td>แหล่ง profile ดิน</td><td><b>สกัดอัตโนมัติจาก DWG</b> (ODA File Converter → DXF → ezdxf → JSON)</td></tr>
+      <tr><td>นิยาม Head/Art/Tail</td><td><b>deviation (mm) จากแนวออกแบบ</b>, ±75mm tolerance; VRT = มุมก้ม/เงย; เส้นจริง = design + deviation</td></tr>
+      <tr><td>แหล่ง design line</td><td><b>มีในแบบ DWG</b> (สกัดออกมาพร้อมชั้นดิน)</td></tr>
+      <tr><td>ตำแหน่งแสดง</td><td><b>ฝังเป็น section ใน Executive Dashboard ใต้ 3D Alignment</b></td></tr>
+      <tr><td>Backfill ของเก่า</td><td><b>ไฟล์ Excel/CSV</b> (user จะวางไฟล์ให้ import — ฟอร์แมตจริงดูตอนได้ไฟล์)</td></tr>
+      <tr><td>Bore diameter + จุดอ้างอิง</td><td><b>สกัดจาก DWG/แบบ</b> (ไม่เดาค่า)</td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="s4"><span class="n">4</span>สถาปัตยกรรม (3 เลเยอร์ — ตามแพทเทิร์น alignment เดิม)</h2>
+  <hr>
+  <h3>(a) Build-time extraction (Python — รันเมื่อแบบเปลี่ยน ไม่ใช่ runtime)</h3>
+  <p><code>tools/extract_profile.py</code> → ใช้ <code>ezdxf.addons.odafc</code> แปลง DWG (AC1032) → DXF → อ่าน layer ที่เป็นขอบชั้นดิน / เส้นออกแบบ / หลุมเจาะ → เขียน <code>src/utils/profileGeo.js</code> (pure data, jest-safe — เลียนแบบ <code>alignmentGeo.js</code>)</p>
+  <h3>(b) Pure geometry util (testable, ไม่ import React/SVG)</h3>
+  <p><code>src/utils/profileSection.js</code> — map <code>(ch, rl)</code> → px, สร้างเส้นจริง = design + deviation×ตัวคูณ, ตรวจช่วงเกิน ±75, map ring↔chainage (ใช้ <code>startCH/finishCH</code>), คำนวณ scale/viewport/follow-head</p>
+  <h3>(c) View (React + SVG)</h3>
+  <p><code>src/components/views/ProfileSectionView.jsx</code> — render ภาคตัด + controls; ใช้ค่าจาก (b) ล้วน</p>
+  <div class="arch">DWG ──extract_profile.py──▶ profileGeo.js ─┐
+                                            ├─▶ profileSection.js (math) ─▶ ProfileSectionView.jsx
+records (ring + deviation, จาก GAS) ────────┘</div>
+
+  <h2 id="s5"><span class="n">5</span>Data model</h2>
+  <hr>
+  <h3>5.1 profileGeo.js (สกัดจาก DWG — static)</h3>
+  <pre><code>export const LAYERS = [
+  { name:'Medium Clay', code:'CH', color:'#5f8f86',
+    top:    [{ch, rl}, ...],   // ขอบบนชั้น (chainage, RL ม.)
+    bottom: [{ch, rl}, ...] }, // ขอบล่างชั้น
+  // ... SM / SP-SM / CL ...
+];
+export const DESIGN_LINE = [{ ch, rl }, ...];   // แนวแกนอุโมงค์ออกแบบ
+export const BORE_DIA = &lt;สกัดจาก DWG&gt;;          // เส้นผ่านศูนย์กลางเจาะ (ม.)
+export const BOREHOLES = [
+  { id:'BH-27', ch, groundRL, strata:[{code, fromRL, toRL}], spt:[{rl, n}] }
+];
+export const CH_RANGE = { min, max };           // ช่วง chainage ที่ profile ครอบคลุม</code></pre>
+  <p><b>ความถูกต้อง:</b> chainage เรียงทิศเดียว, ชั้นดินไม่ทับซ้อนผิดลำดับ, sync กับ <code>CH_MIN/CH_MAX</code> ของ alignmentGeo (chainage system เดียวกัน).</p>
+  <h3>5.2 ฟิลด์ deviation ต่อ ring (ใหม่ — กรอกมือ + backfill)</h3>
+  <pre><code>headV : number (mm)  // vertical deviation ที่ cutterhead  (+ = เชิด/ขึ้น, − = ตก/ลง — ยืนยัน sign ตอนได้ไฟล์)
+artV  : number (mm)  // ที่ articulation joint
+tailV : number (mm)  // ที่ tail shield
+vrt   : number (deg) // pitch (เงย +, ก้ม −)
+guideTime : ISO datetime (optional)
+// เผื่ออนาคต: headH/tailH (horizontal), roll</code></pre>
+  <ul>
+    <li>เก็บที่ <b>GAS per-machine sheet</b> (เพิ่มคอลัมน์ใน <code>segments_TBMx</code> หรือ sheet ใหม่ <code>Guidance_TBMx</code> keyed by <code>ringNo</code>) — ตัดสินตอน implement หลังดู GAS เดิม</li>
+    <li><b>เส้นจริง</b> ที่ ring: <code>actualRL(ch) = designRL(ch) + headV/1000</code></li>
+    <li>Head/Art/Tail 3 จุด → วาด "ลำตัวเครื่องเอียง" + ตรวจ/แสดง VRT</li>
+  </ul>
+
+  <h2 id="s6"><span class="n">6</span>Pipeline สกัด DWG <span style="font-size:13px;color:var(--warn);font-weight:700">(Phase 1 — เสี่ยงสุด)</span></h2>
+  <hr>
+  <ol>
+    <li>user ลง <b>ODA File Converter</b> (ฟรี, opendesign.com) — ผมจะให้ step</li>
+    <li><code>pip install ezdxf</code> (ผมลงเอง)</li>
+    <li><code>extract_profile.py</code>: odafc แปลง DWG→DXF → <code>ezdxf.readfile</code> → <b>list layer names ก่อน</b> (ชื่อ layer จริงยังไม่รู้ — ห้ามเดา) → เลือก layer ชั้นดิน/เส้นออกแบบ/BH → ดึง polyline/text → ออก <code>profileGeo.js</code></li>
+    <li>ตรวจ: plot SVG preview เทียบ DWG (เหมือน <code>centerline-preview.svg</code>) + spot-check chainage/จำนวน entity</li>
+  </ol>
+  <blockquote class="risk"><b>ความเสี่ยง:</b> section ใน DWG อาจวาดเป็น hatch/exploded ไม่ใช่ polyline สะอาด → อาจต้อง clean/simplify (fallback: digitize กึ่ง-มือจาก preview)</blockquote>
+
+  <h2 id="s7"><span class="n">7</span>Geometry util — profileSection.js (pure, jest)</h2>
+  <hr>
+  <ul>
+    <li><code>chToX(ch, viewport)</code>, <code>rlToY(rl, viewport)</code> — สเกลจริง</li>
+    <li><code>buildActualLine(designLine, deviationsByRing, ringToCh, exagg)</code> — เส้นจริงขยาย ×exagg รอบ design</li>
+    <li><code>toleranceBreaches(deviations, ±75)</code> — คืนช่วงเกิน → ระบายแดง</li>
+    <li><code>ringToChainage(ring)</code> / <code>chainageToRing(ch)</code> — จาก startCH/finishCH</li>
+    <li><code>headState(records)</code> — chainage/ring/deviation/VRT ล่าสุด (head = finishCH น้อยสุด)</li>
+  </ul>
+
+  <h2 id="s8"><span class="n">8</span>UI/UX (แบบ A2 + A1)</h2>
+  <hr>
+  <ul>
+    <li><b>แกน:</b> X = chainage (ป้าย ring กำกับ) · Y = RL (ม., สเกลจริง)</li>
+    <li>ชั้นดิน = แถบสีตาม DWG + ป้ายชนิดดิน + เส้น/คอลัมน์ BH (SPT)</li>
+    <li>เส้นออกแบบ (ประฟ้า) + envelope ±75 (ขยาย) · เส้นจริง (ส้ม, ขยาย ×N) · <span class="legend-pill" style="background:#fbe3e0;color:#a8632e">ช่วงเกิน = แดง</span></li>
+    <li>หัวเจาะเอียงตาม VRT ที่ ring ล่าสุด + callout <code>R### · Head ±mm · VRT ±°</code></li>
+    <li>controls: ตัวคูณขยาย ×10/×30/×50 · ปุ่ม "ตามหัวเจาะ" · zoom/pan</li>
+    <li>mode เสริม (later): A3 กล่องซูม focus inset</li>
+    <li>โทน: CMI Mark 2 (navy, minimalist) ให้เข้ากับ dashboard</li>
+  </ul>
+
+  <h2 id="s9"><span class="n">9</span>Integration</h2>
+  <hr>
+  <ul>
+    <li><b>ตำแหน่ง:</b> section ใน <code>ExecutiveDashboardView</code> ใต้ <code>AlignmentMapView</code> (prop <code>embedded</code>)</li>
+    <li><b>per-machine:</b> TBM1 = profile จริง, TBM2 = empty-state</li>
+    <li><b>3D sync (MVP):</b> ทั้ง 2 view คำนวณ head จาก records ชุดเดียวกัน → ตรงกันอัตโนมัติ. <b>(enhancement)</b> คลิก ring/chainage บน profile → เลื่อนหัวเจาะบนแผนที่ 3D</li>
+    <li><b>viewer mode (<code>?view=1</code>):</b> read-only, ซ่อนการกรอก (ตาม viewerMode.js)</li>
+  </ul>
+
+  <h2 id="s10"><span class="n">10</span>การกรอก &amp; backfill</h2>
+  <hr>
+  <ul>
+    <li>เพิ่มช่อง <code>headV / artV / tailV / vrt</code> ในหน้า <b>Record Daily</b> (ที่กรอก soil อยู่แล้ว) → เขียนผ่าน GAS</li>
+    <li><b>backfill:</b> import จากไฟล์ <b>Excel/CSV</b> ที่ user จะวางให้ → map คอลัมน์ → push เข้า sheet (ฟอร์แมต + sign convention ยืนยันตอนได้ไฟล์)</li>
+  </ul>
+
+  <h2 id="s11"><span class="n">11</span>Testing</h2>
+  <hr>
+  <ul>
+    <li><b>jest:</b> <code>profileSection.js</code> (chToX/rlToY, buildActualLine+exagg, toleranceBreaches, ring↔ch, headState) · <code>profileGeo</code> integrity (chainage เรียง, layers ลำดับถูก, sync CH range)</li>
+    <li><b>Python:</b> spot-check entity/chainage หลังสกัด + SVG preview เทียบ DWG</li>
+    <li>ไม่ลดทอน: ไม่แตะ test เดิม (jest ปัจจุบันเขียว)</li>
+  </ul>
+
+  <h2 id="s12"><span class="n">12</span>Phasing</h2>
+  <hr>
+  <table>
+    <thead><tr><th style="width:64px">Phase</th><th>งาน</th></tr></thead>
+    <tbody>
+      <tr><td><b>1</b></td><td><b>สกัด DWG</b> → profileGeo.js (ลง ODA/ezdxf, ระบุ layer, preview) — <span class="risk">ทำก่อน เสี่ยงสุด</span></td></tr>
+      <tr><td><b>2</b></td><td><code>profileSection.js</code> util + jest</td></tr>
+      <tr><td><b>3</b></td><td><code>ProfileSectionView</code> + ฝังใน Executive (mock deviation ก่อน)</td></tr>
+      <tr><td><b>4</b></td><td>ฟิลด์กรอก headV/artV/tailV/vrt + GAS + backfill จาก Excel</td></tr>
+      <tr><td><b>5</b></td><td>3D sync (scrub) + viewer mode + TBM2 empty-state</td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="s13"><span class="n">13</span>Open items / inputs ที่ต้องได้จาก user</h2>
+  <hr>
+  <ul class="checklist">
+    <li>ลง <b>ODA File Converter</b> (ผมให้ step ตอน Phase 1)</li>
+    <li>ไฟล์ <b>Excel/CSV</b> ข้อมูล Head/Art/Tail/VRT เก่า (backfill)</li>
+    <li>ยืนยัน <b>sign convention</b> ของ deviation/VRT ตอนเห็นไฟล์จริง</li>
+  </ul>
+
+  <h2 id="s14"><span class="n">14</span>ความเสี่ยง</h2>
+  <hr>
+  <ul>
+    <li>DWG section อาจไม่ใช่ polyline สะอาด → สกัดยาก (fallback: digitize กึ่งมือ)</li>
+    <li>chainage system ของ profile ต้องตรงกับ alignment (ตรวจ cross-reference)</li>
+    <li>deviation mm เล็ก → พึ่ง exaggeration + label ชัด กันอ่านผิด (A2 แก้จุดนี้แล้ว)</li>
+  </ul>
+
+  <p style="margin-top:48px;color:var(--muted);font-size:13px;border-top:1px solid var(--line);padding-top:16px">
+    Brainstorm output · superpowers:brainstorming · มาพร้อม markdown ฉบับเดียวกันที่
+    <code>2026-06-18-underground-profile-head-deviation-design.md</code> · ขั้นต่อไป: writing-plans
+  </p>
+
+</div>
+</body>
+</html>

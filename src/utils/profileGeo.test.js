@@ -18,9 +18,13 @@ test("LAYERS: ทุกชั้นมี top/bottom และ ch อยู่�
   }
 });
 
-test("DESIGN_LINE: ≥2 จุด และ rl เป็นตัวเลข", () => {
+test("DESIGN_LINE: ≥2 จุด, rl เป็นตัวเลข, ch อยู่ใน CH_RANGE", () => {
   expect(DESIGN_LINE.length).toBeGreaterThanOrEqual(2);
-  for (const p of DESIGN_LINE) expect(typeof p.rl).toBe("number");
+  for (const p of DESIGN_LINE) {
+    expect(typeof p.rl).toBe("number");
+    expect(p.ch).toBeGreaterThanOrEqual(CH_RANGE.min);
+    expect(p.ch).toBeLessThanOrEqual(CH_RANGE.max);
+  }
 });
 
 test("BORE_DIA เป็นตัวเลขบวก; BOREHOLES มี strata เรียงลง", () => {
@@ -28,5 +32,8 @@ test("BORE_DIA เป็นตัวเลขบวก; BOREHOLES มี strata 
   for (const b of BOREHOLES) {
     expect(typeof b.ch).toBe("number");
     expect(b.strata.length).toBeGreaterThan(0);
+    for (const s of b.strata) {
+      expect(s.fromRL).toBeGreaterThan(s.toRL); // strata เรียงจากบนลงล่าง
+    }
   }
 });

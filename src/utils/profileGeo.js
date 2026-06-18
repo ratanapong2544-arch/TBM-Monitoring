@@ -1,6 +1,6 @@
 // ⚠ SAMPLE / FIXTURE — ค่าทั้งหมดเป็น schematic ไม่ใช่ค่าสำรวจจริง
 // จะถูกแทนด้วยข้อมูลที่สกัดจาก 01.TBM1 Daily Progress.dwg (ดู DWG extraction plan)
-// contract: ดู docs/superpowers/specs/2026-06-18-...-design.md §5.1
+// contract: ดู docs/superpowers/specs/2026-06-18-underground-profile-head-deviation-design.md §5.1
 // chainage system เดียวกับ alignmentGeo.js (เจาะทิศ chainage "ลดลง")
 
 export const CH_RANGE = { min: 8000, max: 8400 };

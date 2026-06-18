@@ -72,9 +72,10 @@ export function latestRingState(records = []) {
     const n = parseRingNo(r.ringNo);
     if (n == null || n <= bestN) continue;
     bestN = n;
+    const ch = parseCH(r.finishCH);
     best = {
       ringNo: r.ringNo,
-      ch: parseCH(r.finishCH) || null,
+      ch: isNaN(ch) ? null : ch, // NaN (finishCH หาย) → null; เก็บ ch=0 (0+000) ได้ถูกต้อง
       headV: parseFloat(r.headV),
       artV: r.artV == null ? null : parseFloat(r.artV),
       tailV: r.tailV == null ? null : parseFloat(r.tailV),

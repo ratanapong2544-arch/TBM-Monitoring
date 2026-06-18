@@ -79,6 +79,10 @@ test("latestRingState: ring ตัวเลขมากสุดที่มี 
   expect(l.headV).toBe(-120);
   expect(l.vrt).toBe(-0.3);
   expect(latestRingState([])).toBeNull();
+  // ch=0 (0+000) ต้องไม่ถูกทิ้งเป็น null
+  expect(latestRingState([{ ringNo: "1", finishCH: "0+000", headV: 5 }]).ch).toBe(0);
+  // finishCH หาย → ch = null (ไม่ใช่ NaN)
+  expect(latestRingState([{ ringNo: "2", headV: 5 }]).ch).toBeNull();
 });
 
 test("toleranceBreaches: คืน ring ที่ |headV| > tol พร้อม side", () => {

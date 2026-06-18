@@ -43,8 +43,6 @@ export function classifyDeviation(devMM, tolMM = 75) {
   return "ok";
 }
 
-// เพิ่มท้าย src/utils/profileSection.js
-
 // แปลง records → จุดค่าเบี่ยงเบน (เฉพาะที่มี headV ตัวเลข), เรียงตาม chainage มาก→น้อย (ทิศเจาะ)
 export function deviationSeries(records = [], designLine = []) {
   const out = [];
@@ -76,7 +74,7 @@ export function latestRingState(records = []) {
     bestN = n;
     best = {
       ringNo: r.ringNo,
-      ch: parseCH(r.finishCH),
+      ch: parseCH(r.finishCH) || null,
       headV: parseFloat(r.headV),
       artV: r.artV == null ? null : parseFloat(r.artV),
       tailV: r.tailV == null ? null : parseFloat(r.tailV),

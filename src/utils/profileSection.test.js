@@ -70,6 +70,7 @@ test("deviationSeries: เฉพาะ record ที่มี headV, มี desi
   expect(r571.ch).toBe(8200);
   expect(r571.designRL).toBeCloseTo(-20.25, 6);
   expect(r571.actualRL).toBeCloseTo(-20.16, 6);
+  expect(deviationSeries([], DLINE2)).toEqual([]);
 });
 
 test("latestRingState: ring ตัวเลขมากสุดที่มี headV", () => {

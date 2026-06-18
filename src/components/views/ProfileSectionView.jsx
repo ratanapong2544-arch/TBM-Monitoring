@@ -84,7 +84,7 @@ export default function ProfileSectionView({ segmentRecords = [], machine = "TBM
 
         {latest && latest.ch != null && designRLAtCh(DESIGN_LINE, latest.ch) != null && (
           <g>
-            <line x1={x(latest.ch)} y1={M.t} x2={x(latest.ch)} y2={H - M.b} stroke="#b8860b" strokeWidth="1" strokeDasharray="3 3" />
+            <line x1={x(latest.ch)} y1={M.t} x2={x(latest.ch)} y2={H - M.b} stroke={chartColors.dayShift} strokeWidth="1" strokeDasharray="3 3" />
             <rect x={Math.min(x(latest.ch) + 6, W - 168)} y={M.t + 4} width="160" height="34" rx="6" fill="#11203a" opacity="0.92" />
             <text x={Math.min(x(latest.ch) + 14, W - 160)} y={M.t + 18} fontSize="11" fill="#ffd27f">
               R{latest.ringNo} · Head {latest.headV > 0 ? "+" : ""}{latest.headV}mm

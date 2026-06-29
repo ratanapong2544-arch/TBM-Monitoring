@@ -210,6 +210,10 @@ const RouteScheduleView = ({ segmentRecords = [], projectInfo, machine = "TBM1",
         isFuture: currentMonthStr > currentMonth
       });
 
+      // หยุดวาดเมื่อแผนถึงปลายทาง (8,874) แล้ว และเลยเดือนปัจจุบัน
+      // → ไม่ลากเส้นแบนต่อไปจนสุด deadline (จบกราฟที่เดือนขุดเสร็จจริง)
+      if (currentPlanAcc >= TOTAL_ROUTE_DISTANCE - 0.5 && currentMonthStr >= currentMonth) break;
+
       // Next month
       let ny = parseInt(y);
       let nm = parseInt(mo) + 1;

@@ -10,7 +10,7 @@ import { apiCall } from "../../utils/api";
 import { computePaceStats } from "../../utils/paceStats";
 import { chartColors, axisTick, tooltipStyle } from "../../ui-ux-pro-max/chartTheme";
 import {
-  ResponsiveContainer, ComposedChart, CartesianGrid, XAxis, YAxis, Tooltip, Bar, Line
+  ResponsiveContainer, ComposedChart, CartesianGrid, XAxis, YAxis, Tooltip, Bar, Line, LabelList
 } from "recharts";
 
 export default function SegmentAnalysisView({ segmentRecords = [], projectInfo, machine = "TBM1", filterState = {}, readOnly = false }) {
@@ -36,6 +36,7 @@ export default function SegmentAnalysisView({ segmentRecords = [], projectInfo, 
     if (months >= 12) return `${word} ${Math.round(months / 12)} ปี`;
     return `${word} ${months} เดือน`;
   };
+  const labelNonZero = (v) => (v > 0 ? v : "");
 
   // ── Print State ──
   const [printingChartId, setPrintingChartId] = useState("all");
@@ -377,8 +378,12 @@ export default function SegmentAnalysisView({ segmentRecords = [], projectInfo, 
                 {segFilterMode !== "daily" && <YAxis yAxisId="right" orientation="right" domain={["auto", "auto"]} tick={axisTick} axisLine={{ stroke: chartColors.axis }} tickLine={false} label={{ value: 'สะสม (Cumulative Rings)', angle: 90, position: 'insideRight', offset: -5, fill: chartColors.axisLabel, fontSize: 11, fontWeight: 'bold' }} />}
                 <Tooltip {...tooltipStyle} />
                 {segFilterMode !== "daily" && <Line yAxisId="left" type="monotone" dataKey="plan" stroke={chartColors.axis} strokeWidth={2} dot={segChartData.length <= 24 ? { r: 0 } : { r: 2 }} name="Plan Daily" isAnimationActive={printingChartId === "all"} />}
-                <Bar yAxisId="left" dataKey="dayRings" stackId="a" fill={chartColors.dayShift} name="Perm. D/S" radius={[0, 0, 0, 0]} maxBarSize={40} isAnimationActive={printingChartId === "all"} />
-                <Bar yAxisId="left" dataKey="nightRings" stackId="a" fill={chartColors.nightShift} name="Perm. N/S" radius={[0, 0, 0, 0]} maxBarSize={40} isAnimationActive={printingChartId === "all"} />
+                <Bar yAxisId="left" dataKey="dayRings" stackId="a" fill={chartColors.dayShift} name="Perm. D/S" radius={[0, 0, 0, 0]} maxBarSize={40} isAnimationActive={printingChartId === "all"}>
+                  <LabelList dataKey="dayRings" position="center" formatter={labelNonZero} fill="#fff" fontSize={11} fontWeight={800} />
+                </Bar>
+                <Bar yAxisId="left" dataKey="nightRings" stackId="a" fill={chartColors.nightShift} name="Perm. N/S" radius={[0, 0, 0, 0]} maxBarSize={40} isAnimationActive={printingChartId === "all"}>
+                  <LabelList dataKey="nightRings" position="center" formatter={labelNonZero} fill="#fff" fontSize={11} fontWeight={800} />
+                </Bar>
                 <Bar yAxisId="left" dataKey="tempRings" stackId="a" fill={chartColors.temporary} name="Temporary" radius={[4, 4, 0, 0]} maxBarSize={40} isAnimationActive={printingChartId === "all"} />
                 {segFilterMode !== "daily" && <Line yAxisId="left" type="monotone" dataKey="ma7" stroke={chartColors.paid} strokeWidth={2} strokeDasharray="5 3" dot={false} name="MA 7 วัน" isAnimationActive={printingChartId === "all"} />}
                 {segFilterMode !== "daily" && <Line yAxisId="right" type="monotone" dataKey="planAcc" stroke={chartColors.planned} strokeWidth={2} dot={segChartData.length === 1 ? { r: 3, fill: chartColors.planned } : { r: 2, fill: chartColors.planned }} name="Plan Acc." isAnimationActive={printingChartId === "all"} />}
@@ -482,8 +487,12 @@ export default function SegmentAnalysisView({ segmentRecords = [], projectInfo, 
                         {segFilterMode !== "daily" && <YAxis yAxisId="right" orientation="right" domain={["auto", "auto"]} tick={axisTick} axisLine={false} tickLine={false} />}
                         <Tooltip {...tooltipStyle} />
                         {segFilterMode !== "daily" && <Line yAxisId="left" type="monotone" dataKey="plan" stroke={chartColors.axis} strokeWidth={2} dot={segChartData.length <= 24 ? { r: 0 } : { r: 2 }} name="Plan Daily" />}
-                        <Bar yAxisId="left" dataKey="dayRings" stackId="a" fill={chartColors.dayShift} name="Perm. D/S" radius={[0, 0, 0, 0]} maxBarSize={40} />
-                        <Bar yAxisId="left" dataKey="nightRings" stackId="a" fill={chartColors.nightShift} name="Perm. N/S" radius={[0, 0, 0, 0]} maxBarSize={40} />
+                        <Bar yAxisId="left" dataKey="dayRings" stackId="a" fill={chartColors.dayShift} name="Perm. D/S" radius={[0, 0, 0, 0]} maxBarSize={40}>
+                          <LabelList dataKey="dayRings" position="center" formatter={labelNonZero} fill="#fff" fontSize={11} fontWeight={800} />
+                        </Bar>
+                        <Bar yAxisId="left" dataKey="nightRings" stackId="a" fill={chartColors.nightShift} name="Perm. N/S" radius={[0, 0, 0, 0]} maxBarSize={40}>
+                          <LabelList dataKey="nightRings" position="center" formatter={labelNonZero} fill="#fff" fontSize={11} fontWeight={800} />
+                        </Bar>
                         <Bar yAxisId="left" dataKey="tempRings" stackId="a" fill={chartColors.temporary} name="Temporary" radius={[4, 4, 0, 0]} maxBarSize={40} />
                         {segFilterMode !== "daily" && <Line yAxisId="right" type="monotone" dataKey="planAcc" stroke={chartColors.planned} strokeWidth={2} dot={segChartData.length === 1 ? { r: 3, fill: chartColors.planned } : { r: 2, fill: chartColors.planned }} name="Plan Acc." />}
                         {segFilterMode !== "daily" && <Line yAxisId="right" type="monotone" dataKey="actualAcc" stroke={chartColors.actual} strokeWidth={3} dot={segChartData.length === 1 ? { r: 4, fill: chartColors.actual } : { r: 3, fill: chartColors.actual }} name="Actual Acc." label={{ position: "top", fill: chartColors.actual, fontSize: 10, fontWeight: "900" }} />}

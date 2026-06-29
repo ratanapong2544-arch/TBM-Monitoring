@@ -8,6 +8,7 @@ export const chartColors = {
   nightShift: "#003B84", // navy — กะกลางคืน
   temporary:  "#C0C0C0", // gray-300 — ชั่วคราว
   delay:      "#B91C1C", // Code D — ล่าช้า
+  muck:       "#A56A33", // earth — งานขนดิน (Muck Full)
   grid:       "#F0F0F0",
   axis:       "#999999",
   axisLabel:  "#666666",

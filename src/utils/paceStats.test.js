@@ -64,3 +64,12 @@ test("ไม่มีงานใน 30 วันล่าสุด: finishRecen
   expect(r.finishRecent).toBeNull();
   expect(r.finishLifetime).not.toBeNull();
 });
+
+test("เลยกำหนดแล้ว + ยังมีงานเหลือ + ไม่มีงาน 30 วันล่าสุด: behind = true (ไม่โชว์เขียว)", () => {
+  const records = build([["2026-01-01", 10]]); // มีงานเก่า แต่ไม่มีงานใน 30 วันล่าสุด
+  const r = computePaceStats({ ...BASE, segmentRecords: records, today: "2026-06-29", deadline: "2026-06-01" });
+  expect(r.requiredRate).toBeNull();          // เลยกำหนด
+  expect(r.recentRate).toBe(0);               // ไม่มีงาน 30 วันล่าสุด
+  expect(r.remainingRings).toBeGreaterThan(0);
+  expect(r.behind).toBe(true);
+});

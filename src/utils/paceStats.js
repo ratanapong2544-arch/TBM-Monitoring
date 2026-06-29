@@ -36,7 +36,7 @@ export function computePaceStats({
   const recentStart = addDays(today, -recentWindowDays);
   const recentRings = perm.filter((r) => formatDisplayDate(r.date) > recentStart).length;
   const recentDenom = Math.min(recentWindowDays, daysSinceStart);
-  const recentRate = recentDenom > 0 ? recentRings / recentDenom : 0;
+  const recentRate = recentRings / recentDenom;
 
   const daysLeft = Math.max(0, dayDiff(today, deadline));
   const requiredRate = daysLeft > 0 ? remainingRings / daysLeft : null;
@@ -51,7 +51,7 @@ export function computePaceStats({
 
   const behind = finishRecent
     ? deltaRecentDays > 0
-    : (requiredRate !== null && recentRate < requiredRate);
+    : (daysLeft === 0 ? remainingRings > 0 : recentRate < requiredRate);
 
   return {
     doneRings, targetRings, remainingRings,

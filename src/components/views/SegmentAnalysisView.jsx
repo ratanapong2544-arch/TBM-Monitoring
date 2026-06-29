@@ -5,8 +5,9 @@ import {
 import { filterByState } from "../../hooks/useGlobalFilter";
 import { formatDisplayDate, formatDisplayTime } from "../../utils/formatters";
 import { getRingNumeric } from "../../utils/helpers";
-import { TOTAL_ROUTE_DISTANCE } from "../../utils/constants";
+import { PROJECT_DEADLINE } from "../../utils/constants";
 import { apiCall } from "../../utils/api";
+import { computePaceStats } from "../../utils/paceStats";
 import { chartColors, axisTick, tooltipStyle } from "../../ui-ux-pro-max/chartTheme";
 import {
   ResponsiveContainer, ComposedChart, CartesianGrid, XAxis, YAxis, Tooltip, Bar, Line
@@ -16,21 +17,25 @@ export default function SegmentAnalysisView({ segmentRecords = [], projectInfo, 
   const filteredSegments = useMemo(() => filterByState(segmentRecords, filterState), [segmentRecords, filterState]);
 
   const paceStats = useMemo(() => {
-    const map = new Map();
-    segmentRecords.forEach((r) => { if (r.installType !== "Temporary") map.set(r.ringNo, r); });
-    const perm = Array.from(map.values());
-    const doneRings = perm.length;
-    const totalDist = perm.reduce((s, r) => s + parseFloat(r.length || 0), 0);
-    const avgLen = doneRings > 0 ? totalDist / doneRings : 1.4;
-    const targetRings = Math.round(TOTAL_ROUTE_DISTANCE / avgLen);
-    const remainingRings = Math.max(0, targetRings - doneRings);
-    const dates = [...new Set(perm.map((r) => formatDisplayDate(r.date)))];
-    const currentPerDay = dates.length > 0 ? doneRings / dates.length : 0;
-    const nowTH = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Bangkok" }));
-    const daysLeft = Math.max(0, Math.ceil((new Date("2028-09-30") - nowTH) / 86400000));
-    const requiredPerDay = daysLeft > 0 ? remainingRings / daysLeft : 0;
-    return { doneRings, targetRings, remainingRings, currentPerDay, requiredPerDay, behind: requiredPerDay > currentPerDay };
+    const today = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Bangkok" });
+    return computePaceStats({ segmentRecords, today });
   }, [segmentRecords]);
+
+  // ── ตัวช่วยแสดงผล (display only) ──
+  const beShort = (ymd) => {
+    if (!ymd) return "—";
+    const [y, m] = ymd.split("-").map(Number);
+    const months = ["ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."];
+    return `${months[m - 1]} ${String((y + 543) % 100).padStart(2, "0")}`;
+  };
+  const fmtDelta = (days) => {
+    if (days === null || days === undefined) return "—";
+    if (Math.abs(days) < 15) return "ทันพอดี";
+    const months = Math.round(Math.abs(days) / 30.44);
+    const word = days > 0 ? "ช้า" : "เร็ว";
+    if (months >= 12) return `${word} ${Math.round(months / 12)} ปี`;
+    return `${word} ${months} เดือน`;
+  };
 
   // ── Print State ──
   const [printingChartId, setPrintingChartId] = useState("all");
@@ -262,17 +267,46 @@ export default function SegmentAnalysisView({ segmentRecords = [], projectInfo, 
         ` : ""}
       `}</style>
 
-      {/* ═══ Required-Rate Banner ═══ */}
-      {paceStats.targetRings > 0 && (
-        <div className={`rounded-card border p-4 shadow-card flex items-center gap-3 ${paceStats.behind ? "bg-code-d/10 border-code-d/30" : "bg-sgreen-med/10 border-sgreen-med/30"}`}>
-          <TrendingUp size={22} className={paceStats.behind ? "text-code-d" : "text-sgreen-dark"} />
-          <div className="text-sm leading-snug">
-            <span className="font-semibold text-ink">เพื่อทันกำหนด ก.ย. 71 ต้องเร่งเป็น </span>
-            <span className={`font-mono font-bold ${paceStats.behind ? "text-code-d" : "text-sgreen-dark"}`}>{paceStats.requiredPerDay.toFixed(1)} ring/วัน</span>
-            <span className="text-ink-2"> (ปัจจุบันเฉลี่ย <span className="font-mono font-semibold text-ink">{paceStats.currentPerDay.toFixed(1)}</span> ring/วัน · เหลือ ~{paceStats.remainingRings.toLocaleString()} rings)</span>
+      {/* ═══ Schedule / Pace Hero Panel ═══ */}
+      {paceStats.targetRings > 0 && (() => {
+        const p = paceStats;
+        const donePct = p.targetRings > 0 ? Math.round((p.doneRings / p.targetRings) * 100) : 0;
+        const accent = p.behind ? "text-code-d" : "text-sgreen-dark";
+        return (
+          <div className={`rounded-card border shadow-card overflow-hidden ${p.behind ? "border-code-d/30" : "border-sgreen-med/30"}`}>
+            <div className={`flex items-center gap-2 px-4 py-3 ${p.behind ? "bg-code-d/10" : "bg-sgreen-med/10"}`}>
+              <TrendingUp size={20} className={accent} />
+              <span className={`font-bold text-sm ${accent}`}>
+                {p.finishRecent
+                  ? (p.behind ? `ช้ากว่ากำหนด ${fmtDelta(p.deltaRecentDays)} — ต้องเร่ง` : `คาดเสร็จทันกำหนด (${fmtDelta(p.deltaRecentDays)})`)
+                  : "ยังประเมินไม่ได้ — ไม่มีงานใน 30 วันล่าสุด"}
+              </span>
+            </div>
+            <div className="flex border-t border-b border-line text-center divide-x divide-line">
+              <div className="flex-1 py-2.5 px-3"><div className="text-[10px] uppercase tracking-wide text-ink-3 font-bold">เป้าหมาย</div><div className="text-lg font-bold text-ink font-mono">{p.targetRings.toLocaleString()}</div></div>
+              <div className="flex-1 py-2.5 px-3"><div className="text-[10px] uppercase tracking-wide text-ink-3 font-bold">ทำเสร็จ</div><div className="text-lg font-bold text-ink font-mono">{p.doneRings.toLocaleString()} <span className="text-xs text-ink-3">· {donePct}%</span></div></div>
+              <div className="flex-1 py-2.5 px-3"><div className="text-[10px] uppercase tracking-wide text-ink-3 font-bold">เหลือ</div><div className="text-lg font-bold text-ink font-mono">{p.remainingRings.toLocaleString()}</div></div>
+            </div>
+            <div className="flex divide-x divide-line">
+              <div className="flex-1 p-3.5">
+                <div className="text-[11px] font-bold text-ink-2 mb-1">ต้องเร่งเป็น</div>
+                <div className="text-2xl font-bold text-ink font-mono leading-none">{p.requiredRate !== null ? p.requiredRate.toFixed(1) : "—"}</div>
+                <div className="text-xs text-ink-3 mt-1.5 font-semibold">ริง/วัน → ทัน {beShort(PROJECT_DEADLINE)}</div>
+              </div>
+              <div className="flex-1 p-3.5">
+                <div className="text-[11px] font-bold text-ink-2 mb-1">เรทตอนนี้ (30 วัน)</div>
+                <div className={`text-2xl font-bold font-mono leading-none ${accent}`}>{p.recentRate.toFixed(1)}</div>
+                <div className={`text-xs mt-1.5 font-semibold ${accent}`}>{p.finishRecent ? `เสร็จ ${beShort(p.finishRecent)} · ${fmtDelta(p.deltaRecentDays)}` : "—"}</div>
+              </div>
+              <div className="flex-1 p-3.5">
+                <div className="text-[11px] font-bold text-ink-2 mb-1">เฉลี่ยทั้งโครงการ</div>
+                <div className="text-2xl font-bold text-ink-3 font-mono leading-none">{p.lifetimeRate.toFixed(1)}</div>
+                <div className="text-xs text-ink-3 mt-1.5 font-semibold">{p.finishLifetime ? `เสร็จ ${beShort(p.finishLifetime)} · ${fmtDelta(p.deltaLifetimeDays)}` : "—"}</div>
+              </div>
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* ═══ SECTION 3: Segment Installation Trend ═══ */}
       <div className={`bg-surface rounded-card shadow-card border border-line p-5 sm:p-8 overflow-hidden ${getPrintClass('segment')}`}>

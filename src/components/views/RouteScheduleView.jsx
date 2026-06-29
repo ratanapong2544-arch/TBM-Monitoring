@@ -155,15 +155,15 @@ const RouteScheduleView = ({ segmentRecords = [], projectInfo, machine = "TBM1",
     const nowTH = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Bangkok" }));
     const currentMonth = `${nowTH.getFullYear()}-${String(nowTH.getMonth() + 1).padStart(2, '0')}`;
 
-    // เดือนสุดท้ายของโครงการ: ก.ย. 2028 (ก.ย. 71)
-    const projectEndMonth = "2028-09";
+    // เดือนสุดท้ายของโครงการ: มิ.ย. 2028 (มิ.ย. 71) — กำหนดเสร็จ
+    const projectEndMonth = "2028-06";
 
     let currentActualAcc = 0;
     let currentPlanAcc = 0;
     let currentMonthStr = minMonth;
     const result = [];
 
-    // สร้างข้อมูลจนถึง ก.ย. 71 เต็มโครงการ
+    // สร้างข้อมูลจนถึง มิ.ย. 71 (กำหนดเสร็จ)
     let loopCount = 0;
     while (currentMonthStr <= projectEndMonth && loopCount < 100) {
       let mData = monthsMap.get(currentMonthStr);
@@ -295,7 +295,7 @@ const RouteScheduleView = ({ segmentRecords = [], projectInfo, machine = "TBM1",
     const fmtThai = (idx) => `${thMonths[((idx % 12) + 12) % 12]} ${String(Math.floor(idx / 12) + 543).slice(-2)}`;
     const finishIdx = monthsToFinish != null ? curIdx + Math.ceil(monthsToFinish) : null;
     const forecastLabel = finishIdx != null ? fmtThai(finishIdx) : "—";
-    const deadlineIdx = 2028 * 12 + 8; // ก.ย. 2028 (month index 8)
+    const deadlineIdx = 2028 * 12 + 5; // มิ.ย. 2028 (month index 5)
     const monthsToDeadline = Math.max(0, deadlineIdx - curIdx);
     const requiredRate = monthsToDeadline > 0 ? remaining / monthsToDeadline : 0;
     const onTime = finishIdx != null && finishIdx <= deadlineIdx;
@@ -408,7 +408,7 @@ const RouteScheduleView = ({ segmentRecords = [], projectInfo, machine = "TBM1",
                   }}
                 />
 
-                {/* เส้น Plan — แสดงเต็มจนถึง ก.ย. 71 */}
+                {/* เส้น Plan — จบที่เดือนขุดเสร็จ (กำหนด มิ.ย. 71) */}
                 <Line
                   type="monotone"
                   dataKey="planAcc"
@@ -685,7 +685,7 @@ const RouteScheduleView = ({ segmentRecords = [], projectInfo, machine = "TBM1",
             <div>
               <div className="text-xs font-semibold text-ink-3 uppercase mb-1">คาดเสร็จ (rate ปัจจุบัน)</div>
               <div className={`text-xl font-semibold font-mono ${forecast.onTime ? "text-sgreen-dark" : "text-code-d"}`}>{forecast.forecastLabel}</div>
-              <div className="text-[11px] text-ink-2 mt-0.5">{forecast.onTime ? "✓ ทันกำหนด ก.ย. 71" : "⚠ ช้ากว่ากำหนด ก.ย. 71"}</div>
+              <div className="text-[11px] text-ink-2 mt-0.5">{forecast.onTime ? "✓ ทันกำหนด มิ.ย. 71" : "⚠ ช้ากว่ากำหนด มิ.ย. 71"}</div>
             </div>
             <div>
               <div className="text-xs font-semibold text-ink-3 uppercase mb-1">rate ปัจจุบัน</div>
@@ -695,7 +695,7 @@ const RouteScheduleView = ({ segmentRecords = [], projectInfo, machine = "TBM1",
             <div>
               <div className="text-xs font-semibold text-ink-3 uppercase mb-1">ต้องเร่งเป็น</div>
               <div className="text-xl font-semibold font-mono text-code-c">{forecast.requiredRate.toFixed(0)} <span className="text-xs text-ink-3">ม./เดือน</span></div>
-              <div className="text-[11px] text-ink-2 mt-0.5">เพื่อทันกำหนด ก.ย. 71</div>
+              <div className="text-[11px] text-ink-2 mt-0.5">เพื่อทันกำหนด มิ.ย. 71</div>
             </div>
           </div>
         </div>

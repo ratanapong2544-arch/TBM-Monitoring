@@ -1,4 +1,6 @@
-// คำนวณเรท/คาดเสร็จของงานขุดเจาะ — pure function (ทุกเรท = ริงต่อวันปฏิทิน)
+// คำนวณเรท/คาดเสร็จของงานขุดเจาะ — pure function
+// แสดงเรทเป็น "ริง/วันทำงาน" (สูตรเดียวกับ Daily Average หน้า Overview) แต่ทายวันเสร็จด้วยฐาน
+// "วันปฏิทิน" ของช่วงนั้น เพื่อให้ได้วันจริง (รวมวันหยุด/วันที่เครื่องจอด). เรทคิดตามช่วง filter ที่เลือก.
 import { formatDisplayDate } from "./formatters";
 import { PROJECT_DEADLINE, TOTAL_ROUTE_DISTANCE } from "./constants";
 
@@ -14,7 +16,8 @@ export function computePaceStats({
   today,
   deadline = PROJECT_DEADLINE,
   totalRouteDistance = TOTAL_ROUTE_DISTANCE,
-  recentWindowDays = 30,
+  filterStart = null,
+  filterEnd = null,
 }) {
   // 1 record ต่อ ring เฉพาะ permanent
   const map = new Map();
@@ -22,42 +25,42 @@ export function computePaceStats({
   const perm = Array.from(map.values());
   const doneRings = perm.length;
 
+  // ── ระดับโครงการ (คงที่ ไม่ขึ้นกับ filter) ──
   const totalDist = perm.reduce((s, r) => s + (parseFloat(r.length) || 0), 0);
   const avgLen = doneRings > 0 ? totalDist / doneRings : 1.4;
   const targetRings = Math.round(totalRouteDistance / avgLen);
   const remainingRings = Math.max(0, targetRings - doneRings);
 
-  const dates = perm.map((r) => formatDisplayDate(r.date)).filter(Boolean).sort();
-  const firstRingDate = dates.length > 0 ? dates[0] : today;
-  const daysSinceStart = Math.max(1, dayDiff(firstRingDate, today));
-
-  const lifetimeRate = doneRings / daysSinceStart;
-
-  const recentStart = addDays(today, -recentWindowDays);
-  const recentRings = perm.filter((r) => formatDisplayDate(r.date) > recentStart).length;
-  const recentDenom = Math.min(recentWindowDays, daysSinceStart);
-  const recentRate = recentRings / recentDenom;
+  const allDates = perm.map((r) => formatDisplayDate(r.date)).filter(Boolean).sort();
+  const firstRingDate = allDates.length > 0 ? allDates[0] : today;
 
   const daysLeft = Math.max(0, dayDiff(today, deadline));
-  const requiredRate = daysLeft > 0 ? remainingRings / daysLeft : null;
+  const requiredRate = daysLeft > 0 ? remainingRings / daysLeft : null; // ริง/วันปฏิทิน ให้ทันกำหนด
 
-  const projectedFinish = (rate) =>
-    rate > 0 ? addDays(today, Math.ceil(remainingRings / rate)) : null;
-  const finishRecent = projectedFinish(recentRate);
-  const finishLifetime = projectedFinish(lifetimeRate);
+  // ── ช่วงที่เลือก (ตาม filter) ── clamp ให้อยู่ใน [firstRing, today]
+  let winStart = filterStart || firstRingDate;
+  if (winStart < firstRingDate) winStart = firstRingDate;
+  let winEnd = filterEnd || today;
+  if (winEnd > today) winEnd = today;
 
-  const deltaRecentDays = finishRecent ? dayDiff(deadline, finishRecent) : null;
-  const deltaLifetimeDays = finishLifetime ? dayDiff(deadline, finishLifetime) : null;
+  const winDates = allDates.filter((d) => d >= winStart && d <= winEnd);
+  const windowRings = winDates.length;
+  const windowWorkingDays = new Set(winDates).size;
+  const windowCalendarDays = Math.max(1, dayDiff(winStart, winEnd) + 1);
 
-  const behind = finishRecent
-    ? deltaRecentDays > 0
-    : (daysLeft === 0 ? remainingRings > 0 : recentRate < requiredRate);
+  const workingRate = windowWorkingDays > 0 ? windowRings / windowWorkingDays : 0;  // ริง/วันทำงาน (แสดง)
+  const windowCalendarRate = windowRings / windowCalendarDays;                      // ริง/วันปฏิทิน (ใช้ทายวันเสร็จ)
+
+  const finishWindow = windowCalendarRate > 0 ? addDays(today, Math.ceil(remainingRings / windowCalendarRate)) : null;
+  const deltaWindowDays = finishWindow ? dayDiff(deadline, finishWindow) : null;    // บวก = ช้ากว่ากำหนด
+
+  const behind = finishWindow ? deltaWindowDays > 0 : remainingRings > 0;
 
   return {
     doneRings, targetRings, remainingRings,
-    recentRate, lifetimeRate, requiredRate,
-    finishRecent, finishLifetime,
-    deltaRecentDays, deltaLifetimeDays,
-    daysLeft, behind,
+    requiredRate, daysLeft,
+    workingRate, windowCalendarRate,
+    windowRings, windowWorkingDays, windowCalendarDays,
+    finishWindow, deltaWindowDays, behind,
   };
 }

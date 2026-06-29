@@ -13,63 +13,75 @@ function build(spec) {
   return out;
 }
 // route 1400 / avgLen 1.4 = targetRings 1000 (ทำให้คำนวณตรวจง่าย)
-const BASE = { totalRouteDistance: 1400, recentWindowDays: 30 };
+const BASE = { totalRouteDistance: 1400 };
 
-test("เคสปกติ: เรท 30 วัน = ฐานปฏิทิน, behind = true", () => {
-  const records = build([["2026-04-01", 10], ["2026-06-20", 30]]);
-  const r = computePaceStats({ ...BASE, segmentRecords: records, today: "2026-06-29", deadline: "2026-12-29" });
-  expect(r.doneRings).toBe(40);
+// ชุดข้อมูลร่วม: พ.ค. 1 วัน (10) + มิ.ย. 5 วันทำงาน (วันละ 4 = 20) → รวม 30 ริง
+const RECORDS = build([
+  ["2026-05-01", 10],
+  ["2026-06-10", 4], ["2026-06-11", 4], ["2026-06-12", 4], ["2026-06-13", 4], ["2026-06-14", 4],
+]);
+
+test("filter=All: เรท=ริง/วันทำงาน, วันเสร็จคิดจากวันปฏิทิน, behind=true", () => {
+  const r = computePaceStats({ ...BASE, segmentRecords: RECORDS, today: "2026-06-29", deadline: "2027-06-29" });
+  expect(r.doneRings).toBe(30);
   expect(r.targetRings).toBe(1000);
-  expect(r.remainingRings).toBe(960);
-  expect(r.recentRate).toBeCloseTo(1.0, 5);      // 30 ริง / 30 วัน
-  expect(r.lifetimeRate).toBeCloseTo(40 / 89, 4); // 89 วันปฏิทินตั้งแต่ 2026-04-01
-  expect(r.requiredRate).toBeCloseTo(960 / 183, 4);
+  expect(r.remainingRings).toBe(970);
+  // ทั้งช่วง: 6 วันทำงาน (พ.ค.1 + มิ.ย.10-14), 30 ริง → 5.0 ริง/วันทำงาน
+  expect(r.windowWorkingDays).toBe(6);
+  expect(r.workingRate).toBeCloseTo(30 / 6, 5);
+  // วันปฏิทิน 2026-05-01..2026-06-29 = 60 วัน → 0.5 ริง/วันปฏิทิน (ใช้ทายวันเสร็จ)
+  expect(r.windowCalendarDays).toBe(60);
+  expect(r.windowCalendarRate).toBeCloseTo(0.5, 5);
+  expect(r.requiredRate).toBeCloseTo(970 / 365, 4); // ถึง 2027-06-29
   expect(r.behind).toBe(true);
+  expect(r.finishWindow > "2027-06-29").toBe(true);
 });
 
-test("doneRings = 0: finishRecent = null, behind = true", () => {
-  const r = computePaceStats({ ...BASE, segmentRecords: [], today: "2026-06-29", deadline: "2026-12-29" });
+test("filter=Monthly(มิ.ย.): เรท+วันทำงาน+วันปฏิทิน คิดเฉพาะเดือนนั้น", () => {
+  const r = computePaceStats({ ...BASE, segmentRecords: RECORDS, today: "2026-06-29", deadline: "2027-06-29",
+    filterStart: "2026-06-01", filterEnd: "2026-06-30" });
+  expect(r.windowRings).toBe(20);          // เฉพาะ มิ.ย.
+  expect(r.windowWorkingDays).toBe(5);     // 5 วันทำงาน
+  expect(r.workingRate).toBeCloseTo(20 / 5, 5); // 4.0 ริง/วันทำงาน
+  // winEnd clamp เป็น today (2026-06-29) เพราะ < filterEnd; 2026-06-01..2026-06-29 = 29 วัน
+  expect(r.windowCalendarDays).toBe(29);
+});
+
+test("filter=Range ก่อนเริ่มงาน (ไม่มีงานในช่วง): workingRate=0, finishWindow=null", () => {
+  const r = computePaceStats({ ...BASE, segmentRecords: RECORDS, today: "2026-06-29", deadline: "2027-06-29",
+    filterStart: "2026-01-01", filterEnd: "2026-02-01" });
+  expect(r.windowRings).toBe(0);
+  expect(r.workingRate).toBe(0);
+  expect(r.finishWindow).toBeNull();
+  expect(r.behind).toBe(true); // ยังมีงานเหลือ
+});
+
+test("doneRings=0: workingRate=0, finishWindow=null, behind=true", () => {
+  const r = computePaceStats({ ...BASE, segmentRecords: [], today: "2026-06-29", deadline: "2027-06-29" });
   expect(r.doneRings).toBe(0);
-  expect(r.recentRate).toBe(0);
-  expect(r.finishRecent).toBeNull();
+  expect(r.workingRate).toBe(0);
+  expect(r.finishWindow).toBeNull();
   expect(r.behind).toBe(true);
 });
 
-test("โครงการอายุ < 30 วัน: หารด้วยอายุจริง ไม่ใช่ 30", () => {
-  const records = build([["2026-06-25", 18]]); // เริ่ม 2026-06-20? ไม่—ริงแรก = 2026-06-25
-  const r = computePaceStats({ ...BASE, segmentRecords: records, today: "2026-06-29", deadline: "2026-12-29" });
-  // daysSinceStart = dayDiff(2026-06-25, 2026-06-29) = 4 → recentDenom = min(30,4) = 4
-  expect(r.recentRate).toBeCloseTo(18 / 4, 5);
-});
-
-test("เลยกำหนดแล้ว: requiredRate = null", () => {
-  const records = build([["2026-05-01", 10]]);
-  const r = computePaceStats({ ...BASE, segmentRecords: records, today: "2026-06-29", deadline: "2026-06-01" });
+test("เลยกำหนดแล้ว: requiredRate=null", () => {
+  const r = computePaceStats({ ...BASE, segmentRecords: RECORDS, today: "2026-06-29", deadline: "2026-06-01" });
   expect(r.requiredRate).toBeNull();
 });
 
-test("เรทเร็วพอ: behind = false, เสร็จก่อนกำหนด", () => {
-  const records = build([["2026-06-28", 980]]);
-  const r = computePaceStats({ ...BASE, segmentRecords: records, today: "2026-06-29", deadline: "2027-06-29" });
-  expect(r.remainingRings).toBe(20);
+test("เรทเร็วพอ: behind=false, เสร็จก่อนกำหนด", () => {
+  // 30 วันติด วันละ 33 ริง = 990, เหลือ 10 → calendarRate=33 → เสร็จเกือบทันที
+  const fast = build([
+    ...Array.from({ length: 30 }, (_, i) => {
+      const d = new Date(Date.UTC(2026, 4, 31 + i)).toISOString().slice(0, 10); // 2026-05-31 + i
+      return [d, 33];
+    }),
+  ]);
+  const r = computePaceStats({ ...BASE, segmentRecords: fast, today: "2026-06-29", deadline: "2027-06-29" });
+  expect(r.doneRings).toBe(990);
+  expect(r.remainingRings).toBe(10);
+  expect(r.workingRate).toBeCloseTo(33, 5);
   expect(r.behind).toBe(false);
-  expect(r.finishRecent <= "2027-06-29").toBe(true);
-  expect(r.deltaRecentDays).toBeLessThan(0);
-});
-
-test("ไม่มีงานใน 30 วันล่าสุด: finishRecent = null แต่ finishLifetime มีค่า", () => {
-  const records = build([["2026-04-01", 50]]);
-  const r = computePaceStats({ ...BASE, segmentRecords: records, today: "2026-06-29", deadline: "2026-12-29" });
-  expect(r.recentRate).toBe(0);
-  expect(r.finishRecent).toBeNull();
-  expect(r.finishLifetime).not.toBeNull();
-});
-
-test("เลยกำหนดแล้ว + ยังมีงานเหลือ + ไม่มีงาน 30 วันล่าสุด: behind = true (ไม่โชว์เขียว)", () => {
-  const records = build([["2026-01-01", 10]]); // มีงานเก่า แต่ไม่มีงานใน 30 วันล่าสุด
-  const r = computePaceStats({ ...BASE, segmentRecords: records, today: "2026-06-29", deadline: "2026-06-01" });
-  expect(r.requiredRate).toBeNull();          // เลยกำหนด
-  expect(r.recentRate).toBe(0);               // ไม่มีงาน 30 วันล่าสุด
-  expect(r.remainingRings).toBeGreaterThan(0);
-  expect(r.behind).toBe(true);
+  expect(r.finishWindow <= "2027-06-29").toBe(true);
+  expect(r.deltaWindowDays).toBeLessThan(0);
 });

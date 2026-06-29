@@ -4,3 +4,5 @@ build
 # Secrets — local only (.env.example stays tracked)
 .env
 .env.local
+# superpowers scratch (SDD ledger, brainstorm)
+.superpowers/

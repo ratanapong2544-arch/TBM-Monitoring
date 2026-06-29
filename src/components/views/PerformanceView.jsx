@@ -7,6 +7,7 @@ import { formatDisplayTime, formatDisplayDate } from "../../utils/formatters";
 import { getRingNumeric, shiftEventMinutes, getLogicalShiftDate } from "../../utils/helpers";
 import { chartColors, axisTick, tooltipStyle } from "../../ui-ux-pro-max/chartTheme";
 import { computeMuckImpact } from "../../utils/muckStats";
+import { classifyOther3 } from "../../utils/delayClassify";
 import {
   ResponsiveContainer, PieChart, Pie, Cell, Tooltip,
   ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Legend, LabelList,
@@ -62,6 +63,7 @@ export default function PerformanceView({ segmentRecords = [], shiftReports = []
     });
 
     const catMin = {};
+    const other3Theme = {};
     let shifts = 0;
     let operating = 0;
     filteredShiftReports.forEach((r) => {
@@ -71,6 +73,13 @@ export default function PerformanceView({ segmentRecords = [], shiftReports = []
         const arr = Array.isArray(events[cat]) ? events[cat] : [];
         const mins = arr.reduce((s, ev) => s + shiftEventMinutes(ev.start, ev.end, r.shift), 0);
         catMin[cat] = (catMin[cat] || 0) + mins;
+        // แตก "Other 3" (catch-all) ตาม label เพื่อให้ Pareto โชว์สาเหตุจริงแทนแท่งรวมเดียว
+        if (cat === "Other 3") {
+          arr.forEach((ev) => {
+            const m = shiftEventMinutes(ev.start, ev.end, r.shift);
+            if (m > 0) { const th = classifyOther3(ev.label); other3Theme[th] = (other3Theme[th] || 0) + m; }
+          });
+        }
       });
       operating += Math.min(SHIFT_MINUTES, shiftOp[`${formatDisplayDate(r.date)}__${r.shift}`] || 0);
     });
@@ -82,8 +91,11 @@ export default function PerformanceView({ segmentRecords = [], shiftReports = []
     const idle = Math.max(0, available - (operating + support + delay + maintenance));
     const utilizationPct = available > 0 ? (operating / available) * 100 : null;
 
-    const delayItems = CAT.delay
-      .map((k) => ({ name: k, minutes: catMin[k] || 0 }))
+    // 4 หมวด delay ที่ตั้งชื่อไว้ + "Other 3" ที่แตกเป็นธีมตาม label (Muck Full ยังเป็น named item อันดับ 1)
+    const delayItems = [
+      ...CAT.delay.filter((k) => k !== "Other 3").map((k) => ({ name: k, minutes: catMin[k] || 0 })),
+      ...Object.entries(other3Theme).map(([name, minutes]) => ({ name, minutes })),
+    ]
       .filter((d) => d.minutes > 0)
       .sort((a, b) => b.minutes - a.minutes);
     const delayTotal = delayItems.reduce((s, d) => s + d.minutes, 0);
@@ -187,7 +199,7 @@ export default function PerformanceView({ segmentRecords = [], shiftReports = []
       <section className="space-y-4">
         <SectionHeader title="Utilization & Downtime" subtitle="การใช้งานเครื่อง & เวลาสูญเสีย" icon={Gauge} />
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <StatCard label="Utilization" value={util.utilizationPct === null ? "—" : `${fmt1(util.utilizationPct)}%`} subtext="ขุด+ประกอบ ÷ เวลาทั้งหมด" color="text-sgreen-dark" valueColor="text-sgreen-dark" icon={Gauge} />
+          <StatCard label="Operating (ขุด+ประกอบ)" value={util.utilizationPct === null ? "—" : `${fmt1(util.operating / 60)} ชม.`} subtext={util.utilizationPct === null ? "ขุด+ประกอบ ÷ เวลาทั้งหมด" : `Utilization ${fmt1(util.utilizationPct)}% ของเวลาทั้งหมด`} color="text-sgreen-dark" valueColor="text-sgreen-dark" icon={Gauge} />
           <StatCard label="Delay รวม" value={`${fmt1(util.delayHours)} ชม.`} subtext={`${util.available > 0 ? fmt1((util.delay / util.available) * 100) : 0}% ของเวลาทั้งหมด`} color="text-code-d" valueColor="text-code-d" icon={AlertTriangle} />
           <StatCard label="Maintenance" value={`${fmt1(util.maintHours)} ชม.`} subtext={`${util.available > 0 ? fmt1((util.maintenance / util.available) * 100) : 0}% ของเวลาทั้งหมด`} color="text-code-c" valueColor="text-code-c" icon={Wrench} />
           <StatCard label="เฉลี่ย Operating/กะ" value={`${fmt1(util.avgOperatingPerShift)} ชม.`} subtext={`จาก ${util.shifts} กะ (กะละ 12 ชม.)`} color="text-navy" valueColor="text-navy" icon={Activity} />
@@ -228,15 +240,15 @@ export default function PerformanceView({ segmentRecords = [], shiftReports = []
           </div>
           <div className="bg-surface rounded-card p-6 shadow-card border border-line">
             <h3 className="font-semibold text-ink text-base mb-1">Downtime Pareto — สาเหตุเวลาสูญเสีย</h3>
-            <p className="text-xs text-ink-3 font-semibold mb-4">กลุ่ม Delay เรียงมาก→น้อย + เส้นสะสม %</p>
+            <p className="text-xs text-ink-3 font-semibold mb-4">กลุ่ม Delay เรียงมาก→น้อย · "Other 3" แตกตามสาเหตุ + เส้นสะสม %</p>
             {util.pareto.length === 0 ? (
-              <div className="h-[260px] flex items-center justify-center text-ink-3 text-sm">ไม่มี Delay ที่บันทึกในช่วงนี้ 🎉</div>
+              <div className="h-[300px] flex items-center justify-center text-ink-3 text-sm">ไม่มี Delay ที่บันทึกในช่วงนี้ 🎉</div>
             ) : (
-              <div className="h-[260px] w-full">
+              <div className="h-[300px] w-full">
                 <ResponsiveContainer width="100%" height="100%">
-                  <ComposedChart data={util.pareto} margin={{ top: 16, right: 16, left: 0, bottom: 40 }}>
+                  <ComposedChart data={util.pareto} margin={{ top: 16, right: 16, left: 0, bottom: 48 }}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={chartColors.grid} />
-                    <XAxis dataKey="name" tick={axisTick} angle={-30} textAnchor="end" height={60} interval={0} stroke={chartColors.axis} />
+                    <XAxis dataKey="name" tick={axisTick} angle={-35} textAnchor="end" height={72} interval={0} stroke={chartColors.axis} />
                     <YAxis yAxisId="l" tick={axisTick} axisLine={false} tickLine={false} label={{ value: "ชม.", angle: -90, position: "insideLeft", fill: chartColors.axisLabel, fontSize: 11 }} />
                     <YAxis yAxisId="r" orientation="right" domain={[0, 100]} tick={axisTick} axisLine={false} tickLine={false} unit="%" />
                     <Tooltip {...tooltipStyle} />

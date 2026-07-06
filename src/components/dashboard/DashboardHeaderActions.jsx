@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { Printer, Sparkles, AlertCircle, X, Loader2, Check, Copy } from "lucide-react";
 import { generateGeminiSummary } from "../../utils/api";
+import { fitAndPrint } from "../../utils/printFit";
 
 const STD_ACTIVITIES = ["Excavation", "Segment Erection", "Locomotive / Rail System", "Survey", "Other 1", "Other 2"];
 
@@ -88,7 +89,7 @@ ${remarksText}
     <>
       <div className="flex gap-2 shrink-0 print:hidden">
         {!isViewer && (
-          <button onClick={() => window.print()} className="bg-surface hover:bg-cyan-tint border border-line text-ink-2 hover:text-navy px-3 py-2 rounded-input flex items-center gap-1.5 font-semibold text-xs transition-colors active:scale-95 whitespace-nowrap">
+          <button onClick={() => fitAndPrint(document.getElementById("dashboard-print-root"), { orientation: "landscape", onePage: true })} className="bg-surface hover:bg-cyan-tint border border-line text-ink-2 hover:text-navy px-3 py-2 rounded-input flex items-center gap-1.5 font-semibold text-xs transition-colors active:scale-95 whitespace-nowrap">
             <Printer size={15} /> <span className="hidden sm:inline">ปริ้น PDF</span>
           </button>
         )}

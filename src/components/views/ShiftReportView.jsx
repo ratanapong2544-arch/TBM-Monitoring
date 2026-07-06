@@ -3,6 +3,7 @@ import { FileText, CloudUpload, Save, Edit, Trash2, Plus, Users, Activity, Clock
 import { formatDisplayDate, formatDisplayTime } from "../../utils/formatters";
 import { getLogicalShiftDate, getRingNumeric, loadHtml2Canvas } from "../../utils/helpers";
 import { apiCall } from "../../utils/api";
+import { fitAndPrint } from "../../utils/printFit";
 
 const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftReports, machine = "TBM1", readOnly = false }) => {
   const [isSaving, setIsSaving] = useState(false);
@@ -195,7 +196,7 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
 
   const handleManpowerChange = (e) => setManpower({ ...manpower, [e.target.name]: e.target.value });
   const handleResultChange = (e) => setResult({ ...result, [e.target.name]: e.target.value });
-  const handlePrint = () => window.print();
+  const handlePrint = () => fitAndPrint(document.getElementById("shift-report-container"), { orientation: "portrait", onePage: true });
 
   const handleDownloadImage = async () => {
     const element = document.getElementById("shift-report-container");
@@ -266,7 +267,7 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
 
   return (
     <div className="max-w-[1123px] mx-auto font-sans text-sm pb-32 animate-fade-in">
-      <style dangerouslySetInnerHTML={{ __html: '@media print { @page { size: A4 landscape; margin: 8mm; } }' }} />
+      <style dangerouslySetInnerHTML={{ __html: '@media print { @page { size: A4 portrait; margin: 8mm; } }' }} />
       <div className="mb-6 bg-white p-5 rounded-card shadow-card border border-line flex flex-col sm:flex-row justify-between items-center gap-4 no-print">
         <h1 className="text-xl font-semibold text-ink flex items-center gap-3"><FileText className="text-navy" size={24} />ระบบบันทึก TBM Shift Report</h1>
         <div className="flex w-full sm:w-auto gap-3">

@@ -11,6 +11,7 @@ import { chartColors, axisTick, tooltipStyle } from "../../ui-ux-pro-max/chartTh
 import {
   ResponsiveContainer, ComposedChart, CartesianGrid, XAxis, YAxis, Tooltip, Bar, Line
 } from "recharts";
+import { fitAndPrint } from "../../utils/printFit";
 
 export default function SegmentAnalysisView({ segmentRecords = [], projectInfo, machine = "TBM1", filterState = {}, readOnly = false }) {
   const filteredSegments = useMemo(() => filterByState(segmentRecords, filterState), [segmentRecords, filterState]);
@@ -38,7 +39,7 @@ export default function SegmentAnalysisView({ segmentRecords = [], projectInfo, 
   const handlePrintSpecificChart = (chartId) => {
     setPrintingChartId(chartId);
     setTimeout(() => {
-      window.print();
+      fitAndPrint(document.querySelector(".print-target"), { orientation: "landscape", onePage: true });
       setPrintingChartId("all");
     }, 600);
   };

@@ -13,6 +13,7 @@ import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip } from "recharts";
 import ExecutiveEmptyState from "./ExecutiveEmptyState";
 import AlignmentMapView from "./AlignmentMapView";
 import ProfileSectionView from "./ProfileSectionView";
+import { fitAndPrint } from "../../utils/printFit";
 
 const ExecutiveDashboardView = ({ segmentRecords, groutRecords, dailyReports = [], machine = "TBM1", onNavigate, filterState = {}, readOnly = false }) => {
   const filteredSegments = useMemo(() => filterByState(segmentRecords, filterState), [segmentRecords, filterState]);
@@ -24,7 +25,7 @@ const ExecutiveDashboardView = ({ segmentRecords, groutRecords, dailyReports = [
     setPrintingChartId(chartId);
     // หน่วงเวลาให้ Recharts.ResponsiveContainer ได้คำนวณ width ตามหน้าจอแบบเต็มที่ก่อนจะ Print
     setTimeout(() => {
-      window.print();
+      fitAndPrint(document.querySelector(".print-target"), { orientation: "portrait", onePage: true });
       setPrintingChartId("all");
     }, 600);
   };
@@ -162,7 +163,7 @@ const ExecutiveDashboardView = ({ segmentRecords, groutRecords, dailyReports = [
   }
 
   return (
-    <div className="max-w-full mx-auto space-y-8 sm:space-y-10 animate-fade-in pb-24 print:max-w-full print:w-full print:m-0 print:p-0 print:space-y-0 print:block">
+    <div id="dashboard-print-root" className="max-w-full mx-auto space-y-8 sm:space-y-10 animate-fade-in pb-24 print:max-w-full print:w-full print:m-0 print:p-0 print:space-y-0 print:block">
       <style>{`
         @media print {
           @page { size: landscape; margin: 10mm; }
@@ -182,14 +183,14 @@ const ExecutiveDashboardView = ({ segmentRecords, groutRecords, dailyReports = [
             width: 100% !important;
             min-height: 100vh !important;
             height: auto !important;
-            margin: 0 !important;
+            margin: 0 auto !important;
             padding: 20px !important;
             background: white !important;
             border: none !important;
             box-shadow: none !important;
             border-radius: 0 !important;
             z-index: 99999 !important;
-            max-width: none !important;
+            max-width: 640px !important; /* pie เป็น chart สี่เหลี่ยมเล็ก — กระชับกล่องให้ donut เต็มหน้า ไม่กระจุกมุมเดียว */
           }
 
           .print-target * {
@@ -277,7 +278,8 @@ const ExecutiveDashboardView = ({ segmentRecords, groutRecords, dailyReports = [
             {!readOnly && (<button onClick={() => handlePrintSpecificChart('pie')} className="p-1.5 text-ink-3 hover:text-navy bg-surface-alt hover:bg-cyan-tint rounded-input transition-colors border border-line shadow-card print:hidden" title="Print Chart"><Printer size={16} /></button>)}
           </div>
           <div className="flex items-center gap-4 print:items-center print:justify-center">
-            <div className="w-32 h-32 sm:w-36 sm:h-36 shrink-0 print:w-[350px] print:h-[350px] transition-all">
+            {/* ปริ้น pie เดี่ยว: ขยาย container บนจอตอนเตรียมปริ้น (600ms) ให้ recharts re-measure SVG ใหญ่ตาม — print CSS ล้วนๆ ไม่พอเพราะ recharts จับขนาดจากจอ */}
+            <div className={`shrink-0 transition-all ${printingChartId === "pie" ? "w-[340px] h-[340px] mx-auto" : "w-32 h-32 sm:w-36 sm:h-36"}`}>
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
                   <Pie data={shiftComparison} cx="50%" cy="50%" innerRadius={30} outerRadius={55} paddingAngle={4} dataKey="value" stroke="none" isAnimationActive={printingChartId === "all"}>

@@ -41,12 +41,12 @@ export default function IssueCard({ issue, onEdit, onCloseIssue, onReopenIssue, 
           {(issue.date || issue.ringCH) && (
             <div>{issue.date && `📅 ${issue.date}`}{issue.date && issue.ringCH && " · "}{issue.ringCH}</div>
           )}
-          {issue.detail && <div className="text-ink-2">{issue.detail}</div>}
+          {issue.detail && <div className="text-ink-2 whitespace-pre-line">{issue.detail}</div>}
         </div>
       )}
 
       {!readOnly && (
-      <div className={`flex items-center gap-1 mt-2.5 pt-2 border-t border-line/60 transition-opacity ${alwaysShowActions ? "" : "opacity-0 group-hover:opacity-100 focus-within:opacity-100"}`}>
+      <div className={`items-center gap-1 mt-2.5 pt-2 border-t border-line/60 ${alwaysShowActions ? "flex" : "hidden group-hover:flex focus-within:flex"}`}>
         <button onClick={() => onEdit(issue)} title="แก้ไข" className="p-1.5 rounded-input text-ink-3 hover:bg-cyan-tint hover:text-navy transition-colors"><Pencil size={16} /></button>
         {isClosed ? (
           <button onClick={() => onReopenIssue(issue.id)} title="เปิดใหม่" className="p-1.5 rounded-input text-ink-3 hover:bg-cyan-tint hover:text-navy transition-colors"><RotateCcw size={16} /></button>

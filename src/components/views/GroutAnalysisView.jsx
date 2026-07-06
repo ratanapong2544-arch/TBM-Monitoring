@@ -9,6 +9,7 @@ import { getRingNumeric } from "../../utils/helpers";
 import { THEORETICAL_VOL, VOL_120, VOL_150, VOL_80, VOL_50 } from "../../utils/constants";
 import SectionHeader from "../common/SectionHeader";
 import StatCard from "../common/StatCard";
+import { fitAndPrint } from "../../utils/printFit";
 
 export default function GroutAnalysisView({ groutRecords = [], readOnly = false }) {
   // ── Print State ──
@@ -17,7 +18,7 @@ export default function GroutAnalysisView({ groutRecords = [], readOnly = false 
   const handlePrintSpecificChart = (chartId) => {
     setPrintingChartId(chartId);
     setTimeout(() => {
-      window.print();
+      fitAndPrint(document.querySelector(".print-target"), { orientation: "landscape", onePage: true });
       setPrintingChartId("all");
     }, 600);
   };
@@ -211,15 +212,15 @@ export default function GroutAnalysisView({ groutRecords = [], readOnly = false 
         </div>
       </section>
 
-      {/* ── Grout Quality summary ── */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      {/* ── Grout Quality summary ── (ซ่อนตอนปริ้นกราฟเดี่ยว เพื่อให้ออกหน้าเดียว) */}
+      <div className={`grid grid-cols-1 sm:grid-cols-3 gap-4 ${printingChartId !== "all" ? "print:hidden" : ""}`}>
         <StatCard label="Re-grout rate" value={`${groutQuality.reGroutRate.toFixed(1)}%`} subtext={`${groutQuality.reGroutCount} จาก ${groutQuality.uniqueRings} rings`} color="text-code-d" valueColor={groutQuality.reGroutRate > 10 ? "text-code-d" : "text-sgreen-dark"} icon={RefreshCw} />
         <StatCard label="เฉลี่ย Ratio" value={`${groutQuality.avgRatio.toFixed(1)}%`} subtext="อัตราส่วนน้ำยาเฉลี่ยทุก ring" color="text-navy" valueColor={groutQuality.avgRatio >= 100 ? "text-sgreen-dark" : "text-code-d"} icon={Droplet} />
         <StatCard label="Rings < 100%" value={`${groutQuality.belowSpec} rings`} subtext="ต่ำกว่าทฤษฎี (ควรตรวจ)" color="text-code-c" valueColor={groutQuality.belowSpec > 0 ? "text-code-c" : "text-sgreen-dark"} icon={BarChart3} />
       </div>
 
-      {/* ── Ratio distribution histogram ── */}
-      <div className="bg-surface rounded-card p-6 shadow-card border border-line">
+      {/* ── Ratio distribution histogram ── (ซ่อนตอนปริ้นกราฟเดี่ยว) */}
+      <div className={`bg-surface rounded-card p-6 shadow-card border border-line ${printingChartId !== "all" ? "print:hidden" : ""}`}>
         <h3 className="font-semibold text-ink text-base mb-1">การกระจายของ Grout Ratio</h3>
         <p className="text-xs text-ink-3 font-semibold mb-4">จำนวน rings ในแต่ละช่วง % เทียบทฤษฎี (3.1 m³ = 100%)</p>
         <div className="h-[280px] w-full">

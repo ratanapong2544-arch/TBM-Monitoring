@@ -6,6 +6,7 @@ import { generateGeminiSummary } from "../../utils/api";
 import { TOTAL_ROUTE_DISTANCE } from "../../utils/constants";
 import { composeExcavationWorkLog, mapManpowerToLabor } from "../../utils/worklogCompose";
 import { newDailyReport, MACHINES } from "../../utils/dailyReports";
+import { fitAndPrint } from "../../utils/printFit";
 
 const ReportView = ({ segmentRecords, groutRecords, projectInfo, shiftReports, onCreateDaily }) => {
   const [reportType, setReportType] = useState("daily");
@@ -284,7 +285,7 @@ ${body}`;
           </div>
           <div className="grid grid-cols-2 sm:flex sm:flex-row items-center gap-2 sm:gap-3 w-full lg:w-auto">
             <button onClick={handleDownloadImage} disabled={isExportingImage} className="w-full sm:w-auto bg-navy hover:bg-navy-deepest text-white px-3 sm:px-4 py-2.5 rounded-input flex items-center justify-center gap-1.5 font-semibold shadow-card transition-colors whitespace-nowrap text-xs sm:text-sm">{isExportingImage ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />} <span className="hidden sm:inline">เซฟรูปภาพ</span><span className="sm:hidden">เซฟรูป</span></button>
-            <button onClick={() => window.print()} className="w-full sm:w-auto bg-navy hover:bg-navy-dark text-white px-3 sm:px-4 py-2.5 rounded-input flex items-center justify-center gap-1.5 font-semibold shadow-card transition-colors whitespace-nowrap text-xs sm:text-sm"><Printer size={16} /> <span className="hidden sm:inline">Print PDF</span><span className="sm:hidden">Print</span></button>
+            <button onClick={() => fitAndPrint(document.getElementById("stats-report-container"), { orientation: "portrait", onePage: false })} className="w-full sm:w-auto bg-navy hover:bg-navy-dark text-white px-3 sm:px-4 py-2.5 rounded-input flex items-center justify-center gap-1.5 font-semibold shadow-card transition-colors whitespace-nowrap text-xs sm:text-sm"><Printer size={16} /> <span className="hidden sm:inline">Print PDF</span><span className="sm:hidden">Print</span></button>
             <button onClick={handleGenerateAISummary} className="col-span-2 w-full sm:w-auto bg-navy hover:bg-navy-dark text-white px-3 sm:px-4 py-2.5 rounded-input flex items-center justify-center gap-1.5 font-semibold shadow-card transition-all active:scale-95 whitespace-nowrap text-xs sm:text-sm"><Sparkles size={16} /> สรุปรายงานประจำวัน</button>
           </div>
         </div>

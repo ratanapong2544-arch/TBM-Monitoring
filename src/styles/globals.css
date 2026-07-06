@@ -75,9 +75,8 @@ div[style*="z-index: 9999999"] {
   }
   main > div {
     width: 100% !important;
-    transform: scale(0.88);
-    transform-origin: top center;
-    page-break-inside: avoid !important;
+    /* per-page fit-to-page zoom is applied at print time by utils/printFit.js
+       (was: transform: scale(0.88) — a fixed magic number that drifted as layouts changed) */
   }
   table, tr, td, th {
     page-break-inside: avoid !important;

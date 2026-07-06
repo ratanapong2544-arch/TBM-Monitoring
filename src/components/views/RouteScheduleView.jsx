@@ -12,6 +12,7 @@ import { chartColors, axisTick, tooltipStyle } from "../../ui-ux-pro-max/chartTh
 import {
   ResponsiveContainer, ComposedChart, CartesianGrid, XAxis, YAxis, Tooltip, Line, ReferenceLine
 } from "recharts";
+import { fitAndPrint } from "../../utils/printFit";
 
 const RouteScheduleView = ({ segmentRecords = [], projectInfo, machine = "TBM1", filterState = {}, readOnly = false }) => {
   const filteredSegments = useMemo(() => filterByState(segmentRecords, filterState), [segmentRecords, filterState]);
@@ -23,27 +24,9 @@ const RouteScheduleView = ({ segmentRecords = [], projectInfo, machine = "TBM1",
 
   const handlePrintSpecificChart = (chartId) => {
     setPrintingChartId(chartId);
+    // zoom-to-fit หน้าเดียวแนวนอน — logic เดิมของหน้านี้ถูกสกัดไป utils/printFit.js แล้วใช้ร่วมทุกหน้า
     setTimeout(() => {
-      // fit-to-one-page แนวนอน: วัด print group ใน layout ปกติ แล้วย่อด้วย CSS zoom (ย่อ layout box จริง
-      // ไม่เหลือกล่องสูงเกินไปดันหน้า 2 แบบ transform) — ตั้ง inline + !important ให้ชนะทุก stylesheet
-      const grp = printGroupRef.current;
-      const mainDiv = document.querySelector("main > div"); // globals สั่ง scale(0.88) ตอนปริ้น — ยกเลิกชั่วคราว
-      let cleanup = () => {};
-      if (grp && grp.scrollWidth > 0 && grp.scrollHeight > 0) {
-        const PAGE_W = 1020, PAGE_H = 680; // A4 landscape − margin 10mm @96dpi − เผื่อ header/footer ของ browser (ของจริงกินพื้นที่เกิน margin)
-        const W = grp.scrollWidth, H = grp.scrollHeight;
-        const s = Math.min(PAGE_W / W, PAGE_H / H, 1) * 0.99; // ×0.99 กันปัดเศษ zoom เกินหน้า
-        grp.style.setProperty("width", `${W}px`, "important"); // freeze layout กว้างเท่าจอ (recharts SVG ไม่ reflow ตอนปริ้น)
-        grp.style.zoom = String(s);
-        if (mainDiv) mainDiv.style.setProperty("transform", "none", "important");
-        cleanup = () => {
-          grp.style.removeProperty("width");
-          grp.style.zoom = "";
-          if (mainDiv) mainDiv.style.removeProperty("transform");
-        };
-      }
-      window.print();
-      cleanup();
+      fitAndPrint(printGroupRef.current, { orientation: "landscape", onePage: true });
       setPrintingChartId("all");
     }, 350);
   };

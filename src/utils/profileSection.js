@@ -9,11 +9,25 @@ export function linScale(v, [d0, d1], [r0, r1]) {
   return r0 + ((v - d0) / (d1 - d0)) * (r1 - r0);
 }
 
-// ringNo ที่เป็นตัวเลขล้วน → int, อื่นๆ (เช่น "T7") → null
+// ดึงเลขริงจากสตริง (prefix-aware: "P41"→41, "P-123"→123, "572"→572), ไม่มีเลข → null
+// สอดคล้องกับ getRingNumeric (helpers.js) แต่คงไว้ใน profileSection ให้ไฟล์ pure (ไม่ import helpers ที่มี browser API)
 export function parseRingNo(ringNo) {
   if (ringNo == null) return null;
-  const s = String(ringNo).trim();
-  return /^\d+$/.test(s) ? parseInt(s, 10) : null;
+  const m = String(ringNo).match(/\d+/);
+  return m ? parseInt(m[0], 10) : null;
+}
+
+// number helper: null/NaN → null, อื่นๆ → float
+function numOrNull(v) {
+  if (v == null) return null;
+  const n = parseFloat(v);
+  return isNaN(n) ? null : n;
+}
+
+// record มีค่าหัวเจาะอย่างน้อย 1 metric (head/art/tail/vrt) ไหม
+function hasAnyHeadMetric(r) {
+  if (r == null) return false;
+  return [r.headV, r.artV, r.tailV, r.vrt].some((v) => numOrNull(v) != null);
 }
 
 // RL ของแนวออกแบบที่ chainage ch (interpolate เชิงเส้น) — null ถ้านอกช่วง
@@ -43,32 +57,32 @@ export function classifyDeviation(devMM, tolMM = 75) {
   return "ok";
 }
 
-// แปลง records → จุดค่าเบี่ยงเบน (เฉพาะที่มี headV ตัวเลข), เรียงตาม chainage มาก→น้อย (ทิศเจาะ)
+// แปลง records → จุดค่าเบี่ยงเบน (metric-aware: เก็บ record ที่มี metric ใดก็ได้), เรียงตาม chainage มาก→น้อย (ทิศเจาะ)
 export function deviationSeries(records = [], designLine = []) {
   const out = [];
   for (const r of records) {
-    if (r == null || r.headV == null || isNaN(parseFloat(r.headV))) continue;
+    if (!hasAnyHeadMetric(r)) continue;
     const ch = parseCH(r.finishCH);
     if (isNaN(ch)) continue;
     const designRL = designRLAtCh(designLine, ch);
-    const headV = parseFloat(r.headV);
+    const headV = numOrNull(r.headV);
     out.push({
       ringNo: r.ringNo, ch, headV,
-      artV: r.artV == null ? null : parseFloat(r.artV),
-      tailV: r.tailV == null ? null : parseFloat(r.tailV),
-      vrt: r.vrt == null ? null : parseFloat(r.vrt),
+      artV: numOrNull(r.artV),
+      tailV: numOrNull(r.tailV),
+      vrt: numOrNull(r.vrt),
       designRL,
-      actualRL: designRL == null ? null : designRL + headV / 1000,
+      actualRL: designRL == null || headV == null ? null : designRL + headV / 1000,
     });
   }
   return out.sort((a, b) => b.ch - a.ch);
 }
 
-// ring ตัวเลขมากสุดที่มี headV → state สำหรับ callout หัวเจาะ; null ถ้าไม่มี
+// ring ตัวเลขมากสุดที่มี metric ใดก็ได้ (metric-aware) → state สำหรับ callout หัวเจาะ; null ถ้าไม่มี
 export function latestRingState(records = []) {
   let best = null, bestN = -Infinity;
   for (const r of records) {
-    if (r == null || r.headV == null || isNaN(parseFloat(r.headV))) continue;
+    if (!hasAnyHeadMetric(r)) continue;
     const n = parseRingNo(r.ringNo);
     if (n == null || n <= bestN) continue;
     bestN = n;
@@ -76,18 +90,25 @@ export function latestRingState(records = []) {
     best = {
       ringNo: r.ringNo,
       ch: isNaN(ch) ? null : ch, // NaN (finishCH หาย) → null; เก็บ ch=0 (0+000) ได้ถูกต้อง
-      headV: parseFloat(r.headV),
-      artV: r.artV == null ? null : parseFloat(r.artV),
-      tailV: r.tailV == null ? null : parseFloat(r.tailV),
-      vrt: r.vrt == null ? null : parseFloat(r.vrt),
+      headV: numOrNull(r.headV),
+      artV: numOrNull(r.artV),
+      tailV: numOrNull(r.tailV),
+      vrt: numOrNull(r.vrt),
     };
   }
   return best;
 }
 
 // ring ที่เกิน tolerance (mm) จาก series → [{ringNo, ch, side}]
+// metric-aware: breach ถ้าค่าใดค่าหนึ่งของ head/art/tail เกิน tol (over ก่อน under)
 export function toleranceBreaches(series = [], tolMM = 75) {
   return series
-    .map((s) => ({ ringNo: s.ringNo, ch: s.ch, side: classifyDeviation(s.headV, tolMM) }))
+    .map((s) => {
+      const vals = [s.headV, s.artV, s.tailV].filter((v) => v != null && !isNaN(v));
+      let side = "ok";
+      if (vals.some((v) => v > tolMM)) side = "over";
+      else if (vals.some((v) => v < -tolMM)) side = "under";
+      return { ringNo: s.ringNo, ch: s.ch, side };
+    })
     .filter((s) => s.side !== "ok");
 }

@@ -13,14 +13,18 @@ test("linScale: map ค่าเชิงเส้นระหว่างสอ
   expect(linScale(5, [10, 10], [99, 200])).toBe(99);
 });
 
-test("parseRingNo: numeric → int, อื่นๆ → null", () => {
+test("parseRingNo: prefix-aware (สอดคล้อง getRingNumeric) — ดึงเลขจาก P41/P-123", () => {
   expect(parseRingNo("572")).toBe(572);
   expect(parseRingNo(572)).toBe(572);
-  expect(parseRingNo("T7")).toBeNull();
-  expect(parseRingNo("")).toBeNull();
+  expect(parseRingNo("P41")).toBe(41);     // permanent ring prefix
+  expect(parseRingNo("P-123")).toBe(123);
+  expect(parseRingNo(" P653 ")).toBe(653);
+  expect(parseRingNo("T7")).toBe(7);        // เลขแรกในสตริง (temp ถูก filter ด้วย metric ที่อื่น)
+  expect(parseRingNo("7.5")).toBe(7);
+  expect(parseRingNo("")).toBeNull();       // ไม่มีเลข → null
+  expect(parseRingNo("PX")).toBeNull();
   expect(parseRingNo(null)).toBeNull();
   expect(parseRingNo(undefined)).toBeNull();
-  expect(parseRingNo("7.5")).toBeNull();
 });
 
 test("parseCH (re-export) แปลง chainage string", () => {
@@ -91,4 +95,35 @@ test("toleranceBreaches: คืน ring ที่ |headV| > tol พร้อม 
     { ringNo: "571", ch: 8200, side: "over" },
     { ringNo: "572", ch: 8100, side: "under" },
   ]);
+});
+
+// metric-aware: record ที่มีแค่ art/tail/vrt (ไม่มี headV) ต้องไม่ถูกทิ้งทั้งแถว
+const RECS_M = [
+  { ringNo: "P100", finishCH: "8+300", artV: 20, tailV: 10 },              // ไม่มี headV → ยังนับ
+  { ringNo: "P101", finishCH: "8+200", tailV: 90 },                        // tail เกิน tol → breach
+  { ringNo: "P102", finishCH: "8+100", headV: 5, artV: 5, tailV: 5, vrt: 0.1 },
+  { ringNo: "P103", finishCH: "8+050" },                                   // ไม่มี metric เลย → ตัดทิ้ง
+];
+
+test("deviationSeries: metric-aware — เก็บ record ที่มี metric ใดก็ได้, ตัดเฉพาะที่ไม่มีเลย", () => {
+  const s = deviationSeries(RECS_M, DLINE2);
+  expect(s.map(r => r.ringNo)).toEqual(["P100", "P101", "P102"]); // P103 ถูกตัด
+  const p100 = s.find(r => r.ringNo === "P100");
+  expect(p100.headV).toBeNull();
+  expect(p100.artV).toBe(20);
+  expect(p100.actualRL).toBeNull(); // headV null → actualRL null
+});
+
+test("latestRingState: metric-aware — ริงล่าสุดที่มี metric ใดก็ได้", () => {
+  const l = latestRingState(RECS_M);
+  expect(l.ringNo).toBe("P102"); // เลขมากสุด = 102
+  const l2 = latestRingState([{ ringNo: "P77", finishCH: "8+000", tailV: 3 }]);
+  expect(l2.ringNo).toBe("P77");
+  expect(l2.headV).toBeNull();
+  expect(l2.tailV).toBe(3);
+});
+
+test("toleranceBreaches: metric-aware — art/tail เกิน tol ก็ถือ breach", () => {
+  const b = toleranceBreaches(deviationSeries(RECS_M, DLINE2), 75);
+  expect(b).toEqual([{ ringNo: "P101", ch: 8200, side: "over" }]); // tailV 90 > 75
 });

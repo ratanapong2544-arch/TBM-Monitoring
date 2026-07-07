@@ -5,6 +5,10 @@ export const VOL_150 = 4.65;
 export const VOL_80 = 2.48;
 export const VOL_50 = 1.55;
 
+// Head-level tolerance (mm) — ค่ายอมรับเบี่ยงเบนหัวเจาะ (Head/Art/Tail) ±75mm
+// (รวมจาก ProfileSectionView + profileSection.js เดิม → จุดเดียว)
+export const HEAD_TOL_MM = 75;
+
 // Tunnel route constants
 export const CH_START_P36 = 8769.960; // CH เริ่มต้นของ P36
 export const CH_EXCAV_START = 8830.488; // CH เริ่มต้นขุดเจาะ (Center Shaft IS4)

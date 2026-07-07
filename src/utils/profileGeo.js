@@ -1,34 +1,34 @@
-// ⚠ SAMPLE / FIXTURE — ค่าทั้งหมดเป็น schematic ไม่ใช่ค่าสำรวจจริง
-// จะถูกแทนด้วยข้อมูลที่สกัดจาก 01.TBM1 Daily Progress.dwg (ดู DWG extraction plan)
-// contract: ดู docs/superpowers/specs/2026-06-18-underground-profile-head-deviation-design.md §5.1
-// chainage system เดียวกับ alignmentGeo.js (เจาะทิศ chainage "ลดลง")
+// แนว profile อุโมงค์เต็มแนว (IS1 -> IS4) — จากแบบจริง 01.TBM1 Daily Progress.dxf
+// backdrop = ภาค render จริงจาก DXF (hatch/สี/หลุมเจาะ ตามแบบเป๊ะ) ที่ public/tbm1-profile-full.png
+// transform: CH(m)=x-80.875 ; RL(m)=y-112.679  (chainage system เดียวกับ alignmentGeo.js)
+// pure data — ไม่ import react/svg (jest-safe)
 
-export const CH_RANGE = { min: 8000, max: 8400 };
+// ขอบเขต backdrop (ต้องตรงกับ bounds ที่ render: tools/render_backdrop_full.py)
+export const CH_RANGE = { min: 0.0, max: 8900.0 };
+export const RL_RANGE = { min: -75.0, max: 10.0 };
 
-export const LAYERS = [
-  { name: "Soft–Medium Clay", code: "CH", color: "#5f8f86",
-    top:    [{ ch: 8400, rl: 0.5 }, { ch: 8000, rl: -0.5 }],
-    bottom: [{ ch: 8400, rl: -12 }, { ch: 8000, rl: -14 }] },
-  { name: "Stiff Clay", code: "CL", color: "#c7a98b",
-    top:    [{ ch: 8400, rl: -12 }, { ch: 8000, rl: -14 }],
-    bottom: [{ ch: 8400, rl: -18 }, { ch: 8000, rl: -20 }] },
-  { name: "Dense Sand", code: "SM", color: "#c7bd7a",
-    top:    [{ ch: 8400, rl: -18 }, { ch: 8000, rl: -20 }],
-    bottom: [{ ch: 8400, rl: -31 }, { ch: 8000, rl: -33 }] },
+export const BACKDROP = {
+  src: "/tbm1-profile-full.png",
+  chMin: 0.0, chMax: 8900.0,       // ขอบซ้าย→ขวา (chainage เพิ่มซ้าย→ขวา)
+  rlMin: -75.0, rlMax: 10.0,        // ขอบล่าง→บน
+  aspect: 10.835,                   // กว้าง:สูง (px) ตอน render — ใช้คำนวณความสูง overlay
+};
+
+export const BORE_DIA = 6.3;        // เส้นผ่านศูนย์กลางเจาะ (ม.)
+
+// ปล่องตลอดแนว (chainage จาก alignmentGeo.js)
+export const SHAFTS = [
+  { name: "IS1", ch: 0.0 },
+  { name: "IS2", ch: 1670.9 },
+  { name: "IS3", ch: 5764.5 },
+  { name: "IS4 · launch", ch: 8830.5 },
 ];
 
+// แนวแกนอุโมงค์ออกแบบตลอดแนว (IS1->IS4) — สกัดจากเส้นออกแบบในแบบ (median RL ต่อช่วง chainage)
+// ใช้วาดท่ออุโมงค์ + วางหัวเจาะ + เส้นเชิด/ตก (deviation)
 export const DESIGN_LINE = [
-  { ch: 8400, rl: -19.5 }, { ch: 8200, rl: -20.2 }, { ch: 8000, rl: -21.0 },
-];
-
-export const BORE_DIA = 6.0; // ⚠ SAMPLE — ต้องสกัด/ยืนยันค่าจริงจาก DWG
-
-export const BOREHOLES = [
-  { id: "BH-27", ch: 8186, groundRL: 1.0,
-    strata: [
-      { code: "CH", fromRL: 0.5, toRL: -13 },
-      { code: "CL", fromRL: -13, toRL: -19 },
-      { code: "SM", fromRL: -19, toRL: -32 },
-    ],
-    spt: [{ rl: -2, n: 4 }, { rl: -10, n: 8 }, { rl: -20, n: 35 }, { rl: -28, n: 50 }] },
+  { ch: 0, rl: -29.9 },    { ch: 1500, rl: -29.8 }, { ch: 2500, rl: -30.1 },
+  { ch: 3500, rl: -31.5 }, { ch: 4500, rl: -32.3 }, { ch: 5200, rl: -32.0 },
+  { ch: 6000, rl: -31.5 }, { ch: 7000, rl: -31.7 }, { ch: 8000, rl: -31.8 },
+  { ch: 8830, rl: -32.1 },
 ];

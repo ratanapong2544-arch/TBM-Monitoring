@@ -93,6 +93,8 @@ export default function HeadLevelView({ segmentRecords = [], machine = "TBM1", r
               <StatCard label={`เกิน ±${HEAD_TOL_MM} mm`} value={`${breaches.length} ริง`} subtext="Head/Art/Tail อย่างใดอย่างหนึ่ง" color="text-code-d" valueColor={breaches.length > 0 ? "text-code-d" : "text-sgreen-dark"} icon={AlertTriangle} />
             </div>
 
+            {/* ── ท่าทางหัวเจาะ: bullseye + side-view เรียง 2 คอลัมน์ ── */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6 items-start">
             {/* ── Bullseye cross-section (Concept B · 2 แกน) ── */}
             <div className="bg-surface rounded-card shadow-card border border-line p-5 sm:p-6">
               <h3 className="font-semibold text-ink text-base mb-1">ท่าทางหัวเจาะ · เป้า 2 แกน (cross-section)</h3>
@@ -175,6 +177,7 @@ export default function HeadLevelView({ segmentRecords = [], machine = "TBM1", r
                   )}
                 </svg>
               </div>
+            </div>
             </div>
 
             {/* ── Trend chart Head/Art/Tail ── */}

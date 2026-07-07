@@ -6,6 +6,7 @@ import StatCard from "../common/StatCard";
 import { formatDisplayTime, formatDisplayDate } from "../../utils/formatters";
 import { getRingNumeric, shiftEventMinutes, getLogicalShiftDate } from "../../utils/helpers";
 import { chartColors, axisTick, tooltipStyle } from "../../ui-ux-pro-max/chartTheme";
+import { computeMuckImpact } from "../../utils/muckStats";
 import { classifyOther3 } from "../../utils/delayClassify";
 import {
   ResponsiveContainer, PieChart, Pie, Cell, Tooltip,
@@ -90,7 +91,7 @@ export default function PerformanceView({ segmentRecords = [], shiftReports = []
     const idle = Math.max(0, available - (operating + support + delay + maintenance));
     const utilizationPct = available > 0 ? (operating / available) * 100 : null;
 
-    // 4 หมวด delay ที่ตั้งชื่อไว้ + "Other 3" ที่แตกเป็นธีมตาม label
+    // 4 หมวด delay ที่ตั้งชื่อไว้ + "Other 3" ที่แตกเป็นธีมตาม label (Muck Full ยังเป็น named item อันดับ 1)
     const delayItems = [
       ...CAT.delay.filter((k) => k !== "Other 3").map((k) => ({ name: k, minutes: catMin[k] || 0 })),
       ...Object.entries(other3Theme).map(([name, minutes]) => ({ name, minutes })),
@@ -116,6 +117,7 @@ export default function PerformanceView({ segmentRecords = [], shiftReports = []
       shifts, operating, delay, maintenance, available, utilizationPct, pareto, donut,
       delayHours: delay / 60, maintHours: maintenance / 60,
       avgOperatingPerShift: shifts > 0 ? operating / shifts / 60 : 0,
+      catMin, delayItems,
     };
   }, [filteredShiftReports, filteredSegments]);
 
@@ -165,8 +167,35 @@ export default function PerformanceView({ segmentRecords = [], shiftReports = []
     };
   }, [filteredSegments]);
 
+  const muck = useMemo(
+    () => computeMuckImpact({ catMin: util.catMin, delayItems: util.delayItems, avgCycleHours: cycle.avgCycle }),
+    [util, cycle]
+  );
+
   return (
     <div className="max-w-full mx-auto pb-24 animate-fade-in space-y-6">
+      {muck.isTopCause && (
+        <div className="rounded-card border px-4 py-3 flex items-center gap-2 shadow-card" style={{ background: "#faf4ec", borderColor: "#ead9c6" }}>
+          <AlertTriangle size={18} style={{ color: chartColors.muck }} />
+          <span className="text-sm font-bold" style={{ color: chartColors.muck }}>
+            สาเหตุความล่าช้าอันดับ 1: ขนดิน (Muck Full) — เสีย {fmt1(muck.muckHours)} ชม. คิดเป็น {fmt1(muck.muckShare * 100)}% ของเวลา Delay ทั้งหมด
+          </span>
+        </div>
+      )}
+      {muck.hasData && (
+        <div className="rounded-card border p-4 flex items-center gap-4 shadow-card" style={{ background: "#faf4ec", borderColor: "#ead9c6" }}>
+          <span className="text-3xl" role="img" aria-label="muck">🪨</span>
+          <div className="flex-1">
+            <div className="text-xs font-bold" style={{ color: "#8a6a45" }}>
+              เวลาเสียจากขนดิน (Muck Full){muck.equivRings !== null ? ` · ≈ ขุดได้อีก ${muck.equivRings} ริง` : ""}
+            </div>
+            <div className="mt-0.5">
+              <span className="text-2xl font-bold font-mono" style={{ color: chartColors.muck }}>{fmt1(muck.muckHours)} ชม.</span>
+              <span className="text-sm font-semibold text-ink-3"> · {fmt1(muck.muckShare * 100)}% ของเวลา Delay ทั้งหมด</span>
+            </div>
+          </div>
+        </div>
+      )}
       <section className="space-y-4">
         <SectionHeader title="Utilization & Downtime" subtitle="การใช้งานเครื่อง & เวลาสูญเสีย" icon={Gauge} />
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -223,7 +252,11 @@ export default function PerformanceView({ segmentRecords = [], shiftReports = []
                     <YAxis yAxisId="l" tick={axisTick} axisLine={false} tickLine={false} label={{ value: "ชม.", angle: -90, position: "insideLeft", fill: chartColors.axisLabel, fontSize: 11 }} />
                     <YAxis yAxisId="r" orientation="right" domain={[0, 100]} tick={axisTick} axisLine={false} tickLine={false} unit="%" />
                     <Tooltip {...tooltipStyle} />
-                    <Bar yAxisId="l" dataKey="hours" fill={chartColors.delay} radius={[4, 4, 0, 0]} maxBarSize={48} name="ชั่วโมง" />
+                    <Bar yAxisId="l" dataKey="hours" radius={[4, 4, 0, 0]} maxBarSize={48} name="ชั่วโมง">
+                      {util.pareto.map((entry, i) => (
+                        <Cell key={i} fill={entry.name === "Muck Full" ? chartColors.muck : chartColors.delay} />
+                      ))}
+                    </Bar>
                     <Line yAxisId="r" type="monotone" dataKey="cumPct" stroke={chartColors.planned} strokeWidth={2} dot={{ r: 3, fill: chartColors.planned }} name="สะสม %" />
                   </ComposedChart>
                 </ResponsiveContainer>

@@ -5,5 +5,5 @@ build
 .env
 .env.local
 
-# Brainstorm visual-companion temp (superpowers)
+# superpowers scratch (SDD ledger, brainstorm visual-companion temp)
 .superpowers/

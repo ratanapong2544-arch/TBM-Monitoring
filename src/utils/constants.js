@@ -13,6 +13,9 @@ export const HEAD_TOL_MM = 75;
 export const CH_START_P36 = 8769.960; // CH เริ่มต้นของ P36
 export const CH_EXCAV_START = 8830.488; // CH เริ่มต้นขุดเจาะ (Center Shaft IS4)
 export const TOTAL_ROUTE_DISTANCE = 8874.683; // ระยะทางรวมทั้งหมด (เมตร)
+// กำหนดแล้วเสร็จโครงการ (ใช้คำนวณเรทที่ต้องเร่ง + คาดเสร็จ)
+// ponytail: ค่าเดียวทั้งแอปก่อน — ภายหลังถ้า TBM2 มีกำหนดต่างกัน ค่อยทำ per-machine
+export const PROJECT_DEADLINE = "2028-06-30";
 
 // Route segments: IS4-1 → IS3 → IS2 → IS1
 export const ROUTE_SEGMENTS = [

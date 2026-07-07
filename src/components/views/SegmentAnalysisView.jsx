@@ -5,33 +5,38 @@ import {
 import { filterByState } from "../../hooks/useGlobalFilter";
 import { formatDisplayDate, formatDisplayTime } from "../../utils/formatters";
 import { getRingNumeric } from "../../utils/helpers";
-import { TOTAL_ROUTE_DISTANCE } from "../../utils/constants";
+import { PROJECT_DEADLINE } from "../../utils/constants";
 import { apiCall } from "../../utils/api";
+import { computePaceStats } from "../../utils/paceStats";
 import { chartColors, axisTick, tooltipStyle } from "../../ui-ux-pro-max/chartTheme";
 import {
-  ResponsiveContainer, ComposedChart, CartesianGrid, XAxis, YAxis, Tooltip, Bar, Line
+  ResponsiveContainer, ComposedChart, CartesianGrid, XAxis, YAxis, Tooltip, Bar, Line, LabelList
 } from "recharts";
 import { fitAndPrint } from "../../utils/printFit";
 
 export default function SegmentAnalysisView({ segmentRecords = [], projectInfo, machine = "TBM1", filterState = {}, readOnly = false }) {
   const filteredSegments = useMemo(() => filterByState(segmentRecords, filterState), [segmentRecords, filterState]);
 
-  const paceStats = useMemo(() => {
-    const map = new Map();
-    segmentRecords.forEach((r) => { if (r.installType !== "Temporary") map.set(r.ringNo, r); });
-    const perm = Array.from(map.values());
-    const doneRings = perm.length;
-    const totalDist = perm.reduce((s, r) => s + parseFloat(r.length || 0), 0);
-    const avgLen = doneRings > 0 ? totalDist / doneRings : 1.4;
-    const targetRings = Math.round(TOTAL_ROUTE_DISTANCE / avgLen);
-    const remainingRings = Math.max(0, targetRings - doneRings);
-    const dates = [...new Set(perm.map((r) => formatDisplayDate(r.date)))];
-    const currentPerDay = dates.length > 0 ? doneRings / dates.length : 0;
-    const nowTH = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Bangkok" }));
-    const daysLeft = Math.max(0, Math.ceil((new Date("2028-09-30") - nowTH) / 86400000));
-    const requiredPerDay = daysLeft > 0 ? remainingRings / daysLeft : 0;
-    return { doneRings, targetRings, remainingRings, currentPerDay, requiredPerDay, behind: requiredPerDay > currentPerDay };
-  }, [segmentRecords]);
+  // ── ตัวช่วยแสดงผล (display only) ──
+  const beShort = (ymd) => {
+    if (!ymd) return "—";
+    const [y, m] = ymd.split("-").map(Number);
+    const months = ["ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."];
+    return `${months[m - 1]} ${String((y + 543) % 100).padStart(2, "0")}`;
+  };
+  const fmtDelta = (days) => {
+    if (days === null || days === undefined) return "—";
+    if (Math.abs(days) < 15) return "ทันพอดี";
+    const months = Math.round(Math.abs(days) / 30.44);
+    const word = days > 0 ? "ช้า" : "เร็ว";
+    if (months >= 12) return `${word} ${Math.round(months / 12)} ปี`;
+    return `${word} ${months} เดือน`;
+  };
+  const labelNonZero = (v) => (v > 0 ? v : "");
+
+  // ── Line show/hide toggle (กดที่ legend) ──
+  const [hiddenSeries, setHiddenSeries] = useState({});
+  const toggleSeries = (k) => setHiddenSeries((s) => ({ ...s, [k]: !s[k] }));
 
   // ── Print State ──
   const [printingChartId, setPrintingChartId] = useState("all");
@@ -55,6 +60,27 @@ export default function SegmentAnalysisView({ segmentRecords = [], projectInfo, 
   const [segRangeStart, setSegRangeStart] = useState("");
   const [segRangeEnd, setSegRangeEnd] = useState("");
   const [segFilterShift, setSegFilterShift] = useState("All");
+
+  // ── Pace stats (เรท/คาดเสร็จ) — ช่วงคิดตาม filter ──
+  const { filterStart, filterEnd } = useMemo(() => {
+    if (segFilterMode === "daily") return { filterStart: segFilterDate, filterEnd: segFilterDate };
+    if (segFilterMode === "monthly") {
+      const [y, mo] = segFilterMonth.split("-").map(Number);
+      const last = new Date(y, mo, 0).getDate();
+      return { filterStart: `${segFilterMonth}-01`, filterEnd: `${segFilterMonth}-${String(last).padStart(2, "0")}` };
+    }
+    if (segFilterMode === "range") return { filterStart: segRangeStart || null, filterEnd: segRangeEnd || null };
+    return { filterStart: null, filterEnd: null }; // all
+  }, [segFilterMode, segFilterDate, segFilterMonth, segRangeStart, segRangeEnd]);
+
+  const paceStats = useMemo(() => {
+    const today = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Bangkok" });
+    return computePaceStats({ segmentRecords, today, filterStart, filterEnd });
+  }, [segmentRecords, filterStart, filterEnd]);
+
+  const windowLabel = segFilterMode === "all" ? "ทั้งโครงการ"
+    : segFilterMode === "daily" ? "วันที่เลือก"
+    : segFilterMode === "monthly" ? "เดือนที่เลือก" : "ช่วงที่เลือก";
 
   // ── Expand State ──
   const [expandedChart, setExpandedChart] = useState(null);
@@ -221,6 +247,15 @@ export default function SegmentAnalysisView({ segmentRecords = [], projectInfo, 
     });
   }, [baseSegmentRecords, planConfig, segFilterMode, segFilterDate, getPlanForDate]);
 
+  // วันเยอะ (>31) → ซ่อนตัวเลขบนแท่ง/เส้นอัตโนมัติ ให้อ่านง่าย
+  const manyBars = segChartData.length > 31;
+  // Actual Acc: แสดงเลขเฉพาะจุดสุดท้าย (ยอดล่าสุด) แทนทุกจุด
+  const renderActualEndLabel = (props) => {
+    const { x, y, value, index } = props;
+    if (index !== segChartData.length - 1 || value == null) return null;
+    return <text x={x} y={y - 8} fill={chartColors.actual} fontSize={11} fontWeight={900} textAnchor="middle">{value}</text>;
+  };
+
   return (
     <div className="max-w-full mx-auto pb-24 animate-fade-in space-y-6">
       <style>{`
@@ -263,17 +298,51 @@ export default function SegmentAnalysisView({ segmentRecords = [], projectInfo, 
         ` : ""}
       `}</style>
 
-      {/* ═══ Required-Rate Banner ═══ */}
-      {paceStats.targetRings > 0 && (
-        <div className={`rounded-card border p-4 shadow-card flex items-center gap-3 ${paceStats.behind ? "bg-code-d/10 border-code-d/30" : "bg-sgreen-med/10 border-sgreen-med/30"}`}>
-          <TrendingUp size={22} className={paceStats.behind ? "text-code-d" : "text-sgreen-dark"} />
-          <div className="text-sm leading-snug">
-            <span className="font-semibold text-ink">เพื่อทันกำหนด ก.ย. 71 ต้องเร่งเป็น </span>
-            <span className={`font-mono font-bold ${paceStats.behind ? "text-code-d" : "text-sgreen-dark"}`}>{paceStats.requiredPerDay.toFixed(1)} ring/วัน</span>
-            <span className="text-ink-2"> (ปัจจุบันเฉลี่ย <span className="font-mono font-semibold text-ink">{paceStats.currentPerDay.toFixed(1)}</span> ring/วัน · เหลือ ~{paceStats.remainingRings.toLocaleString()} rings)</span>
+      {/* ═══ Schedule / Pace Hero Panel ═══ */}
+      {paceStats.targetRings > 0 && (() => {
+        const p = paceStats;
+        const donePct = p.targetRings > 0 ? Math.round((p.doneRings / p.targetRings) * 100) : 0;
+        const ok = !p.behind;
+        const tone = ok ? "text-sgreen-dark" : "text-code-d";
+        const statusText = !p.finishWindow
+          ? "ยังประเมินไม่ได้ — ไม่มีงานในช่วงที่เลือก"
+          : p.behind ? `${fmtDelta(p.deltaWindowDays)} · ต้องเร่ง`
+          : `คาดเสร็จทันกำหนด · ${fmtDelta(p.deltaWindowDays)}`;
+        return (
+          <div className={`bg-surface rounded-card border shadow-card overflow-hidden ${ok ? "border-sgreen-med/30" : "border-code-d/30"}`}>
+            {/* header: status pill + deadline */}
+            <div className="flex items-center justify-between gap-3 flex-wrap px-5 py-3.5">
+              <span className={`inline-flex items-center gap-2 text-[13px] font-bold px-3 py-1 rounded-full ${ok ? "bg-sgreen-med/10 text-sgreen-dark" : "bg-code-d/10 text-code-d"}`}>
+                <TrendingUp size={15} /> {statusText}
+              </span>
+              <span className="text-[13px] text-ink-2 font-semibold">กำหนดเสร็จ <span className="text-ink font-bold">{beShort(PROJECT_DEADLINE)}</span></span>
+            </div>
+            {/* progress bar */}
+            <div className="px-5 pb-4">
+              <div className="flex justify-between text-xs font-bold text-ink-2 mb-1.5"><span>ความคืบหน้า</span><span className="font-mono">{p.doneRings.toLocaleString()} / {p.targetRings.toLocaleString()} ริง · {donePct}%</span></div>
+              <div className="h-2 bg-surface-alt rounded-full overflow-hidden"><div className="h-full bg-navy rounded-full transition-all" style={{ width: `${Math.min(100, donePct)}%` }}></div></div>
+            </div>
+            {/* metrics */}
+            <div className="grid grid-cols-3 border-t border-line divide-x divide-line">
+              <div className="px-5 py-3.5">
+                <div className="text-[11px] font-bold text-ink-3 uppercase tracking-wide">ต้องเร่งเป็น</div>
+                <div className="text-[28px] leading-none font-bold text-navy font-mono mt-1.5">{p.requiredRate !== null ? p.requiredRate.toFixed(1) : "—"}</div>
+                <div className="text-xs font-semibold text-ink-2 mt-1.5">ริง/วัน · ให้ทันกำหนด</div>
+              </div>
+              <div className="px-5 py-3.5">
+                <div className="text-[11px] font-bold text-ink-3 uppercase tracking-wide">เรทช่วงที่เลือก</div>
+                <div className="text-[28px] leading-none font-bold text-navy font-mono mt-1.5">{p.workingRate.toFixed(1)}</div>
+                <div className="text-xs font-semibold text-ink-2 mt-1.5">ริง/วันทำงาน · {windowLabel}</div>
+              </div>
+              <div className={`px-5 py-3.5 ${ok ? "bg-sgreen-med/5" : "bg-code-d/5"}`}>
+                <div className={`text-[11px] font-bold uppercase tracking-wide ${tone}`}>คาดเสร็จ</div>
+                <div className={`text-[28px] leading-none font-bold font-mono mt-1.5 ${tone}`}>{p.finishWindow ? beShort(p.finishWindow) : "—"}</div>
+                <div className={`text-xs font-semibold mt-1.5 ${tone}`}>{p.finishWindow ? fmtDelta(p.deltaWindowDays) : "ยังประเมินไม่ได้"}</div>
+              </div>
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* ═══ SECTION 3: Segment Installation Trend ═══ */}
       <div className={`bg-surface rounded-card shadow-card border border-line p-5 sm:p-8 overflow-hidden ${getPrintClass('segment')}`}>
@@ -287,13 +356,15 @@ export default function SegmentAnalysisView({ segmentRecords = [], projectInfo, 
             <p className="text-sm text-ink-2 font-medium ml-9">{projectInfo?.tbmNo || "TBM"} Segment Installation Tracking (Ring Progress)</p>
           </div>
 
-          <div className="flex gap-4 text-xs font-semibold bg-surface-alt p-3 rounded-input border border-line shadow-card shrink-0 items-center justify-between sm:justify-end w-full lg:w-auto">
+          <div className="flex flex-wrap gap-x-3 gap-y-2 text-xs font-semibold bg-surface-alt p-3 rounded-input border border-line shadow-card shrink-0 items-center justify-between sm:justify-end w-full lg:w-auto">
             <div className="flex items-center gap-2"><span className="w-4 h-4 rounded-badge shadow-sm" style={{ backgroundColor: chartColors.dayShift }}></span>Day Shift</div>
             <div className="flex items-center gap-2"><span className="w-4 h-4 rounded-badge shadow-sm" style={{ backgroundColor: chartColors.nightShift }}></span>Night Shift</div>
             {segFilterMode !== "daily" && <>
               <div className="w-px h-6 bg-line mx-1 hidden sm:block"></div>
-              <div className="flex items-center gap-2"><span className="w-5 h-1 rounded-full shadow-sm" style={{ backgroundColor: chartColors.planned }}></span>Plan Acc.</div>
-              <div className="flex items-center gap-2"><span className="w-5 h-1.5 rounded-full shadow-sm" style={{ backgroundColor: chartColors.actual }}></span>Actual Acc.</div>
+              <button type="button" onClick={() => toggleSeries('plan')} title="กดเพื่อซ่อน/แสดงเส้น" className={`flex items-center gap-2 transition-opacity hover:opacity-70 ${hiddenSeries.plan ? 'opacity-30 line-through' : ''}`}><span className="w-5 h-1 rounded-full shadow-sm" style={{ backgroundColor: chartColors.axis }}></span>Plan รายวัน</button>
+              <button type="button" onClick={() => toggleSeries('ma7')} title="กดเพื่อซ่อน/แสดงเส้น" className={`flex items-center gap-2 transition-opacity hover:opacity-70 ${hiddenSeries.ma7 ? 'opacity-30 line-through' : ''}`}><span className="w-5 h-1 rounded-full shadow-sm" style={{ backgroundColor: chartColors.paid }}></span>MA 7 วัน</button>
+              <button type="button" onClick={() => toggleSeries('planAcc')} title="กดเพื่อซ่อน/แสดงเส้น" className={`flex items-center gap-2 transition-opacity hover:opacity-70 ${hiddenSeries.planAcc ? 'opacity-30 line-through' : ''}`}><span className="w-5 h-1 rounded-full shadow-sm" style={{ backgroundColor: chartColors.planned }}></span>Plan Acc.</button>
+              <button type="button" onClick={() => toggleSeries('actualAcc')} title="กดเพื่อซ่อน/แสดงเส้น" className={`flex items-center gap-2 transition-opacity hover:opacity-70 ${hiddenSeries.actualAcc ? 'opacity-30 line-through' : ''}`}><span className="w-5 h-1.5 rounded-full shadow-sm" style={{ backgroundColor: chartColors.actual }}></span>Actual Acc.</button>
             </>}
           </div>
         </div>
@@ -343,13 +414,17 @@ export default function SegmentAnalysisView({ segmentRecords = [], projectInfo, 
                 <YAxis yAxisId="left" domain={[0, segFilterMode === "daily" ? "auto" : 10]} tick={axisTick} axisLine={{ stroke: chartColors.axis }} tickLine={false} label={{ value: 'อัตราการขุดเจาะ (Rings / Day)', angle: -90, position: 'insideLeft', offset: -5, fill: chartColors.axisLabel, fontSize: 11, fontWeight: 'bold' }} />
                 {segFilterMode !== "daily" && <YAxis yAxisId="right" orientation="right" domain={["auto", "auto"]} tick={axisTick} axisLine={{ stroke: chartColors.axis }} tickLine={false} label={{ value: 'สะสม (Cumulative Rings)', angle: 90, position: 'insideRight', offset: -5, fill: chartColors.axisLabel, fontSize: 11, fontWeight: 'bold' }} />}
                 <Tooltip {...tooltipStyle} />
-                {segFilterMode !== "daily" && <Line yAxisId="left" type="monotone" dataKey="plan" stroke={chartColors.axis} strokeWidth={2} dot={segChartData.length <= 24 ? { r: 0 } : { r: 2 }} name="Plan Daily" isAnimationActive={printingChartId === "all"} />}
-                <Bar yAxisId="left" dataKey="dayRings" stackId="a" fill={chartColors.dayShift} name="Perm. D/S" radius={[0, 0, 0, 0]} maxBarSize={40} isAnimationActive={printingChartId === "all"} />
-                <Bar yAxisId="left" dataKey="nightRings" stackId="a" fill={chartColors.nightShift} name="Perm. N/S" radius={[0, 0, 0, 0]} maxBarSize={40} isAnimationActive={printingChartId === "all"} />
+                {segFilterMode !== "daily" && <Line yAxisId="left" type="monotone" dataKey="plan" stroke={chartColors.axis} strokeWidth={2} dot={segChartData.length <= 24 ? { r: 0 } : { r: 2 }} name="Plan Daily" hide={!!hiddenSeries.plan} isAnimationActive={printingChartId === "all"} />}
+                <Bar yAxisId="left" dataKey="dayRings" stackId="a" fill={chartColors.dayShift} name="Perm. D/S" radius={[0, 0, 0, 0]} maxBarSize={40} isAnimationActive={printingChartId === "all"}>
+                  {!manyBars && <LabelList dataKey="dayRings" position="center" formatter={labelNonZero} fill="#fff" fontSize={11} fontWeight={800} />}
+                </Bar>
+                <Bar yAxisId="left" dataKey="nightRings" stackId="a" fill={chartColors.nightShift} name="Perm. N/S" radius={[0, 0, 0, 0]} maxBarSize={40} isAnimationActive={printingChartId === "all"}>
+                  {!manyBars && <LabelList dataKey="nightRings" position="center" formatter={labelNonZero} fill="#fff" fontSize={11} fontWeight={800} />}
+                </Bar>
                 <Bar yAxisId="left" dataKey="tempRings" stackId="a" fill={chartColors.temporary} name="Temporary" radius={[4, 4, 0, 0]} maxBarSize={40} isAnimationActive={printingChartId === "all"} />
-                {segFilterMode !== "daily" && <Line yAxisId="left" type="monotone" dataKey="ma7" stroke={chartColors.paid} strokeWidth={2} strokeDasharray="5 3" dot={false} name="MA 7 วัน" isAnimationActive={printingChartId === "all"} />}
-                {segFilterMode !== "daily" && <Line yAxisId="right" type="monotone" dataKey="planAcc" stroke={chartColors.planned} strokeWidth={2} dot={segChartData.length === 1 ? { r: 3, fill: chartColors.planned } : { r: 2, fill: chartColors.planned }} name="Plan Acc." isAnimationActive={printingChartId === "all"} />}
-                {segFilterMode !== "daily" && <Line yAxisId="right" type="monotone" dataKey="actualAcc" stroke={chartColors.actual} strokeWidth={3} dot={segChartData.length === 1 ? { r: 4, fill: chartColors.actual } : { r: 3, fill: chartColors.actual }} name="Actual Acc." label={{ position: "top", fill: chartColors.actual, fontSize: 10, fontWeight: "900" }} isAnimationActive={printingChartId === "all"} />}
+                {segFilterMode !== "daily" && <Line yAxisId="left" type="monotone" dataKey="ma7" stroke={chartColors.paid} strokeWidth={2} strokeDasharray="5 3" dot={false} name="MA 7 วัน" hide={!!hiddenSeries.ma7} isAnimationActive={printingChartId === "all"} />}
+                {segFilterMode !== "daily" && <Line yAxisId="right" type="monotone" dataKey="planAcc" stroke={chartColors.planned} strokeWidth={2} dot={segChartData.length === 1 ? { r: 3, fill: chartColors.planned } : { r: 2, fill: chartColors.planned }} name="Plan Acc." hide={!!hiddenSeries.planAcc} isAnimationActive={printingChartId === "all"} />}
+                {segFilterMode !== "daily" && <Line yAxisId="right" type="monotone" dataKey="actualAcc" stroke={chartColors.actual} strokeWidth={3} dot={segChartData.length === 1 ? { r: 4, fill: chartColors.actual } : { r: 3, fill: chartColors.actual }} name="Actual Acc." label={renderActualEndLabel} hide={!!hiddenSeries.actualAcc} isAnimationActive={printingChartId === "all"} />}
               </ComposedChart>
             </ResponsiveContainer>
           </div>
@@ -435,9 +510,10 @@ export default function SegmentAnalysisView({ segmentRecords = [], projectInfo, 
                     <div className="flex items-center gap-1.5 sm:gap-2"><span className="w-3 h-3 sm:w-4 sm:h-4 rounded-badge shadow-card" style={{ backgroundColor: chartColors.nightShift }}></span>Perm. N/S</div>
                     <div className="flex items-center gap-1.5 sm:gap-2"><span className="w-3 h-3 sm:w-4 sm:h-4 rounded-badge shadow-card" style={{ backgroundColor: chartColors.temporary }}></span>Temporary</div>
                     {segFilterMode !== "daily" && <>
-                      <div className="flex items-center gap-1.5 sm:gap-2 ml-0 sm:ml-4"><span className="w-5 h-1 md:w-6 md:h-1 rounded-full" style={{ backgroundColor: chartColors.axis }}></span>Plan Daily</div>
-                      <div className="flex items-center gap-1.5 sm:gap-2"><span className="w-5 h-1 md:w-6 md:h-1 rounded-full" style={{ backgroundColor: chartColors.planned }}></span>Plan Acc.</div>
-                      <div className="flex items-center gap-1.5 sm:gap-2"><span className="w-5 h-1.5 md:w-6 md:h-1.5 rounded-full" style={{ backgroundColor: chartColors.actual }}></span>Actual Acc.</div>
+                      <button type="button" onClick={() => toggleSeries('plan')} className={`flex items-center gap-1.5 sm:gap-2 ml-0 sm:ml-4 transition-opacity hover:opacity-70 ${hiddenSeries.plan ? 'opacity-30 line-through' : ''}`}><span className="w-5 h-1 md:w-6 md:h-1 rounded-full" style={{ backgroundColor: chartColors.axis }}></span>Plan Daily</button>
+                      <button type="button" onClick={() => toggleSeries('ma7')} className={`flex items-center gap-1.5 sm:gap-2 transition-opacity hover:opacity-70 ${hiddenSeries.ma7 ? 'opacity-30 line-through' : ''}`}><span className="w-5 h-1 md:w-6 md:h-1 rounded-full" style={{ backgroundColor: chartColors.paid }}></span>MA 7 วัน</button>
+                      <button type="button" onClick={() => toggleSeries('planAcc')} className={`flex items-center gap-1.5 sm:gap-2 transition-opacity hover:opacity-70 ${hiddenSeries.planAcc ? 'opacity-30 line-through' : ''}`}><span className="w-5 h-1 md:w-6 md:h-1 rounded-full" style={{ backgroundColor: chartColors.planned }}></span>Plan Acc.</button>
+                      <button type="button" onClick={() => toggleSeries('actualAcc')} className={`flex items-center gap-1.5 sm:gap-2 transition-opacity hover:opacity-70 ${hiddenSeries.actualAcc ? 'opacity-30 line-through' : ''}`}><span className="w-5 h-1.5 md:w-6 md:h-1.5 rounded-full" style={{ backgroundColor: chartColors.actual }}></span>Actual Acc.</button>
                     </>}
                   </div>
                   <div className="flex-1 w-full min-h-[400px]">
@@ -448,12 +524,16 @@ export default function SegmentAnalysisView({ segmentRecords = [], projectInfo, 
                         <YAxis yAxisId="left" domain={[0, segFilterMode === "daily" ? "auto" : 10]} tick={axisTick} axisLine={false} tickLine={false} />
                         {segFilterMode !== "daily" && <YAxis yAxisId="right" orientation="right" domain={["auto", "auto"]} tick={axisTick} axisLine={false} tickLine={false} />}
                         <Tooltip {...tooltipStyle} />
-                        {segFilterMode !== "daily" && <Line yAxisId="left" type="monotone" dataKey="plan" stroke={chartColors.axis} strokeWidth={2} dot={segChartData.length <= 24 ? { r: 0 } : { r: 2 }} name="Plan Daily" />}
-                        <Bar yAxisId="left" dataKey="dayRings" stackId="a" fill={chartColors.dayShift} name="Perm. D/S" radius={[0, 0, 0, 0]} maxBarSize={40} />
-                        <Bar yAxisId="left" dataKey="nightRings" stackId="a" fill={chartColors.nightShift} name="Perm. N/S" radius={[0, 0, 0, 0]} maxBarSize={40} />
+                        {segFilterMode !== "daily" && <Line yAxisId="left" type="monotone" dataKey="plan" stroke={chartColors.axis} strokeWidth={2} dot={segChartData.length <= 24 ? { r: 0 } : { r: 2 }} name="Plan Daily" hide={!!hiddenSeries.plan} />}
+                        <Bar yAxisId="left" dataKey="dayRings" stackId="a" fill={chartColors.dayShift} name="Perm. D/S" radius={[0, 0, 0, 0]} maxBarSize={40}>
+                          {!manyBars && <LabelList dataKey="dayRings" position="center" formatter={labelNonZero} fill="#fff" fontSize={11} fontWeight={800} />}
+                        </Bar>
+                        <Bar yAxisId="left" dataKey="nightRings" stackId="a" fill={chartColors.nightShift} name="Perm. N/S" radius={[0, 0, 0, 0]} maxBarSize={40}>
+                          {!manyBars && <LabelList dataKey="nightRings" position="center" formatter={labelNonZero} fill="#fff" fontSize={11} fontWeight={800} />}
+                        </Bar>
                         <Bar yAxisId="left" dataKey="tempRings" stackId="a" fill={chartColors.temporary} name="Temporary" radius={[4, 4, 0, 0]} maxBarSize={40} />
-                        {segFilterMode !== "daily" && <Line yAxisId="right" type="monotone" dataKey="planAcc" stroke={chartColors.planned} strokeWidth={2} dot={segChartData.length === 1 ? { r: 3, fill: chartColors.planned } : { r: 2, fill: chartColors.planned }} name="Plan Acc." />}
-                        {segFilterMode !== "daily" && <Line yAxisId="right" type="monotone" dataKey="actualAcc" stroke={chartColors.actual} strokeWidth={3} dot={segChartData.length === 1 ? { r: 4, fill: chartColors.actual } : { r: 3, fill: chartColors.actual }} name="Actual Acc." label={{ position: "top", fill: chartColors.actual, fontSize: 10, fontWeight: "900" }} />}
+                        {segFilterMode !== "daily" && <Line yAxisId="right" type="monotone" dataKey="planAcc" stroke={chartColors.planned} strokeWidth={2} dot={segChartData.length === 1 ? { r: 3, fill: chartColors.planned } : { r: 2, fill: chartColors.planned }} name="Plan Acc." hide={!!hiddenSeries.planAcc} />}
+                        {segFilterMode !== "daily" && <Line yAxisId="right" type="monotone" dataKey="actualAcc" stroke={chartColors.actual} strokeWidth={3} dot={segChartData.length === 1 ? { r: 4, fill: chartColors.actual } : { r: 3, fill: chartColors.actual }} name="Actual Acc." label={renderActualEndLabel} hide={!!hiddenSeries.actualAcc} />}
                       </ComposedChart>
                     </ResponsiveContainer>
                   </div>

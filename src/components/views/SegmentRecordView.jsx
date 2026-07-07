@@ -12,6 +12,7 @@ const SegmentRecordView = ({ projectInfo, handleProjectInfoChange, segmentRecord
     id: null, ringNo: "", typeRing: "C1", keyPos: "16", startCH: "", finishCH: "", length: "1.40", remark: "",
     excavStartTime: "", excavEndTime: "", soilType: "", excavImageBase64: "", excavImageName: "", excavShift: projectInfo.shift,
     installStartTime: "", installEndTime: "", imageBase64: "", imageName: "", status: "In Progress", installType: "Permanent", installShift: projectInfo.shift,
+    headV: "", artV: "", tailV: "", vrt: "", // ระดับหัวเจาะ (+ = สูงกว่าแบบ, mm; vrt = °)
   });
 
   const lastRing = useMemo(() => {
@@ -32,7 +33,8 @@ const SegmentRecordView = ({ projectInfo, handleProjectInfoChange, segmentRecord
       if (lastRecord.status === "In Progress") {
         setFormData((prev) => ({
           ...prev, id: lastRecord.id, ringNo: lastRecord.ringNo, typeRing: lastRecord.typeRing || "C1", keyPos: lastRecord.keyPos || "16", startCH: lastRecord.startCH, finishCH: lastRecord.finishCH, length: lastRecord.length || "1.40", status: "In Progress", installType: lastRecord.installType || "Permanent", excavStartTime: lastRecord.excavStartTime || "", excavEndTime: lastRecord.excavEndTime || "", soilType: lastRecord.soilType || "", installStartTime: lastRecord.installStartTime || lastRecord.startTime || "", installEndTime: lastRecord.installEndTime || lastRecord.endTime || "",
-          excavShift: lastRecord.excavShift || projectInfo.shift, installShift: lastRecord.installShift || projectInfo.shift
+          excavShift: lastRecord.excavShift || projectInfo.shift, installShift: lastRecord.installShift || projectInfo.shift,
+          headV: lastRecord.headV != null ? lastRecord.headV : "", artV: lastRecord.artV != null ? lastRecord.artV : "", tailV: lastRecord.tailV != null ? lastRecord.tailV : "", vrt: lastRecord.vrt != null ? lastRecord.vrt : ""
         }));
       } else {
         const lastFinishRaw = parseCH(lastRecord.finishCH);
@@ -83,6 +85,7 @@ const SegmentRecordView = ({ projectInfo, handleProjectInfoChange, segmentRecord
         const isCompleted = prev.status === "Completed";
         return {
           ...prev, id: isCompleted ? null : recordData.id, ringNo: isCompleted ? offsetRingNo(prev.ringNo, 1) : prev.ringNo, startCH: isCompleted ? prev.finishCH : prev.startCH, finishCH: isCompleted ? formatCH(parseCH(prev.finishCH) - parseFloat(prev.length)) : prev.finishCH, remark: "", excavStartTime: isCompleted ? "" : prev.excavStartTime, excavEndTime: isCompleted ? "" : prev.excavEndTime, soilType: isCompleted ? "" : prev.soilType, excavImageBase64: isCompleted ? "" : prev.excavImageBase64, excavImageName: isCompleted ? "" : prev.excavImageName, installStartTime: isCompleted ? "" : prev.installStartTime, installEndTime: isCompleted ? "" : prev.installEndTime, imageBase64: "", imageName: "", status: isCompleted ? "In Progress" : prev.status, installType: isCompleted ? "Permanent" : prev.installType,
+          headV: isCompleted ? "" : prev.headV, artV: isCompleted ? "" : prev.artV, tailV: isCompleted ? "" : prev.tailV, vrt: isCompleted ? "" : prev.vrt, // reset head fields บนริงใหม่ (กัน carry)
           excavShift: projectInfo.shift, installShift: projectInfo.shift
         };
       });
@@ -252,6 +255,33 @@ const SegmentRecordView = ({ projectInfo, handleProjectInfoChange, segmentRecord
             <div className="flex-1 relative z-10">
               <label className="text-[9px] font-semibold text-cyan uppercase tracking-widest block mb-1">Finish (CH.)</label>
               <input type="text" name="finishCH" value={formData.finishCH} onChange={handleInputChange} onBlur={(e) => setFormData(prev => ({ ...prev, finishCH: formatCH(prev.finishCH) }))} className="w-full bg-white/10 border border-white/20 text-white rounded-input p-3 text-center font-mono font-semibold outline-none focus:border-sgreen-med text-lg transition-colors shadow-card" placeholder="0+000" />
+            </div>
+          </div>
+
+          {/* HEAD LEVEL — ระดับหัวเจาะ (optional; + = สูงกว่าแบบ) */}
+          <div className="bg-surface border border-input rounded-card p-5 shadow-card relative overflow-hidden">
+            <div className="absolute left-0 top-0 bottom-0 w-1.5 bg-navy"></div>
+            <div className="flex justify-between items-center mb-3 pl-2">
+              <h3 className="text-xs font-semibold text-ink flex items-center gap-2 uppercase tracking-widest">ระดับหัวเจาะ <span className="text-[10px] text-ink-3 font-medium normal-case">(Head Level · ไม่บังคับ)</span></h3>
+              <span className="text-[9px] text-ink-3 font-medium">+ = สูงกว่าแบบ</span>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pl-2">
+              <div>
+                <label className="text-[10px] font-semibold text-ink-3 block mb-1.5">Head (mm)</label>
+                <input type="number" step="1" name="headV" value={formData.headV} onChange={handleInputChange} className="border border-input rounded-input p-2.5 w-full bg-surface-alt outline-none font-mono font-semibold text-ink focus:border-navy transition-colors text-sm text-center" placeholder="+29" />
+              </div>
+              <div>
+                <label className="text-[10px] font-semibold text-ink-3 block mb-1.5">Art (mm)</label>
+                <input type="number" step="1" name="artV" value={formData.artV} onChange={handleInputChange} className="border border-input rounded-input p-2.5 w-full bg-surface-alt outline-none font-mono font-semibold text-ink focus:border-navy transition-colors text-sm text-center" placeholder="+33" />
+              </div>
+              <div>
+                <label className="text-[10px] font-semibold text-ink-3 block mb-1.5">Tail (mm)</label>
+                <input type="number" step="1" name="tailV" value={formData.tailV} onChange={handleInputChange} className="border border-input rounded-input p-2.5 w-full bg-surface-alt outline-none font-mono font-semibold text-ink focus:border-navy transition-colors text-sm text-center" placeholder="+34" />
+              </div>
+              <div>
+                <label className="text-[10px] font-semibold text-ink-3 block mb-1.5">VRT (°)</label>
+                <input type="number" step="0.1" name="vrt" value={formData.vrt} onChange={handleInputChange} className="border border-input rounded-input p-2.5 w-full bg-surface-alt outline-none font-mono font-semibold text-ink focus:border-navy transition-colors text-sm text-center" placeholder="0.2" />
+              </div>
             </div>
           </div>
 

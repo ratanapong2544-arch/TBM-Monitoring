@@ -11,9 +11,11 @@ import SectionHeader from "../common/SectionHeader";
 import StatCard from "../common/StatCard";
 import { fitAndPrint } from "../../utils/printFit";
 
-export default function GroutAnalysisView({ groutRecords = [], readOnly = false }) {
+export default function GroutAnalysisView({ groutRecords = [], secondaryGroutRecords = [], readOnly = false }) {
   // ── Print State ──
   const [printingChartId, setPrintingChartId] = useState("all");
+  // ── F1: scope All/Primary/Secondary (ratio-based = primary-only) ──
+  const [groutScope, setGroutScope] = useState("all");
 
   const handlePrintSpecificChart = (chartId) => {
     setPrintingChartId(chartId);
@@ -39,10 +41,19 @@ export default function GroutAnalysisView({ groutRecords = [], readOnly = false 
   // ── Expand State ──
   const [expandedChart, setExpandedChart] = useState(null);
 
+  // ── scoped records (All=primary+secondary อิสระ, ไม่รวมต่อ ring) ──
+  const scopedRecords = useMemo(() => {
+    const prim = groutRecords.map(r => ({ ...r, groutType: "primary" }));
+    const sec = secondaryGroutRecords.map(r => ({ ...r, groutType: "secondary" }));
+    if (groutScope === "primary") return prim;
+    if (groutScope === "secondary") return sec;
+    return [...prim, ...sec];
+  }, [groutRecords, secondaryGroutRecords, groutScope]);
+
   // ── groutChartData useMemo ──
   const groutChartData = useMemo(() => {
-    let baseData = groutFilterShift === "All" ? groutRecords : groutRecords.filter(r => r.shift === groutFilterShift);
-    baseData = baseData.map(r => ({ ...r, displayRing: r.groutPass === "Re-Grout" ? `${r.ringNo} (Re)` : r.ringNo, pressure: r.pressure ? Number(r.pressure) : null }));
+    let baseData = groutFilterShift === "All" ? scopedRecords : scopedRecords.filter(r => r.shift === groutFilterShift);
+    baseData = baseData.map(r => ({ ...r, displayRing: r.groutType === "secondary" ? `${r.ringNo} (S)` : (r.groutPass === "Re-Grout" ? `${r.ringNo} (Re)` : r.ringNo), pressure: r.pressure ? Number(r.pressure) : null }));
 
     if (groutFilterMode === "all") return baseData;
     if (groutFilterMode === "range" && groutRangeStart && groutRangeEnd) {
@@ -54,7 +65,7 @@ export default function GroutAnalysisView({ groutRecords = [], readOnly = false 
     // lastN
     const start = Math.max(0, baseData.length - groutChartWindow);
     return baseData.slice(start);
-  }, [groutRecords, groutFilterMode, groutChartWindow, groutRangeStart, groutRangeEnd, groutFilterDate, groutFilterMonth, groutFilterShift]);
+  }, [scopedRecords, groutFilterMode, groutChartWindow, groutRangeStart, groutRangeEnd, groutFilterDate, groutFilterMonth, groutFilterShift]);
 
   const groutQuality = useMemo(() => {
     const ringMap = new Map();
@@ -167,6 +178,11 @@ export default function GroutAnalysisView({ groutRecords = [], readOnly = false 
                 </div>
               )}
               <div className="w-px h-6 bg-line hidden sm:block"></div>
+              <div className="flex bg-surface rounded-input p-1 border border-line shadow-card">
+                {[["all","All"],["primary","Primary"],["secondary","Secondary"]].map(([v,l]) => (
+                  <button key={v} onClick={() => setGroutScope(v)} className={`px-3 py-1.5 text-xs rounded-input font-semibold transition whitespace-nowrap ${groutScope === v ? "bg-navy text-white shadow" : "text-ink-2 hover:bg-surface-alt"}`}>{l}</button>
+                ))}
+              </div>
               <select value={groutFilterShift} onChange={e => setGroutFilterShift(e.target.value)} className="px-3 py-1.5 text-xs font-semibold border border-line rounded-input focus:ring-1 focus:ring-navy outline-none text-ink bg-surface cursor-pointer w-full sm:w-auto">
                 <option value="All">All Shifts</option><option value="Day">Day Shift</option><option value="Night">Night Shift</option>
               </select>
@@ -212,15 +228,15 @@ export default function GroutAnalysisView({ groutRecords = [], readOnly = false 
         </div>
       </section>
 
-      {/* ── Grout Quality summary ── (ซ่อนตอนปริ้นกราฟเดี่ยว เพื่อให้ออกหน้าเดียว) */}
-      <div className={`grid grid-cols-1 sm:grid-cols-3 gap-4 ${printingChartId !== "all" ? "print:hidden" : ""}`}>
+      {/* ── Grout Quality summary ── (ratio = primary-only → ซ่อนเมื่อ scope=secondary; ซ่อนตอนปริ้นกราฟเดี่ยว) */}
+      <div className={`grid grid-cols-1 sm:grid-cols-3 gap-4 ${printingChartId !== "all" ? "print:hidden" : ""} ${groutScope === "secondary" ? "hidden" : ""}`}>
         <StatCard label="Re-grout rate" value={`${groutQuality.reGroutRate.toFixed(1)}%`} subtext={`${groutQuality.reGroutCount} จาก ${groutQuality.uniqueRings} rings`} color="text-code-d" valueColor={groutQuality.reGroutRate > 10 ? "text-code-d" : "text-sgreen-dark"} icon={RefreshCw} />
         <StatCard label="เฉลี่ย Ratio" value={`${groutQuality.avgRatio.toFixed(1)}%`} subtext="อัตราส่วนน้ำยาเฉลี่ยทุก ring" color="text-navy" valueColor={groutQuality.avgRatio >= 100 ? "text-sgreen-dark" : "text-code-d"} icon={Droplet} />
         <StatCard label="Rings < 100%" value={`${groutQuality.belowSpec} rings`} subtext="ต่ำกว่าทฤษฎี (ควรตรวจ)" color="text-code-c" valueColor={groutQuality.belowSpec > 0 ? "text-code-c" : "text-sgreen-dark"} icon={BarChart3} />
       </div>
 
-      {/* ── Ratio distribution histogram ── (ซ่อนตอนปริ้นกราฟเดี่ยว) */}
-      <div className={`bg-surface rounded-card p-6 shadow-card border border-line ${printingChartId !== "all" ? "print:hidden" : ""}`}>
+      {/* ── Ratio distribution histogram ── (primary-only → ซ่อนเมื่อ scope=secondary; ซ่อนตอนปริ้นกราฟเดี่ยว) */}
+      <div className={`bg-surface rounded-card p-6 shadow-card border border-line ${printingChartId !== "all" ? "print:hidden" : ""} ${groutScope === "secondary" ? "hidden" : ""}`}>
         <h3 className="font-semibold text-ink text-base mb-1">การกระจายของ Grout Ratio</h3>
         <p className="text-xs text-ink-3 font-semibold mb-4">จำนวน rings ในแต่ละช่วง % เทียบทฤษฎี (3.1 m³ = 100%)</p>
         <div className="h-[280px] w-full">

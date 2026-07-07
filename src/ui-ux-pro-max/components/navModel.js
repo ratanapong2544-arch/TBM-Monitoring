@@ -1,4 +1,4 @@
-import { Home, PlusCircle, LayoutDashboard, Database, Clock, FileText, TrendingUp, Droplet, MapPin, Gauge, ClipboardList, CalendarRange } from "lucide-react";
+import { Home, PlusCircle, LayoutDashboard, Database, Clock, FileText, TrendingUp, Droplet, MapPin, Gauge, ClipboardList, CalendarRange, ArrowUpDown } from "lucide-react";
 // tab = activeTab value เดิม, module = currentModule (ถ้ามี), short = label สั้นสำหรับ bottom nav มือถือ
 export const NAV_GROUPS = [
   { label: "ภาพรวม", items: [{ id:"overview", tab:"overview", label:"Home", short:"Home", icon:Home }] },
@@ -12,6 +12,7 @@ export const NAV_GROUPS = [
     { id:"anl-seg", tab:"analysis", module:"segment", label:"Segment Trend",    short:"Seg", icon:TrendingUp },
     { id:"anl-grt", tab:"analysis", module:"grout",   label:"Grout Volume",     short:"Grt", icon:Droplet },
     { id:"anl-rte", tab:"analysis", module:"route",   label:"Route & Schedule", short:"Rte", icon:MapPin },
+    { id:"head", tab:"head_level", label:"ระดับหัวเจาะ", short:"Head", icon:ArrowUpDown },
     { id:"prep", tab:"prep_gantt", label:"Work Plan", short:"Plan", icon:CalendarRange },
     { id:"perf", tab:"performance", label:"Performance", short:"Perf", icon:Gauge },
   ]},
@@ -29,7 +30,7 @@ export const NAV_GROUPS = [
 export const MOBILE_PRIMARY = ["overview","record","dashboard","shift_report"]; // + More
 // More sheet = ทุกหน้า Dashboard ที่ไม่ได้อยู่ bottom bar (analysis Trend/Grout/Route, Work Plan, Performance) + Data Log + รายงาน
 // ไม่รวม record_daily → ซ่อน "Record Daily" บนมือถือ
-export const MOBILE_MORE_TABS = ["analysis","prep_gantt","performance","datalog","report","daily_report"];
+export const MOBILE_MORE_TABS = ["analysis","head_level","prep_gantt","performance","datalog","report","daily_report"];
 
 // กลุ่ม nav ที่ viewer เห็น = กลุ่ม "Dashboard" + Shift Report (จากกลุ่มรายงาน)
 export function viewerGroups() {

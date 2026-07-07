@@ -9,9 +9,10 @@ import RingVisualizer from "../common/RingVisualizer";
 import { ResponsiveContainer, AreaChart, CartesianGrid, XAxis, YAxis, Tooltip, ReferenceLine, Area } from "recharts";
 import { Badge } from "../../ui-ux-pro-max";
 
-const GroutDashboardView = ({ groutRecords, segmentRecords, setGroutRecords, machine = "TBM1" }) => {
+const GroutDashboardView = ({ groutRecords, segmentRecords, setGroutRecords, secondaryGroutRecords = [], setSecondaryGroutRecords, machine = "TBM1", readOnly = false }) => {
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 50;
+  const [groutScope, setGroutScope] = useState("all"); // all | primary | secondary
   const [filterMode, setFilterMode] = useState("all");
   const [chartWindow, setChartWindow] = useState(20);
   const [rangeStart, setRangeStart] = useState("");
@@ -24,9 +25,18 @@ const GroutDashboardView = ({ groutRecords, segmentRecords, setGroutRecords, mac
   const [editFormData, setEditFormData] = useState(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
+  // merge primary + secondary (tag groutType) ตาม scope
+  const allRecords = useMemo(() => {
+    const prim = (groutRecords || []).map((r) => ({ ...r, groutType: "primary" }));
+    const sec = (secondaryGroutRecords || []).map((r) => ({ ...r, groutType: "secondary" }));
+    if (groutScope === "primary") return prim;
+    if (groutScope === "secondary") return sec;
+    return [...prim, ...sec];
+  }, [groutRecords, secondaryGroutRecords, groutScope]);
+
   const chartData = useMemo(() => {
-    let baseData = filterShift === "All" ? groutRecords : groutRecords.filter((r) => r.shift === filterShift);
-    baseData = baseData.map((r) => ({ ...r, displayRing: r.groutPass === "Re-Grout" ? `${r.ringNo} (Re)` : r.ringNo }));
+    let baseData = filterShift === "All" ? allRecords : allRecords.filter((r) => r.shift === filterShift);
+    baseData = baseData.map((r) => ({ ...r, displayRing: r.groutType === "secondary" ? `${r.ringNo} (S)` : (r.groutPass === "Re-Grout" ? `${r.ringNo} (Re)` : r.ringNo) }));
 
     if (filterMode === "all") return baseData;
     else if (filterMode === "range" && rangeStart && rangeEnd) {
@@ -36,7 +46,7 @@ const GroutDashboardView = ({ groutRecords, segmentRecords, setGroutRecords, mac
     } else if (filterMode === "daily") return baseData.filter((r) => r.date && r.date.startsWith(filterDate));
     else if (filterMode === "monthly") return baseData.filter((r) => r.date && r.date.startsWith(filterMonth));
     else { const start = Math.max(0, baseData.length - chartWindow); return baseData.slice(start, baseData.length); }
-  }, [groutRecords, filterMode, chartWindow, rangeStart, rangeEnd, filterDate, filterMonth, filterShift]);
+  }, [allRecords, filterMode, chartWindow, rangeStart, rangeEnd, filterDate, filterMonth, filterShift]);
 
   const filteredRecords = useMemo(() => [...chartData].reverse(), [chartData]);
   const totalPages = Math.ceil(filteredRecords.length / itemsPerPage);
@@ -75,6 +85,18 @@ const GroutDashboardView = ({ groutRecords, segmentRecords, setGroutRecords, mac
   };
 
   const handleSaveEdit = async () => {
+    // secondary grout → sheet แยก, ไม่มี ratio
+    if (editFormData.groutType === "secondary") {
+      const total = Number(editFormData.partA || 0) + Number(editFormData.partB || 0);
+      const cleanRingNo = String(editFormData.ringNo).trim().toUpperCase();
+      const updated = { ...editFormData, ringNo: cleanRingNo, total: Number(total) };
+      try {
+        await apiCall("updateSecondaryGrout", { ...updated, machine }); // positions object → GAS encode-once
+        setSecondaryGroutRecords((prev) => prev.map((r) => (r.id === updated.id ? updated : r)));
+        setSelectedRecord(updated); setIsEditing(false);
+      } catch (e) { alert("อัปเดตข้อมูลล้มเหลว: " + e.message); }
+      return;
+    }
     const isReGrout = editFormData.groutPass === "Re-Grout";
     const total = isReGrout
       ? Number(editFormData.primaryPartA || editFormData.partA || 0) + Number(editFormData.primaryPartB || editFormData.partB || 0) + Number(editFormData.secondaryPartA || 0) + Number(editFormData.secondaryPartB || 0)
@@ -99,11 +121,16 @@ const GroutDashboardView = ({ groutRecords, segmentRecords, setGroutRecords, mac
 
   const handleDeleteRecord = async () => {
     try {
-      await apiCall("deleteGrout", { id: selectedRecord.id, machine });
-      setGroutRecords((prev) => prev.filter((r) => r.id !== selectedRecord.id));
+      if (selectedRecord.groutType === "secondary") {
+        await apiCall("deleteSecondaryGrout", { id: selectedRecord.id, machine });
+        setSecondaryGroutRecords((prev) => prev.filter((r) => r.id !== selectedRecord.id));
+      } else {
+        await apiCall("deleteGrout", { id: selectedRecord.id, machine });
+        setGroutRecords((prev) => prev.filter((r) => r.id !== selectedRecord.id));
+      }
       setSelectedRecord(null);
       setShowDeleteConfirm(false);
-    } catch (e) { alert("ลบข้อมูลล้มเหลว"); }
+    } catch (e) { alert("ลบข้อมูลล้มเหลว: " + e.message); }
   };
 
   return (
@@ -150,6 +177,11 @@ const GroutDashboardView = ({ groutRecords, segmentRecords, setGroutRecords, mac
             </div>
           )}
           <div className="w-px h-6 bg-line hidden sm:block"></div>
+          <div className="flex bg-surface rounded-input p-1 border border-line shadow-card">
+            {[["all","All"],["primary","Primary"],["secondary","Secondary"]].map(([v,l]) => (
+              <button key={v} onClick={() => setGroutScope(v)} className={`px-3 py-1.5 text-xs rounded-input font-semibold transition whitespace-nowrap ${groutScope === v ? "bg-navy text-white shadow" : "text-ink-2 hover:bg-surface-alt"}`}>{l}</button>
+            ))}
+          </div>
           <select value={filterShift} onChange={(e) => setFilterShift(e.target.value)} className="px-3 py-1.5 text-xs font-semibold border border-line rounded-input focus:ring-1 focus:ring-navy focus:border-navy outline-none text-ink bg-surface cursor-pointer w-full sm:w-auto">
             <option value="All">All Shifts</option>
             <option value="Day">Day Shift</option>
@@ -185,7 +217,7 @@ const GroutDashboardView = ({ groutRecords, segmentRecords, setGroutRecords, mac
                   <td className="px-6 py-4">
                     <div className="flex items-center gap-2">
                       <div className="font-semibold text-ink text-base font-mono">{String(record.ringNo)}</div>
-                      {record.groutPass === "Re-Grout" && <Badge code="info">Re-Grout</Badge>}
+                      {record.groutType === "secondary" ? <Badge code="c">Secondary</Badge> : record.groutPass === "Re-Grout" ? <Badge code="info">Re-Grout</Badge> : <Badge code="info">Primary</Badge>}
                     </div>
                     <div className="text-xs text-ink-3 mt-1">Ex: <span className="font-mono">{String(record.excavRing)}</span></div>
                     <div className="flex items-center gap-1.5 mt-1">
@@ -211,9 +243,13 @@ const GroutDashboardView = ({ groutRecords, segmentRecords, setGroutRecords, mac
                     <div className="text-xs text-ink-3 mt-1 font-mono">{String(record.pressure || '')} bar</div>
                   </td>
                   <td className="px-6 py-4 text-right">
-                    <span className={`inline-flex px-3 py-1 rounded-badge text-xs font-semibold border ${Number(record.ratio || 0) > 150 ? "bg-code-b/10 text-code-b border-code-b/20" : Number(record.ratio || 0) >= 100 ? "bg-sgreen-med/10 text-sgreen-dark border-sgreen-med/20" : "bg-code-d/10 text-code-d border-code-d/20"}`}>
-                      {Number(record.ratio || 0).toFixed(1)}%
-                    </span>
+                    {record.groutType === "secondary" ? (
+                      <span className="inline-flex px-3 py-1 rounded-badge text-xs font-semibold border bg-surface-alt text-ink-3 border-line">—</span>
+                    ) : (
+                      <span className={`inline-flex px-3 py-1 rounded-badge text-xs font-semibold border ${Number(record.ratio || 0) > 150 ? "bg-code-b/10 text-code-b border-code-b/20" : Number(record.ratio || 0) >= 100 ? "bg-sgreen-med/10 text-sgreen-dark border-sgreen-med/20" : "bg-code-d/10 text-code-d border-code-d/20"}`}>
+                        {Number(record.ratio || 0).toFixed(1)}%
+                      </span>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -235,8 +271,8 @@ const GroutDashboardView = ({ groutRecords, segmentRecords, setGroutRecords, mac
                 {selectedRecord.imageUrl && selectedRecord.imageUrl !== "Attached" && (
                   <a href={selectedRecord.imageUrl} target="_blank" rel="noreferrer" className="p-2 bg-white/10 hover:bg-white/20 rounded-full transition-colors" title="View Photo"><Camera size={18} /></a>
                 )}
-                {!isEditing && <button onClick={() => { setEditFormData(selectedRecord); setIsEditing(true); }} className="p-2 bg-white/10 hover:bg-white/20 rounded-full transition-colors" title="Edit"><Edit size={18} /></button>}
-                <button onClick={() => setShowDeleteConfirm(true)} className="p-2 bg-white/10 hover:bg-code-d rounded-full transition-colors" title="Delete"><Trash2 size={18} /></button>
+                {!isEditing && !readOnly && <button onClick={() => { setEditFormData(selectedRecord); setIsEditing(true); }} className="p-2 bg-white/10 hover:bg-white/20 rounded-full transition-colors" title="Edit"><Edit size={18} /></button>}
+                {!readOnly && <button onClick={() => setShowDeleteConfirm(true)} className="p-2 bg-white/10 hover:bg-code-d rounded-full transition-colors" title="Delete"><Trash2 size={18} /></button>}
                 <button onClick={() => { setSelectedRecord(null); setIsEditing(false); }} className="p-2 bg-white/10 hover:bg-white/20 rounded-full transition-colors ml-2"><X size={20} /></button>
               </div>
             </div>
@@ -350,9 +386,13 @@ const GroutDashboardView = ({ groutRecords, segmentRecords, setGroutRecords, mac
                     </div>
                     <div className="bg-surface rounded-card p-4 border border-line shadow-card flex flex-col justify-center items-end">
                       <div className="text-xs font-semibold text-ink-3 uppercase tracking-widest mb-1">Final Ratio</div>
+                      {selectedRecord.groutType === "secondary" ? (
+                        <div className="text-2xl font-semibold font-mono text-ink-3">—</div>
+                      ) : (
                       <div className={`text-2xl font-semibold font-mono ${Number(isEditing ? (((Number(editFormData?.partA || editFormData?.primaryPartA || 0) + Number(editFormData?.partB || editFormData?.primaryPartB || 0) + Number(editFormData?.secondaryPartA || 0) + Number(editFormData?.secondaryPartB || 0))) / THEORETICAL_VOL * 100) : selectedRecord.ratio || 0) > 150 ? "text-code-b" : Number(isEditing ? (((Number(editFormData?.partA || editFormData?.primaryPartA || 0) + Number(editFormData?.partB || editFormData?.primaryPartB || 0) + Number(editFormData?.secondaryPartA || 0) + Number(editFormData?.secondaryPartB || 0))) / THEORETICAL_VOL * 100) : selectedRecord.ratio || 0) >= 100 ? "text-sgreen-dark" : "text-code-d"}`}>
                         {Number(isEditing ? (((Number(editFormData?.partA || editFormData?.primaryPartA || 0) + Number(editFormData?.partB || editFormData?.primaryPartB || 0) + Number(editFormData?.secondaryPartA || 0) + Number(editFormData?.secondaryPartB || 0))) / THEORETICAL_VOL * 100) : selectedRecord.ratio || 0).toFixed(1)}%
                       </div>
+                      )}
                     </div>
                   </div>
                 </div>

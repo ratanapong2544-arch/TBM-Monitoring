@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { Loader2, AlertCircle, Activity, Clock } from "lucide-react";
 
 import { GAS_URL } from "./utils/constants";
@@ -16,6 +16,7 @@ import ShiftReportView from "./components/views/ShiftReportView";
 import SegmentAnalysisView from "./components/views/SegmentAnalysisView";
 import GroutAnalysisView from "./components/views/GroutAnalysisView";
 import RouteScheduleView from "./components/views/RouteScheduleView";
+import HeadLevelView from "./components/views/HeadLevelView";
 import PerformanceView from "./components/views/PerformanceView";
 import DailyReportView from "./components/views/DailyReportView";
 import RecordDailyView from "./components/views/RecordDailyView";
@@ -42,9 +43,13 @@ const PrimaryGroutApp = () => {
   useEffect(() => { try { localStorage.setItem("tbmActiveMachine", activeMachine); } catch (e) {} }, [activeMachine]);
   useEffect(() => { setProjectInfo((p) => ({ ...p, ...getMachineConfig(activeMachine) })); }, [activeMachine]);
   const [groutRecords, setGroutRecords] = useState([]);
+  const [secondaryGroutRecords, setSecondaryGroutRecords] = useState([]);
   const [segmentRecords, setSegmentRecords] = useState([]);
   const [shiftReports, setShiftReports] = useState([]);
+  const [machineProgress, setMachineProgress] = useState(null);
+  const [routeProjectTotal, setRouteProjectTotal] = useState(null);
   const [moreOpen, setMoreOpen] = useState(false);
+  const reqSeqRef = useRef(0); // S5: กัน fetch race (response เครื่องเก่าทับ state เครื่องใหม่)
 
   const [issues, setIssues] = useState(loadIssues);
   useEffect(() => { persistIssues(issues); }, [issues]);
@@ -87,12 +92,14 @@ const PrimaryGroutApp = () => {
   };
 
   useEffect(() => {
-    setSegmentRecords([]); setGroutRecords([]); setShiftReports([]);
+    const seq = ++reqSeqRef.current; // S5: token ของ request นี้
+    setSegmentRecords([]); setGroutRecords([]); setSecondaryGroutRecords([]); setShiftReports([]);
     const fetchData = async () => {
       if (GAS_URL !== "YOUR_WEB_APP_URL_HERE" && GAS_URL.startsWith("http")) {
         try {
           const response = await fetch(`${GAS_URL}?action=getData&machine=${activeMachine}`, { redirect: "follow" });
           const textData = await response.text();
+          if (reqSeqRef.current !== seq) return; // สลับเครื่องไปแล้ว → ทิ้ง response เก่า (กัน race)
           if (textData.trim().startsWith("<")) throw new Error("Received HTML error.");
           const result = JSON.parse(textData);
           if (result.status === "success") {
@@ -146,6 +153,15 @@ const PrimaryGroutApp = () => {
               };
             });
             setGroutRecords(parsedGrouts);
+
+            // F1: secondary grout (dataset แยก) — parse positions เหมือน primary, ไม่มี ratio
+            const parsedSecondary = (result.secondaryGrouts || []).map((g) => ({
+              ...g,
+              positions: parsePositions(g.positions),
+              total: Number(g.total || 0),
+            }));
+            setSecondaryGroutRecords(parsedSecondary);
+
             const defaultManpower = { Engineer: '', Operator: '', Surveyor: '', Machanic: '', Electrician: '', Foreman: '', Worker: '', CraneOp: '' };
             const defaultResult = { startSta: '', finishSta: '', numberRing: '', totalDistance: '', progressRate: '' };
             const parsedShiftReports = (result.shiftReports || []).map(sr => ({ ...sr, events: safeParseJSON(sr.events, {}), manpower: safeParseJSON(sr.manpower, defaultManpower), result: safeParseJSON(sr.result, defaultResult) }));
@@ -170,6 +186,15 @@ const PrimaryGroutApp = () => {
                 localStorage.setItem("tbmDistancePlanConfig", JSON.stringify(dpc));
               } catch(e) { console.error("Parse distPlanConfig error", e); }
             }
+            // F3: route configs (ทั้ง 2 เครื่อง) → localStorage เพื่อให้ RouteScheduleView โหลด; progress/total → state
+            if (result.routeConfigs && typeof result.routeConfigs === "object") {
+              try {
+                if (result.routeConfigs.TBM1) localStorage.setItem("tbmRouteConfig", JSON.stringify(result.routeConfigs.TBM1));
+                if (result.routeConfigs.TBM2) localStorage.setItem("tbmRouteConfig__TBM2", JSON.stringify(result.routeConfigs.TBM2));
+              } catch (e) { /* ignore */ }
+            }
+            setMachineProgress(result.machineProgress || null);
+            setRouteProjectTotal(typeof result.routeProjectTotal === "number" ? result.routeProjectTotal : null);
           }
         } catch (error) { setLoadError("ไม่สามารถดึงข้อมูลได้: " + error.message); }
       }
@@ -189,6 +214,7 @@ const PrimaryGroutApp = () => {
   const activeSegments     = segmentRecords;
   const currentRingNum = activeSegments.reduce((mx, s) => Math.max(mx, getRingNumeric(s.ringNo) || 0), 0);
   const activeGrouts       = groutRecords;
+  const activeSecondaryGrouts = secondaryGroutRecords;
   const activeShiftReports = shiftReports;
   const activeDailyReports = dailyReports.filter((r) => (r.machine || "TBM1") === activeMachine);
   const activeIssues = forMachine(issues, activeMachine);
@@ -272,15 +298,16 @@ const PrimaryGroutApp = () => {
     >
       {loadError && <div className="mb-6 bg-code-d/10 border border-code-d/30 text-code-d p-4 rounded-card text-center no-print font-semibold">{loadError}</div>}
       {activeTab === "overview" && <OverviewView segmentRecords={activeSegments} groutRecords={activeGrouts} setCurrentModule={setCurrentModule} setActiveTab={setActiveTab} activeMachine={activeMachine} onMachineChange={setActiveMachine} />}
-      {activeTab === "record" && currentModule === "grout" && <GroutRecordView projectInfo={projectInfo} handleProjectInfoChange={handleProjectInfoChange} groutRecords={groutRecords} setGroutRecords={setGroutRecords} segmentRecords={segmentRecords} setCurrentModule={setCurrentModule} setActiveTab={setActiveTab} machine={activeMachine} />}
+      {activeTab === "record" && currentModule === "grout" && <GroutRecordView projectInfo={projectInfo} handleProjectInfoChange={handleProjectInfoChange} groutRecords={groutRecords} setGroutRecords={setGroutRecords} secondaryGroutRecords={secondaryGroutRecords} setSecondaryGroutRecords={setSecondaryGroutRecords} segmentRecords={segmentRecords} setCurrentModule={setCurrentModule} setActiveTab={setActiveTab} machine={activeMachine} />}
       {activeTab === "record" && currentModule === "segment" && <SegmentRecordView projectInfo={projectInfo} handleProjectInfoChange={handleProjectInfoChange} segmentRecords={segmentRecords} setSegmentRecords={setSegmentRecords} setCurrentModule={setCurrentModule} setActiveTab={setActiveTab} machine={activeMachine} />}
       {activeTab === "dashboard" && <ExecutiveDashboardView segmentRecords={activeSegments} groutRecords={activeGrouts} shiftReports={activeShiftReports} dailyReports={activeDailyReports} machine={activeMachine} onNavigate={handleNavigate} filterState={dashFilter.state} readOnly={isViewer} />}
       {activeTab === "analysis" && currentModule === "segment" && <SegmentAnalysisView segmentRecords={activeSegments} projectInfo={projectInfo} machine={activeMachine} filterState={dashFilter.state} readOnly={isViewer} />}
-      {activeTab === "analysis" && currentModule === "grout" && <GroutAnalysisView groutRecords={activeGrouts} readOnly={isViewer} />}
-      {activeTab === "analysis" && currentModule === "route" && <RouteScheduleView segmentRecords={activeSegments} projectInfo={projectInfo} machine={activeMachine} filterState={dashFilter.state} readOnly={isViewer} />}
+      {activeTab === "analysis" && currentModule === "grout" && <GroutAnalysisView groutRecords={activeGrouts} secondaryGroutRecords={activeSecondaryGrouts} readOnly={isViewer} />}
+      {activeTab === "analysis" && currentModule === "route" && <RouteScheduleView segmentRecords={activeSegments} projectInfo={projectInfo} machine={activeMachine} machineProgress={machineProgress} routeProjectTotal={routeProjectTotal} filterState={dashFilter.state} readOnly={isViewer} />}
+      {activeTab === "head_level" && <HeadLevelView segmentRecords={activeSegments} machine={activeMachine} readOnly={isViewer} />}
       {activeTab === "performance" && <PerformanceView segmentRecords={activeSegments} shiftReports={activeShiftReports} filterState={dashFilter.state} />}
       {activeTab === "prep_gantt" && <PrepGanttView machine={activeMachine} readOnly={isViewer} />}
-      {activeTab === "datalog" && currentModule === "grout" && <GroutDashboardView groutRecords={groutRecords} setGroutRecords={setGroutRecords} segmentRecords={segmentRecords} machine={activeMachine} />}
+      {activeTab === "datalog" && currentModule === "grout" && <GroutDashboardView groutRecords={groutRecords} setGroutRecords={setGroutRecords} secondaryGroutRecords={secondaryGroutRecords} setSecondaryGroutRecords={setSecondaryGroutRecords} segmentRecords={segmentRecords} machine={activeMachine} readOnly={isViewer} />}
       {activeTab === "datalog" && currentModule === "segment" && <SegmentDashboardView segmentRecords={segmentRecords} setSegmentRecords={setSegmentRecords} machine={activeMachine} />}
       {activeTab === "report" && <ReportView segmentRecords={activeSegments} groutRecords={activeGrouts} projectInfo={projectInfo} shiftReports={activeShiftReports} onCreateDaily={(draft) => { setPendingRecordForm(draft); setActiveTab("record_daily"); }} />}
       {activeTab === "shift_report" && <ShiftReportView projectInfo={projectInfo} segmentRecords={segmentRecords} shiftReports={shiftReports} setShiftReports={setShiftReports} machine={activeMachine} readOnly={isViewer} />}

@@ -90,10 +90,14 @@ export function pct(actual, total) {
 const isLeaf = (leg, legs) =>
   !legs.some((o) => o.order !== leg.order && String(o.order).startsWith(leg.order + "."));
 
-// คืนแถวตาราง พร้อม status + displayDistance (distance-based cumulative ต่อ permanent leaf)
+// คืนแถวตาราง จาก records (ดึง bored เอง) — ใช้กับเครื่องที่มี records ครบ
 export function routeRows(machine, cfg, records = []) {
+  return routeRowsFromBored(machine, cfg, machineActualMeters(records));
+}
+
+// คืนแถวตาราง จากค่า bored โดยตรง — ใช้กับเครื่องที่ไม่ได้เลือก (bored มาจาก GAS machineProgress)
+export function routeRowsFromBored(machine, cfg, bored = 0) {
   const legs = (cfg && cfg.legs) || [];
-  const bored = machineActualMeters(records);
 
   // 1) คำนวณ leaf (permanent สะสมตามลำดับ; temp ไม่เข้าสาย cumulative)
   const leaf = {};

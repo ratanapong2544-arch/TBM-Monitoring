@@ -12,7 +12,10 @@ export const apiCall = async (action, data) => {
     const textData = await response.text();
     const trimmedData = textData.trim();
     if (trimmedData.startsWith("<")) throw new Error("ระบบติด Permission HTML กรุณาตั้งค่า GAS เป็น 'ทุกคน (Anyone)'");
-    return JSON.parse(trimmedData);
+    const parsed = JSON.parse(trimmedData);
+    // S4: surface backend error (กัน typo action / busy lock save เงียบ) — caller ต้อง catch + toast
+    if (parsed && parsed.status === "error") throw new Error(parsed.message || "บันทึกไม่สำเร็จ");
+    return parsed;
   } catch (error) {
     console.error("API Error:", error);
     throw error;

@@ -8,13 +8,14 @@ import { getRingNumeric } from "../../utils/helpers";
 import { TOTAL_ROUTE_DISTANCE, ROUTE_SEGMENTS } from "../../utils/constants";
 import { apiCall } from "../../utils/api";
 import { loadDistancePlan, saveDistancePlan } from "../../utils/planConfig";
+import { loadRouteConfig, saveRouteConfig, routeRowsFromBored, machineActualMeters, ROUTE_TOTAL, PROJECT_TOTAL_M, ROUTE_NAME, ROUTE_STATUS, pct, validateRouteConfig } from "../../utils/routeConfig";
 import { chartColors, axisTick, tooltipStyle } from "../../ui-ux-pro-max/chartTheme";
 import {
   ResponsiveContainer, ComposedChart, CartesianGrid, XAxis, YAxis, Tooltip, Line, ReferenceLine
 } from "recharts";
 import { fitAndPrint } from "../../utils/printFit";
 
-const RouteScheduleView = ({ segmentRecords = [], projectInfo, machine = "TBM1", filterState = {}, readOnly = false }) => {
+const RouteScheduleView = ({ segmentRecords = [], projectInfo, machine = "TBM1", machineProgress = null, routeProjectTotal = null, filterState = {}, readOnly = false }) => {
   const filteredSegments = useMemo(() => filterByState(segmentRecords, filterState), [segmentRecords, filterState]);
 
   // ── Print State ──
@@ -40,6 +41,43 @@ const RouteScheduleView = ({ segmentRecords = [], projectInfo, machine = "TBM1",
   const [distRangeStart, setDistRangeStart] = useState("");
   const [distRangeEnd, setDistRangeEnd] = useState("");
   const [expandedChart, setExpandedChart] = useState(null);
+
+  // ── F3: Route distance table (project-wide TBM1+TBM2+รวม, config แก้ได้) ──
+  const [routeCfg, setRouteCfg] = useState({ TBM1: loadRouteConfig("TBM1"), TBM2: loadRouteConfig("TBM2") });
+  const [routeEditing, setRouteEditing] = useState(false);
+  const [routeDraft, setRouteDraft] = useState(null);
+  const [routeSaving, setRouteSaving] = useState(false);
+  const [routeErr, setRouteErr] = useState([]);
+  useEffect(() => { setRouteCfg({ TBM1: loadRouteConfig("TBM1"), TBM2: loadRouteConfig("TBM2") }); }, [machineProgress]);
+
+  const boredByMachine = useMemo(() => ({
+    TBM1: machine === "TBM1" ? machineActualMeters(segmentRecords) : (machineProgress && machineProgress.TBM1 ? machineProgress.TBM1.dist : 0),
+    TBM2: machine === "TBM2" ? machineActualMeters(segmentRecords) : (machineProgress && machineProgress.TBM2 ? machineProgress.TBM2.dist : 0),
+  }), [machine, segmentRecords, machineProgress]);
+
+  const projTotal = routeProjectTotal || PROJECT_TOTAL_M;
+  const routeTableSections = useMemo(() => ([
+    { key: "TBM1", name: ROUTE_NAME.TBM1, total: ROUTE_TOTAL.TBM1, bored: boredByMachine.TBM1, rows: routeRowsFromBored("TBM1", routeCfg.TBM1, boredByMachine.TBM1) },
+    { key: "TBM2", name: ROUTE_NAME.TBM2, total: ROUTE_TOTAL.TBM2, bored: boredByMachine.TBM2, rows: routeRowsFromBored("TBM2", routeCfg.TBM2, boredByMachine.TBM2) },
+  ]), [routeCfg, boredByMachine]);
+
+  const fmtM = (n) => Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const routeStatusClass = (s) => s === ROUTE_STATUS.DONE ? "bg-sgreen-med/10 text-sgreen-dark border-sgreen-med/30" : s === ROUTE_STATUS.CURRENT ? "bg-code-b/10 text-code-b border-code-b/30" : "bg-surface-alt text-ink-3 border-line";
+
+  const openRouteEditor = () => { setRouteDraft(JSON.parse(JSON.stringify(routeCfg[machine].legs || []))); setRouteErr([]); setRouteEditing(true); };
+  const routeDraftChange = (i, field, val) => setRouteDraft((prev) => prev.map((l, idx) => idx === i ? { ...l, [field]: field === "plannedDistance" || field === "level" ? val : val } : l));
+  const routeDraftAdd = () => setRouteDraft((prev) => [...prev, { order: "", level: 2, name: "", plannedDistance: 0, remark: "" }]);
+  const routeDraftDel = (i) => setRouteDraft((prev) => prev.filter((_, idx) => idx !== i));
+  const saveRouteEditor = async () => {
+    const cfg = { legs: routeDraft.map((l) => ({ ...l, plannedDistance: parseFloat(l.plannedDistance) || 0, level: parseInt(l.level, 10) || 2 })) };
+    const errs = validateRouteConfig(cfg);
+    if (errs.length) { setRouteErr(errs); return; }
+    setRouteSaving(true);
+    saveRouteConfig(machine, cfg);
+    setRouteCfg((prev) => ({ ...prev, [machine]: cfg }));
+    try { await apiCall("saveRouteConfig", { routeConfig: cfg, routeProjectTotal: projTotal, machine }); } catch (e) { alert("ซิงค์เส้นทางขึ้นเซิร์ฟเวอร์ไม่สำเร็จ (บันทึกในเครื่องแล้ว): " + e.message); }
+    setRouteSaving(false); setRouteEditing(false);
+  };
 
   // ── Distance Plan Config ──
   const [showDistPlanModal, setShowDistPlanModal] = useState(false);
@@ -283,6 +321,83 @@ const RouteScheduleView = ({ segmentRecords = [], projectInfo, machine = "TBM1",
 
   return (
     <div className="max-w-full mx-auto pb-24 animate-fade-in space-y-6 print:pb-0">
+
+      {/* ═══ F3: ตารางระยะทางเส้นทาง (project-wide) ═══ */}
+      <div className={`bg-surface rounded-card shadow-card border border-line overflow-hidden ${getPrintClass('routetable')}`}>
+        <div className="px-5 sm:px-6 py-4 border-b border-line flex flex-col sm:flex-row justify-between sm:items-center bg-surface-alt gap-2">
+          <div>
+            <h3 className="font-semibold text-ink text-base flex items-center gap-2"><Ruler size={18} className="text-navy" /> ผลงานสะสมงานอุโมงค์ ({machine})</h3>
+            <p className="text-xs text-ink-3 font-semibold mt-0.5">
+              {machineProgress && machineProgress[machine] ? `${machineProgress[machine].rings} Ring · ` : ""}
+              {fmtM(boredByMachine[machine])} m · {pct(boredByMachine[machine], ROUTE_TOTAL[machine] || projTotal).toFixed(2)}%
+            </p>
+          </div>
+          <div className="flex items-center gap-2 print:hidden">
+            {!readOnly && <button onClick={() => handlePrintSpecificChart('routetable')} className="p-1.5 text-ink-3 hover:text-navy bg-surface hover:bg-cyan-tint rounded-input border border-line shadow-card" title="Print"><Printer size={16} /></button>}
+            {!readOnly && <button onClick={openRouteEditor} className="px-3 py-1.5 text-xs font-semibold text-navy bg-surface hover:bg-cyan-tint rounded-input border border-line shadow-card flex items-center gap-1"><Settings size={14} /> แก้ไขเส้นทาง</button>}
+          </div>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm text-left whitespace-nowrap">
+            <thead className="text-xs text-white uppercase bg-navy-dark">
+              <tr><th className="px-4 py-3 w-16">ลำดับ</th><th className="px-4 py-3">เส้นทางชุดเจาะอุโมงค์</th><th className="px-4 py-3 text-right">ระยะทาง (ม.)</th><th className="px-4 py-3">หมายเหตุ</th></tr>
+            </thead>
+            <tbody className="divide-y divide-line">
+              <tr><td></td><td className="px-4 py-2 font-semibold text-ink">ระยะทางโครงการทั้งหมด</td><td className="px-4 py-2 text-right font-mono font-semibold">{fmtM(projTotal)}</td><td></td></tr>
+              {routeTableSections.map((sec) => (
+                <React.Fragment key={sec.key}>
+                  <tr className="bg-surface-alt"><td className="px-4 py-2 font-mono font-semibold text-ink">{sec.key === "TBM1" ? "1" : "2"}</td><td className="px-4 py-2 font-semibold text-ink">{sec.name}</td><td className="px-4 py-2 text-right font-mono font-semibold">{fmtM(sec.total)}</td><td></td></tr>
+                  {sec.rows.map((r) => (
+                    <tr key={r.order} className="hover:bg-cyan-tint/40">
+                      <td className="px-4 py-2 font-mono text-ink-3">{r.order}</td>
+                      <td className="px-4 py-2 text-ink-2" style={{ paddingLeft: 16 + (Math.max(1, r.level) - 1) * 18 }}>{r.name}</td>
+                      <td className="px-4 py-2 text-right font-mono text-ink">{fmtM(r.displayDistance)}</td>
+                      <td className="px-4 py-2"><span className={`text-[11px] px-2 py-0.5 rounded-badge border font-semibold ${routeStatusClass(r.status)}`}>{r.status}</span>{r.remark ? <span className="text-[11px] text-ink-3 ml-2">{r.remark}</span> : null}</td>
+                    </tr>
+                  ))}
+                  <tr className="bg-sgreen-med/10"><td></td><td className="px-4 py-2 font-semibold text-sgreen-dark">ผลงาน {sec.key} เจาะได้ระยะทางรวม</td><td className="px-4 py-2 text-right font-mono font-semibold text-sgreen-dark">{fmtM(sec.bored)}</td><td className="px-4 py-2 font-semibold text-sgreen-dark">{pct(sec.bored, sec.total).toFixed(2)}%</td></tr>
+                </React.Fragment>
+              ))}
+              <tr className="bg-navy text-white"><td></td><td className="px-4 py-2 font-semibold">ผลงานรวม</td><td className="px-4 py-2 text-right font-mono font-semibold">{fmtM(boredByMachine.TBM1 + boredByMachine.TBM2)}</td><td className="px-4 py-2 font-semibold">{pct(boredByMachine.TBM1 + boredByMachine.TBM2, projTotal).toFixed(2)}%</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p className="px-5 py-2 text-[11px] text-ink-3 print:hidden">สถานะคำนวณอัตโนมัติจากระยะขุดจริง · leaf ที่กำลังทำแสดงระยะที่ทำได้จริง · ตัวเลข seed แก้ได้ในปุ่ม "แก้ไขเส้นทาง"</p>
+      </div>
+
+      {/* Route config editor */}
+      {routeEditing && (
+        <div className="fixed inset-0 z-[130] flex items-center justify-center p-4 bg-navy-dark/60 backdrop-blur-sm animate-fade-in no-print">
+          <div className="bg-surface rounded-modal w-full max-w-3xl shadow-modal overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="bg-navy px-6 py-4 text-white flex justify-between items-center shrink-0">
+              <h3 className="font-semibold text-lg flex items-center gap-2"><Settings size={18} /> แก้ไขเส้นทาง — {machine}</h3>
+              <button onClick={() => setRouteEditing(false)} className="p-2 bg-white/10 hover:bg-white/20 rounded-full"><X size={20} /></button>
+            </div>
+            <div className="p-5 overflow-y-auto flex-1 space-y-2">
+              {routeErr.length > 0 && <div className="bg-code-d/10 border border-code-d/30 rounded-input p-3 text-xs text-code-d font-semibold space-y-1">{routeErr.map((e, i) => <div key={i}>• {e}</div>)}</div>}
+              <div className="grid grid-cols-[70px_56px_1fr_100px_1fr_32px] gap-2 text-[10px] font-semibold text-ink-3 uppercase px-1">
+                <span>ลำดับ</span><span>ชั้น</span><span>ชื่อช่วง</span><span>ระยะ (ม.)</span><span>หมายเหตุ</span><span></span>
+              </div>
+              {(routeDraft || []).map((l, i) => (
+                <div key={i} className="grid grid-cols-[70px_56px_1fr_100px_1fr_32px] gap-2 items-center">
+                  <input value={l.order} onChange={(e) => routeDraftChange(i, "order", e.target.value)} className="border border-line rounded-input px-2 py-1.5 text-xs font-mono bg-surface-alt outline-none focus:border-navy" placeholder="1.1" />
+                  <input type="number" value={l.level} onChange={(e) => routeDraftChange(i, "level", e.target.value)} className="border border-line rounded-input px-2 py-1.5 text-xs font-mono bg-surface-alt outline-none focus:border-navy text-center" />
+                  <input value={l.name} onChange={(e) => routeDraftChange(i, "name", e.target.value)} className="border border-line rounded-input px-2 py-1.5 text-xs bg-surface-alt outline-none focus:border-navy" placeholder="ชื่อช่วง" />
+                  <input type="number" value={l.plannedDistance} onChange={(e) => routeDraftChange(i, "plannedDistance", e.target.value)} className="border border-line rounded-input px-2 py-1.5 text-xs font-mono bg-surface-alt outline-none focus:border-navy text-right" />
+                  <input value={l.remark || ""} onChange={(e) => routeDraftChange(i, "remark", e.target.value)} className="border border-line rounded-input px-2 py-1.5 text-xs bg-surface-alt outline-none focus:border-navy" placeholder="หมายเหตุ" />
+                  <button onClick={() => routeDraftDel(i)} className="p-1.5 text-code-d hover:bg-code-d/10 rounded-input" title="ลบแถว"><Trash2 size={14} /></button>
+                </div>
+              ))}
+              <button onClick={routeDraftAdd} className="mt-2 px-3 py-1.5 text-xs font-semibold text-navy bg-cyan-tint rounded-input border border-line flex items-center gap-1"><Plus size={14} /> เพิ่มแถว</button>
+            </div>
+            <div className="px-5 py-3 border-t border-line flex justify-end gap-2 shrink-0">
+              <button onClick={() => setRouteEditing(false)} className="px-4 py-2 bg-surface-alt text-ink-2 rounded-input font-semibold text-sm hover:bg-line">ยกเลิก</button>
+              <button onClick={saveRouteEditor} disabled={routeSaving} className="px-4 py-2 bg-navy hover:bg-navy-dark text-white rounded-input font-semibold text-sm flex items-center gap-1">{routeSaving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />} บันทึก</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <style>{`
         @media print {
           @page { size: landscape; margin: 10mm; }

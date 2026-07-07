@@ -326,49 +326,6 @@ const RouteScheduleView = ({ segmentRecords = [], projectInfo, machine = "TBM1",
   return (
     <div className="max-w-full mx-auto pb-24 animate-fade-in space-y-6 print:pb-0">
 
-      {/* ═══ F3: ตารางระยะทางเส้นทาง (project-wide) ═══ */}
-      <div className={`bg-surface rounded-card shadow-card border border-line overflow-hidden ${getPrintClass('routetable')}`}>
-        <div className="px-5 sm:px-6 py-4 border-b border-line flex flex-col sm:flex-row justify-between sm:items-center bg-surface-alt gap-2">
-          <div>
-            <h3 className="font-semibold text-ink text-base flex items-center gap-2"><Ruler size={18} className="text-navy" /> ผลงานสะสมงานอุโมงค์ ({machine})</h3>
-            <p className="text-xs text-ink-3 font-semibold mt-0.5">
-              {machineProgress && machineProgress[machine] ? `${machineProgress[machine].rings} Ring · ` : ""}
-              {fmtM(boredByMachine[machine])} m · {pct(boredByMachine[machine], ROUTE_TOTAL[machine] || projTotal).toFixed(2)}%
-            </p>
-          </div>
-          <div className="flex items-center gap-2 print:hidden">
-            {!readOnly && <button onClick={() => handlePrintSpecificChart('routetable')} className="p-1.5 text-ink-3 hover:text-navy bg-surface hover:bg-cyan-tint rounded-input border border-line shadow-card" title="Print"><Printer size={16} /></button>}
-            {!readOnly && <button onClick={openRouteEditor} className="px-3 py-1.5 text-xs font-semibold text-navy bg-surface hover:bg-cyan-tint rounded-input border border-line shadow-card flex items-center gap-1"><Settings size={14} /> แก้ไขเส้นทาง</button>}
-          </div>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm text-left whitespace-nowrap">
-            <thead className="text-xs text-white uppercase bg-navy-dark">
-              <tr><th className="px-4 py-3 w-16">ลำดับ</th><th className="px-4 py-3">เส้นทางชุดเจาะอุโมงค์</th><th className="px-4 py-3 text-right">ระยะทาง (ม.)</th><th className="px-4 py-3">หมายเหตุ</th></tr>
-            </thead>
-            <tbody className="divide-y divide-line">
-              <tr><td></td><td className="px-4 py-2 font-semibold text-ink">ระยะทางโครงการทั้งหมด</td><td className="px-4 py-2 text-right font-mono font-semibold">{fmtM(projTotal)}</td><td></td></tr>
-              {routeTableSections.map((sec) => (
-                <React.Fragment key={sec.key}>
-                  <tr className="bg-surface-alt"><td className="px-4 py-2 font-mono font-semibold text-ink">{sec.key === "TBM1" ? "1" : "2"}</td><td className="px-4 py-2 font-semibold text-ink">{sec.name}</td><td className="px-4 py-2 text-right font-mono font-semibold">{fmtM(sec.total)}</td><td></td></tr>
-                  {sec.rows.map((r) => (
-                    <tr key={r.order} className="hover:bg-cyan-tint/40">
-                      <td className="px-4 py-2 font-mono text-ink-3">{r.order}</td>
-                      <td className="px-4 py-2 text-ink-2" style={{ paddingLeft: 16 + (Math.max(1, r.level) - 1) * 18 }}>{r.name}</td>
-                      <td className="px-4 py-2 text-right font-mono text-ink">{fmtM(r.displayDistance)}</td>
-                      <td className="px-4 py-2"><span className={`text-[11px] px-2 py-0.5 rounded-badge border font-semibold ${routeStatusClass(r.status)}`}>{r.status}</span>{r.remark ? <span className="text-[11px] text-ink-3 ml-2">{r.remark}</span> : null}</td>
-                    </tr>
-                  ))}
-                  <tr className="bg-sgreen-med/10"><td></td><td className="px-4 py-2 font-semibold text-sgreen-dark">ผลงาน {sec.key} เจาะได้ระยะทางรวม</td><td className="px-4 py-2 text-right font-mono font-semibold text-sgreen-dark">{fmtM(sec.bored)}</td><td className="px-4 py-2 font-semibold text-sgreen-dark">{pct(sec.bored, sec.total).toFixed(2)}%</td></tr>
-                </React.Fragment>
-              ))}
-              <tr className="bg-navy text-white"><td></td><td className="px-4 py-2 font-semibold">ผลงานรวม</td><td className="px-4 py-2 text-right font-mono font-semibold">{fmtM(boredByMachine.TBM1 + boredByMachine.TBM2)}</td><td className="px-4 py-2 font-semibold">{pct(boredByMachine.TBM1 + boredByMachine.TBM2, projTotal).toFixed(2)}%</td></tr>
-            </tbody>
-          </table>
-        </div>
-        <p className="px-5 py-2 text-[11px] text-ink-3 print:hidden">สถานะคำนวณอัตโนมัติจากระยะขุดจริง · leaf ที่กำลังทำแสดงระยะที่ทำได้จริง · ตัวเลข seed แก้ได้ในปุ่ม "แก้ไขเส้นทาง"</p>
-      </div>
-
       {/* Route config editor */}
       {routeEditing && (
         <div className="fixed inset-0 z-[130] flex items-center justify-center p-4 bg-navy-dark/60 backdrop-blur-sm animate-fade-in no-print">
@@ -798,6 +755,49 @@ const RouteScheduleView = ({ segmentRecords = [], projectInfo, machine = "TBM1",
           </div>
         </div>
       )}
+
+      {/* ═══ F3: ตารางระยะทางเส้นทาง (project-wide) — ใต้กราฟ ═══ */}
+      <div className={`bg-surface rounded-card shadow-card border border-line overflow-hidden max-w-5xl ${getPrintClass('routetable')}`}>
+        <div className="px-5 sm:px-6 py-4 border-b border-line flex flex-col sm:flex-row justify-between sm:items-center bg-surface-alt gap-2">
+          <div>
+            <h3 className="font-semibold text-ink text-base flex items-center gap-2"><Ruler size={18} className="text-navy" /> ผลงานสะสมงานอุโมงค์ ({machine})</h3>
+            <p className="text-xs text-ink-3 font-semibold mt-0.5">
+              {machineProgress && machineProgress[machine] ? `${machineProgress[machine].rings} Ring · ` : ""}
+              {fmtM(boredByMachine[machine])} m · {pct(boredByMachine[machine], ROUTE_TOTAL[machine] || projTotal).toFixed(2)}%
+            </p>
+          </div>
+          <div className="flex items-center gap-2 print:hidden">
+            {!readOnly && <button onClick={() => handlePrintSpecificChart('routetable')} className="p-1.5 text-ink-3 hover:text-navy bg-surface hover:bg-cyan-tint rounded-input border border-line shadow-card" title="Print"><Printer size={16} /></button>}
+            {!readOnly && <button onClick={openRouteEditor} className="px-3 py-1.5 text-xs font-semibold text-navy bg-surface hover:bg-cyan-tint rounded-input border border-line shadow-card flex items-center gap-1"><Settings size={14} /> แก้ไขเส้นทาง</button>}
+          </div>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm text-left whitespace-nowrap">
+            <thead className="text-xs text-white uppercase bg-navy-dark">
+              <tr><th className="px-4 py-3 w-16">ลำดับ</th><th className="px-4 py-3">เส้นทางชุดเจาะอุโมงค์</th><th className="px-4 py-3 text-right">ระยะทาง (ม.)</th><th className="px-4 py-3 w-2/5">หมายเหตุ</th></tr>
+            </thead>
+            <tbody className="divide-y divide-line">
+              <tr><td></td><td className="px-4 py-2 font-semibold text-ink">ระยะทางโครงการทั้งหมด</td><td className="px-4 py-2 text-right font-mono font-semibold">{fmtM(projTotal)}</td><td></td></tr>
+              {routeTableSections.map((sec) => (
+                <React.Fragment key={sec.key}>
+                  <tr className="bg-surface-alt"><td className="px-4 py-2 font-mono font-semibold text-ink">{sec.key === "TBM1" ? "1" : "2"}</td><td className="px-4 py-2 font-semibold text-ink">{sec.name}</td><td className="px-4 py-2 text-right font-mono font-semibold">{fmtM(sec.total)}</td><td></td></tr>
+                  {sec.rows.map((r) => (
+                    <tr key={r.order} className="hover:bg-cyan-tint/40">
+                      <td className="px-4 py-2 font-mono text-ink-3">{r.order}</td>
+                      <td className="px-4 py-2 text-ink-2" style={{ paddingLeft: 16 + (Math.max(1, r.level) - 1) * 18 }}>{r.name}</td>
+                      <td className="px-4 py-2 text-right font-mono text-ink">{fmtM(r.displayDistance)}</td>
+                      <td className="px-4 py-2"><span className={`text-[11px] px-2 py-0.5 rounded-badge border font-semibold ${routeStatusClass(r.status)}`}>{r.status}</span>{r.remark ? <span className="text-[11px] text-ink-3 ml-2">{r.remark}</span> : null}</td>
+                    </tr>
+                  ))}
+                  <tr className="bg-sgreen-med/10"><td></td><td className="px-4 py-2 font-semibold text-sgreen-dark">ผลงาน {sec.key} เจาะได้ระยะทางรวม</td><td className="px-4 py-2 text-right font-mono font-semibold text-sgreen-dark">{fmtM(sec.bored)}</td><td className="px-4 py-2 font-semibold text-sgreen-dark">{pct(sec.bored, sec.total).toFixed(2)}%</td></tr>
+                </React.Fragment>
+              ))}
+              <tr className="bg-navy text-white"><td></td><td className="px-4 py-2 font-semibold">ผลงานรวม</td><td className="px-4 py-2 text-right font-mono font-semibold">{fmtM(boredByMachine.TBM1 + boredByMachine.TBM2)}</td><td className="px-4 py-2 font-semibold">{pct(boredByMachine.TBM1 + boredByMachine.TBM2, projTotal).toFixed(2)}%</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p className="px-5 py-2 text-[11px] text-ink-3 print:hidden">สถานะคำนวณอัตโนมัติจากระยะขุดจริง · leaf ที่กำลังทำแสดงระยะที่ทำได้จริง · ตัวเลข seed แก้ได้ในปุ่ม "แก้ไขเส้นทาง"</p>
+      </div>
 
       {/* ═══ Distance Plan Settings Modal ═══ */}
       {showDistPlanModal && (

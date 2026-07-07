@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useState, useEffect } from "react";
 import { ArrowUpDown, Printer, AlertTriangle } from "lucide-react";
 import {
   ResponsiveContainer, LineChart, Line, BarChart, Bar, Cell,
@@ -11,6 +11,7 @@ import { deviationSeries, latestRingState, toleranceBreaches, parseRingNo } from
 import SectionHeader from "../common/SectionHeader";
 import StatCard from "../common/StatCard";
 import { fitAndPrint } from "../../utils/printFit";
+import { renderTBMSprite } from "../../utils/tbmSprite";
 
 // สี Head/Art/Tail (ให้ต่างชัด, โทน CMI)
 const C_HEAD = "#243B53", C_ART = "#2F5D50", C_TAIL = "#B08D4C", C_BREACH = "#B23A34";
@@ -19,6 +20,8 @@ const fmtMM = (v) => (v == null || isNaN(v) ? "—" : `${v > 0 ? "+" : ""}${Math
 
 export default function HeadLevelView({ segmentRecords = [], machine = "TBM1", readOnly = false }) {
   const [printing, setPrinting] = useState(false);
+  const [tbm, setTbm] = useState(null); // หัวเจาะ 3D (PNG dataURL) — โมเดลเดียวกับ 3D Alignment
+  useEffect(() => { let alive = true; renderTBMSprite(300).then((s) => { if (alive) setTbm(s); }).catch(() => {}); return () => { alive = false; }; }, []);
 
   const series = useMemo(() => deviationSeries(segmentRecords, DESIGN_LINE), [segmentRecords]);
   const latest = useMemo(() => latestRingState(segmentRecords), [segmentRecords]);
@@ -161,7 +164,9 @@ export default function HeadLevelView({ segmentRecords = [], machine = "TBM1", r
                   <polygon
                     points={`${sv.xT - 22},${sv.yT} ${sv.xH + 14},${sv.yH} ${sv.xH + 14},${sv.yH + 22} ${sv.xT - 22},${sv.yT + 22}`}
                     fill="#DCE3EA" stroke={C_HEAD} strokeWidth="1.4" opacity="0.9" />
-                  <ellipse cx={sv.xH + 16} cy={sv.yH + 11} rx="5" ry="12" fill={C_HEAD} />
+                  {tbm && tbm.url
+                    ? (() => { const H = 58, W = H * (tbm.w / tbm.h); return <image href={tbm.url} x={sv.xH + 16 - W / 2} y={sv.yH + 11 - H / 2} width={W} height={H} preserveAspectRatio="xMidYMid meet" />; })()
+                    : <ellipse cx={sv.xH + 16} cy={sv.yH + 11} rx="5" ry="12" fill={C_HEAD} />}
                   {/* axis + dots */}
                   <line x1={sv.xT} y1={sv.yT + 6} x2={sv.xH} y2={sv.yH + 6} stroke={C_HEAD} strokeWidth="1" strokeDasharray="3 3" opacity="0.5" />
                   <circle cx={sv.xT} cy={sv.yT + 6} r="4.5" fill={C_TAIL} />

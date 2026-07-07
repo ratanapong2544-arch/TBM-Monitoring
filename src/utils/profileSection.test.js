@@ -127,3 +127,19 @@ test("toleranceBreaches: metric-aware — art/tail เกิน tol ก็ถื
   const b = toleranceBreaches(deviationSeries(RECS_M, DLINE2), 75);
   expect(b).toEqual([{ ringNo: "P101", ch: 8200, side: "over" }]); // tailV 90 > 75
 });
+
+test("latestRingState: คืนค่าแนวราบ headH/artH/tailH (Concept B)", () => {
+  const recs = [
+    { ringNo: "P200", finishCH: "8+100", headV: 41, artV: 36, tailV: 35, vrt: -0.3, headH: -8, artH: -5, tailH: -7 },
+  ];
+  const l = latestRingState(recs);
+  expect(l.headV).toBe(41);
+  expect(l.headH).toBe(-8);
+  expect(l.artH).toBe(-5);
+  expect(l.tailH).toBe(-7);
+  // record ที่มีแค่แนวราบ (ไม่มี V) ก็ยังนับ
+  const l2 = latestRingState([{ ringNo: "P201", finishCH: "8+000", headH: 12 }]);
+  expect(l2.ringNo).toBe("P201");
+  expect(l2.headH).toBe(12);
+  expect(l2.headV).toBeNull();
+});

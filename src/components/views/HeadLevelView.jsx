@@ -93,6 +93,56 @@ export default function HeadLevelView({ segmentRecords = [], machine = "TBM1", r
               <StatCard label={`เกิน ±${HEAD_TOL_MM} mm`} value={`${breaches.length} ริง`} subtext="Head/Art/Tail อย่างใดอย่างหนึ่ง" color="text-code-d" valueColor={breaches.length > 0 ? "text-code-d" : "text-sgreen-dark"} icon={AlertTriangle} />
             </div>
 
+            {/* ── Bullseye cross-section (Concept B · 2 แกน) ── */}
+            <div className="bg-surface rounded-card shadow-card border border-line p-5 sm:p-6">
+              <h3 className="font-semibold text-ink text-base mb-1">ท่าทางหัวเจาะ · เป้า 2 แกน (cross-section)</h3>
+              <p className="text-xs text-ink-3 font-semibold mb-3">ตำแหน่ง Head / Art / Tail เทียบแนวออกแบบ (สูง-ต่ำ × ซ้าย-ขวา) · วง = ±{HEAD_TOL_MM} mm · ริง {latest ? latest.ringNo : ""}</p>
+              {(() => {
+                const R = 110, cx = 150, cy = 150, sc = R / HEAD_TOL_MM;
+                const pts = [
+                  { k: "T", h: latest && latest.tailH, v: latest && latest.tailV, c: C_TAIL },
+                  { k: "A", h: latest && latest.artH, v: latest && latest.artV, c: C_ART },
+                  { k: "H", h: latest && latest.headH, v: latest && latest.headV, c: C_HEAD },
+                ];
+                return (
+                  <div className="w-full overflow-x-auto">
+                    <svg viewBox="0 0 300 300" width="100%" style={{ maxWidth: 340, display: "block", margin: "0 auto" }}>
+                      <circle cx={cx} cy={cy} r={R} fill="#F4FBF7" stroke={C_ART} strokeWidth="1.5" strokeDasharray="5 4" />
+                      <circle cx={cx} cy={cy} r={R / 2} fill="none" stroke="#D8E4DD" strokeWidth="1" />
+                      <line x1={cx - R - 14} y1={cy} x2={cx + R + 14} y2={cy} stroke="#E4E0D6" />
+                      <line x1={cx} y1={cy - R - 14} x2={cx} y2={cy + R + 14} stroke="#E4E0D6" />
+                      <text x={cx} y={cy - R - 4} fontSize="10" textAnchor="middle" fill="#8A94A0">สูง +</text>
+                      <text x={cx} y={cy + R + 15} fontSize="10" textAnchor="middle" fill="#8A94A0">ต่ำ −</text>
+                      <text x={cx - R - 16} y={cy + 3} fontSize="10" textAnchor="end" fill="#8A94A0">ซ้าย</text>
+                      <text x={cx + R + 16} y={cy + 3} fontSize="10" fill="#8A94A0">ขวา</text>
+                      <text x={cx + 4} y={cy - R + 14} fontSize="8.5" fill={C_ART}>±{HEAD_TOL_MM}mm</text>
+                      {pts.map((p, i) => {
+                        const hh = p.h != null ? p.h : (p.v != null ? 0 : null);
+                        const vv = p.v != null ? p.v : (p.h != null ? 0 : null);
+                        if (hh == null || vv == null) return null;
+                        const x = cx + hh * sc, y = cy - vv * sc;
+                        const out = Math.hypot(hh, vv) > HEAD_TOL_MM;
+                        return (
+                          <g key={i}>
+                            <circle cx={x} cy={y} r="5.5" fill={out ? C_BREACH : p.c} stroke="#fff" strokeWidth="1.5" />
+                            <text x={x + 9} y={y + 3} fontSize="10.5" fontWeight="700" fill={out ? C_BREACH : p.c}>{p.k}</text>
+                          </g>
+                        );
+                      })}
+                    </svg>
+                  </div>
+                );
+              })()}
+              <div className="grid grid-cols-3 gap-2 mt-3 text-center">
+                {[["Head", latest && latest.headH, latest && latest.headV, C_HEAD], ["Art", latest && latest.artH, latest && latest.artV, C_ART], ["Tail", latest && latest.tailH, latest && latest.tailV, C_TAIL]].map(([l, h, v, c], i) => (
+                  <div key={i} className="bg-surface-alt rounded-input border border-line p-2">
+                    <div className="text-[10px] font-semibold" style={{ color: c }}>{l}</div>
+                    <div className="text-[11px] font-mono text-ink">ดิ่ง {fmtMM(v)} · ราบ {fmtMM(h)}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
             {/* ── Side-view (attitude) ── */}
             <div className="bg-surface rounded-card shadow-card border border-line p-5 sm:p-6">
               <h3 className="font-semibold text-ink text-base mb-1">ท่าทางหัวเจาะ (ด้านข้าง)</h3>

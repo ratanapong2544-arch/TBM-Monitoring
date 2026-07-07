@@ -24,10 +24,10 @@ function numOrNull(v) {
   return isNaN(n) ? null : n;
 }
 
-// record มีค่าหัวเจาะอย่างน้อย 1 metric (head/art/tail/vrt) ไหม
+// record มีค่าหัวเจาะอย่างน้อย 1 metric (V/H head/art/tail + vrt) ไหม
 function hasAnyHeadMetric(r) {
   if (r == null) return false;
-  return [r.headV, r.artV, r.tailV, r.vrt].some((v) => numOrNull(v) != null);
+  return [r.headV, r.artV, r.tailV, r.vrt, r.headH, r.artH, r.tailH].some((v) => numOrNull(v) != null);
 }
 
 // RL ของแนวออกแบบที่ chainage ch (interpolate เชิงเส้น) — null ถ้านอกช่วง
@@ -94,6 +94,9 @@ export function latestRingState(records = []) {
       artV: numOrNull(r.artV),
       tailV: numOrNull(r.tailV),
       vrt: numOrNull(r.vrt),
+      headH: numOrNull(r.headH), // แนวราบ (ซ้าย-ขวา) mm — สำหรับ bullseye 2 แกน
+      artH: numOrNull(r.artH),
+      tailH: numOrNull(r.tailH),
     };
   }
   return best;

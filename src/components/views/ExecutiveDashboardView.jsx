@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from "react";
-import { TrendingUp, Layers, Activity, MapPin, Droplet, BarChart3, Mountain, Printer } from "lucide-react";
+import { TrendingUp, Layers, Activity, MapPin, Droplet, BarChart3, Printer } from "lucide-react";
 import StatCard from "../common/StatCard";
 import SectionHeader from "../common/SectionHeader";
 import ImageSlideshow from "../dashboard/ImageSlideshow";
@@ -12,7 +12,6 @@ import { chartColors, tooltipStyle } from "../../ui-ux-pro-max/chartTheme";
 import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip } from "recharts";
 import ExecutiveEmptyState from "./ExecutiveEmptyState";
 import AlignmentMapView from "./AlignmentMapView";
-import ProfileSectionView from "./ProfileSectionView";
 import { fitAndPrint } from "../../utils/printFit";
 
 const ExecutiveDashboardView = ({ segmentRecords, groutRecords, dailyReports = [], machine = "TBM1", onNavigate, filterState = {}, readOnly = false }) => {
@@ -216,13 +215,6 @@ const ExecutiveDashboardView = ({ segmentRecords, groutRecords, dailyReports = [
         </div>
       </div>
 
-      {/* ═══ ภาคตัดธรณี + เชิด/ตกหัวเจาะ (ใต้ 3D Alignment) ═══ */}
-      <div className="print:hidden">
-        <SectionHeader title="ภาคตัดธรณี · เชิด/ตกหัวเจาะ" subtitle="Geological Section · Head Deviation" icon={Mountain} />
-        <div className="mt-4">
-          <ProfileSectionView segmentRecords={segmentRecords} machine={machine} embedded />
-        </div>
-      </div>
 
       <SectionHeader title="ภาพรวมโครงการ" subtitle="Project Overview" icon={BarChart3} />
 

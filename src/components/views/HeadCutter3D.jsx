@@ -4,10 +4,12 @@ import { headPostureAngles } from "../../utils/headPosture";
 const MODEL_URL = (process.env.PUBLIC_URL || "") + "/models/prem-tbm-head.glb";
 const DEG = Math.PI / 180;
 
-export default function HeadCutter3D({ posture = null, machine = "TBM1", readOnly = false, className = "" }) {
+export default function HeadCutter3D({ posture = null, machine = "TBM1", readOnly = false, printing = false, className = "" }) {
   const mountRef = useRef(null);
   const applyRef = useRef(null); // (posture) => void, set once scene is built
+  const canvasRef = useRef(null); // renderer.domElement, for print snapshot
   const [err, setErr] = useState(false);
+  const [snap, setSnap] = useState(null); // frozen PNG while printing
 
   // Build the three.js scene exactly once.
   useEffect(() => {
@@ -33,6 +35,7 @@ export default function HeadCutter3D({ posture = null, machine = "TBM1", readOnl
       renderer.setSize(w, h);
       renderer.setClearColor(0x000000, 0);
       mount.appendChild(renderer.domElement);
+      canvasRef.current = renderer.domElement;
 
       const scene = new THREE.Scene();
       scene.add(new THREE.HemisphereLight(0xbcd2ec, 0x0a1530, 0.95));
@@ -117,6 +120,7 @@ export default function HeadCutter3D({ posture = null, machine = "TBM1", readOnl
         const el = renderer.domElement;
         if (el && el.parentNode) el.parentNode.removeChild(el);
         applyRef.current = null;
+        canvasRef.current = null;
       };
     })();
     return () => { alive = false; cleanup(); };
@@ -125,9 +129,19 @@ export default function HeadCutter3D({ posture = null, machine = "TBM1", readOnl
   // Push posture updates without rebuilding the scene.
   useEffect(() => { applyRef.current && applyRef.current(posture); }, [posture]);
 
+  // While printing, freeze the WebGL canvas to a PNG (canvas can't print reliably).
+  useEffect(() => {
+    if (printing && canvasRef.current) {
+      try { setSnap(canvasRef.current.toDataURL("image/png")); } catch (e) { setSnap(null); }
+    } else { setSnap(null); }
+  }, [printing]);
+
   return (
     <div className={`relative ${className}`} data-testid="head-cutter-3d">
       <div ref={mountRef} style={{ width: "100%", height: 300 }} />
+      {printing && snap && (
+        <img src={snap} alt="หัวเจาะ 3D" className="absolute inset-0 w-full h-full object-contain bg-white" />
+      )}
       {err ? (
         <div className="absolute inset-0 grid place-items-center text-sm text-ink-3 text-center px-4">
           แสดงหัวเจาะ 3D ไม่ได้ (เบราว์เซอร์ไม่รองรับ WebGL)

@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useEffect } from "react";
+import React, { useMemo, useState } from "react";
 import { ArrowUpDown, Printer, AlertTriangle } from "lucide-react";
 import {
   ResponsiveContainer, LineChart, Line, BarChart, Bar, Cell,
@@ -11,7 +11,7 @@ import { deviationSeries, latestRingState, toleranceBreaches, parseRingNo } from
 import SectionHeader from "../common/SectionHeader";
 import StatCard from "../common/StatCard";
 import { fitAndPrint } from "../../utils/printFit";
-import { renderTBMSprite } from "../../utils/tbmSprite";
+import HeadCutter3D from "./HeadCutter3D";
 
 // สี Head/Art/Tail (ให้ต่างชัด, โทน CMI)
 const C_HEAD = "#243B53", C_ART = "#2F5D50", C_TAIL = "#B08D4C", C_BREACH = "#B23A34";
@@ -20,8 +20,6 @@ const fmtMM = (v) => (v == null || isNaN(v) ? "—" : `${v > 0 ? "+" : ""}${Math
 
 export default function HeadLevelView({ segmentRecords = [], machine = "TBM1", readOnly = false }) {
   const [printing, setPrinting] = useState(false);
-  const [tbm, setTbm] = useState(null); // หัวเจาะ 3D (PNG dataURL) — โมเดลเดียวกับ 3D Alignment
-  useEffect(() => { let alive = true; renderTBMSprite(300).then((s) => { if (alive) setTbm(s); }).catch(() => {}); return () => { alive = false; }; }, []);
 
   const series = useMemo(() => deviationSeries(segmentRecords, DESIGN_LINE), [segmentRecords]);
   const latest = useMemo(() => latestRingState(segmentRecords), [segmentRecords]);
@@ -53,17 +51,7 @@ export default function HeadLevelView({ segmentRecords = [], machine = "TBM1", r
     setTimeout(() => { fitAndPrint(document.querySelector(".print-target"), { orientation: "landscape", onePage: true }); setPrinting(false); }, 500);
   };
 
-  // ── side-view geometry (schematic, exaggerated) ──
-  const sv = useMemo(() => {
-    const W = 400, H = 190, midX0 = 60, midX1 = 340, yMid = 95, half = 62; // half = ±75 → 62px
-    const sc = (v) => yMid - (v / HEAD_TOL_MM) * half;               // + = สูงกว่าแบบ = ขึ้น (y เล็ก)
-    const clamp = (y) => Math.max(14, Math.min(H - 30, y));
-    const t = latest || {};
-    const yT = clamp(sc(t.tailV != null ? t.tailV : 0));
-    const yA = clamp(sc(t.artV != null ? t.artV : 0));
-    const yH = clamp(sc(t.headV != null ? t.headV : 0));
-    return { W, H, midX0, midX1, yMid, half, xT: 88, xA: 200, xH: 312, yT, yA, yH, bandTop: yMid - half, bandBot: yMid + half };
-  }, [latest]);
+  // side-view schematic + PNG sprite removed — now rendered by <HeadCutter3D/> (live 3D)
 
   const hasData = chartData.length > 0;
 
@@ -148,40 +136,11 @@ export default function HeadLevelView({ segmentRecords = [], machine = "TBM1", r
               </div>
             </div>
 
-            {/* ── Side-view (attitude) ── */}
+            {/* ── Cutterhead 3D (attitude, live) ── */}
             <div className="bg-surface rounded-card shadow-card border border-line p-5 sm:p-6">
-              <h3 className="font-semibold text-ink text-base mb-1">ท่าทางหัวเจาะ (ด้านข้าง)</h3>
-              <p className="text-xs text-ink-3 font-semibold mb-3">ตำแหน่ง Head / Art / Tail เทียบแนวออกแบบ (ขยายมาตราส่วนให้เห็นชัด) · ริง {latest ? latest.ringNo : ""}</p>
-              <div className="w-full overflow-x-auto">
-                <svg viewBox={`0 0 ${sv.W} ${sv.H}`} width="100%" style={{ maxWidth: 640, display: "block", margin: "0 auto" }}>
-                  {/* tolerance band */}
-                  <rect x={sv.midX0 - 30} y={sv.bandTop} width={sv.midX1 - sv.midX0 + 90} height={sv.half * 2} fill="#E7EFEB" />
-                  <text x={sv.midX0 - 26} y={sv.bandTop + 12} fontSize="9" fill={C_ART}>แถบยอมรับ ±{HEAD_TOL_MM} mm</text>
-                  {/* design line */}
-                  <line x1={sv.midX0 - 30} y1={sv.yMid} x2={sv.midX1 + 60} y2={sv.yMid} stroke={C_BREACH} strokeWidth="1.2" strokeDasharray="6 4" />
-                  <text x={sv.midX1 + 30} y={sv.yMid + 12} fontSize="9" fill={C_BREACH}>แนวออกแบบ</text>
-                  {/* shield envelope (through the 3 points) */}
-                  <polygon
-                    points={`${sv.xT - 22},${sv.yT} ${sv.xH + 14},${sv.yH} ${sv.xH + 14},${sv.yH + 22} ${sv.xT - 22},${sv.yT + 22}`}
-                    fill="#DCE3EA" stroke={C_HEAD} strokeWidth="1.4" opacity="0.9" />
-                  {tbm && tbm.url
-                    ? (() => { const H = 58, W = H * (tbm.w / tbm.h); return <image href={tbm.url} x={sv.xH + 16 - W / 2} y={sv.yH + 11 - H / 2} width={W} height={H} preserveAspectRatio="xMidYMid meet" />; })()
-                    : <ellipse cx={sv.xH + 16} cy={sv.yH + 11} rx="5" ry="12" fill={C_HEAD} />}
-                  {/* axis + dots */}
-                  <line x1={sv.xT} y1={sv.yT + 6} x2={sv.xH} y2={sv.yH + 6} stroke={C_HEAD} strokeWidth="1" strokeDasharray="3 3" opacity="0.5" />
-                  <circle cx={sv.xT} cy={sv.yT + 6} r="4.5" fill={C_TAIL} />
-                  <circle cx={sv.xA} cy={sv.yA + 6} r="4.5" fill={C_ART} />
-                  <circle cx={sv.xH} cy={sv.yH + 6} r="5" fill={C_HEAD} />
-                  <text x={sv.xT} y={sv.yT - 6} fontSize="10" textAnchor="middle" fontWeight="700" fill={C_HEAD}>T {latest ? fmtMM(latest.tailV) : ""}</text>
-                  <text x={sv.xA} y={sv.yA - 6} fontSize="10" textAnchor="middle" fontWeight="700" fill={C_HEAD}>A {latest ? fmtMM(latest.artV) : ""}</text>
-                  <text x={sv.xH} y={sv.yH - 6} fontSize="10" textAnchor="middle" fontWeight="700" fill={C_HEAD}>H {latest ? fmtMM(latest.headV) : ""}</text>
-                  {pitch != null && (
-                    <text x={sv.W / 2} y={sv.H - 6} fontSize="10.5" textAnchor="middle" fontWeight="700" fill={pitch < 0 ? C_BREACH : C_ART}>
-                      {pitch < 0 ? `ก้มหัวลง ${Math.abs(Math.round(pitch))} mm` : pitch > 0 ? `เงยหัวขึ้น ${Math.round(pitch)} mm` : "หัว-หาง ระดับเดียวกัน"}
-                    </text>
-                  )}
-                </svg>
-              </div>
+              <h3 className="font-semibold text-ink text-base mb-1">หัวเจาะ 3D (ท่าทางด้านข้าง)</h3>
+              <p className="text-xs text-ink-3 font-semibold mb-3">ลากเพื่อหมุน · สกอลล์เพื่อซูม · เอียงตามท่าจริงของริง {latest ? latest.ringNo : ""} (ขยายมุมให้เห็นชัด)</p>
+              <HeadCutter3D posture={latest} machine={machine} readOnly={readOnly} className="w-full" />
             </div>
             </div>
 

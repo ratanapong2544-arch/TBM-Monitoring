@@ -1,4 +1,4 @@
-import { Home, PlusCircle, LayoutDashboard, Database, Clock, FileText, TrendingUp, Droplet, MapPin, Gauge, ClipboardList, CalendarRange, ArrowUpDown } from "lucide-react";
+import { Home, PlusCircle, LayoutDashboard, Database, Clock, FileText, TrendingUp, Droplet, MapPin, Gauge, ClipboardList, CalendarRange, ArrowUpDown, Activity, CalendarClock } from "lucide-react";
 // tab = activeTab value เดิม, module = currentModule (ถ้ามี), short = label สั้นสำหรับ bottom nav มือถือ
 export const NAV_GROUPS = [
   { label: "ภาพรวม", items: [{ id:"overview", tab:"overview", label:"Home", short:"Home", icon:Home }] },
@@ -25,18 +25,24 @@ export const NAV_GROUPS = [
     { id:"report", tab:"report",       label:"Stats Report", short:"Stats", icon:FileText },
     { id:"daily",  tab:"daily_report", label:"Daily Report", short:"Report", icon:FileText },
   ]},
+  { label: "เครื่องมือวัด", items: [
+    { id:"inst-dash", tab:"inst_dashboard", label:"Instrument", short:"Inst", icon:Activity },
+    { id:"inst-sched", tab:"inst_schedule", label:"วาระตรวจวัด", short:"วาระ", icon:CalendarClock },
+  ]},
 ];
 // mobile bottom bar = 5 ปุ่มหลัก (Home·Rec·Dash·Shift·More), ที่เหลือเข้า More
 export const MOBILE_PRIMARY = ["overview","record","dashboard","shift_report"]; // + More
 // More sheet = ทุกหน้า Dashboard ที่ไม่ได้อยู่ bottom bar (analysis Trend/Grout/Route, Work Plan, Performance) + Data Log + รายงาน
 // ไม่รวม record_daily → ซ่อน "Record Daily" บนมือถือ
-export const MOBILE_MORE_TABS = ["analysis","head_level","prep_gantt","performance","datalog","report","daily_report"];
+export const MOBILE_MORE_TABS = ["analysis","head_level","prep_gantt","performance","datalog","report","daily_report","inst_dashboard","inst_schedule"];
 
-// กลุ่ม nav ที่ viewer เห็น = กลุ่ม "Dashboard" + Shift Report (จากกลุ่มรายงาน)
+// กลุ่ม nav ที่ viewer เห็น = กลุ่ม "Dashboard" + Shift Report (จากกลุ่มรายงาน) + เครื่องมือวัด
 export function viewerGroups() {
   const groups = NAV_GROUPS.filter((g) => g.label === "Dashboard").map((g) => ({ ...g }));
   const reports = NAV_GROUPS.find((g) => g.label === "รายงาน");
   const shift = reports ? reports.items.filter((it) => it.tab === "shift_report") : [];
   if (shift.length) groups.push({ label: "รายงาน", items: shift });
+  const inst = NAV_GROUPS.find((g) => g.label === "เครื่องมือวัด");
+  if (inst) groups.push({ ...inst });
   return groups;
 }

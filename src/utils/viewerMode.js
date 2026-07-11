@@ -1,6 +1,6 @@
 // tab ids ที่อนุญาตในโหมด viewer = กลุ่ม Dashboard ใน navModel
 // (dashboard=Executive, analysis=Segment Trend/Grout Volume/Route, prep_gantt=Work Plan, performance=Performance)
-export const VIEWER_TABS = ["dashboard", "analysis", "head_level", "prep_gantt", "performance", "shift_report"];
+export const VIEWER_TABS = ["dashboard", "analysis", "head_level", "prep_gantt", "performance", "shift_report", "inst_dashboard", "inst_location", "inst_schedule"];
 
 // อ่าน ?view=1 จาก URL (รับ search arg ได้เพื่อ test); ผิดพลาด → false (ไม่ใช่ viewer)
 export function isViewerMode(search) {

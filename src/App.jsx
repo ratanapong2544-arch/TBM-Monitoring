@@ -21,6 +21,10 @@ import PerformanceView from "./components/views/PerformanceView";
 import DailyReportView from "./components/views/DailyReportView";
 import RecordDailyView from "./components/views/RecordDailyView";
 import PrepGanttView from "./components/views/PrepGanttView";
+import InstrumentDashboardView from "./components/views/InstrumentDashboardView";
+import InstrumentLocationView from "./components/views/InstrumentLocationView";
+import InstrumentScheduleView from "./components/views/InstrumentScheduleView";
+import { STORE, loadCache, persistCache } from "./utils/instruments";
 import { useFilterState } from "./hooks/useGlobalFilter";
 import { loadIssues, persistIssues, upsertIssue, setIssueStatus, removeIssue, forMachine } from "./utils/issues";
 import { loadDailyReports, persistDailyReports, upsertDailyReport, removeDailyReport, normalize } from "./utils/dailyReports";
@@ -50,6 +54,13 @@ const PrimaryGroutApp = () => {
   const [routeProjectTotal, setRouteProjectTotal] = useState(null);
   const [moreOpen, setMoreOpen] = useState(false);
   const reqSeqRef = useRef(0); // S5: กัน fetch race (response เครื่องเก่าทับ state เครื่องใหม่)
+
+  const [instLocations, setInstLocations] = useState(() => loadCache(STORE.locations));
+  const [instInstruments, setInstInstruments] = useState(() => loadCache(STORE.instruments));
+  const [instThresholds, setInstThresholds] = useState(() => loadCache(STORE.thresholds));
+  const [instReadings, setInstReadings] = useState(() => loadCache(STORE.readings));
+  const [instSchedules, setInstSchedules] = useState(() => loadCache(STORE.schedules));
+  const [selectedInstLocId, setSelectedInstLocId] = useState(null);
 
   const [issues, setIssues] = useState(loadIssues);
   useEffect(() => { persistIssues(issues); }, [issues]);
@@ -195,6 +206,12 @@ const PrimaryGroutApp = () => {
             }
             setMachineProgress(result.machineProgress || null);
             setRouteProjectTotal(typeof result.routeProjectTotal === "number" ? result.routeProjectTotal : null);
+            // Instrument module: project-wide (ไม่ขึ้นกับ activeMachine) → set เสมอเมื่อ GAS ส่งมา
+            if (Array.isArray(result.instLocations))   { setInstLocations(result.instLocations); persistCache(STORE.locations, result.instLocations); }
+            if (Array.isArray(result.instInstruments)) { setInstInstruments(result.instInstruments); persistCache(STORE.instruments, result.instInstruments); }
+            if (Array.isArray(result.instThresholds))  { setInstThresholds(result.instThresholds); persistCache(STORE.thresholds, result.instThresholds); }
+            if (Array.isArray(result.instReadings))    { setInstReadings(result.instReadings); persistCache(STORE.readings, result.instReadings); }
+            if (Array.isArray(result.instSchedules))   { setInstSchedules(result.instSchedules); persistCache(STORE.schedules, result.instSchedules); }
           }
         } catch (error) { setLoadError("ไม่สามารถดึงข้อมูลได้: " + error.message); }
       }
@@ -313,6 +330,25 @@ const PrimaryGroutApp = () => {
       {activeTab === "shift_report" && <ShiftReportView projectInfo={projectInfo} segmentRecords={segmentRecords} shiftReports={shiftReports} setShiftReports={setShiftReports} machine={activeMachine} readOnly={isViewer} />}
       {activeTab === "record_daily" && <RecordDailyView dailyReports={activeDailyReports} onSave={(form) => { handleSaveDailyReport(form); setActiveTab("daily_report"); }} pendingForm={pendingRecordForm} onConsumePendingForm={() => setPendingRecordForm(null)} activeMachine={activeMachine} />}
       {activeTab === "daily_report" && <DailyReportView dailyReports={activeDailyReports} onDelete={handleDeleteDailyReport} onEdit={(formReady) => { setPendingRecordForm(formReady); setActiveTab("record_daily"); }} onGoRecord={() => setActiveTab("record_daily")} />}
+      {activeTab === "inst_dashboard" && (
+        <InstrumentDashboardView
+          locations={instLocations} instruments={instInstruments} readings={instReadings}
+          thresholds={instThresholds} machineProgress={machineProgress}
+          onOpenLocation={(id) => { setSelectedInstLocId(id); setActiveTab("inst_location"); }}
+          readOnly={isViewer} />
+      )}
+      {activeTab === "inst_location" && (
+        <InstrumentLocationView
+          location={instLocations.find((l) => String(l.id) === String(selectedInstLocId)) || null}
+          instruments={instInstruments.filter((i) => String(i.locationId) === String(selectedInstLocId))}
+          readings={instReadings} thresholds={instThresholds}
+          onBack={() => setActiveTab("inst_dashboard")} readOnly={isViewer} />
+      )}
+      {activeTab === "inst_schedule" && (
+        <InstrumentScheduleView
+          schedules={instSchedules} locations={instLocations} machineProgress={machineProgress}
+          onMark={null} readOnly={isViewer} />
+      )}
     </Shell>
   );
 };

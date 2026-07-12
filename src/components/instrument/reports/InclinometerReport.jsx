@@ -2,9 +2,9 @@
 // Restores what v1 (Task 6.3) cut: A/B secondary sub-tabs, dual-axis Time History (left =
 // deflection, right = TBM Station, dashed station overlay) on a time-based X axis, and the
 // 17-date Depth Profile overlay (was latest-reading-only). Ported faithfully, adapted to this
-// app's real per-reading data model (profileJson points, no "highlightedDepths"/"maxMovement"
-// preset — see pickHighlightedDepths/findPeakAcrossReadings in chartUtils.js) instead of the
-// source's fixed report preset. See .superpowers/sdd/task-R2b-report.md for full notes.
+// app's real per-reading data model (profileJson points): pickHighlightedDepths reproduces the
+// source preset's round-5 depth marks [5..35] and findPeakAcrossReadings reproduces its all-time
+// maxMovement (both in chartUtils.js). See .superpowers/sdd/task-R2b-report.md for full notes.
 import { useState } from "react";
 import {
   CartesianGrid, Legend, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis,
@@ -64,7 +64,7 @@ export default function InclinometerReport({ instruments = [], readings = [], th
   const parsedRows = rows.map((r) => ({ date: r.date, tbmChainage: r.tbmChainage, points: parseProfile(r.profileJson) }));
   const canonicalPoints = parsedRows[parsedRows.length - 1].points;
 
-  const highlightDepths = pickHighlightedDepths(canonicalPoints.map((p) => p.depth), 6);
+  const highlightDepths = pickHighlightedDepths(canonicalPoints.map((p) => p.depth));
   const seriesKeys = highlightDepths.map((d) => `${d} m`);
 
   // All-time peak per axis (not just latest reading) — matches source's maxMovement semantics.

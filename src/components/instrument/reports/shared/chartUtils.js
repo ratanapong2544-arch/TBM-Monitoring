@@ -177,12 +177,16 @@ export const TIME_HISTORY_Y_TICKS = [-30, -25, -20, -15, -10, -5, 0, 5, 10, 15, 
 export const STATION_Y_DOMAIN = [8100, 8400];
 export const STATION_Y_TICKS = Array.from({ length: 16 }, (_, i) => 8100 + i * 20);
 
-/** Pick up to `count` real, evenly-spaced depths from a depths array (deduped, sorted ascending) —
- * always includes the shallowest and deepest. The source report preset hand-picked a fixed
- * "highlightedDepths" list per instrument to keep the multi-depth Time History chart legible; this
- * app's data has no such preset, so depths are sampled by position instead of invented/interpolated. */
-export function pickHighlightedDepths(depths, count = 6) {
-  const sorted = [...new Set(depths)].filter((d) => Number.isFinite(d)).sort((a, b) => a - b);
+// Task R2b — the source report preset hand-authored a fixed depth-highlight list for the INC Time
+// History chart (reportMeasurementPresets.ts:311, `inclinometerDepthHighlights` =
+// [5,10,15,20,25,30,35]): the standard round-number depth-reporting marks (step 5, starting at 5,
+// NOT 0). This is deliberate curation, not a data limit — the source's own data (and this app's
+// real 8+300 data) include depth 0.0 and every 0.5 m step, so every round mark is available.
+export const ROUND5_DEPTH_HIGHLIGHTS = [5, 10, 15, 20, 25, 30, 35];
+
+/** Evenly index-sample up to `count` real depths from a sorted list (shallowest + deepest always
+ * included). Fallback path only — never interpolates a depth that wasn't measured. */
+function evenSampleDepths(sorted, count) {
   if (count <= 0 || !sorted.length) return [];
   if (sorted.length <= count) return sorted;
   if (count === 1) return [sorted[0]];
@@ -192,6 +196,26 @@ export function pickHighlightedDepths(depths, count = 6) {
     const depth = sorted[Math.round((i * last) / (count - 1))];
     if (!picked.includes(depth)) picked.push(depth);
   }
+  return picked;
+}
+
+/** Depths to highlight in the INC Time History chart: the source's round-5 marks
+ * ([5,10,15,20,25,30,35]), each resolved to its exact measured depth or the nearest available
+ * measured point, deduped (preserves ascending order). Falls back to an even index-sample only
+ * when NONE of the round-5 marks fall within the borehole's measured depth range (e.g. a very
+ * shallow borehole) — never invents or interpolates a depth that wasn't measured. */
+export function pickHighlightedDepths(depths, targets = ROUND5_DEPTH_HIGHLIGHTS) {
+  const sorted = [...new Set(depths)].filter((d) => Number.isFinite(d)).sort((a, b) => a - b);
+  if (!sorted.length) return [];
+  const min = sorted[0];
+  const max = sorted[sorted.length - 1];
+  const inRange = targets.filter((t) => t >= min && t <= max);
+  if (!inRange.length) return evenSampleDepths(sorted, targets.length);
+  const picked = [];
+  inRange.forEach((t) => {
+    const nearest = sorted.reduce((best, d) => (Math.abs(d - t) < Math.abs(best - t) ? d : best), sorted[0]);
+    if (!picked.includes(nearest)) picked.push(nearest);
+  });
   return picked;
 }
 

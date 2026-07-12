@@ -4,7 +4,7 @@
 // Task R2b appends tests for the INC/EXT dual-axis + station-overlay helpers below.
 import {
   parseDateToMs, weeklyTickTimestamps, formatDateTick, formatStation, stationLabelKm, getDateColor,
-  pickHighlightedDepths, findPeakAcrossReadings,
+  pickHighlightedDepths, ROUND5_DEPTH_HIGHLIGHTS, findPeakAcrossReadings,
   TIME_HISTORY_Y_DOMAIN, TIME_HISTORY_Y_TICKS, STATION_Y_DOMAIN, STATION_Y_TICKS,
 } from "./chartUtils";
 
@@ -113,29 +113,41 @@ describe("fixed dual-axis domains (R2b — shared by INC/EXT Time History charts
   });
 });
 
-describe("pickHighlightedDepths", () => {
-  test("fewer depths than count → returns all, sorted", () => {
-    expect(pickHighlightedDepths([10, 0, 5], 6)).toEqual([0, 5, 10]);
+describe("pickHighlightedDepths (source round-5 convention)", () => {
+  test("round-5 targets are the source's hand-authored marks [5,10,15,20,25,30,35]", () => {
+    expect(ROUND5_DEPTH_HIGHLIGHTS).toEqual([5, 10, 15, 20, 25, 30, 35]);
   });
-  test("more depths than count → samples count depths, always including shallowest+deepest", () => {
-    const depths = Array.from({ length: 36 }, (_, i) => i); // 0..35
-    const picked = pickHighlightedDepths(depths, 6);
-    expect(picked).toHaveLength(6);
-    expect(picked[0]).toBe(0);
-    expect(picked[picked.length - 1]).toBe(35);
-    // every picked value must be a real measured depth, never interpolated
-    picked.forEach((d) => expect(depths).toContain(d));
-    // strictly increasing (no duplicate collapse at this depth count)
-    picked.forEach((d, i) => { if (i > 0) expect(d).toBeGreaterThan(picked[i - 1]); });
+  test("real 0..35 / step-0.5 data → exact round-5 marks (not even-sampled)", () => {
+    const depths = Array.from({ length: 71 }, (_, i) => i * 0.5); // 0, 0.5, ..., 35
+    expect(pickHighlightedDepths(depths)).toEqual([5, 10, 15, 20, 25, 30, 35]);
   });
-  test("dedupes and sorts unsorted/duplicate input", () => {
-    expect(pickHighlightedDepths([5, 5, 0, 10, 0], 6)).toEqual([0, 5, 10]);
+  test("integer 0..35 data → same round-5 marks (exact matches)", () => {
+    const depths = Array.from({ length: 36 }, (_, i) => i);
+    expect(pickHighlightedDepths(depths)).toEqual([5, 10, 15, 20, 25, 30, 35]);
+  });
+  test("does NOT even-sample by index — never yields the old [0,7,14,21,28,35] set", () => {
+    const picked = pickHighlightedDepths(Array.from({ length: 36 }, (_, i) => i));
+    expect(picked[0]).toBe(5); // starts at 5, not 0
+    expect(picked).not.toContain(0);
+    expect(picked).not.toContain(7);
+    expect(picked).not.toContain(14);
+  });
+  test("missing exact marks → nearest available measured depth, deduped", () => {
+    // coarse data: several round-5 targets collapse onto the same nearest measured point
+    expect(pickHighlightedDepths([0, 5, 10, 35])).toEqual([5, 10, 35]);
+  });
+  test("dedupes and sorts unsorted/duplicate input before matching", () => {
+    expect(pickHighlightedDepths([10, 5, 5, 10])).toEqual([5, 10]);
+  });
+  test("fallback: shallow borehole with no round-5 mark in range → even index-sample of real depths", () => {
+    const depths = [0, 0.5, 1, 1.5, 2, 2.5, 3]; // max 3 m — every round-5 target (≥5) is out of range
+    const picked = pickHighlightedDepths(depths);
+    expect(picked[0]).toBe(0); // even-sample keeps shallowest
+    expect(picked[picked.length - 1]).toBe(3); // ...and deepest
+    picked.forEach((d) => expect(depths).toContain(d)); // only real measured depths, never interpolated
   });
   test("empty input → []", () => {
-    expect(pickHighlightedDepths([], 6)).toEqual([]);
-  });
-  test("count <= 0 → []", () => {
-    expect(pickHighlightedDepths([0, 5, 10], 0)).toEqual([]);
+    expect(pickHighlightedDepths([])).toEqual([]);
   });
 });
 

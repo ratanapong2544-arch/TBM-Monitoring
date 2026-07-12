@@ -14,6 +14,7 @@ import {
   isTbmHere,
   formatOffsetLabel,
   getOperationalChainage,
+  hasActualInstallChainage,
   formatMeasuredAtLabel,
   formatLongTermDate,
 } from "./instrumentSchedule";
@@ -356,5 +357,20 @@ describe("formatLongTermDate (R3a — port จาก LocationDetailClient.tsx:64
   test("null → ว่าง", () => expect(formatLongTermDate(null)).toBe(""));
   test("มีวันที่ → 'dd Mon yyyy'", () => {
     expect(formatLongTermDate("2026-01-08T12:00:00.000Z")).toBe("08 Jan 2026");
+  });
+});
+
+describe("hasActualInstallChainage (R3c — port จาก LocationDetailClient.tsx:51-53)", () => {
+  test("actualChainage ต่างจาก chainage → true", () => {
+    expect(hasActualInstallChainage({ chainage: 8300, actualChainage: 8360 })).toBe(true);
+  });
+  test("actualChainage เท่ากับ chainage → false", () => {
+    expect(hasActualInstallChainage({ chainage: 8300, actualChainage: 8300 })).toBe(false);
+  });
+  test("actualChainage เป็น null → false", () => {
+    expect(hasActualInstallChainage({ chainage: 8300, actualChainage: null })).toBe(false);
+  });
+  test("location ว่างเปล่า → false (ไม่ throw)", () => {
+    expect(hasActualInstallChainage(null)).toBe(false);
   });
 });

@@ -262,6 +262,14 @@ export function getOperationalChainage(location) {
   return location.actualChainage ?? location.chainage;
 }
 
+// มีตำแหน่งติดตั้งจริงที่ต่างจาก chainage ออกแบบหรือไม่ — คุมบรรทัด "Install STA" แบบมีเงื่อนไข
+// (R3-source-map.md §6: port ตรงจาก LocationDetailClient.tsx:51-53; R3b เว้นไว้เพราะยังไม่มีผู้ใช้,
+// R3c ใช้ตรงกับ BlueprintPlot banner จึงเพิ่มที่นี่ — helper บริสุทธิ์ ไม่แตะ component ใดๆ)
+export function hasActualInstallChainage(location) {
+  if (!location) return false;
+  return location.actualChainage != null && location.actualChainage !== location.chainage;
+}
+
 // ป้ายวันที่ใต้ sub-button บน timeline: "N/A" ถ้าถูก mark ข้าม (isMeasured=true แต่ไม่มี measuredAt),
 // ว่างถ้ายังไม่วัด, ไม่งั้น "dd Mon"
 export function formatMeasuredAtLabel(measuredAt, isMeasured) {

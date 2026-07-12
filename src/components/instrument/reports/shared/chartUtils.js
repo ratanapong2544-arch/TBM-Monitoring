@@ -38,6 +38,37 @@ export function formatShortDate(date) {
   return `${base} ${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
 }
 
+// Task R2a — ported from tunnel-monitoring's chartUtils.ts, adapted to reuse this file's
+// robust toDate() (ISO + "DD/MM/YYYY[ HH:MM]") instead of the source's split("/") which
+// assumed every date was already "DD/MM/YYYY" and breaks on this app's ISO reading dates.
+
+/** Parse a reading date (ISO or "DD/MM/YYYY") into a millisecond timestamp, or NaN. */
+export function parseDateToMs(date) {
+  const d = toDate(date);
+  return d ? d.getTime() : NaN;
+}
+
+/** Generate tick timestamps between two reading dates, every stepDays (end always included). */
+export function weeklyTickTimestamps(startDate, endDate, stepDays = 7) {
+  const start = parseDateToMs(startDate);
+  const end = parseDateToMs(endDate);
+  if (!Number.isFinite(start) || !Number.isFinite(end)) return [];
+  const step = stepDays * 24 * 60 * 60 * 1000;
+  const out = [];
+  for (let t = start; t <= end; t += step) out.push(t);
+  if (out[out.length - 1] !== end) out.push(end);
+  return out;
+}
+
+/** Format a millisecond timestamp as "DD/MM/YY" (for axis ticks). */
+export function formatDateTick(ms) {
+  const d = new Date(ms);
+  const dd = String(d.getDate()).padStart(2, "0");
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const yy = String(d.getFullYear()).slice(2);
+  return `${dd}/${mm}/${yy}`;
+}
+
 /** Format a TBM chainage number as "8+389.356". */
 export function stationLabelKm(station) {
   if (station == null || !Number.isFinite(Number(station))) return "—";
@@ -46,6 +77,10 @@ export function stationLabelKm(station) {
   const meters = (n - km * 1000).toFixed(3).padStart(7, "0");
   return `${km}+${meters}`;
 }
+
+// Task R2a — alias so new report code (ReportShell) can import the source's naming;
+// stationLabelKm stays exported as-is since v1 reports (ContextStrip etc.) still import it.
+export const formatStation = stationLabelKm;
 
 export function formatSignedNumber(value, digits = 2) {
   if (value == null || !Number.isFinite(value)) return "—";
@@ -83,17 +118,33 @@ function hexToRgb(hex) {
 function rgbToHex(rgb) {
   return `#${rgb.map((c) => Math.max(0, Math.min(255, Math.round(c))).toString(16).padStart(2, "0")).join("")}`;
 }
-const DATE_COLOR_COOL = chartColors.planned; // navy — earliest reading
-const DATE_COLOR_WARM = chartColors.dayShift; // gold — latest reading
+// Task R2a — multi-stop gradient (was a single navy→gold lerp). Depth/settlement profile
+// overlays can stack ~17 date lines; two tones compress most of them into near-identical
+// shades. Five stops spread across four segments give far more hue separation while staying
+// dynamic (position-in-allDates, not a hardcoded per-date lookup) — reuses this app's own
+// existing hex constants so it still reads as one navy-themed palette.
+const DATE_COLOR_STOPS = [
+  chartColors.planned,    // navy   — earliest
+  chartColors.paid,       // cyan
+  "#7c3aed",              // violet (matches depthSeriesPalette's own violet stop above)
+  chartColors.dayShift,   // gold
+  chartColors.actualAlert, // red   — latest
+].map(hexToRgb);
 
-/** Color a line by its position within the full sorted date list (cool=earliest, warm=latest). */
+/** Color a line by its position within the full sorted date list, via a navy→cyan→violet→
+ * gold→red gradient (earliest→latest). Signature unchanged so existing report callers
+ * (e.g. SurfaceSettlementReport) keep working as-is. */
 export function getDateColor(date, allDates = []) {
   const idx = allDates.indexOf(date);
-  if (idx < 0 || allDates.length <= 1) return DATE_COLOR_COOL;
+  if (idx < 0 || allDates.length <= 1) return rgbToHex(DATE_COLOR_STOPS[0]);
   const t = idx / (allDates.length - 1);
-  const cool = hexToRgb(DATE_COLOR_COOL);
-  const warm = hexToRgb(DATE_COLOR_WARM);
-  return rgbToHex(cool.map((c, i) => c + (warm[i] - c) * t));
+  const segments = DATE_COLOR_STOPS.length - 1;
+  const pos = t * segments;
+  const seg = Math.min(Math.floor(pos), segments - 1);
+  const localT = pos - seg;
+  const from = DATE_COLOR_STOPS[seg];
+  const to = DATE_COLOR_STOPS[seg + 1];
+  return rgbToHex(from.map((c, i) => c + (to[i] - c) * localT));
 }
 
 /** Padded [min,max] domain around a set of values. */

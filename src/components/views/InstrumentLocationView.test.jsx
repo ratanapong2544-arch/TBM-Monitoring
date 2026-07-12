@@ -62,9 +62,17 @@ const schedules = [
   { id: "s-other-loc", locationId: "L2", scheduleType: "DISTANCE", instrumentGroup: "DEEP", distanceOffset: 0, tbmChainage: tbm + 50, isMeasured: false, measuredAt: null, notes: null },
 ];
 
-// same formula as the brief/component: TBM Distance = operationalChainage - tbmChainage
+// same formula as the brief/component: TBM Distance = operationalChainage - tbmChainage.
+// Sign is always shown when >= 0 (incl. "+0 m"), mirroring the component / source (page.tsx:190).
 const expectedRounded = Math.round(location.actualChainage - tbm);
-const expectedTbmDistanceLabel = expectedRounded === 0 ? "0 m" : `${expectedRounded > 0 ? "+" : ""}${expectedRounded} m`;
+const expectedTbmDistanceLabel = `${expectedRounded >= 0 ? "+" : ""}${expectedRounded} m`;
+
+// HeaderChip renders <span>{label}</span><span>{value}</span> — read the value span next to a label.
+function chipValue(container, label) {
+  const labelEl = Array.from(container.querySelectorAll("span")).find((s) => s.textContent === label);
+  expect(labelEl).toBeTruthy();
+  return labelEl.nextElementSibling && labelEl.nextElementSibling.textContent;
+}
 
 function baseProps(overrides = {}) {
   return {
@@ -82,20 +90,37 @@ test("renders header (title/STA/count), chips, and all sections without crashing
   expect(container.textContent).toContain("Install STA 8+360");
   expect(container.textContent).toContain("2 เครื่อง");
 
-  // chips
-  expect(container.textContent).toContain("TBM Distance");
-  expect(container.textContent).toContain(expectedTbmDistanceLabel);
-  expect(container.textContent).toContain("Installed");
-  expect(container.textContent).toContain("1/2"); // 1 of 2 instruments INSTALLED
-  expect(container.textContent).toContain("Measured");
-  expect(container.textContent).toContain("1/3"); // 1 of 3 L1 schedules measured (decoy excluded)
-  expect(container.textContent).toContain("Action Req");
-  expect(container.textContent).toContain("2"); // 2 due schedules (decoy excluded, would make it look like 3)
+  // chips — read exact value spans (not substring), so a "2" elsewhere can't mask a wrong count
+  expect(chipValue(container, "TBM Distance")).toBe(expectedTbmDistanceLabel);
+  expect(chipValue(container, "Installed")).toBe("1/2"); // 1 of 2 instruments INSTALLED
+  expect(chipValue(container, "Measured")).toBe("1/3"); // 1 of 3 L1 schedules measured (decoy excluded)
+  expect(chipValue(container, "Action Req")).toBe("2"); // 2 DISTANCE due (decoy L2 excluded, no LONG_TERM here)
 
   // sections
   expect(container.textContent).toContain("วาระตรวจวัดตามระยะ"); // ScheduleTimeline
   expect(container.textContent).toContain("สถานะการติดตั้ง"); // InstallationStatus
   expect(container.textContent).toContain("INSTRUMENT PLAN"); // LocationRightPane BLUEPRINT (default tab)
+
+  unmount(container, root);
+});
+
+test("Action Req counts DISTANCE-due + LONG_TERM-overdue, but NOT a triggered LONG_TERM still in its waiting window", () => {
+  const future = new Date(Date.now() + 180 * 86400000).toISOString(); // target 6 months out → waiting, not actionable
+  const past = new Date(Date.now() - 10 * 86400000).toISOString(); // target already arrived → overdue, actionable
+  const actionSchedules = [
+    // DISTANCE passed + unmeasured → actionable (counts)
+    { id: "d-due", locationId: "L1", scheduleType: "DISTANCE", instrumentGroup: "SURFACE", distanceOffset: 0, tbmChainage: tbm + 50, isMeasured: false, measuredAt: null, notes: null },
+    // LONG_TERM triggered but target in the FUTURE → "due"/waiting → must NOT count (the bug this fix targets)
+    { id: "lt-waiting", locationId: "L1", scheduleType: "LONG_TERM", longTermLabel: "LT 6M", longTermDays: 180, triggerOffset: 0, targetDate: future, isMeasured: false, measuredAt: null, notes: null },
+    // LONG_TERM target already in the PAST → "overdue" → must count
+    { id: "lt-overdue", locationId: "L1", scheduleType: "LONG_TERM", longTermLabel: "LT 1W", longTermDays: 7, triggerOffset: 0, targetDate: past, isMeasured: false, measuredAt: null, notes: null },
+    // measured LONG_TERM → "done" → must not count (guards against counting resolved rows)
+    { id: "lt-done", locationId: "L1", scheduleType: "LONG_TERM", longTermLabel: "LT 2W", longTermDays: 14, triggerOffset: 0, targetDate: past, isMeasured: true, measuredAt: past, notes: null },
+  ];
+  const { container, root } = mount(baseProps({ schedules: actionSchedules }));
+
+  // Action Req = 2 (d-due + lt-overdue). Pre-fix this read 3 because the waiting LONG_TERM ("due") was over-counted.
+  expect(chipValue(container, "Action Req")).toBe("2");
 
   unmount(container, root);
 });

@@ -15,7 +15,7 @@ import LongTermMonitoring from "../instrument/LongTermMonitoring";
 import InstallationStatus from "../instrument/InstallationStatus";
 import LocationRightPane from "../instrument/LocationRightPane";
 import { currentChainage, stationLabel } from "../../utils/chainageAdapter";
-import { getOperationalChainage, hasActualInstallChainage, summarizeSchedules } from "../../utils/instrumentSchedule";
+import { getOperationalChainage, hasActualInstallChainage, scheduleStatus } from "../../utils/instrumentSchedule";
 
 function HeaderChip({ label, value, tone = "neutral" }) {
   const toneCls = tone === "alert" ? "bg-code-d/10 border-code-d/30 text-code-d" : "bg-cyan-tint border-cyan/30 text-navy";
@@ -54,7 +54,8 @@ export default function InstrumentLocationView({
   let tbmDistanceLabel = "-";
   if (tbmDistance != null) {
     const r = Math.round(tbmDistance);
-    tbmDistanceLabel = r === 0 ? "0 m" : `${r > 0 ? "+" : ""}${r} m`;
+    // source (page.tsx:190) นำหน้าด้วย + เสมอเมื่อ >= 0 (รวม 0 → "+0 m"); ค่าลบมี - ของตัวเลขเองอยู่แล้ว
+    tbmDistanceLabel = `${r >= 0 ? "+" : ""}${r} m`;
   }
 
   // instCounts: ports the same installed/total shape as InstallationStatus.jsx's own memo (not
@@ -65,12 +66,20 @@ export default function InstrumentLocationView({
     return { installed, total };
   }, [instruments]);
 
-  const scheduleSummary = useMemo(
-    () => summarizeSchedules(locationSchedules, tbmChainage, new Date().toISOString()),
-    [locationSchedules, tbmChainage]
-  );
   const measuredCount = useMemo(() => locationSchedules.filter((s) => s.isMeasured).length, [locationSchedules]);
-  const actionReq = scheduleSummary.due + scheduleSummary.overdue;
+  // Action Req = จำนวนวาระที่ "ต้องลงมือวัดตอนนี้" (ไม่ใช่แค่ค้าง). แยกตามชนิดตาม source (page.tsx:91-98 pendingSched):
+  //   DISTANCE  → actionable เมื่อ TBM ผ่านจุด trigger แล้วและยังไม่วัด (status "due")
+  //   LONG_TERM → actionable เฉพาะเมื่อ effective target date มาถึงแล้ว (status "overdue"); ช่วง "due" คือ
+  //               "รอในหน้าต่างเวลา" ยังไม่ต้องลงมือ จึงไม่นับ — ไม่งั้น chip แดงจะโกหกตลอด window (เช่น 180 วัน)
+  // ต้องส่ง locationSchedules เป็น allSchedules ให้ scheduleStatus คำนวณ effective target ของ LONG_TERM ได้
+  const actionReq = useMemo(() => {
+    const now = new Date().toISOString();
+    return locationSchedules.filter((s) => {
+      const st = scheduleStatus(s, tbmChainage, now, locationSchedules);
+      if (s.scheduleType === "LONG_TERM") return st === "overdue";
+      return st === "due" || st === "overdue";
+    }).length;
+  }, [locationSchedules, tbmChainage]);
 
   if (!location) {
     return (

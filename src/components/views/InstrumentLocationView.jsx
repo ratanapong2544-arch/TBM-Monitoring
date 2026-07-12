@@ -11,7 +11,7 @@ export default function InstrumentLocationView({ location = null, instruments = 
   const hasReadings = useMemo(() => instruments.some((i) => latestReading(readings, i.id)), [instruments, readings]);
   const statusOf = (ins) => {
     const r = latestReading(readings, ins.id);
-    return r ? classifyStatus(r.maxValue ?? r.valuePrimary, resolveThreshold(thresholds, ins)) : "normal";
+    return r ? classifyStatus(r.maxValue ?? r.valuePrimary, resolveThreshold(thresholds, ins)) : "nodata";
   };
   if (!location) return <div className="p-6 text-ink-2">ไม่พบจุดตรวจวัด <button className="text-navy underline" onClick={onBack}>กลับ</button></div>;
   const page = instruments.find((i) => i.blueprintPage)?.blueprintPage;

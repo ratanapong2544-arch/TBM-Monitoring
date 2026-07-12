@@ -10,7 +10,7 @@ export default function BlueprintPlot({ page, instruments = [], statusOf }) {
         <div key={i.id} title={i.code}
           className="absolute -translate-x-1/2 -translate-y-1/2 w-3 h-3 rounded-full ring-2 ring-white"
           style={{ left: `${i.blueprintX}%`, top: `${i.blueprintY}%`,
-            background: ({ normal: "#10463A", alert: "#B8860B", alarm: "#C8500A", action: "#B91C1C" })[statusOf ? statusOf(i) : "normal"] }} />
+            background: ({ normal: "#10463A", alert: "#B8860B", alarm: "#C8500A", action: "#B91C1C", nodata: "#9CA3AF" })[statusOf ? statusOf(i) : "nodata"] || "#9CA3AF" }} />
       ))}
     </div>
   );

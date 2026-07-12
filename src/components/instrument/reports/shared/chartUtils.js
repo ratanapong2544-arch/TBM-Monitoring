@@ -165,3 +165,53 @@ export function symmetricDomain(values, floor = 1, padRatio = 0.1) {
   const pad = Math.max(1, Math.ceil(spread * padRatio));
   return [-(spread + pad), spread + pad];
 }
+
+// Task R2b — ported from tunnel-monitoring's InclinometerReport.tsx / ExtensometerReport.tsx
+// (dual-axis time-history + TBM station overlay). These two fixed domains are shared by both
+// reports' Time History charts. Left axis (±30 mm) matches the source PDF's deflection/settlement
+// scale; right axis (8+100..8+400) is this project's physical TBM station range at the monitored
+// instrument cluster. Both are fixed per the report brief, not derived from data — unlike the time
+// (X) axis, which must track whatever date range the real readings span, see weeklyTickTimestamps.
+export const TIME_HISTORY_Y_DOMAIN = [-30, 30];
+export const TIME_HISTORY_Y_TICKS = [-30, -25, -20, -15, -10, -5, 0, 5, 10, 15, 20, 25, 30];
+export const STATION_Y_DOMAIN = [8100, 8400];
+export const STATION_Y_TICKS = Array.from({ length: 16 }, (_, i) => 8100 + i * 20);
+
+/** Pick up to `count` real, evenly-spaced depths from a depths array (deduped, sorted ascending) —
+ * always includes the shallowest and deepest. The source report preset hand-picked a fixed
+ * "highlightedDepths" list per instrument to keep the multi-depth Time History chart legible; this
+ * app's data has no such preset, so depths are sampled by position instead of invented/interpolated. */
+export function pickHighlightedDepths(depths, count = 6) {
+  const sorted = [...new Set(depths)].filter((d) => Number.isFinite(d)).sort((a, b) => a - b);
+  if (count <= 0 || !sorted.length) return [];
+  if (sorted.length <= count) return sorted;
+  if (count === 1) return [sorted[0]];
+  const last = sorted.length - 1;
+  const picked = [];
+  for (let i = 0; i < count; i += 1) {
+    const depth = sorted[Math.round((i * last) / (count - 1))];
+    if (!picked.includes(depth)) picked.push(depth);
+  }
+  return picked;
+}
+
+/** Scan every reading's parsed profile points for the single largest-magnitude value across the
+ * *entire* history (not just the latest reading) — matches the source report preset's
+ * "maxMovement"/"maxSettlement" fields (verified against tunnel-monitoring's
+ * reportMeasurementPresets.ts: the recorded peak's date is not always the last date — e.g. the
+ * B-axis max there lands mid-period, not on the final measurement date). `parsedRows` is
+ * `[{date, points}]`; `valueOf(point)`/`metaOf(point)` extract the number and its label (depth or
+ * ring name) from one profile point. Returns `{ value, date, meta }` for the winning point, or
+ * null if no finite values exist anywhere. */
+export function findPeakAcrossReadings(parsedRows, valueOf, metaOf) {
+  let best = null;
+  parsedRows.forEach(({ date, points }) => {
+    (points || []).forEach((p) => {
+      const v = valueOf(p);
+      if (v != null && Number.isFinite(v) && (!best || Math.abs(v) > Math.abs(best.value))) {
+        best = { value: v, date, meta: metaOf(p) };
+      }
+    });
+  });
+  return best;
+}

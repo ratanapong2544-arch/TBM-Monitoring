@@ -1,8 +1,11 @@
 // Task R2a — tests for the chartUtils helpers added for the report viewer foundation.
 // Existing exports (formatShortDate, stationLabelKm, thresholdColors, etc.) are untouched and
 // already exercised indirectly by the v1 report components, so they're not re-tested here.
+// Task R2b appends tests for the INC/EXT dual-axis + station-overlay helpers below.
 import {
   parseDateToMs, weeklyTickTimestamps, formatDateTick, formatStation, stationLabelKm, getDateColor,
+  pickHighlightedDepths, findPeakAcrossReadings,
+  TIME_HISTORY_Y_DOMAIN, TIME_HISTORY_Y_TICKS, STATION_Y_DOMAIN, STATION_Y_TICKS,
 } from "./chartUtils";
 
 describe("parseDateToMs", () => {
@@ -94,5 +97,71 @@ describe("getDateColor", () => {
   });
   test("unknown date (not in allDates) does not throw and returns a hex color", () => {
     expect(getDateColor("2099-01-01", ["2026-01-01", "2026-01-02"])).toMatch(/^#[0-9a-f]{6}$/);
+  });
+});
+
+describe("fixed dual-axis domains (R2b — shared by INC/EXT Time History charts)", () => {
+  test("TIME_HISTORY_Y ± 30 mm, step 5", () => {
+    expect(TIME_HISTORY_Y_DOMAIN).toEqual([-30, 30]);
+    expect(TIME_HISTORY_Y_TICKS).toEqual([-30, -25, -20, -15, -10, -5, 0, 5, 10, 15, 20, 25, 30]);
+  });
+  test("STATION_Y 8100..8400, step 20 (this project's chainage range)", () => {
+    expect(STATION_Y_DOMAIN).toEqual([8100, 8400]);
+    expect(STATION_Y_TICKS).toHaveLength(16);
+    expect(STATION_Y_TICKS[0]).toBe(8100);
+    expect(STATION_Y_TICKS[STATION_Y_TICKS.length - 1]).toBe(8400);
+  });
+});
+
+describe("pickHighlightedDepths", () => {
+  test("fewer depths than count → returns all, sorted", () => {
+    expect(pickHighlightedDepths([10, 0, 5], 6)).toEqual([0, 5, 10]);
+  });
+  test("more depths than count → samples count depths, always including shallowest+deepest", () => {
+    const depths = Array.from({ length: 36 }, (_, i) => i); // 0..35
+    const picked = pickHighlightedDepths(depths, 6);
+    expect(picked).toHaveLength(6);
+    expect(picked[0]).toBe(0);
+    expect(picked[picked.length - 1]).toBe(35);
+    // every picked value must be a real measured depth, never interpolated
+    picked.forEach((d) => expect(depths).toContain(d));
+    // strictly increasing (no duplicate collapse at this depth count)
+    picked.forEach((d, i) => { if (i > 0) expect(d).toBeGreaterThan(picked[i - 1]); });
+  });
+  test("dedupes and sorts unsorted/duplicate input", () => {
+    expect(pickHighlightedDepths([5, 5, 0, 10, 0], 6)).toEqual([0, 5, 10]);
+  });
+  test("empty input → []", () => {
+    expect(pickHighlightedDepths([], 6)).toEqual([]);
+  });
+  test("count <= 0 → []", () => {
+    expect(pickHighlightedDepths([0, 5, 10], 0)).toEqual([]);
+  });
+});
+
+describe("findPeakAcrossReadings", () => {
+  const parsedRows = [
+    { date: "2026-01-01", points: [{ depth: 0, a: 1 }, { depth: 5, a: -2 }] },
+    { date: "2026-02-01", points: [{ depth: 0, a: 0.5 }, { depth: 5, a: -6 }] }, // largest |value|
+    { date: "2026-03-01", points: [{ depth: 0, a: 3 }, { depth: 5, a: -1 }] },
+  ];
+  test("finds the largest-magnitude value across ALL readings, not just the last one", () => {
+    const peak = findPeakAcrossReadings(parsedRows, (p) => p.a, (p) => p.depth);
+    expect(peak).toEqual({ value: -6, date: "2026-02-01", meta: 5 });
+  });
+  test("ties keep the first occurrence (stable)", () => {
+    const rows = [
+      { date: "d1", points: [{ depth: 1, a: 5 }] },
+      { date: "d2", points: [{ depth: 2, a: -5 }] },
+    ];
+    expect(findPeakAcrossReadings(rows, (p) => p.a, (p) => p.depth)).toEqual({ value: 5, date: "d1", meta: 1 });
+  });
+  test("ignores null/non-finite values", () => {
+    const rows = [{ date: "d1", points: [{ depth: 1, a: null }, { depth: 2, a: NaN }, { depth: 3, a: 2 }] }];
+    expect(findPeakAcrossReadings(rows, (p) => p.a, (p) => p.depth)).toEqual({ value: 2, date: "d1", meta: 3 });
+  });
+  test("no finite values anywhere → null", () => {
+    expect(findPeakAcrossReadings([{ date: "d1", points: [] }], (p) => p.a, (p) => p.depth)).toBeNull();
+    expect(findPeakAcrossReadings([], (p) => p.a, (p) => p.depth)).toBeNull();
   });
 });

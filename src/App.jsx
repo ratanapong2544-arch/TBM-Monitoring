@@ -358,9 +358,10 @@ const PrimaryGroutApp = () => {
       {activeTab === "daily_report" && <DailyReportView dailyReports={activeDailyReports} onDelete={handleDeleteDailyReport} onEdit={(formReady) => { setPendingRecordForm(formReady); setActiveTab("record_daily"); }} onGoRecord={() => setActiveTab("record_daily")} />}
       {activeTab === "inst_dashboard" && (
         <InstrumentDashboardView
-          locations={instLocations} instruments={instInstruments} readings={instReadings}
-          thresholds={instThresholds} machineProgress={machineProgress}
+          locations={instLocations} instruments={instInstruments} schedules={instSchedules}
+          machineProgress={machineProgress}
           onOpenLocation={(id) => { setSelectedInstLocId(id); setActiveTab("inst_location"); }}
+          onMark={isViewer ? null : handleMarkInstSchedule}
           readOnly={isViewer} />
       )}
       {activeTab === "inst_location" && (

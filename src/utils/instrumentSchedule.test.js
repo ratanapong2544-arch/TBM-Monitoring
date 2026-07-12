@@ -13,6 +13,9 @@ import {
   isPassed,
   isTbmHere,
   formatOffsetLabel,
+  getOperationalChainage,
+  formatMeasuredAtLabel,
+  formatLongTermDate,
 } from "./instrumentSchedule";
 
 describe("distanceDue (STA ลดลงเมื่อเจาะหน้า)", () => {
@@ -323,4 +326,35 @@ describe("formatOffsetLabel", () => {
   test("SHAFT IS04 → บวกเสมอ (+|offset|)", () => expect(formatOffsetLabel(-15, "SHAFT IS04")).toBe("+15"));
   test("ปกติ negative → คงเครื่องหมายลบ", () => expect(formatOffsetLabel(-15, "IS02")).toBe("-15"));
   test("ปกติ positive → เติม '+'", () => expect(formatOffsetLabel(15, "IS02")).toBe("+15"));
+});
+
+describe("getOperationalChainage (R3a — port จาก LocationDetailClient.tsx:47-49)", () => {
+  test("มี actualChainage → ใช้ค่านั้น", () => {
+    expect(getOperationalChainage({ chainage: 8300, actualChainage: 8360 })).toBe(8360);
+  });
+  test("actualChainage เป็น null → fallback ไปที่ chainage", () => {
+    expect(getOperationalChainage({ chainage: 8300, actualChainage: null })).toBe(8300);
+  });
+  test("location ว่างเปล่า → null (ไม่ throw)", () => {
+    expect(getOperationalChainage(null)).toBeNull();
+  });
+});
+
+describe("formatMeasuredAtLabel (R3a — port จาก LocationDetailClient.tsx:55-62)", () => {
+  test("isMeasured=true แต่ไม่มี measuredAt (มาร์ค N/A) → 'N/A'", () => {
+    expect(formatMeasuredAtLabel(null, true)).toBe("N/A");
+  });
+  test("ยังไม่วัด (isMeasured=false, measuredAt=null) → ว่าง", () => {
+    expect(formatMeasuredAtLabel(null, false)).toBe("");
+  });
+  test("มี measuredAt → 'dd Mon'", () => {
+    expect(formatMeasuredAtLabel("2026-01-08T12:00:00.000Z", true)).toBe("08 Jan");
+  });
+});
+
+describe("formatLongTermDate (R3a — port จาก LocationDetailClient.tsx:64-71)", () => {
+  test("null → ว่าง", () => expect(formatLongTermDate(null)).toBe(""));
+  test("มีวันที่ → 'dd Mon yyyy'", () => {
+    expect(formatLongTermDate("2026-01-08T12:00:00.000Z")).toBe("08 Jan 2026");
+  });
 });

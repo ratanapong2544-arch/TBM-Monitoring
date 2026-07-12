@@ -253,3 +253,25 @@ export function formatOffsetLabel(distanceOffset, locationName) {
   }
   return distanceOffset > 0 ? `+${distanceOffset}` : `${distanceOffset}`;
 }
+
+// --- display-format helpers — port ตรงจาก LocationDetailClient.tsx:47-71 (R3a) ---
+
+// ตำแหน่งจริงของจุดตรวจวัด (อาจต่างจาก chainage ที่ออกแบบไว้ ถ้ามีการสำรวจติดตั้งภายหลัง)
+export function getOperationalChainage(location) {
+  if (!location) return null;
+  return location.actualChainage ?? location.chainage;
+}
+
+// ป้ายวันที่ใต้ sub-button บน timeline: "N/A" ถ้าถูก mark ข้าม (isMeasured=true แต่ไม่มี measuredAt),
+// ว่างถ้ายังไม่วัด, ไม่งั้น "dd Mon"
+export function formatMeasuredAtLabel(measuredAt, isMeasured) {
+  if (isMeasured && !measuredAt) return "N/A";
+  if (!measuredAt) return "";
+  return new Date(measuredAt).toLocaleDateString("en-GB", { day: "2-digit", month: "short" });
+}
+
+// ป้ายวันที่การ์ด Long Term: "dd Mon yyyy"
+export function formatLongTermDate(date) {
+  if (!date) return "";
+  return new Date(date).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+}

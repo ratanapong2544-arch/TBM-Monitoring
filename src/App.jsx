@@ -24,7 +24,7 @@ import PrepGanttView from "./components/views/PrepGanttView";
 import InstrumentDashboardView from "./components/views/InstrumentDashboardView";
 import InstrumentLocationView from "./components/views/InstrumentLocationView";
 import InstrumentScheduleView from "./components/views/InstrumentScheduleView";
-import { STORE, loadCache, persistCache } from "./utils/instruments";
+import { STORE, loadCache, persistCache, makeInstId } from "./utils/instruments";
 import { useFilterState } from "./hooks/useGlobalFilter";
 import { loadIssues, persistIssues, upsertIssue, setIssueStatus, removeIssue, forMachine } from "./utils/issues";
 import { loadDailyReports, persistDailyReports, upsertDailyReport, removeDailyReport, normalize } from "./utils/dailyReports";
@@ -100,6 +100,23 @@ const PrimaryGroutApp = () => {
   const handleDeleteIssue = (id) => {
     setIssues(removeIssue(issues, id));
     apiCall("deleteIssue", { id }).catch((e) => console.warn("Issue sync (delete) failed — kept locally:", e.message));
+  };
+
+  const handleSaveInstReading = (reading) => {
+    const row = reading.id ? reading : { ...reading, id: makeInstId("rd"), enteredBy: "manual" };
+    const next = reading.id ? instReadings.map((r) => (r.id === row.id ? row : r)) : [row, ...instReadings];
+    setInstReadings(next); persistCache(STORE.readings, next);
+    apiCall(reading.id ? "updateInstReading" : "addInstReading", row).catch((e) => console.warn("inst reading sync:", e.message));
+  };
+  const handleMarkInstSchedule = (sched) => {
+    const next = instSchedules.map((s) => (s.id === sched.id ? sched : s));
+    setInstSchedules(next); persistCache(STORE.schedules, next);
+    apiCall("saveInstSchedule", sched).catch((e) => console.warn("inst schedule sync:", e.message));
+  };
+  const handleUpdateInstrument = (ins) => {
+    const next = instInstruments.map((i) => (i.id === ins.id ? ins : i));
+    setInstInstruments(next); persistCache(STORE.instruments, next);
+    apiCall("updateInstrument", ins).catch((e) => console.warn("inst update sync:", e.message));
   };
 
   useEffect(() => {
@@ -347,7 +364,7 @@ const PrimaryGroutApp = () => {
       {activeTab === "inst_schedule" && (
         <InstrumentScheduleView
           schedules={instSchedules} locations={instLocations} machineProgress={machineProgress}
-          onMark={null} readOnly={isViewer} />
+          onMark={isViewer ? null : handleMarkInstSchedule} readOnly={isViewer} />
       )}
     </Shell>
   );

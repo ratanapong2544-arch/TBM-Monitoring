@@ -25,6 +25,7 @@ import InstrumentDashboardView from "./components/views/InstrumentDashboardView"
 import InstrumentLocationView from "./components/views/InstrumentLocationView";
 import InstrumentScheduleView from "./components/views/InstrumentScheduleView";
 import { STORE, loadCache, persistCache, makeInstId } from "./utils/instruments";
+import { markMeasurementDone, markMeasurementNA, cancelMeasurement } from "./utils/instrumentSchedule";
 import { useFilterState } from "./hooks/useGlobalFilter";
 import { loadIssues, persistIssues, upsertIssue, setIssueStatus, removeIssue, forMachine } from "./utils/issues";
 import { loadDailyReports, persistDailyReports, upsertDailyReport, removeDailyReport, normalize } from "./utils/dailyReports";
@@ -108,10 +109,18 @@ const PrimaryGroutApp = () => {
     setInstReadings(next); persistCache(STORE.readings, next);
     apiCall(reading.id ? "updateInstReading" : "addInstReading", row).catch((e) => console.warn("inst reading sync:", e.message));
   };
-  const handleMarkInstSchedule = (sched) => {
-    const next = instSchedules.map((s) => (s.id === sched.id ? sched : s));
+  // kind: "done" | "na" | "cancel" — default "done" เพื่อไม่ break v1 schedule view ที่เรียก
+  // onMark({ ...s, isMeasured:true, measuredAt: today() }) แบบ 1 argument (toggle done เดิม)
+  // R3 จะเพิ่ม modal เลือก done/NA/date เอง แล้วส่ง kind + measuredAtISO มาตรงๆ
+  const handleMarkInstSchedule = (sched, kind = "done", measuredAtISO) => {
+    const { next, changed } =
+      kind === "na" ? markMeasurementNA(instSchedules, sched.id) :
+      kind === "cancel" ? cancelMeasurement(instSchedules, sched.id) :
+      markMeasurementDone(instSchedules, sched.id, measuredAtISO ?? sched.measuredAt);
     setInstSchedules(next); persistCache(STORE.schedules, next);
-    apiCall("saveInstSchedule", sched).catch((e) => console.warn("inst schedule sync:", e.message));
+    changed.forEach((row) => {
+      apiCall("saveInstSchedule", row).catch((e) => console.warn("inst schedule sync:", e.message));
+    });
   };
   const handleUpdateInstrument = (ins) => {
     const next = instInstruments.map((i) => (i.id === ins.id ? ins : i));

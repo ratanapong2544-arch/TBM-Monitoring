@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Check } from "lucide-react";
+import { Check, Clock, AlertTriangle, Hourglass, CheckCircle2 } from "lucide-react";
 import StatCard from "../common/StatCard";
 import { scheduleStatus, summarizeSchedules } from "../../utils/instrumentSchedule";
 import { currentChainage, stationLabel } from "../../utils/chainageAdapter";
@@ -22,10 +22,10 @@ export default function InstrumentScheduleView({ schedules = [], locations = [],
   return (
     <div className="max-w-full mx-auto space-y-6 animate-fade-in pb-24">
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard label="ถึงกำหนด" value={sum.due} subtext="Due" color="text-code-b" />
-        <StatCard label="เลยกำหนด" value={sum.overdue} subtext="Overdue" color="text-code-d" />
-        <StatCard label="รอ" value={sum.pending} subtext="Pending" color="text-ink-2" />
-        <StatCard label="เสร็จ" value={sum.done} subtext="Done" color="text-code-a" />
+        <StatCard label="ถึงกำหนด" value={sum.due} subtext="Due" color="text-code-b" valueColor="text-code-b" icon={Clock} />
+        <StatCard label="เลยกำหนด" value={sum.overdue} subtext="Overdue" color="text-code-d" valueColor="text-code-d" icon={AlertTriangle} />
+        <StatCard label="รอ" value={sum.pending} subtext="Pending" color="text-ink-2" valueColor="text-ink-2" icon={Hourglass} />
+        <StatCard label="เสร็จ" value={sum.done} subtext="Done" color="text-code-a" valueColor="text-code-a" icon={CheckCircle2} />
       </div>
       <div className="bg-surface rounded-card shadow-card border border-line overflow-hidden">
         <div className="px-6 py-4 border-b border-line bg-surface-alt flex items-center gap-3">

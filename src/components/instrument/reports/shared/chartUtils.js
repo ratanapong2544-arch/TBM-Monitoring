@@ -38,12 +38,6 @@ export function formatShortDate(date) {
   return `${base} ${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
 }
 
-/** Parse a reading date (ISO or "DD/MM/YYYY [HH:MM]") into a millisecond timestamp. */
-export function parseDateToMs(date) {
-  const d = toDate(date);
-  return d ? d.getTime() : NaN;
-}
-
 /** Format a TBM chainage number as "8+389.356". */
 export function stationLabelKm(station) {
   if (station == null || !Number.isFinite(Number(station))) return "—";
@@ -56,6 +50,15 @@ export function stationLabelKm(station) {
 export function formatSignedNumber(value, digits = 2) {
   if (value == null || !Number.isFinite(value)) return "—";
   return `${value > 0 ? "+" : ""}${value.toFixed(digits)}`;
+}
+
+/** Value with the largest absolute magnitude in a list, preserving its sign (peak reading). */
+export function maxAbsOf(nums) {
+  let best = null;
+  nums.forEach((v) => {
+    if (v != null && Number.isFinite(v) && (best == null || Math.abs(v) > Math.abs(best))) best = v;
+  });
+  return best;
 }
 
 // Match PDF source convention: Alert = green (mild), Alarm = yellow (medium), Action = red (critical).

@@ -10,19 +10,11 @@ import ChartFrame from "./shared/ChartFrame";
 import RawDataTable from "./shared/RawDataTable";
 import ContextStrip from "./shared/ContextStrip";
 import EmptyState from "./shared/EmptyState";
-import { formatShortDate, formatSignedNumber, symmetricDomain, thresholdColors } from "./shared/chartUtils";
+import { formatShortDate, formatSignedNumber, maxAbsOf, symmetricDomain, thresholdColors } from "./shared/chartUtils";
 import { axisTick, gridProps, tooltipStyle } from "../../../ui-ux-pro-max/chartTheme";
 import { parseProfile, parseThresholds, resolveThreshold } from "../../../utils/instrumentData";
 
 const AXIS_COLORS = { a: "#0284c7", b: "#7c3aed" };
-
-function maxAbsOf(nums) {
-  let best = null;
-  nums.forEach((v) => {
-    if (v != null && Number.isFinite(v) && (best == null || Math.abs(v) > Math.abs(best))) best = v;
-  });
-  return best;
-}
 
 function depthTable(rowsAsc, axisKey) {
   const parsed = rowsAsc.map((r) => parseProfile(r.profileJson));

@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { Activity, AlertTriangle } from "lucide-react";
+import { Activity, AlertTriangle, CircleDashed } from "lucide-react";
 import StatCard from "../common/StatCard";
 import { classifyStatus, worstStatus } from "../../utils/instrumentStatus";
 import { resolveThreshold, latestReading } from "../../utils/instrumentData";
@@ -12,13 +12,13 @@ export default function InstrumentDashboardView({ locations = [], instruments = 
     instruments.forEach((ins) => {
       const r = latestReading(readings, ins.id);
       const th = resolveThreshold(thresholds, ins);
-      map[ins.id] = r ? classifyStatus(r.maxValue ?? r.valuePrimary, th) : "normal";
+      map[ins.id] = r ? classifyStatus(r.maxValue ?? r.valuePrimary, th) : "nodata";
     });
     return map;
   }, [instruments, readings, thresholds]);
 
   const counts = useMemo(() => {
-    const c = { normal: 0, alert: 0, alarm: 0, action: 0 };
+    const c = { normal: 0, nodata: 0, alert: 0, alarm: 0, action: 0 };
     Object.values(instStatus).forEach((s) => { c[s] = (c[s] || 0) + 1; });
     return c;
   }, [instStatus]);
@@ -33,8 +33,9 @@ export default function InstrumentDashboardView({ locations = [], instruments = 
 
   return (
     <div className="max-w-full mx-auto space-y-6 animate-fade-in pb-24">
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
         <StatCard label="ปกติ" value={counts.normal} subtext="Normal" color="text-code-a" icon={Activity} />
+        <StatCard label="ยังไม่วัด" value={counts.nodata} subtext="No data" color="text-ink-3" icon={CircleDashed} />
         <StatCard label="Alert" value={counts.alert} subtext="เฝ้าระวัง" color="text-code-b" icon={AlertTriangle} />
         <StatCard label="Alarm" value={counts.alarm} subtext="เตือน" color="text-code-c" icon={AlertTriangle} />
         <StatCard label="Action" value={counts.action} subtext="วิกฤต" color="text-code-d" icon={AlertTriangle} />

@@ -13,14 +13,6 @@ import { depthSeriesPalette, formatShortDate, formatSignedNumber, symmetricDomai
 import { axisTick, gridProps, tooltipStyle } from "../../../ui-ux-pro-max/chartTheme";
 import { parseProfile, parseThresholds, resolveThreshold } from "../../../utils/instrumentData";
 
-function maxAbsOf(nums) {
-  let best = null;
-  nums.forEach((v) => {
-    if (v != null && Number.isFinite(v) && (best == null || Math.abs(v) > Math.abs(best))) best = v;
-  });
-  return best;
-}
-
 export default function ExtensometerReport({ instruments = [], readings = [], thresholds = [] }) {
   const inst = instruments[0];
   const rows = inst

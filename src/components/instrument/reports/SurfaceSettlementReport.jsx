@@ -15,14 +15,6 @@ import { depthSeriesPalette, formatShortDate, formatSignedNumber, getDateColor, 
 import { axisTick, gridProps, tooltipStyle } from "../../../ui-ux-pro-max/chartTheme";
 import { parseThresholds, resolveThreshold } from "../../../utils/instrumentData";
 
-function maxAbsOf(nums) {
-  let best = null;
-  nums.forEach((v) => {
-    if (v != null && Number.isFinite(v) && (best == null || Math.abs(v) > Math.abs(best))) best = v;
-  });
-  return best;
-}
-
 export default function SurfaceSettlementReport({ instruments = [], readings = [], thresholds = [] }) {
   const points = [...instruments].sort((a, b) => Number(a.blueprintX) - Number(b.blueprintX));
   const perPoint = points.map((inst) => ({

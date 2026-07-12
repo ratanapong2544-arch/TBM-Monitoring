@@ -1,7 +1,21 @@
 export function parseProfile(json) {
   if (!json || typeof json !== "string") return [];
-  try { const v = JSON.parse(json); return Array.isArray(v) ? v : []; }
-  catch (e) { return []; }
+  try {
+    const v = JSON.parse(json);
+    if (Array.isArray(v)) return v;
+    // object-shaped profileJson (e.g. { points:[...], _thresholds:{...} } — see Task 4.3 migration)
+    if (v && Array.isArray(v.points)) return v.points;
+    return [];
+  } catch (e) { return []; }
+}
+
+// report-embedded threshold override (Task 4.3: profileJson._thresholds ± symmetric or per-tap upper/lower bands)
+export function parseThresholds(json) {
+  if (!json || typeof json !== "string") return null;
+  try {
+    const v = JSON.parse(json);
+    return v && typeof v === "object" && !Array.isArray(v) && v._thresholds ? v._thresholds : null;
+  } catch (e) { return null; }
 }
 
 export function serializeProfile(arr) {

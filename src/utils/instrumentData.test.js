@@ -1,4 +1,4 @@
-import { parseProfile, serializeProfile, resolveThreshold, latestReading } from "./instrumentData";
+import { parseProfile, parseThresholds, serializeProfile, resolveThreshold, latestReading } from "./instrumentData";
 
 test("parseProfile ปลอดภัย", () => {
   expect(parseProfile("")).toEqual([]);
@@ -9,6 +9,31 @@ test("parseProfile ปลอดภัย", () => {
 test("serialize→parse round-trip", () => {
   const arr = [{ depth:0, a:0, b:0 }, { depth:5, a:1.1, b:2.2 }];
   expect(parseProfile(serializeProfile(arr))).toEqual(arr);
+});
+
+// Task 4.3: preset-to-readings.mjs writes profileJson as { points/piezometers/ssCode, _thresholds }
+// (not a bare array) so the report ± thresholds can travel with the reading — see
+// docs/superpowers/plans/2026-07-11-instrument-integration.md Task 6.3 ("อ่านจาก reading.profileJson._thresholds")
+describe("object-shaped profileJson (report migration)", () => {
+  const json = JSON.stringify({
+    type: "INCLINOMETER_PROFILE",
+    points: [{ depth: 0, a: 0, b: 0 }, { depth: 0.5, a: -1.21, b: 1.38 }],
+    _thresholds: { alert: 15, alarm: 17, action: 20 },
+  });
+  test("parseProfile ดึง .points ออกมาเป็น array", () => {
+    expect(parseProfile(json)).toEqual([{ depth: 0, a: 0, b: 0 }, { depth: 0.5, a: -1.21, b: 1.38 }]);
+  });
+  test("parseThresholds ดึง ._thresholds", () => {
+    expect(parseThresholds(json)).toEqual({ alert: 15, alarm: 17, action: 20 });
+  });
+  test("parseProfile คืน [] เมื่อไม่มี .points (เช่น PIEZOMETER_BUNDLE/SETTLEMENT_POINT)", () => {
+    expect(parseProfile(JSON.stringify({ type: "SETTLEMENT_POINT", ssCode: "SS-T1-01", _thresholds: {} }))).toEqual([]);
+  });
+  test("parseThresholds คืน null เมื่อไม่มี _thresholds หรือ input ผิดรูป", () => {
+    expect(parseThresholds("")).toBeNull();
+    expect(parseThresholds("ไม่ใช่ json")).toBeNull();
+    expect(parseThresholds('[{"depth":5}]')).toBeNull();
+  });
 });
 
 describe("resolveThreshold", () => {

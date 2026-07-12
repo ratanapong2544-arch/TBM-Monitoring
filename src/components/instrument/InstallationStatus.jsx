@@ -11,7 +11,9 @@ import { Wrench, Activity, Layers, Droplets, MapPin, Image as ImageIcon } from "
 import InstReportModal, { INSTALL_STATUSES, INSTALL_STATUS_BADGE_CLS } from "./InstReportModal";
 
 // เดียวกับ ICON map ใน InstrumentReportTabs.jsx — คงไอคอนต่อชนิดเครื่องมือให้ตรงกันทั้งแอป
-const TYPE_ICON = { INCLINOMETER: Activity, EXTENSOMETER: Layers, PIEZOMETER: Droplets, SETTLEMENT_POINT: MapPin };
+// exported: R4c's LocationCard mini-list reuses this exact map (R4-source-map.md §2.6/§5) instead of
+// introducing a third icon vocabulary or raw emoji.
+export const TYPE_ICON = { INCLINOMETER: Activity, EXTENSOMETER: Layers, PIEZOMETER: Droplets, SETTLEMENT_POINT: MapPin };
 const STATUS_DOT_CLS = {
   PENDING: "bg-ink-3 ring-ink-3/30",
   INSTALLING: "bg-cyan-med ring-cyan-med/30",

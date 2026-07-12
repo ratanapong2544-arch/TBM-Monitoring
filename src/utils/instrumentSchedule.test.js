@@ -17,6 +17,7 @@ import {
   hasActualInstallChainage,
   formatMeasuredAtLabel,
   formatLongTermDate,
+  getLocationStatus,
 } from "./instrumentSchedule";
 
 describe("distanceDue (STA ลดลงเมื่อเจาะหน้า)", () => {
@@ -372,5 +373,57 @@ describe("hasActualInstallChainage (R3c — port จาก LocationDetailClient.
   });
   test("location ว่างเปล่า → false (ไม่ throw)", () => {
     expect(hasActualInstallChainage(null)).toBe(false);
+  });
+});
+
+describe("getLocationStatus (R4c — port จาก DataGrid.tsx:115-124, dashboard location-status rollup)", () => {
+  test("DISTANCE ครบทุกตัว isMeasured → COMPLETED (ไม่สนใจ distance เลย แม้จะอยู่ในช่วง ACTIVE)", () => {
+    const schedules = [
+      { scheduleType: "DISTANCE", isMeasured: true },
+      { scheduleType: "DISTANCE", isMeasured: true },
+    ];
+    expect(getLocationStatus(schedules, 0)).toBe("COMPLETED");
+  });
+
+  test("มี DISTANCE ค้างวัดบางตัว → ไม่ COMPLETED (ตกไปเช็ค distance ต่อ แม้ distance จะไกลเกิน active/scheduled)", () => {
+    const schedules = [
+      { scheduleType: "DISTANCE", isMeasured: true },
+      { scheduleType: "DISTANCE", isMeasured: false },
+    ];
+    expect(getLocationStatus(schedules, 200)).toBe("NOT_ACTIVE");
+  });
+
+  test("ไม่มี DISTANCE เลย (ว่างเปล่า หรือมีแต่ LONG_TERM) → ไม่ถือว่า COMPLETED (empty.every()===true แต่ length===0 ไม่นับ)", () => {
+    expect(getLocationStatus([], 0)).toBe("ACTIVE"); // ตกไปเช็ค distance: 0 อยู่ใน [-30,60]
+    expect(getLocationStatus([{ scheduleType: "LONG_TERM", isMeasured: true }], 0)).toBe("ACTIVE");
+  });
+
+  describe("ACTIVE window [-30, 60] (inclusive ทั้งสองข้าง)", () => {
+    test("boundary ล่าง -30 → ACTIVE", () => expect(getLocationStatus([], -30)).toBe("ACTIVE"));
+    test("boundary บน 60 → ACTIVE", () => expect(getLocationStatus([], 60)).toBe("ACTIVE"));
+    test("กึ่งกลาง 0 → ACTIVE", () => expect(getLocationStatus([], 0)).toBe("ACTIVE"));
+    test("51 (เกินเงื่อนไข SCHEDULED |d|<=50 ไปแล้ว แต่ยังอยู่ใน ACTIVE window) → ACTIVE ไม่ใช่ SCHEDULED", () =>
+      expect(getLocationStatus([], 51)).toBe("ACTIVE"));
+  });
+
+  describe("SCHEDULED — reachable จริงเฉพาะ distance ใน [-50,-30) เท่านั้น (ผลจาก ACTIVE window ที่ไม่สมมาตร — สืบทอดจาก source ตรงๆ)", () => {
+    test("-31 (หลุด ACTIVE ไปนิดเดียว, |-31|<=50) → SCHEDULED", () => expect(getLocationStatus([], -31)).toBe("SCHEDULED"));
+    test("boundary -50 (|-50|<=50 พอดี) → SCHEDULED", () => expect(getLocationStatus([], -50)).toBe("SCHEDULED"));
+    test("-40 → SCHEDULED", () => expect(getLocationStatus([], -40)).toBe("SCHEDULED"));
+  });
+
+  describe("NOT_ACTIVE", () => {
+    test("-50.001 (เลย 50m ฝั่งลบไปนิดเดียว) → NOT_ACTIVE", () => expect(getLocationStatus([], -50.001)).toBe("NOT_ACTIVE"));
+    test("60.001 (เลย ACTIVE ฝั่งบวกไปนิดเดียว) → NOT_ACTIVE ทันที (ไม่ผ่าน SCHEDULED เพราะ |60.001|>50 อยู่แล้ว)", () =>
+      expect(getLocationStatus([], 60.001)).toBe("NOT_ACTIVE"));
+    test("100 (ไกลมาก) → NOT_ACTIVE", () => expect(getLocationStatus([], 100)).toBe("NOT_ACTIVE"));
+  });
+
+  test("distance เป็น null (tbmChainage/operationalChainage ยังไม่พร้อม) → NOT_ACTIVE ไม่ใช่ false-positive ACTIVE/SCHEDULED", () => {
+    expect(getLocationStatus([{ scheduleType: "DISTANCE", isMeasured: false }], null)).toBe("NOT_ACTIVE");
+  });
+
+  test("distance เป็น null แต่ DISTANCE ครบวัดหมดแล้ว → ยังคง COMPLETED (ไม่ต้องพึ่ง distance)", () => {
+    expect(getLocationStatus([{ scheduleType: "DISTANCE", isMeasured: true }], null)).toBe("COMPLETED");
   });
 });

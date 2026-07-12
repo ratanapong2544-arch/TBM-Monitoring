@@ -283,3 +283,29 @@ export function formatLongTermDate(date) {
   if (!date) return "";
   return new Date(date).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
 }
+
+// --- R4c: dashboard location-status rollup — port ตรงจาก DataGrid.tsx:115-124 (getLocationStatus) ---
+// Location-level status สำหรับ badge บน dashboard LocationCard — คนละอันกับ scheduleStatus ด้านบน
+// (นั่น per-schedule, นี่ rollup ระดับ location เดียว). distance = operationalChainage − tbmChainage
+// (sign convention เดียวกับทั้งไฟล์นี้: บวก = ยังไม่ถึง, ลบ = TBM ผ่านไปแล้ว). เช็ค COMPLETED ก่อนเสมอ
+// (ไม่สนใจ distance เลย) แล้วค่อยไล่ ACTIVE → SCHEDULED → NOT_ACTIVE ตาม source ตรงๆ
+//
+// Quirk ที่สืบทอดจาก source (พอร์ตตรง ไม่แก้): ช่วง ACTIVE [-30,60] กว้างกว่าเงื่อนไข SCHEDULED
+// (|distance|<=50) ทางฝั่งบวก ดังนั้น SCHEDULED reachable จริงเฉพาะ distance ใน [-50,-30) เท่านั้น —
+// ฝั่งบวกที่เกิน 60 ตกไป NOT_ACTIVE ตรงๆ ไม่มีทางเป็น SCHEDULED เลย (เหมือน DataGrid.tsx:115-124 ทุกประการ)
+//
+// distance เป็น null (tbmChainage/operationalChainage ยังไม่พร้อม) → ต้องไม่ปล่อยให้ null coerce เป็น 0
+// ใน comparison แล้วดูเหมือน ACTIVE/SCHEDULED ผิดๆ (เหมือน gotcha ที่ ScheduleTimeline.jsx คอมเมนต์ไว้ตรง
+// hasTbmPosition guard) — คืน NOT_ACTIVE ทันทีถ้า distance เป็น null (หลังเช็ค COMPLETED แล้วเท่านั้น)
+export function getLocationStatus(schedules, distance) {
+  const distanceSchedules = (schedules || []).filter((s) => s.scheduleType === "DISTANCE");
+  const allMeasured = distanceSchedules.length > 0 && distanceSchedules.every((s) => s.isMeasured);
+  if (allMeasured) return "COMPLETED";
+
+  if (distance == null) return "NOT_ACTIVE";
+
+  const absDistance = Math.abs(distance);
+  if (distance >= -30 && distance <= 60) return "ACTIVE"; // TBM กำลังเคลื่อนผ่านใกล้ๆ
+  if (absDistance <= 50) return "SCHEDULED"; // โซนเฝ้าระวัง 50m
+  return "NOT_ACTIVE";
+}

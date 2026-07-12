@@ -101,3 +101,56 @@ export function computeComplianceTallies({ locations, instruments, schedules, tb
     installation: tallyInstallation(instruments),
   };
 }
+
+// --- Task R4b — dashboard toolbar filter/sort/search (pure, additive) ---
+// Port of tunnel-monitoring's DataGrid.tsx:158-180 (filteredLocations + sortedLocations memos). See
+// .superpowers/sdd/R4-source-map.md §2.1 and .superpowers/sdd/task-R4b-brief.md.
+//
+// Order: filter (type) -> search (name/STA) -> sort (NEAREST/CHAINAGE). Source factors this as
+// one combined filter+search memo followed by a separate sort memo; AND-ing filter+search is
+// order-independent so sequencing them here is equivalent.
+//
+// ⚠ CHAINAGE-SORT GOTCHA (locked decision — R4-source-map.md §2.1): source's CHAINAGE mode
+// (DataGrid.tsx:170,178-179) is a literal no-op — `sortBy === "NEAREST"` is the only branch that
+// actually calls `.sort()`; CHAINAGE just returns the filtered array in its incoming order. That
+// only "works" in source because the server pre-delivers `locations` ordered `chainage desc`
+// (page.tsx:54). This port's `instLocations` arrives grouped by `type` (all SHAFT, then all
+// BRIDGE, ...) per tools/instrument-seed-data.mjs — NOT chainage-sorted. Copying source's "leave
+// the array alone" behavior would silently mislabel a type-grouped list as "sorted by distance".
+// So CHAINAGE here is an EXPLICIT `chainage` descending sort (the order source's no-op was
+// implicitly relying on upstream), not a literal port of the no-op itself. Sorts by the raw design
+// `chainage` field (matching source's Prisma `orderBy: { chainage: "desc" }`), NOT
+// getOperationalChainage — the two are deliberately different fields in this codebase.
+const SORT_NEAREST = "NEAREST";
+const SORT_CHAINAGE = "CHAINAGE";
+
+export function filterSortSearchLocations(locations, opts = {}) {
+  const { filter = "ALL", sortMode = SORT_NEAREST, search = "", tbmChainage } = opts;
+  const source = locations || [];
+
+  // 1. Filter by location.type (exact match, same enum as FILTER_OPTIONS in DashboardToolbar).
+  let result = !filter || filter === "ALL" ? source.slice() : source.filter((loc) => loc.type === filter);
+
+  // 2. Search — location.name OR formatted chainage STA OR formatted operationalChainage STA,
+  // case-insensitive substring (port of DataGrid.tsx:161-166).
+  const query = (search || "").trim().toLowerCase();
+  if (query) {
+    result = result.filter((loc) => {
+      const name = (loc.name || "").toLowerCase();
+      const chainageSta = stationLabel(loc.chainage).toLowerCase();
+      const operationalSta = stationLabel(getOperationalChainage(loc)).toLowerCase();
+      return name.includes(query) || chainageSta.includes(query) || operationalSta.includes(query);
+    });
+  }
+
+  // 3. Sort. `result` is always a fresh array by this point (step 1 always slices/filters into a
+  // new array), so `.sort()` here never mutates the caller's `locations` input.
+  if (sortMode === SORT_CHAINAGE) {
+    result.sort((a, b) => (b.chainage ?? 0) - (a.chainage ?? 0));
+  } else {
+    const tbm = tbmChainage == null ? 0 : tbmChainage; // same tbmChainage ?? 0 fallback as source (page.tsx:96)
+    result.sort((a, b) => Math.abs(getOperationalChainage(a) - tbm) - Math.abs(getOperationalChainage(b) - tbm));
+  }
+
+  return result;
+}

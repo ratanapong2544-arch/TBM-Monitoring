@@ -150,8 +150,15 @@ test("counts prop absent -> no result-count label rendered", () => {
   unmount(container, root);
 });
 
-test("does not crash when no onChange handlers are supplied", () => {
+test("does not crash when no onChange handlers are supplied — all three controls null-safe", () => {
   const { container, root } = mount({ filter: "ALL", sortMode: "NEAREST", search: "" });
+  // Filter pill
   expect(() => clickButtonByText(container, "Shaft")).not.toThrow();
+  // Sort toggle — SegmentedToggle calls onChange(o.value) unguarded, so this is the control that
+  // would throw a TypeError without the onSortChange guard in DashboardToolbar.
+  expect(() => clickButtonByText(container, "เรียงตามระยะทาง")).not.toThrow();
+  // Search input
+  const input = container.querySelector('input[type="text"]');
+  expect(() => typeInto(input, "8+300")).not.toThrow();
   unmount(container, root);
 });

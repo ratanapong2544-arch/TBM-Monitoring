@@ -82,7 +82,9 @@ export default function DashboardToolbar({
 
       {/* Sort toggle + search */}
       <div className="flex flex-col sm:flex-row gap-3 w-full lg:w-auto">
-        <SegmentedToggle value={sortMode} onChange={onSortChange} options={SORT_OPTIONS} />
+        {/* Guard onChange like the pills/search do — SegmentedToggle calls onChange(o.value)
+            unguarded, so a missing onSortChange would otherwise throw on a sort click. */}
+        <SegmentedToggle value={sortMode} onChange={(v) => onSortChange && onSortChange(v)} options={SORT_OPTIONS} />
 
         <div className="relative w-full sm:w-64">
           <input

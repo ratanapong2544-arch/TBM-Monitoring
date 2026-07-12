@@ -367,7 +367,10 @@ const PrimaryGroutApp = () => {
         <InstrumentLocationView
           location={instLocations.find((l) => String(l.id) === String(selectedInstLocId)) || null}
           instruments={instInstruments.filter((i) => String(i.locationId) === String(selectedInstLocId))}
+          allInstruments={instInstruments}
           readings={instReadings} thresholds={instThresholds}
+          schedules={instSchedules} machineProgress={machineProgress}
+          onMark={isViewer ? null : handleMarkInstSchedule}
           onBack={() => setActiveTab("inst_dashboard")} readOnly={isViewer} />
       )}
       {activeTab === "inst_schedule" && (

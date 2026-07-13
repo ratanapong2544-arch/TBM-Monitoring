@@ -143,3 +143,8 @@ export const INSTRUMENT_META = {
 - **การจัดกลุ่ม section (25 ม.)** — ถ้ามี instrument ห่าง>25 ม. แต่เป็นชุดเดียว อาจแยกผิด → ยืนยันด้วยผล 10 sections ที่ตรวจแล้ว
 - **HMR hot-swap** ของ maplibre+three อาจโยน console error (dev-only artifact ตามบทเรียน) — ไม่ใช่บั๊กจริง
 - **isolation:** ทำบน worktree `wt-instmap` (branch `feat/instrument-map-overlay` จาก origin/main) — ไม่ชน `feat/instrument-rebuild` ที่กำลัง active
+
+## 8. Revisions ระหว่าง implement (จาก feedback user)
+
+- **R1 — เครื่องมือเป็นรูปทรงแบนบนพื้น (ไม่ใช่ป้ายลอย):** เดิม design ให้ instrument เป็น HTML marker (ป้าย navy ลอยหันเข้าจอ + label CH). User ขอให้ "วางราบบนแผนที่เหมือน settlement point". เปลี่ยนเป็น **MapLibre fill+line polygon layer** (`instrument-fill`/`instrument-line`) — วงกลม=INC / สี่เหลี่ยม=EXT / สามเหลี่ยม=VW วาดราบบนพื้น เอียงตาม pitch. เพิ่มไฟล์ `src/utils/instrumentShapes.js` (+test) สร้าง polygon จาก `INSTRUMENT_SECTIONS` (pure math, jest-safe). label CH/pill ออก, ข้อมูลย้ายไป **click → popup** (`map.on('click','instrument-fill')`). toggle คุม 3 layer (settlement + instrument fill/line).
+- **R2 — ขนาดตรงของจริง:** วัดสัญลักษณ์จริงจาก KML — วงกลม 0.88m / สี่เหลี่ยม 1.68m / สามเหลี่ยม 1.55m (settlement cross 1.60m). ตั้งขนาดต่อชนิด `SIZE_M={INC:0.5,EXT:0.6,VW:0.8}` (รัศมี/half-extent, ⌀~1–1.6m) + spacing 3.5m ต่อชุด. **User เลือกขนาดจริงเป๊ะ** (เล็กที่ overview zoom, ชัดเมื่อซูมเข้า — เส้น outline 1.6px คงมองเห็นได้).

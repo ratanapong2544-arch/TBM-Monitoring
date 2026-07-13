@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useMemo } from "react";
+import React, { useRef, useEffect, useMemo, useState } from "react";
 import "maplibre-gl/dist/maplibre-gl.css";
 import {
   LINE, KM_LABELS, SHAFTS, CH_EXCAV_START, CH_MIN, TOTAL_ROUTE_DISTANCE,
@@ -127,6 +127,7 @@ const SYM = {
 
 export default function AlignmentMapView({ segmentRecords = [], machine = "TBM1", embedded = false }) {
   const isTBM1 = machine === "TBM1";
+  const [showInst, setShowInst] = useState(true);
   const drilledM = useMemo(() => (isTBM1 ? drilledMetersFromRecords(segmentRecords) : 0), [segmentRecords, isTBM1]);
   const headChRaw = useMemo(() => (isTBM1 ? headChainageFromRecords(segmentRecords) : null), [segmentRecords, isTBM1]);
   const headCh = headChRaw != null ? headChRaw : CH_EXCAV_START - drilledM;
@@ -140,6 +141,8 @@ export default function AlignmentMapView({ segmentRecords = [], machine = "TBM1"
   const instMarkersRef = useRef([]);
   const headChRef = useRef(headCh);
   headChRef.current = headCh;
+  const showInstRef = useRef(showInst);
+  showInstRef.current = showInst;
 
   // ───────── mount: สร้าง map + 3D layer ครั้งเดียว ─────────
   useEffect(() => {
@@ -292,6 +295,7 @@ export default function AlignmentMapView({ segmentRecords = [], machine = "TBM1"
         };
         map.addLayer(customLayer);
         applyHead(headChRef.current);
+        applyInstVisibility(showInstRef.current);
         } catch (err) {
           console.error("AlignmentMapView load error:", err);
         }
@@ -333,6 +337,18 @@ export default function AlignmentMapView({ segmentRecords = [], machine = "TBM1"
     if (mapRef.current) mapRef.current.triggerRepaint();
   }
 
+  // show/hide instrument markers + settlement layer together
+  function applyInstVisibility(on) {
+    const map = mapRef.current;
+    if (map && map.getLayer("settlement-cross"))
+      map.setLayoutProperty("settlement-cross", "visibility", on ? "visible" : "none");
+    instMarkersRef.current.forEach((mk) => {
+      const el = mk.getElement(); if (el) el.style.display = on ? "" : "none";
+    });
+  }
+
+  useEffect(() => { applyInstVisibility(showInst); }, [showInst]);
+
   // ───────── update เมื่อ headCh เปลี่ยน (records อัปเดต) ─────────
   useEffect(() => {
     if (!isTBM1) return;
@@ -373,6 +389,9 @@ export default function AlignmentMapView({ segmentRecords = [], machine = "TBM1"
           <div className="a3m-ov a3m-ctrl">
             <button onClick={flyToHead}>🎯 ตามหัวเจาะ</button>
             <button onClick={fitRoute}>🗺️ ดูทั้งแนว</button>
+            <button onClick={() => setShowInst((v) => !v)} aria-pressed={showInst}>
+              🔬 เครื่องมือตรวจวัด{showInst ? "" : " (ซ่อน)"}
+            </button>
           </div>
         )}
 

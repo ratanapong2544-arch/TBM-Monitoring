@@ -4,7 +4,8 @@ import {
   LINE, KM_LABELS, SHAFTS, CH_EXCAV_START, CH_MIN, TOTAL_ROUTE_DISTANCE,
   drilledMetersFromRecords, headChainageFromRecords, lngLatAtCh, lineBetween, bearingAtCh,
 } from "../../utils/alignmentGeo";
-import { INSTRUMENT_SECTIONS, INSTRUMENT_META, settlementGeoJSON } from "../../utils/instrumentGeo";
+import { INSTRUMENT_META, settlementGeoJSON } from "../../utils/instrumentGeo";
+import { instrumentShapesGeoJSON } from "../../utils/instrumentShapes";
 
 /* ────────────────────────────────────────────────────────────────────────
    แผนที่ดาวเทียม + หัวเจาะ 3D บนแนวจริง (KMZ Klongprem) — TBM1 only
@@ -118,7 +119,8 @@ function makeTBM(THREE, rimColor = 0xE03524) {
   return g;
 }
 
-// green instrument symbols — INC=circle, EXT=square, VW=triangle
+// green instrument glyphs for the click-popup legend — INC=circle, EXT=square, VW=triangle
+// (the on-map shapes are flat MapLibre polygons, see instrumentShapes.js)
 const SYM = {
   INC: '<svg width="12" height="12" viewBox="0 0 12 12"><circle cx="6" cy="6" r="5" fill="#16A34A" stroke="#fff" stroke-width="1.2"/></svg>',
   EXT: '<svg width="12" height="12" viewBox="0 0 12 12"><rect x="1.2" y="1.2" width="9.6" height="9.6" rx="1.5" fill="#16A34A" stroke="#fff" stroke-width="1.2"/></svg>',
@@ -138,7 +140,6 @@ export default function AlignmentMapView({ segmentRecords = [], machine = "TBM1"
   const mapRef = useRef(null);
   const sceneApiRef = useRef(null);   // custom layer API { setHead(ch) }
   const calloutRef = useRef(null);
-  const instMarkersRef = useRef([]);
   const headChRef = useRef(headCh);
   headChRef.current = headCh;
   const showInstRef = useRef(showInst);
@@ -199,28 +200,43 @@ export default function AlignmentMapView({ segmentRecords = [], machine = "TBM1"
           paint: { "line-color": "#F97316", "line-width": 1.4, "line-opacity": 0.9 },
         });
 
-        // ── instrument section markers (green symbols per type) ──
-        const instPopup = new maplibregl.Popup({ closeButton: true, offset: 16, className: "a3m-inst-popup" });
-        INSTRUMENT_SECTIONS.forEach((s) => {
-          const el = document.createElement("div");
-          el.className = "a3m-inst" + (s.aboveTunnel ? " above" : "");
-          el.innerHTML =
-            `<span class="sym">${s.types.map((t) => SYM[t]).join("")}</span>` +
-            `<span class="lab">${fmtCH(s.chainage)}</span>`;
-          el.addEventListener("click", (ev) => {
-            ev.stopPropagation();
-            const rows = s.types.map((t) => `<div class="r">${SYM[t]}<span>${INSTRUMENT_META[t].label}</span></div>`).join("");
-            instPopup
-              .setLngLat([s.lng, s.lat])
-              .setHTML(
-                `<div class="a3m-inst-card"><b>${s.id}${s.aboveTunnel ? ' · <i>Above Tunnel</i>' : ''}</b>` +
-                `<div class="ch">CH ${fmtCH(s.chainage)}</div>${rows}</div>`
-              )
-              .addTo(map);
-          });
-          const mk = new maplibregl.Marker({ element: el, anchor: "bottom" }).setLngLat([s.lng, s.lat]).addTo(map);
-          instMarkersRef.current.push(mk);
+        // ── instrument section symbols — flat green shapes on the ground (like settlement) ──
+        // ◯ Inclinometer · ▢ Extensometer · △ VW Piezometer · เขียวสด = Above Tunnel
+        map.addSource("instruments", { type: "geojson", data: instrumentShapesGeoJSON() });
+        map.addLayer({
+          id: "instrument-fill", type: "fill", source: "instruments",
+          layout: { visibility: "visible" },
+          paint: {
+            "fill-color": ["case", ["get", "aboveTunnel"], "#22C55E", "#16A34A"],
+            "fill-opacity": 0.55,
+          },
         });
+        map.addLayer({
+          id: "instrument-line", type: "line", source: "instruments",
+          layout: { visibility: "visible" },
+          paint: {
+            "line-color": ["case", ["get", "aboveTunnel"], "#4ADE80", "#15803D"],
+            "line-width": 1.6,
+          },
+        });
+
+        // คลิกที่สัญลักษณ์ → popup รายละเอียด (ไม่ลอยจนกว่าจะคลิก)
+        const instPopup = new maplibregl.Popup({ closeButton: true, offset: 12, className: "a3m-inst-popup" });
+        map.on("click", "instrument-fill", (e) => {
+          const p = e.features[0].properties;
+          const above = p.aboveTunnel === true || p.aboveTunnel === "true";
+          const rows = String(p.types).split(",")
+            .map((t) => `<div class="r">${SYM[t]}<span>${INSTRUMENT_META[t].label}</span></div>`).join("");
+          instPopup
+            .setLngLat(e.lngLat)
+            .setHTML(
+              `<div class="a3m-inst-card"><b>${p.sectionId}${above ? ' · <i>Above Tunnel</i>' : ''}</b>` +
+              `<div class="ch">CH ${fmtCH(Number(p.chainage))}</div>${rows}</div>`
+            )
+            .addTo(map);
+        });
+        map.on("mouseenter", "instrument-fill", () => { map.getCanvas().style.cursor = "pointer"; });
+        map.on("mouseleave", "instrument-fill", () => { map.getCanvas().style.cursor = ""; });
 
         // ── callout หัวเจาะ ──
         const cEl = document.createElement("div");
@@ -319,8 +335,6 @@ export default function AlignmentMapView({ segmentRecords = [], machine = "TBM1"
         } catch (e) { /* best-effort dispose */ }
         sceneApiRef.current = null;
       }
-      instMarkersRef.current.forEach((mk) => { try { mk.remove(); } catch (e) {} });
-      instMarkersRef.current = [];
       if (map) map.remove();
       mapRef.current = null;
     };
@@ -337,13 +351,11 @@ export default function AlignmentMapView({ segmentRecords = [], machine = "TBM1"
     if (mapRef.current) mapRef.current.triggerRepaint();
   }
 
-  // show/hide instrument markers + settlement layer together
+  // show/hide instrument shapes + settlement layer together
   function applyInstVisibility(on) {
-    const map = mapRef.current;
-    if (map && map.getLayer("settlement-cross"))
-      map.setLayoutProperty("settlement-cross", "visibility", on ? "visible" : "none");
-    instMarkersRef.current.forEach((mk) => {
-      const el = mk.getElement(); if (el) el.style.display = on ? "" : "none";
+    const map = mapRef.current; if (!map) return;
+    ["settlement-cross", "instrument-fill", "instrument-line"].forEach((id) => {
+      if (map.getLayer(id)) map.setLayoutProperty(id, "visibility", on ? "visible" : "none");
     });
   }
 
@@ -471,11 +483,6 @@ const CSS = `
   .a3m-hdr h2{font-size:13px}
   .a3m-hdr p,.a3m-hdr .demo{display:none}
 }
-.a3m-inst{display:flex;align-items:center;gap:4px;cursor:pointer;transform:translateY(-2px);
-  background:rgba(12,44,101,.86);border:1px solid rgba(255,255,255,.35);border-radius:7px;padding:2px 6px;white-space:nowrap}
-.a3m-inst.above{background:rgba(22,101,52,.9);border-color:#4ade80}
-.a3m-inst .sym{display:flex;gap:2px;line-height:0}
-.a3m-inst .lab{font-family:'IBM Plex Mono',monospace;font-size:9px;font-weight:600;color:#fff}
 .a3m-inst-card{font-family:'IBM Plex Sans Thai',sans-serif;min-width:150px}
 .a3m-inst-card b{font-size:12px;color:#0C2C65}
 .a3m-inst-card b i{font-weight:600;color:#166534;font-style:normal}

@@ -118,6 +118,13 @@ function makeTBM(THREE, rimColor = 0xE03524) {
   return g;
 }
 
+// green instrument symbols — INC=circle, EXT=square, VW=triangle
+const SYM = {
+  INC: '<svg width="12" height="12" viewBox="0 0 12 12"><circle cx="6" cy="6" r="5" fill="#16A34A" stroke="#fff" stroke-width="1.2"/></svg>',
+  EXT: '<svg width="12" height="12" viewBox="0 0 12 12"><rect x="1.2" y="1.2" width="9.6" height="9.6" rx="1.5" fill="#16A34A" stroke="#fff" stroke-width="1.2"/></svg>',
+  VW:  '<svg width="12" height="12" viewBox="0 0 12 12"><path d="M6 1 L11 10.5 L1 10.5 Z" fill="#16A34A" stroke="#fff" stroke-width="1.2" stroke-linejoin="round"/></svg>',
+};
+
 export default function AlignmentMapView({ segmentRecords = [], machine = "TBM1", embedded = false }) {
   const isTBM1 = machine === "TBM1";
   const drilledM = useMemo(() => (isTBM1 ? drilledMetersFromRecords(segmentRecords) : 0), [segmentRecords, isTBM1]);
@@ -130,6 +137,7 @@ export default function AlignmentMapView({ segmentRecords = [], machine = "TBM1"
   const mapRef = useRef(null);
   const sceneApiRef = useRef(null);   // custom layer API { setHead(ch) }
   const calloutRef = useRef(null);
+  const instMarkersRef = useRef([]);
   const headChRef = useRef(headCh);
   headChRef.current = headCh;
 
@@ -186,6 +194,29 @@ export default function AlignmentMapView({ segmentRecords = [], machine = "TBM1"
           id: "settlement-cross", type: "line", source: "settlement",
           layout: { visibility: "visible" },
           paint: { "line-color": "#F97316", "line-width": 1.4, "line-opacity": 0.9 },
+        });
+
+        // ── instrument section markers (green symbols per type) ──
+        const instPopup = new maplibregl.Popup({ closeButton: true, offset: 16, className: "a3m-inst-popup" });
+        INSTRUMENT_SECTIONS.forEach((s) => {
+          const el = document.createElement("div");
+          el.className = "a3m-inst" + (s.aboveTunnel ? " above" : "");
+          el.innerHTML =
+            `<span class="sym">${s.types.map((t) => SYM[t]).join("")}</span>` +
+            `<span class="lab">${fmtCH(s.chainage)}</span>`;
+          el.addEventListener("click", (ev) => {
+            ev.stopPropagation();
+            const rows = s.types.map((t) => `<div class="r">${SYM[t]}<span>${INSTRUMENT_META[t].label}</span></div>`).join("");
+            instPopup
+              .setLngLat([s.lng, s.lat])
+              .setHTML(
+                `<div class="a3m-inst-card"><b>${s.id}${s.aboveTunnel ? ' · <i>Above Tunnel</i>' : ''}</b>` +
+                `<div class="ch">CH ${fmtCH(s.chainage)}</div>${rows}</div>`
+              )
+              .addTo(map);
+          });
+          const mk = new maplibregl.Marker({ element: el, anchor: "bottom" }).setLngLat([s.lng, s.lat]).addTo(map);
+          instMarkersRef.current.push(mk);
         });
 
         // ── callout หัวเจาะ ──
@@ -284,6 +315,8 @@ export default function AlignmentMapView({ segmentRecords = [], machine = "TBM1"
         } catch (e) { /* best-effort dispose */ }
         sceneApiRef.current = null;
       }
+      instMarkersRef.current.forEach((mk) => { try { mk.remove(); } catch (e) {} });
+      instMarkersRef.current = [];
       if (map) map.remove();
       mapRef.current = null;
     };
@@ -419,4 +452,14 @@ const CSS = `
   .a3m-hdr h2{font-size:13px}
   .a3m-hdr p,.a3m-hdr .demo{display:none}
 }
+.a3m-inst{display:flex;align-items:center;gap:4px;cursor:pointer;transform:translateY(-2px);
+  background:rgba(12,44,101,.86);border:1px solid rgba(255,255,255,.35);border-radius:7px;padding:2px 6px;white-space:nowrap}
+.a3m-inst.above{background:rgba(22,101,52,.9);border-color:#4ade80}
+.a3m-inst .sym{display:flex;gap:2px;line-height:0}
+.a3m-inst .lab{font-family:'IBM Plex Mono',monospace;font-size:9px;font-weight:600;color:#fff}
+.a3m-inst-card{font-family:'IBM Plex Sans Thai',sans-serif;min-width:150px}
+.a3m-inst-card b{font-size:12px;color:#0C2C65}
+.a3m-inst-card b i{font-weight:600;color:#166534;font-style:normal}
+.a3m-inst-card .ch{font-family:'IBM Plex Mono',monospace;font-size:10px;color:#C8500A;margin:2px 0 6px}
+.a3m-inst-card .r{display:flex;align-items:center;gap:6px;font-size:11px;color:#334155;margin:2px 0}
 `;

@@ -172,3 +172,57 @@ test("View Details on a LocationCard calls onOpenLocation with that location's i
   expect(onOpenLocation).toHaveBeenCalledWith("L1"); // first card in default NEAREST order
   unmount(container, root);
 });
+
+// --- Task R7b — machine-aware dashboard (all fixture locations sit in the TBM1 chainage zone) ---
+
+test("activeMachine defaults to TBM1 when omitted — no regression for existing callers", () => {
+  const { container, root } = mount(baseProps());
+  expect(visibleLocationNamesInOrder(container)).toHaveLength(3);
+  expect(container.textContent).toContain("Tracking all 3 locations and 2 compliance points");
+  unmount(container, root);
+});
+
+test("activeMachine=TBM2 (no TBM2-zone locations yet) shows the machine empty state, not the toolbar-filter empty state — compliance cards still render, all zeroed", () => {
+  const { container, root } = mount(baseProps({ activeMachine: "TBM2" }));
+
+  expect(container.textContent).toContain("ยังไม่มีเครื่องมือวัดสำหรับ TBM2");
+  expect(container.textContent).toContain("แนว/จุดตรวจวัดของ TBM2 กำหนดภายหลัง");
+  expect(container.textContent).not.toContain("ไม่พบจุดตรวจวัด"); // must be the machine empty state, not the filter one
+  expect(container.textContent).toContain("Tracking all 0 locations and 0 compliance points");
+  expect(visibleLocationNamesInOrder(container)).toHaveLength(0);
+
+  // ComplianceCards still render (never hidden), all-zero — never a fabricated TBM2 position/count
+  ["TBM Chainage", "Upcoming Nodes", "Action Required", "Meas. Progress", "Inst. Installation"].forEach((label) => {
+    expect(container.textContent).toContain(label);
+  });
+  expect(container.textContent).toContain("0 / 0");
+
+  unmount(container, root);
+});
+
+test("machine filter scopes locations/schedules/instruments by chainage zone (locationMachine) — a TBM2-zone location is excluded from TBM1 and included in TBM2", () => {
+  const tbm2Loc = { id: "L4", name: "OS-01", type: "SHAFT", chainage: 13000, actualChainage: null }; // > CH_EXCAV_START → TBM2 zone
+  const tbm2Schedule = { id: "s3", locationId: "L4", scheduleType: "DISTANCE", instrumentGroup: "SURFACE", distanceOffset: 0, tbmChainage: 13000, isMeasured: false, measuredAt: null, notes: null };
+  const tbm2Instrument = { id: "i3", locationId: "L4", type: "PIEZOMETER", code: "PZ-02", installStatus: "INSTALLED" };
+
+  const tbm1 = mount(baseProps({
+    locations: [...locations, tbm2Loc],
+    schedules: [...schedules, tbm2Schedule],
+    instruments: [...instruments, tbm2Instrument],
+    activeMachine: "TBM1",
+  }));
+  expect(visibleLocationNamesInOrder(tbm1.container)).toHaveLength(3); // OS-01 excluded
+  expect(tbm1.container.textContent).not.toContain("OS-01");
+  expect(tbm1.container.textContent).toContain("Tracking all 3 locations and 2 compliance points"); // TBM2 schedule excluded from tally
+  unmount(tbm1.container, tbm1.root);
+
+  const tbm2 = mount(baseProps({
+    locations: [...locations, tbm2Loc],
+    schedules: [...schedules, tbm2Schedule],
+    instruments: [...instruments, tbm2Instrument],
+    activeMachine: "TBM2",
+  }));
+  expect(tbm2.container.textContent).toContain("OS-01");
+  expect(tbm2.container.textContent).toContain("Tracking all 1 locations and 1 compliance points");
+  unmount(tbm2.container, tbm2.root);
+});

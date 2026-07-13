@@ -174,3 +174,29 @@ test("clicking an instrument row opens InstReportModal with that instrument's de
 
   unmount(container, root);
 });
+
+// --- Task R7b — machine-aware TBM Distance (view is reached from the machine-scoped dashboard, so
+// activeMachine already matches this location's own zone; no re-derivation via locationMachine here) ---
+
+test("uses activeMachine to derive TBM Distance — no longer hardcoded to TBM1", () => {
+  // TBM1's dist is deliberately huge/unrelated so a lingering hardcode would produce a very different
+  // (wrong) label instead of the TBM2-derived one asserted below.
+  const mpMulti = { TBM1: { dist: 999999, rings: 1 }, TBM2: { dist: 500, rings: 10 } };
+  const tbm2Chainage = currentChainage(mpMulti, "TBM2");
+  const tbm2Location = { id: "L9", name: "TBM2 Point", chainage: 9000, actualChainage: 9000 };
+  const expectedRounded = Math.round(tbm2Location.actualChainage - tbm2Chainage);
+  const expectedLabel = `${expectedRounded >= 0 ? "+" : ""}${expectedRounded} m`;
+
+  const { container, root } = mount(baseProps({
+    location: tbm2Location, instruments: [], schedules: [], machineProgress: mpMulti, activeMachine: "TBM2",
+  }));
+  expect(chipValue(container, "TBM Distance")).toBe(expectedLabel);
+
+  unmount(container, root);
+});
+
+test("activeMachine defaults to TBM1 when omitted — no regression for existing callers", () => {
+  const { container, root } = mount(baseProps());
+  expect(chipValue(container, "TBM Distance")).toBe(expectedTbmDistanceLabel);
+  unmount(container, root);
+});

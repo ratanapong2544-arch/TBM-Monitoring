@@ -19,13 +19,14 @@ import ComplianceCards from "../instrument/ComplianceCards";
 import DashboardToolbar from "../instrument/DashboardToolbar";
 import LocationCard from "../instrument/LocationCard";
 import { filterSortSearchLocations, tallyMeasurementProgress } from "../../utils/instrumentDashboard";
-import { currentChainage } from "../../utils/chainageAdapter";
+import { currentChainage, locationMachine } from "../../utils/chainageAdapter";
 
 export default function InstrumentDashboardView({
   locations = [],
   instruments = [],
   schedules = [],
   machineProgress,
+  activeMachine = "TBM1",
   onOpenLocation,
   onMark,
   readOnly = false,
@@ -34,40 +35,64 @@ export default function InstrumentDashboardView({
   const [sortMode, setSortMode] = useState("NEAREST");
   const [search, setSearch] = useState("");
 
-  // TBM1-only convention, inherited as-is (existing ledgered TBM2 caveat — not resolved here;
-  // InstrumentLocationView.jsx / InstrumentScheduleView.jsx already do the same).
-  const tbmChainage = currentChainage(machineProgress, "TBM1");
+  const tbmChainage = currentChainage(machineProgress, activeMachine);
+
+  // Task R7b — machine-aware slice. Instrument data is project-wide (one sheet); TBM1/TBM2 is a
+  // VIEW-level filter by chainage zone (locationMachine, chainageAdapter.js), applied BEFORE the
+  // pre-grouping/tallies/toolbar filter below so every downstream count (cards, subtitle, grid) is
+  // scoped to the active machine only. TBM2 currently has no locations (launch CH not yet defined)
+  // → machineLocations comes back empty and the view renders the empty state further down, never a
+  // fabricated position/list.
+  const machineLocationIds = useMemo(() => {
+    const ids = new Set();
+    (locations || []).forEach((loc) => {
+      if (locationMachine(loc) === activeMachine) ids.add(String(loc.id));
+    });
+    return ids;
+  }, [locations, activeMachine]);
+  const machineLocations = useMemo(
+    () => (locations || []).filter((loc) => machineLocationIds.has(String(loc.id))),
+    [locations, machineLocationIds]
+  );
+  const machineSchedules = useMemo(
+    () => (schedules || []).filter((s) => machineLocationIds.has(String(s.locationId))),
+    [schedules, machineLocationIds]
+  );
+  const machineInstruments = useMemo(
+    () => (instruments || []).filter((i) => machineLocationIds.has(String(i.locationId))),
+    [instruments, machineLocationIds]
+  );
 
   // Pre-group by locationId ONCE — 29 locations / 731 schedules / 245 instruments, so this is a
   // single pass each instead of 29 independent .filter() calls inside LocationCard.
   const { schedulesByLoc, instrumentsByLoc } = useMemo(() => {
     const schedulesByLoc = {};
     const instrumentsByLoc = {};
-    (schedules || []).forEach((s) => {
+    (machineSchedules || []).forEach((s) => {
       const key = String(s.locationId);
       (schedulesByLoc[key] || (schedulesByLoc[key] = [])).push(s);
     });
-    (instruments || []).forEach((i) => {
+    (machineInstruments || []).forEach((i) => {
       const key = String(i.locationId);
       (instrumentsByLoc[key] || (instrumentsByLoc[key] = [])).push(i);
     });
     return { schedulesByLoc, instrumentsByLoc };
-  }, [schedules, instruments]);
+  }, [machineSchedules, machineInstruments]);
 
-  // Section subtitle's "compliance points" count — project-wide DISTANCE-schedule total (same value
-  // ComplianceCards' own "Meas. Progress" card computes), port of page.tsx:203.
-  const totalCheckpoints = useMemo(() => tallyMeasurementProgress(schedules).total, [schedules]);
+  // Section subtitle's "compliance points" count — machine-scoped DISTANCE-schedule total (same
+  // value ComplianceCards' own "Meas. Progress" card computes), port of page.tsx:203.
+  const totalCheckpoints = useMemo(() => tallyMeasurementProgress(machineSchedules).total, [machineSchedules]);
 
   const filteredLocations = useMemo(
-    () => filterSortSearchLocations(locations, { filter, sortMode, search, tbmChainage }),
-    [locations, filter, sortMode, search, tbmChainage]
+    () => filterSortSearchLocations(machineLocations, { filter, sortMode, search, tbmChainage }),
+    [machineLocations, filter, sortMode, search, tbmChainage]
   );
 
   return (
     <div className="max-w-full mx-auto space-y-6 animate-fade-in pb-24">
       <DashboardHeader tbmChainage={tbmChainage} />
 
-      <ComplianceCards locations={locations} instruments={instruments} schedules={schedules} tbmChainage={tbmChainage} />
+      <ComplianceCards locations={machineLocations} instruments={machineInstruments} schedules={machineSchedules} tbmChainage={tbmChainage} />
 
       <section className="space-y-4">
         <div className="flex justify-between items-end px-2">
@@ -77,42 +102,52 @@ export default function InstrumentDashboardView({
               Measurement Control Panel
             </h2>
             <p className="text-sm text-ink-2 font-medium mt-1 ml-3.5">
-              Tracking all {locations.length} locations and {totalCheckpoints} compliance points
+              Tracking all {machineLocations.length} locations and {totalCheckpoints} compliance points
             </p>
           </div>
         </div>
 
-        <DashboardToolbar
-          filter={filter}
-          sortMode={sortMode}
-          search={search}
-          onFilterChange={setFilter}
-          onSortChange={setSortMode}
-          onSearchChange={setSearch}
-          counts={filteredLocations.length}
-        />
-
-        {filteredLocations.length === 0 ? (
+        {machineLocations.length === 0 ? (
           <div className="bg-surface rounded-card shadow-card border border-line py-16 text-center">
             <Milestone className="w-12 h-12 text-ink-3 mx-auto mb-3" />
-            <h3 className="text-lg font-bold text-ink-2">ไม่พบจุดตรวจวัด</h3>
-            <p className="text-sm text-ink-3 mt-1">ลองปรับตัวกรองหรือคำค้นหาใหม่</p>
+            <h3 className="text-lg font-bold text-ink-2">ยังไม่มีเครื่องมือวัดสำหรับ {activeMachine}</h3>
+            <p className="text-sm text-ink-3 mt-1">แนว/จุดตรวจวัดของ {activeMachine} กำหนดภายหลัง</p>
           </div>
         ) : (
-          <div className="flex flex-col gap-5">
-            {filteredLocations.map((loc) => (
-              <LocationCard
-                key={loc.id}
-                location={loc}
-                schedules={schedulesByLoc[String(loc.id)] || []}
-                instruments={instrumentsByLoc[String(loc.id)] || []}
-                tbmChainage={tbmChainage}
-                onOpenLocation={onOpenLocation}
-                onMark={onMark}
-                readOnly={readOnly}
-              />
-            ))}
-          </div>
+          <>
+            <DashboardToolbar
+              filter={filter}
+              sortMode={sortMode}
+              search={search}
+              onFilterChange={setFilter}
+              onSortChange={setSortMode}
+              onSearchChange={setSearch}
+              counts={filteredLocations.length}
+            />
+
+            {filteredLocations.length === 0 ? (
+              <div className="bg-surface rounded-card shadow-card border border-line py-16 text-center">
+                <Milestone className="w-12 h-12 text-ink-3 mx-auto mb-3" />
+                <h3 className="text-lg font-bold text-ink-2">ไม่พบจุดตรวจวัด</h3>
+                <p className="text-sm text-ink-3 mt-1">ลองปรับตัวกรองหรือคำค้นหาใหม่</p>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-5">
+                {filteredLocations.map((loc) => (
+                  <LocationCard
+                    key={loc.id}
+                    location={loc}
+                    schedules={schedulesByLoc[String(loc.id)] || []}
+                    instruments={instrumentsByLoc[String(loc.id)] || []}
+                    tbmChainage={tbmChainage}
+                    onOpenLocation={onOpenLocation}
+                    onMark={onMark}
+                    readOnly={readOnly}
+                  />
+                ))}
+              </div>
+            )}
+          </>
         )}
       </section>
     </div>

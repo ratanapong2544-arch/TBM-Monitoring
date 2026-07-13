@@ -35,6 +35,7 @@ export default function InstrumentLocationView({
   thresholds = [],
   schedules = [],
   machineProgress = null,
+  activeMachine = "TBM1",
   onMark,
   onBack,
   readOnly = false,
@@ -44,7 +45,9 @@ export default function InstrumentLocationView({
     [schedules, location]
   );
 
-  const tbmChainage = currentChainage(machineProgress, "TBM1");
+  // Reached only from the machine-scoped dashboard (InstrumentDashboardView), so activeMachine
+  // already matches this location's own zone — no re-derivation via locationMachine needed here.
+  const tbmChainage = currentChainage(machineProgress, activeMachine);
   const operationalChainage = getOperationalChainage(location);
   const hasTbmPosition = tbmChainage != null && operationalChainage != null;
   // ระยะ TBM ถึงจุด (ม.) — ลบ = TBM ยังไม่ถึง (สอดคล้อง sign convention เดียวกับ ScheduleTimeline/isTbmHere:

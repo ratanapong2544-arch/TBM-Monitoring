@@ -16,11 +16,11 @@
 //      needed).
 //   3. Added a "วันที่วัด" column via formatMeasuredAtLabel (instrumentSchedule.js, R3a).
 import { useMemo, useState } from "react";
-import { Check, Clock, AlertTriangle, Hourglass, CheckCircle2 } from "lucide-react";
+import { Check, Clock, AlertTriangle, Hourglass, CheckCircle2, Milestone } from "lucide-react";
 import StatCard from "../common/StatCard";
 import SchedReportModal from "../instrument/SchedReportModal";
 import { scheduleStatus, formatMeasuredAtLabel } from "../../utils/instrumentSchedule";
-import { currentChainage, stationLabel } from "../../utils/chainageAdapter";
+import { currentChainage, stationLabel, locationMachine } from "../../utils/chainageAdapter";
 
 const STATUS_CLS = { due:"text-code-b", overdue:"text-code-d", done:"text-code-a", pending:"text-ink-3", na:"text-ink-3" };
 const STATUS_ORDER = { overdue:0, due:1, pending:2, done:3, na:4 };
@@ -45,13 +45,27 @@ function groupByLocation(schedules) {
   return map;
 }
 
-export default function InstrumentScheduleView({ schedules = [], locations = [], machineProgress, onMark, readOnly = false }) {
+export default function InstrumentScheduleView({ schedules = [], locations = [], machineProgress, activeMachine = "TBM1", onMark, readOnly = false }) {
   const [locFilter, setLocFilter] = useState("all");
   const [selectedSchedule, setSelectedSchedule] = useState(null);
-  const cur = currentChainage(machineProgress, "TBM1"); // อ้าง TBM1 เป็นหลัก (project-wide)
+  const cur = currentChainage(machineProgress, activeMachine);
   const now = today();
-  const locName = useMemo(() => Object.fromEntries(locations.map((l) => [String(l.id), l.name])), [locations]);
-  const byLocation = useMemo(() => groupByLocation(schedules), [schedules]);
+
+  // Task R7b — machine-aware slice. Instrument data is project-wide; TBM1/TBM2 is a VIEW-level
+  // filter by chainage zone (locationMachine, chainageAdapter.js). TBM2 currently has no locations
+  // → machineLocations/machineSchedules come back empty and the table renders the empty state below.
+  const machineLocations = useMemo(
+    () => (locations || []).filter((l) => locationMachine(l) === activeMachine),
+    [locations, activeMachine]
+  );
+  const machineLocationIds = useMemo(() => new Set(machineLocations.map((l) => String(l.id))), [machineLocations]);
+  const machineSchedules = useMemo(
+    () => (schedules || []).filter((s) => machineLocationIds.has(String(s.locationId))),
+    [schedules, machineLocationIds]
+  );
+
+  const locName = useMemo(() => Object.fromEntries(machineLocations.map((l) => [String(l.id), l.name])), [machineLocations]);
+  const byLocation = useMemo(() => groupByLocation(machineSchedules), [machineSchedules]);
   const siblingsFor = (s) => byLocation.get(String(s.locationId)) || [s];
 
   // KPI — mutually-exclusive 4-way partition of every schedule (project-wide, independent of the
@@ -73,7 +87,7 @@ export default function InstrumentScheduleView({ schedules = [], locations = [],
   // partition (sum === total schedules, no card double-counting another).
   const kpi = useMemo(() => {
     let due = 0, overdue = 0, pending = 0, done = 0;
-    (schedules || []).forEach((s) => {
+    (machineSchedules || []).forEach((s) => {
       if (s.isMeasured) { done += 1; return; }
       const st = scheduleStatus(s, cur, now, siblingsFor(s));
       if (s.scheduleType === "LONG_TERM") {
@@ -85,14 +99,14 @@ export default function InstrumentScheduleView({ schedules = [], locations = [],
       }
     });
     return { due, overdue, pending, done };
-  }, [schedules, cur, now, byLocation]);
+  }, [machineSchedules, cur, now, byLocation]);
 
   const rows = useMemo(() => {
-    const list = locFilter === "all" ? schedules : schedules.filter((s) => String(s.locationId) === locFilter);
+    const list = locFilter === "all" ? machineSchedules : machineSchedules.filter((s) => String(s.locationId) === locFilter);
     return list
       .map((s) => ({ s, st: scheduleStatus(s, cur, now, siblingsFor(s)) }))
       .sort((a, b) => STATUS_ORDER[a.st] - STATUS_ORDER[b.st]);
-  }, [schedules, locFilter, cur, now, byLocation]);
+  }, [machineSchedules, locFilter, cur, now, byLocation]);
 
   return (
     <div className="max-w-full mx-auto space-y-6 animate-fade-in pb-24">
@@ -107,51 +121,59 @@ export default function InstrumentScheduleView({ schedules = [], locations = [],
           <h3 className="font-semibold text-ink">วาระตรวจวัด</h3>
           <select className="ml-auto border border-line rounded-input px-2 py-1 text-sm" value={locFilter} onChange={(e) => setLocFilter(e.target.value)}>
             <option value="all">ทุกจุด</option>
-            {locations.map((l) => <option key={l.id} value={String(l.id)}>{l.name}</option>)}
+            {machineLocations.map((l) => <option key={l.id} value={String(l.id)}>{l.name}</option>)}
           </select>
         </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm text-left">
-            <thead className="text-xs text-white uppercase bg-navy-dark">
-              <tr>
-                <th className="px-4 py-2">จุด</th>
-                <th className="px-4 py-2">ชนิด</th>
-                <th className="px-4 py-2">กำหนด</th>
-                <th className="px-4 py-2">วันที่วัด</th>
-                <th className="px-4 py-2">สถานะ</th>
-                {!readOnly && <th className="px-4 py-2"></th>}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-line">
-              {rows.map(({ s, st }) => (
-                <tr key={s.id} className="hover:bg-cyan-tint">
-                  <td className="px-4 py-2.5 text-ink">{locName[String(s.locationId)] || s.locationId}</td>
-                  <td className="px-4 py-2.5 text-ink-2">{s.scheduleType === "LONG_TERM" ? s.longTermLabel : `${s.instrumentGroup} @${s.distanceOffset}m`}</td>
-                  <td className="px-4 py-2.5 text-ink-2">{s.scheduleType === "DISTANCE" ? stationLabel(s.tbmChainage) : (s.targetDate || "-")}</td>
-                  <td className="px-4 py-2.5 text-ink-2">
-                    {formatMeasuredAtLabel(s.measuredAt, s.isMeasured) || "—"}
-                    {s.isMeasured && s.measuredBy ? <span className="text-ink-3"> · {s.measuredBy}</span> : null}
-                  </td>
-                  <td className={`px-4 py-2.5 font-semibold ${STATUS_CLS[st]}`}>{st}</td>
-                  {!readOnly && (
-                    <td className="px-4 py-2.5">
-                      {!s.isMeasured && onMark && (
-                        <button
-                          type="button"
-                          onClick={() => setSelectedSchedule(s)}
-                          title="บันทึกผลตรวจวัด"
-                          className="p-1.5 rounded hover:bg-code-a/10 text-code-a"
-                        >
-                          <Check size={16} />
-                        </button>
-                      )}
-                    </td>
-                  )}
+        {machineLocations.length === 0 ? (
+          <div className="py-16 text-center">
+            <Milestone className="w-12 h-12 text-ink-3 mx-auto mb-3" />
+            <h3 className="text-lg font-bold text-ink-2">ยังไม่มีเครื่องมือวัดสำหรับ {activeMachine}</h3>
+            <p className="text-sm text-ink-3 mt-1">แนว/จุดตรวจวัดของ {activeMachine} กำหนดภายหลัง</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm text-left">
+              <thead className="text-xs text-white uppercase bg-navy-dark">
+                <tr>
+                  <th className="px-4 py-2">จุด</th>
+                  <th className="px-4 py-2">ชนิด</th>
+                  <th className="px-4 py-2">กำหนด</th>
+                  <th className="px-4 py-2">วันที่วัด</th>
+                  <th className="px-4 py-2">สถานะ</th>
+                  {!readOnly && <th className="px-4 py-2"></th>}
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody className="divide-y divide-line">
+                {rows.map(({ s, st }) => (
+                  <tr key={s.id} className="hover:bg-cyan-tint">
+                    <td className="px-4 py-2.5 text-ink">{locName[String(s.locationId)] || s.locationId}</td>
+                    <td className="px-4 py-2.5 text-ink-2">{s.scheduleType === "LONG_TERM" ? s.longTermLabel : `${s.instrumentGroup} @${s.distanceOffset}m`}</td>
+                    <td className="px-4 py-2.5 text-ink-2">{s.scheduleType === "DISTANCE" ? stationLabel(s.tbmChainage) : (s.targetDate || "-")}</td>
+                    <td className="px-4 py-2.5 text-ink-2">
+                      {formatMeasuredAtLabel(s.measuredAt, s.isMeasured) || "—"}
+                      {s.isMeasured && s.measuredBy ? <span className="text-ink-3"> · {s.measuredBy}</span> : null}
+                    </td>
+                    <td className={`px-4 py-2.5 font-semibold ${STATUS_CLS[st]}`}>{st}</td>
+                    {!readOnly && (
+                      <td className="px-4 py-2.5">
+                        {!s.isMeasured && onMark && (
+                          <button
+                            type="button"
+                            onClick={() => setSelectedSchedule(s)}
+                            title="บันทึกผลตรวจวัด"
+                            className="p-1.5 rounded hover:bg-code-a/10 text-code-a"
+                          >
+                            <Check size={16} />
+                          </button>
+                        )}
+                      </td>
+                    )}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       {selectedSchedule && (

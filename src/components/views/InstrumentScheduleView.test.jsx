@@ -8,6 +8,7 @@ import { createRoot } from "react-dom/client";
 import { act } from "react-dom/test-utils";
 import InstrumentScheduleView from "./InstrumentScheduleView";
 import { currentChainage } from "../../utils/chainageAdapter";
+import { CH_EXCAV_START } from "../../utils/constants";
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -182,4 +183,43 @@ test("location filter narrows the table to the selected location's rows only", (
   expect(container.querySelectorAll("tbody tr").length).toBe(6); // dist-due/pending, lt-waiting/overdue, dist-trigger-l1, lt-effective-l1
 
   unmount(container, root);
+});
+
+// --- Task R7b — machine-aware schedule table (fixture locations lack `chainage` → default to TBM1
+// via locationMachine's missing-chainage fallback, so activeMachine="TBM1" preserves every count
+// above unchanged) ---
+
+test("activeMachine defaults to TBM1 when omitted — no regression for existing callers", () => {
+  const { container, root } = mount(baseProps());
+  expect(container.querySelectorAll("tbody tr").length).toBe(9);
+  unmount(container, root);
+});
+
+test("activeMachine=TBM2 (no TBM2-zone locations yet) shows the machine empty state instead of the table, with all-zero KPIs — never a fabricated row", () => {
+  const { container, root } = mount(baseProps({ activeMachine: "TBM2" }));
+
+  expect(statValue(container, "ถึงกำหนด")).toBe("0");
+  expect(statValue(container, "เลยกำหนด")).toBe("0");
+  expect(statValue(container, "รอ")).toBe("0");
+  expect(statValue(container, "เสร็จ")).toBe("0");
+  expect(container.textContent).toContain("ยังไม่มีเครื่องมือวัดสำหรับ TBM2");
+  expect(container.textContent).toContain("แนว/จุดตรวจวัดของ TBM2 กำหนดภายหลัง");
+  expect(container.querySelectorAll("tbody tr").length).toBe(0);
+
+  unmount(container, root);
+});
+
+test("machine filter scopes locations+schedules by chainage zone (locationMachine) — a TBM2-zone location/row is excluded from the TBM1 view and included in the TBM2 view", () => {
+  const tbm2Loc = { id: "L3", name: "OS-01", chainage: CH_EXCAV_START + 500 };
+  const tbm2Sched = { id: "dist-tbm2", locationId: "L3", scheduleType: "DISTANCE", instrumentGroup: "SURFACE", distanceOffset: 0, tbmChainage: CH_EXCAV_START + 500, isMeasured: false, measuredAt: null, measuredBy: null, notes: null };
+
+  const tbm1 = mount(baseProps({ locations: [...locations, tbm2Loc], schedules: [...schedules, tbm2Sched], activeMachine: "TBM1" }));
+  expect(tbm1.container.textContent).not.toContain("OS-01");
+  expect(tbm1.container.querySelectorAll("tbody tr").length).toBe(9); // unchanged — TBM2 row excluded
+  unmount(tbm1.container, tbm1.root);
+
+  const tbm2 = mount(baseProps({ locations: [...locations, tbm2Loc], schedules: [...schedules, tbm2Sched], activeMachine: "TBM2" }));
+  expect(tbm2.container.textContent).toContain("OS-01");
+  expect(tbm2.container.querySelectorAll("tbody tr").length).toBe(1); // only the TBM2 row
+  unmount(tbm2.container, tbm2.root);
 });

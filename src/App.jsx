@@ -359,7 +359,7 @@ const PrimaryGroutApp = () => {
       {activeTab === "inst_dashboard" && (
         <InstrumentDashboardView
           locations={instLocations} instruments={instInstruments} schedules={instSchedules}
-          machineProgress={machineProgress}
+          machineProgress={machineProgress} activeMachine={activeMachine}
           onOpenLocation={(id) => { setSelectedInstLocId(id); setActiveTab("inst_location"); }}
           onMark={isViewer ? null : handleMarkInstSchedule}
           readOnly={isViewer} />
@@ -370,13 +370,13 @@ const PrimaryGroutApp = () => {
           instruments={instInstruments.filter((i) => String(i.locationId) === String(selectedInstLocId))}
           allInstruments={instInstruments}
           readings={instReadings} thresholds={instThresholds}
-          schedules={instSchedules} machineProgress={machineProgress}
+          schedules={instSchedules} machineProgress={machineProgress} activeMachine={activeMachine}
           onMark={isViewer ? null : handleMarkInstSchedule}
           onBack={() => setActiveTab("inst_dashboard")} readOnly={isViewer} />
       )}
       {activeTab === "inst_schedule" && (
         <InstrumentScheduleView
-          schedules={instSchedules} locations={instLocations} machineProgress={machineProgress}
+          schedules={instSchedules} locations={instLocations} machineProgress={machineProgress} activeMachine={activeMachine}
           onMark={isViewer ? null : handleMarkInstSchedule} readOnly={isViewer} />
       )}
     </Shell>

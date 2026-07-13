@@ -4,6 +4,7 @@ import {
   LINE, KM_LABELS, SHAFTS, CH_EXCAV_START, CH_MIN, TOTAL_ROUTE_DISTANCE,
   drilledMetersFromRecords, headChainageFromRecords, lngLatAtCh, lineBetween, bearingAtCh,
 } from "../../utils/alignmentGeo";
+import { INSTRUMENT_SECTIONS, INSTRUMENT_META, settlementGeoJSON } from "../../utils/instrumentGeo";
 
 /* ────────────────────────────────────────────────────────────────────────
    แผนที่ดาวเทียม + หัวเจาะ 3D บนแนวจริง (KMZ Klongprem) — TBM1 only
@@ -177,6 +178,14 @@ export default function AlignmentMapView({ segmentRecords = [], machine = "TBM1"
           el.className = "a3m-km";
           el.textContent = k.name;
           new maplibregl.Marker({ element: el, anchor: "center" }).setLngLat([k.lng, k.lat]).addTo(map);
+        });
+
+        // ── settlement crosses (orange line layer) ──
+        map.addSource("settlement", { type: "geojson", data: settlementGeoJSON() });
+        map.addLayer({
+          id: "settlement-cross", type: "line", source: "settlement",
+          layout: { visibility: "visible" },
+          paint: { "line-color": "#F97316", "line-width": 1.4, "line-opacity": 0.9 },
         });
 
         // ── callout หัวเจาะ ──

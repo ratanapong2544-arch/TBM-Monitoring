@@ -256,18 +256,35 @@ export function formatOffsetLabel(distanceOffset, locationName) {
 
 // --- display-format helpers — port ตรงจาก LocationDetailClient.tsx:47-71 (R3a) ---
 
+// ค่า actualChainage จาก backend (GAS) อาจเป็น "" (empty string) สำหรับ location ที่ยังไม่ได้สำรวจ
+// ติดตั้งจริง — Number("") = 0 ซึ่ง finite ด้วยซ้ำ จึงต้องกัน "" (และ null/undefined) ก่อนเช็ค isFinite
+// ไม่งั้น "" จะหลุดผ่านมาเป็น 0 ที่ดูเหมือนค่าจริง คืน Number ที่ใช้ได้จริงเท่านั้น ไม่งั้นคืน null
+function toFiniteChainage(value) {
+  if (value === "" || value == null) return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
 // ตำแหน่งจริงของจุดตรวจวัด (อาจต่างจาก chainage ที่ออกแบบไว้ ถ้ามีการสำรวจติดตั้งภายหลัง)
+// แก้ bug R7a: เดิมใช้ actualChainage ?? chainage เพียงอย่างเดียว — "" (empty string ที่ backend ส่งมาจริง
+// 28/29 location) ไม่ใช่ nullish จึงไม่ถูก ?? ดักไว้ แล้วไหลลงไปคำนวณระยะทาง (dist = "" - tbmChainage
+// ถูก coerce เป็น -tbmChainage) กลายเป็นระยะทางผิดมหาศาล ต้องเป็นตัวเลขจริง (finite) เท่านั้นถึงจะใช้
+// actualChainage — คืนเป็น Number เสมอเพราะผู้เรียกเอาไปคำนวณเลขต่อ (instrumentDashboard.js)
 export function getOperationalChainage(location) {
   if (!location) return null;
-  return location.actualChainage ?? location.chainage;
+  const actual = toFiniteChainage(location.actualChainage);
+  return actual != null ? actual : Number(location.chainage);
 }
 
 // มีตำแหน่งติดตั้งจริงที่ต่างจาก chainage ออกแบบหรือไม่ — คุมบรรทัด "Install STA" แบบมีเงื่อนไข
 // (R3-source-map.md §6: port ตรงจาก LocationDetailClient.tsx:51-53; R3b เว้นไว้เพราะยังไม่มีผู้ใช้,
 // R3c ใช้ตรงกับ BlueprintPlot banner จึงเพิ่มที่นี่ — helper บริสุทธิ์ ไม่แตะ component ใดๆ)
+// แก้ bug R7a: เดิมเช็คแค่ != null ซึ่ง "" ผ่านเงื่อนไขนี้ไปด้วย (" " != null เป็น true) ทำให้ขึ้นชิป
+// "Install STA 0+000" ผิดๆ ทั้งที่ยังไม่มีตำแหน่งสำรวจจริง — ต้องเป็นตัวเลขจริงเท่านั้น
 export function hasActualInstallChainage(location) {
   if (!location) return false;
-  return location.actualChainage != null && location.actualChainage !== location.chainage;
+  const actual = toFiniteChainage(location.actualChainage);
+  return actual != null && actual !== Number(location.chainage);
 }
 
 // ป้ายวันที่ใต้ sub-button บน timeline: "N/A" ถ้าถูก mark ข้าม (isMeasured=true แต่ไม่มี measuredAt),

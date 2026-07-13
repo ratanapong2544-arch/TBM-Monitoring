@@ -340,6 +340,21 @@ describe("getOperationalChainage (R3a — port จาก LocationDetailClient.ts
   test("location ว่างเปล่า → null (ไม่ throw)", () => {
     expect(getOperationalChainage(null)).toBeNull();
   });
+
+  describe("R7a bug fix: backend (GAS) ส่ง actualChainage='' (empty string) มาจริง 28/29 location", () => {
+    test("actualChainage='' → fallback ไปที่ chainage (ไม่ใช่ '' ที่ถูก coerce เป็น 0 ตอนคำนวณระยะทาง)", () => {
+      expect(getOperationalChainage({ chainage: 8300, actualChainage: "" })).toBe(8300);
+    });
+    test("actualChainage=undefined (field ไม่ถูกส่งมาเลย) → fallback ไปที่ chainage", () => {
+      expect(getOperationalChainage({ chainage: 8300 })).toBe(8300);
+    });
+    test("actualChainage เป็นตัวเลขจริงต่างจาก chainage → ใช้ค่านั้น (Number)", () => {
+      expect(getOperationalChainage({ chainage: 8300, actualChainage: 8360 })).toBe(8360);
+    });
+    test("actualChainage เท่ากับ chainage พอดี → คืนค่าเดียวกัน (Number)", () => {
+      expect(getOperationalChainage({ chainage: 8300, actualChainage: 8300 })).toBe(8300);
+    });
+  });
 });
 
 describe("formatMeasuredAtLabel (R3a — port จาก LocationDetailClient.tsx:55-62)", () => {
@@ -373,6 +388,21 @@ describe("hasActualInstallChainage (R3c — port จาก LocationDetailClient.
   });
   test("location ว่างเปล่า → false (ไม่ throw)", () => {
     expect(hasActualInstallChainage(null)).toBe(false);
+  });
+
+  describe("R7a bug fix: backend (GAS) ส่ง actualChainage='' (empty string) มาจริง 28/29 location", () => {
+    test("actualChainage='' → false (เดิม bug: '' != null เป็น true ทำให้ขึ้นชิป Install STA ผิดๆ)", () => {
+      expect(hasActualInstallChainage({ chainage: 8300, actualChainage: "" })).toBe(false);
+    });
+    test("actualChainage=undefined (field ไม่ถูกส่งมาเลย) → false", () => {
+      expect(hasActualInstallChainage({ chainage: 8300 })).toBe(false);
+    });
+    test("actualChainage เป็นตัวเลขจริงต่างจาก chainage → true", () => {
+      expect(hasActualInstallChainage({ chainage: 8300, actualChainage: 8360 })).toBe(true);
+    });
+    test("actualChainage เป็นตัวเลขจริงเท่ากับ chainage พอดี → false", () => {
+      expect(hasActualInstallChainage({ chainage: 8300, actualChainage: 8300 })).toBe(false);
+    });
   });
 });
 

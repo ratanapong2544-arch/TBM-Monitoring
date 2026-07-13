@@ -12,23 +12,28 @@ function offsetLngLat(lng, lat, dEastM, dNorthM) {
   return [lng + dLng, lat + dLat];
 }
 
-// closed ring [[lng,lat],...] for a shape centered at (lng,lat), size rM meters
-function shapeRing(lng, lat, type, rM) {
+// real-world symbol sizes measured from the Klongprem KML (meters):
+//   circle (INC) ⌀0.88 · square (EXT) ⌀1.68 · triangle (VW) ⌀1.55
+const SIZE_M = { INC: 0.5, EXT: 0.6, VW: 0.8 }; // radius/half-extent per type
+
+// closed ring [[lng,lat],...] for a shape centered at (lng,lat), at real size
+function shapeRing(lng, lat, type) {
+  const r = SIZE_M[type];
   const pts = [];
   if (type === "INC") {
     const N = 16;
     for (let i = 0; i < N; i++) {
       const a = (2 * Math.PI * i) / N;
-      pts.push(offsetLngLat(lng, lat, rM * Math.cos(a), rM * Math.sin(a)));
+      pts.push(offsetLngLat(lng, lat, r * Math.cos(a), r * Math.sin(a)));
     }
   } else if (type === "EXT") {
-    const c = rM * 0.9;
+    const c = r; // half-side → side 1.2 m, diagonal ≈ 1.7 m (matches real)
     pts.push(
       offsetLngLat(lng, lat, -c, -c), offsetLngLat(lng, lat, c, -c),
       offsetLngLat(lng, lat, c, c), offsetLngLat(lng, lat, -c, c)
     );
-  } else { // VW — triangle
-    const c = rM * 1.15;
+  } else { // VW — triangle, ~1.5 m extent
+    const c = r;
     pts.push(
       offsetLngLat(lng, lat, 0, c),
       offsetLngLat(lng, lat, c * 0.87, -c * 0.5),
@@ -40,8 +45,8 @@ function shapeRing(lng, lat, type, rM) {
 }
 
 // FeatureCollection of green shape polygons — one per (section, instrument type).
-// Multiple types at a section are spread east by `spacingM` so all shapes read.
-export function instrumentShapesGeoJSON(rM = 4, spacingM = 10) {
+// Multiple types at a section sit ~spacingM apart (real instruments cluster tightly).
+export function instrumentShapesGeoJSON(spacingM = 3.5) {
   const features = [];
   for (const s of INSTRUMENT_SECTIONS) {
     const n = s.types.length;
@@ -54,7 +59,7 @@ export function instrumentShapesGeoJSON(rM = 4, spacingM = 10) {
           sectionId: s.id, chainage: s.chainage, type: t,
           types: s.types.join(","), aboveTunnel: !!s.aboveTunnel,
         },
-        geometry: { type: "Polygon", coordinates: [shapeRing(cx, cy, t, rM)] },
+        geometry: { type: "Polygon", coordinates: [shapeRing(cx, cy, t)] },
       });
     });
   }

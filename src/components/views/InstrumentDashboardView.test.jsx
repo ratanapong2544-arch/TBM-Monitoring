@@ -200,6 +200,22 @@ test("activeMachine=TBM2 (no TBM2-zone locations yet) shows the machine empty st
   unmount(container, root);
 });
 
+test("R7b: TBM2 TBM-Chainage is gated to '—', not the wrong-direction CH_EXCAV_START − dist number (8+830 today)", () => {
+  // Live prod has machineProgress.TBM2.dist = 0, so an ungated currentChainage(mp,'TBM2') = 8830.488
+  // → 'STA 8+830'. CH_EXCAV_START − dist is only correct for TBM1 (chainage decreasing); TBM2
+  // increases from IS04 and its launch CH is undefined, so any computed value is wrong-direction.
+  // The view gates a non-TBM1 machine's chainage to null → the TBM-Chainage card renders '—'.
+  const mp = { TBM1: { dist: 530 }, TBM2: { dist: 0 } };
+  const { container, root } = mount(baseProps({ machineProgress: mp, activeMachine: "TBM2" }));
+
+  const card = Array.from(container.querySelectorAll(".rounded-card")).find((c) => c.textContent.includes("TBM Chainage"));
+  expect(card).toBeTruthy();
+  expect(card.querySelector("h3").textContent).toBe("—"); // value cell, not a station number
+  expect(container.textContent).not.toContain("8+830"); // no computed TBM2 STA leaks (card or header)
+
+  unmount(container, root);
+});
+
 test("machine filter scopes locations/schedules/instruments by chainage zone (locationMachine) — a TBM2-zone location is excluded from TBM1 and included in TBM2", () => {
   const tbm2Loc = { id: "L4", name: "OS-01", type: "SHAFT", chainage: 13000, actualChainage: null }; // > CH_EXCAV_START → TBM2 zone
   const tbm2Schedule = { id: "s3", locationId: "L4", scheduleType: "DISTANCE", instrumentGroup: "SURFACE", distanceOffset: 0, tbmChainage: 13000, isMeasured: false, measuredAt: null, notes: null };

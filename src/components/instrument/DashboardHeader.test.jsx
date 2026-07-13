@@ -43,8 +43,9 @@ test("Ring pill is entirely absent (not '#—') when ringNo is not provided — 
   unmount(container, root);
 });
 
-test("does not crash when tbmChainage is null (machineProgress not loaded yet)", () => {
+test("tbmChainage null (position unavailable: gated non-TBM1 machine, or not loaded yet) → renders '—', not 'STA -'", () => {
   const { container, root } = mount({ tbmChainage: null });
-  expect(container.textContent).toContain("STA -");
+  expect(container.textContent).toContain("—");
+  expect(container.textContent).not.toContain("STA");
   unmount(container, root);
 });

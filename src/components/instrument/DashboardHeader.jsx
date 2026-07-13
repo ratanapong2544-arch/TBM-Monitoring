@@ -5,6 +5,9 @@
 // ringNo has no home in `machineProgress` today (R4-source-map.md §3.3.6) — it stays an optional
 // prop. The Ring pill only renders when ringNo is truthy, mirroring source's own
 // `{tbmPosition.ringNo && <pill>}` conditional (page.tsx:145) — no fabricated ring number.
+//
+// R7b: tbmChainage null = position unavailable (machine not TBM1 — its CH is undefined — or not
+// loaded yet) → render "—" instead of "STA -", so a gated TBM2 never shows a wrong/placeholder STA.
 import { Gauge } from "lucide-react";
 import { stationLabel } from "../../utils/chainageAdapter";
 
@@ -25,7 +28,7 @@ export default function DashboardHeader({ tbmChainage, ringNo }) {
         <div className="flex flex-col">
           <span className="text-[11px] text-cyan-med font-black uppercase tracking-widest">TBM Position</span>
           <span className="text-lg font-black text-ink tracking-tight">
-            STA {stationLabel(tbmChainage)}
+            {tbmChainage == null ? "—" : `STA ${stationLabel(tbmChainage)}`}
             {ringNo && (
               <span className="text-cyan-med font-bold ml-2 text-sm bg-cyan-tint px-2 py-0.5 rounded-badge">
                 Ring #{ringNo}

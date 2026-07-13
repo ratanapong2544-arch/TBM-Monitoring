@@ -23,6 +23,7 @@ export default function LocationRightPane({
   readings = [],
   thresholds = [],
   machineProgress = null,
+  activeMachine = "TBM1",
   onSelectInstrument,
 }) {
   const [activeTab, setActiveTab] = useState("BLUEPRINT");
@@ -48,6 +49,7 @@ export default function LocationRightPane({
             readings={readings}
             thresholds={thresholds}
             machineProgress={machineProgress}
+            activeMachine={activeMachine}
           />
         )}
       </div>

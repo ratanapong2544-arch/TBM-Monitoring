@@ -76,6 +76,19 @@ test("TBM STA falls back gracefully without machineProgress, and shows STA + Rin
   document.body.removeChild(c2);
 });
 
+test("R7b: honors threaded activeMachine — TBM2 is gated (no valid launch CH) so TBM STA shows '-', never a TBM1-derived or computed-TBM2 number", () => {
+  // Both machines present. If still hardcoded to TBM1 it would show TBM1's dist=200 → 'TBM STA 8+630'.
+  // If it computed TBM2 ungated it would show dist=0 → 'STA 8+830'. Gated → 'TBM STA -'.
+  const machineProgress = { TBM1: { dist: 200, rings: 100 }, TBM2: { dist: 0 } };
+  const { container, root } = mount({ location, instruments, readings, thresholds: [], machineProgress, activeMachine: "TBM2" });
+  expect(container.textContent).toContain("TBM STA -");
+  expect(container.textContent).not.toContain("8+630"); // not TBM1's position
+  expect(container.textContent).not.toContain("8+830"); // not a computed TBM2 position
+  expect(container.textContent).not.toContain("Ring #100"); // ring reads the active machine (TBM2), not TBM1
+  act(() => { root.unmount(); });
+  document.body.removeChild(container);
+});
+
 test("clicking the Piezometer tab switches the rendered report", () => {
   const { container, root } = mount({ location, instruments, readings, thresholds: [] });
   const buttons = Array.from(container.querySelectorAll("button"));

@@ -48,7 +48,10 @@ function groupByLocation(schedules) {
 export default function InstrumentScheduleView({ schedules = [], locations = [], machineProgress, activeMachine = "TBM1", onMark, readOnly = false }) {
   const [locFilter, setLocFilter] = useState("all");
   const [selectedSchedule, setSelectedSchedule] = useState(null);
-  const cur = currentChainage(machineProgress, activeMachine);
+  // R7b gate: TBM1-only chainage (CH_EXCAV_START − dist valid only for TBM1's decreasing chainage);
+  // TBM2's launch CH/direction is undefined, so treat its position as unavailable (null) rather than
+  // computing a wrong-direction number that would mis-status schedules once TBM2 has any.
+  const cur = activeMachine === "TBM1" ? currentChainage(machineProgress, activeMachine) : null;
   const now = today();
 
   // Task R7b — machine-aware slice. Instrument data is project-wide; TBM1/TBM2 is a VIEW-level

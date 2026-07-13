@@ -175,28 +175,21 @@ test("clicking an instrument row opens InstReportModal with that instrument's de
   unmount(container, root);
 });
 
-// --- Task R7b — machine-aware TBM Distance (view is reached from the machine-scoped dashboard, so
-// activeMachine already matches this location's own zone; no re-derivation via locationMachine here) ---
+// --- Task R7b — machine-aware TBM Distance. The view is reached only from the machine-scoped
+// dashboard, so activeMachine matches the opened location's zone. It honors activeMachine AND gates
+// a non-TBM1 machine's chainage to null (currentChainage's CH formula is valid only for TBM1). ---
 
-test("uses activeMachine to derive TBM Distance — no longer hardcoded to TBM1", () => {
-  // TBM1's dist is deliberately huge/unrelated so a lingering hardcode would produce a very different
-  // (wrong) label instead of the TBM2-derived one asserted below.
-  const mpMulti = { TBM1: { dist: 999999, rings: 1 }, TBM2: { dist: 500, rings: 10 } };
-  const tbm2Chainage = currentChainage(mpMulti, "TBM2");
+test("R7b: gates a non-TBM1 machine's TBM Distance to '-' — never a hardcoded-TBM1 or wrong-direction TBM2 number", () => {
+  // Both machines present. A lingering hardcode to TBM1 (dist 999999) would compute a huge distance;
+  // an ungated TBM2 (dist 0) would compute one from CH_EXCAV_START. The gate makes tbmChainage null
+  // → hasTbmPosition false → the header chip shows '-'.
+  const mpMulti = { TBM1: { dist: 999999 }, TBM2: { dist: 0 } };
   const tbm2Location = { id: "L9", name: "TBM2 Point", chainage: 9000, actualChainage: 9000 };
-  const expectedRounded = Math.round(tbm2Location.actualChainage - tbm2Chainage);
-  const expectedLabel = `${expectedRounded >= 0 ? "+" : ""}${expectedRounded} m`;
 
   const { container, root } = mount(baseProps({
     location: tbm2Location, instruments: [], schedules: [], machineProgress: mpMulti, activeMachine: "TBM2",
   }));
-  expect(chipValue(container, "TBM Distance")).toBe(expectedLabel);
+  expect(chipValue(container, "TBM Distance")).toBe("-");
 
-  unmount(container, root);
-});
-
-test("activeMachine defaults to TBM1 when omitted — no regression for existing callers", () => {
-  const { container, root } = mount(baseProps());
-  expect(chipValue(container, "TBM Distance")).toBe(expectedTbmDistanceLabel);
   unmount(container, root);
 });

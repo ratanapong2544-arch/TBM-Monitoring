@@ -5,11 +5,13 @@
 // real reading (any instrument, any type) at this location; Cover STA / Instrument STA come from the
 // real Inst_Locations row (actualChainage is blank for every location except 8+300 per the design
 // spec — renders "—" there, not invented); TBM STA/Ring come from the optional `machineProgress`
-// prop via the existing chainageAdapter utility, referencing TBM1 as the primary machine — the same
-// "project-wide, refer to TBM1" convention already used by InstrumentScheduleView.jsx and
-// InstrumentDashboardView.jsx. `machineProgress` is optional so the current caller
-// (InstrumentLocationView, which does not pass it yet) keeps working unchanged; a future caller can
-// wire the real value in without any change here.
+// prop via the existing chainageAdapter utility, scoped to the active machine (R7b). `machineProgress`
+// is optional so callers can omit it. TBM STA is GATED to the active machine's TBM1 branch only:
+// currentChainage's `CH_EXCAV_START − dist` formula is correct solely for TBM1 (chainage decreasing);
+// TBM2 increases from IS04 and its launch CH/direction is undefined ("กำหนดภายหลัง"), so a computed
+// TBM2 STA would be wrong-direction — we show "—" instead of a wrong number (same gate as the
+// dashboard/schedule/location views). Ring count is machine-independent (a plain count) so it reads
+// the active machine directly, ungated.
 import { useMemo, useState } from "react";
 import { Activity, Droplets, Layers, MapPin } from "lucide-react";
 import TabBar from "./reports/shared/TabBar";
@@ -38,10 +40,11 @@ function Stat({ label, value }) {
   );
 }
 
-function ReportHeader({ location, readings, machineProgress }) {
+function ReportHeader({ location, readings, machineProgress, activeMachine }) {
   const latest = latestOf(readings);
-  const tbmSta = currentChainage(machineProgress, "TBM1");
-  const rings = machineProgress?.TBM1?.rings;
+  // R7b: gate TBM STA to TBM1 (only machine whose CH formula is valid); TBM2 → null → "—".
+  const tbmSta = activeMachine === "TBM1" ? currentChainage(machineProgress, activeMachine) : null;
+  const rings = machineProgress?.[activeMachine]?.rings;
 
   return (
     <section className="rounded-card border border-line bg-surface px-5 py-4 shadow-card">
@@ -67,7 +70,7 @@ function ReportHeader({ location, readings, machineProgress }) {
   );
 }
 
-export default function InstrumentReportTabs({ location, instruments = [], readings = [], thresholds = [], machineProgress = null }) {
+export default function InstrumentReportTabs({ location, instruments = [], readings = [], thresholds = [], machineProgress = null, activeMachine = "TBM1" }) {
   const types = useMemo(() => Object.keys(REPORTS).filter((t) => instruments.some((i) => i.type === t)), [instruments]);
   const [tab, setTab] = useState(types[0]);
   const activeTab = types.includes(tab) ? tab : types[0];
@@ -78,7 +81,7 @@ export default function InstrumentReportTabs({ location, instruments = [], readi
 
   return (
     <div className="space-y-5">
-      <ReportHeader location={location} readings={readings} machineProgress={machineProgress} />
+      <ReportHeader location={location} readings={readings} machineProgress={machineProgress} activeMachine={activeMachine} />
       <TabBar tabs={tabs} activeId={activeTab} onChange={setTab} variant="primary" />
       <Cur instruments={instruments.filter((i) => i.type === activeTab)} readings={readings} thresholds={thresholds} location={location} />
     </div>

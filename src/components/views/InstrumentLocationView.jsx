@@ -47,7 +47,10 @@ export default function InstrumentLocationView({
 
   // Reached only from the machine-scoped dashboard (InstrumentDashboardView), so activeMachine
   // already matches this location's own zone — no re-derivation via locationMachine needed here.
-  const tbmChainage = currentChainage(machineProgress, activeMachine);
+  // R7b gate: currentChainage's CH_EXCAV_START − dist formula is valid only for TBM1 (chainage
+  // decreasing); TBM2 increases from IS04 and its launch CH/direction is undefined, so a computed
+  // TBM2 position would be wrong-direction. Show it as unavailable (null → "-") rather than wrong.
+  const tbmChainage = activeMachine === "TBM1" ? currentChainage(machineProgress, activeMachine) : null;
   const operationalChainage = getOperationalChainage(location);
   const hasTbmPosition = tbmChainage != null && operationalChainage != null;
   // ระยะ TBM ถึงจุด (ม.) — ลบ = TBM ยังไม่ถึง (สอดคล้อง sign convention เดียวกับ ScheduleTimeline/isTbmHere:
@@ -142,6 +145,7 @@ export default function InstrumentLocationView({
             readings={readings}
             thresholds={thresholds}
             machineProgress={machineProgress}
+            activeMachine={activeMachine}
           />
         </div>
       </div>

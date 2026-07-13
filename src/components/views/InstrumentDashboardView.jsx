@@ -35,7 +35,12 @@ export default function InstrumentDashboardView({
   const [sortMode, setSortMode] = useState("NEAREST");
   const [search, setSearch] = useState("");
 
-  const tbmChainage = currentChainage(machineProgress, activeMachine);
+  // R7b gate: currentChainage's CH_EXCAV_START − dist formula is valid only for TBM1 (chainage
+  // decreasing). TBM2 increases from IS04 and its launch CH/direction is undefined ("กำหนดภายหลัง"),
+  // so a computed TBM2 chainage would trend the wrong way. Show it as unavailable (null) → "—" in
+  // DashboardHeader/ComplianceCards, never a wrong number. Wire the real value here once TBM2 gets a
+  // launch config.
+  const tbmChainage = activeMachine === "TBM1" ? currentChainage(machineProgress, activeMachine) : null;
 
   // Task R7b — machine-aware slice. Instrument data is project-wide (one sheet); TBM1/TBM2 is a
   // VIEW-level filter by chainage zone (locationMachine, chainageAdapter.js), applied BEFORE the

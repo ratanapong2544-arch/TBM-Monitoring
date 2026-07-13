@@ -34,9 +34,13 @@ function SummaryCard({ label, value, sub, icon: Icon, pulse = false }) {
 export default function ComplianceCards({ locations = [], instruments = [], schedules = [], tbmChainage, ringNo }) {
   const tallies = computeComplianceTallies({ locations, instruments, schedules, tbmChainage, ringNo });
 
+  // R7b: tbmChainage null = position unavailable (gated non-TBM1 machine, or not loaded) → "—"
+  // instead of the tally's "STA -", so a gated TBM2 never surfaces a wrong/placeholder station.
+  const tbmChainageValue = tbmChainage == null ? "—" : tallies.tbmChainage.value;
+
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4 sm:gap-6">
-      <SummaryCard label="TBM Chainage" value={tallies.tbmChainage.value} sub={tallies.tbmChainage.sub} icon={Gauge} />
+      <SummaryCard label="TBM Chainage" value={tbmChainageValue} sub={tallies.tbmChainage.sub} icon={Gauge} />
       <SummaryCard
         label="Upcoming Nodes"
         value={String(tallies.upcomingNodes)}

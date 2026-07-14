@@ -1,5 +1,5 @@
 import React from "react";
-import { Layers } from "lucide-react";
+import CutterHeadMark from "./CutterHeadMark";
 import { MACHINES } from "../../utils/dailyReports";
 import { getMachineConfig } from "../../utils/machineConfig";
 
@@ -25,7 +25,7 @@ export default function MachineSwitcher({ value, onChange, size = "sm" }) {
               }`}
             >
               <div className="flex items-center gap-2">
-                <Layers size={20} className={active ? "text-white" : "text-navy"} />
+                <CutterHeadMark size={20} tone={active ? "brand" : "mono"} className={active ? "" : "text-navy"} />
                 <span className="text-xl font-bold tracking-wide">{m}</span>
                 {active && (
                   <span className="ml-auto text-[10px] font-semibold bg-white/20 px-2 py-0.5 rounded-badge">กำลังดู</span>

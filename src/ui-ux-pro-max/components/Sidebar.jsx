@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { NAV_GROUPS, viewerGroups } from "./navModel";
-import { Layers } from "lucide-react";
+import CutterHeadMark from "./CutterHeadMark";
 
 // สีจุดสถานะ — ต้องสว่างพออ่านบนพื้น navy
 const STATUS_DOT = {
@@ -14,12 +14,12 @@ export default function Sidebar({ active = {}, onNavigate, liveStatus, machine, 
     <aside className="hidden lg:flex flex-col w-60 bg-navy-dark h-screen sticky top-0 shrink-0 print:hidden">
       {/* Brand */}
       <div className="flex items-center gap-2.5 px-5 py-4 border-b border-white/10">
-        <div className="w-8 h-8 rounded-md bg-navy flex items-center justify-center text-white shrink-0 border border-white/15">
-          <Layers size={18} strokeWidth={2.5} />
+        <div className="w-8 h-8 rounded-md bg-navy flex items-center justify-center shrink-0 border border-white/15">
+          <CutterHeadMark size={20} tone="brand" />
         </div>
         <div className="leading-tight">
-          <div className="text-white font-semibold text-sm tracking-tight">{(machine || "TBM")} System</div>
-          <div className="text-cyan-tint/55 text-[10px] font-medium">Tunnel Monitoring</div>
+          <div className="text-white font-semibold text-sm tracking-tight">Tunnel Monitoring System</div>
+          <div className="text-cyan-tint/55 text-[10px] font-medium">อุโมงค์ระบายน้ำคลองเปรมประชากร</div>
         </div>
       </div>
 

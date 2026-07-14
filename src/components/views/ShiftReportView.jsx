@@ -299,7 +299,7 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
         </div>
 
         <div className="overflow-x-auto border-b border-line print:border-black">
-          <table className="w-full text-xs print:text-[11px] border-collapse table-fixed min-w-[800px]">
+          <table className="w-full text-[13px] print:text-[13px] border-collapse table-fixed min-w-[800px]">
             <thead>
               <tr className="bg-surface-alt">
                 <th className="border border-line print:border-black p-2.5 text-left text-ink-2" style={{ width: '22%' }}>Time / Activities</th>
@@ -314,26 +314,26 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
                   {cat.items.map((item, iIdx) => {
                     const totalMins = getTotalMinutes(item);
                     return (
-                      <tr key={`${cIdx}-${iIdx}`} className="group h-[38px] hover:bg-cyan-tint transition-colors">
-                        <td className="border border-line print:border-black p-1.5 pl-5 relative bg-white font-medium text-ink-2">
+                      <tr key={`${cIdx}-${iIdx}`} className="group hover:bg-cyan-tint transition-colors">
+                        <td className="border border-line print:border-black p-1.5 pl-5 relative bg-white font-medium text-ink-2 align-middle">
                           {String(item)}
                           <button onClick={() => setActiveModal(item)} className="absolute right-1.5 top-1.5 text-navy hover:text-navy-dark bg-cyan-tint hover:bg-cyan-tint/80 p-1 rounded-input no-print opacity-0 group-hover:opacity-100 transition-all shadow-sm" title="เพิ่มเวลาการทำงาน"><Plus size={14} /></button>
                         </td>
-                        <td colSpan={12} className="border border-line print:border-black p-0 relative">
+                        <td colSpan={12} className="border border-line print:border-black p-0 relative align-middle">
                           <div className="absolute inset-0 flex pointer-events-none">{currentHours.map((h, idx) => <div key={idx} className={`h-full w-[8.333%] ${idx < 11 ? 'border-r border-line print:border-gray-300' : ''}`} />)}</div>
-                          <div className="absolute inset-y-[4px] inset-x-0 px-0.5">
+                          <div className="relative grid items-center px-0.5 py-[3px] min-h-[40px]">
                             {(Array.isArray(displayEvents[item]) ? displayEvents[item] : []).filter(ev => ev != null).map((ev, index) => {
                               const { left, width } = calculateBarStyles(ev.start, ev.end, meta.shift);
                               const colorClasses = getBarColorClasses(cIdx);
                               return (
-                                <div key={`${ev.id || index}-${index}`} className={`absolute h-[90%] top-[5%] border-[1.5px] rounded-[4px] flex items-center justify-center text-[10px] sm:text-[11px] font-semibold overflow-visible whitespace-nowrap cursor-pointer z-10 hover:brightness-95 transition-all shadow-sm ${colorClasses}`} style={{ left, width }} onClick={() => !ev?.isAuto && setActiveModal(item)} title={`${ev.start} - ${ev.end}`}>
-                                  <span className="bg-white/90 px-1.5 py-0.5 rounded-[2px] shadow-sm tracking-tight">{String(ev.label || "")}</span>
+                                <div key={`${ev.id || index}-${index}`} className={`[grid-area:1/1] min-w-0 py-[3px] border-[1.5px] rounded-[4px] flex items-center justify-center text-center text-[12px] print:text-[12px] leading-[1.3] font-semibold break-words cursor-pointer z-10 hover:brightness-95 transition-all shadow-sm ${colorClasses}`} style={{ marginLeft: left, width }} onClick={() => !ev?.isAuto && setActiveModal(item)} title={`${ev.start} - ${ev.end}`}>
+                                  <span className="px-1 py-0.5 tracking-tight">{String(ev.label || "")}</span>
                                 </div>
                               );
                             })}
                           </div>
                         </td>
-                        <td className="border border-line print:border-black p-1 text-center bg-surface-alt print:bg-white font-semibold text-navy print:text-blue-800 text-sm font-mono">{totalMins > 0 ? totalMins : ''}</td>
+                        <td className="border border-line print:border-black p-1 text-center bg-surface-alt print:bg-white font-semibold text-navy print:text-blue-800 text-[14px] font-mono align-middle">{totalMins > 0 ? totalMins : ''}</td>
                       </tr>
                     );
                   })}

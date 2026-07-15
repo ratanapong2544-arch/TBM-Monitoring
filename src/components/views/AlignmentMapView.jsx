@@ -1,7 +1,7 @@
 import React, { useRef, useEffect, useMemo, useState } from "react";
 import "maplibre-gl/dist/maplibre-gl.css";
 import {
-  LINE, KM_LABELS, SHAFTS, CH_EXCAV_START, CH_MIN, TOTAL_ROUTE_DISTANCE,
+  LINE, SHAFTS, CH_EXCAV_START, CH_MIN, TOTAL_ROUTE_DISTANCE,
   drilledMetersFromRecords, headChainageFromRecords, lngLatAtCh, lineBetween, bearingAtCh,
 } from "../../utils/alignmentGeo";
 import { INSTRUMENT_META, settlementGeoJSON } from "../../utils/instrumentGeo";
@@ -179,18 +179,13 @@ export default function AlignmentMapView({ segmentRecords = [], machine = "TBM1"
         // ── ปล่อง (HTML markers) ──
         SHAFTS.forEach((s) => {
           const el = document.createElement("div");
-          el.className = "a3m-shaft";
+          const flip = s.id === "IS2"; // IS2 ชิด IS1 → กางป้ายไปทางซ้าย ไม่ทับกัน
+          el.className = "a3m-shaft" + (flip ? " rtl" : "");
           el.innerHTML = `<span class="dot ${s.id === "IS4" ? "launch" : ""}"></span><div class="lab"><b>${s.name}</b><small>${s.role}</small></div>`;
-          new maplibregl.Marker({ element: el, anchor: "left" }).setLngLat([s.lng, s.lat]).addTo(map);
+          new maplibregl.Marker({ element: el, anchor: flip ? "right" : "left" }).setLngLat([s.lng, s.lat]).addTo(map);
         });
 
-        // ── ป้าย กม. ──
-        KM_LABELS.forEach((k) => {
-          const el = document.createElement("div");
-          el.className = "a3m-km";
-          el.textContent = k.name;
-          new maplibregl.Marker({ element: el, anchor: "center" }).setLngLat([k.lng, k.lat]).addTo(map);
-        });
+        // (ป้าย กม. / chainage เอาออกแล้ว — user ขอให้หน้าโล่งสำหรับแคปรายงาน)
 
         // ── settlement crosses (orange line layer) ──
         map.addSource("settlement", { type: "geojson", data: settlementGeoJSON() });
@@ -246,7 +241,11 @@ export default function AlignmentMapView({ segmentRecords = [], machine = "TBM1"
 
         // ── 3D custom layer: ท่อแนวอุโมงค์ (TubeGeometry) + หัวเจาะ ──
         // ทั้ง scene อยู่ใน local-meters จาก origin กลางแนว · ใช้ transform เดียว
-        const TUBE_Y = 2.0, TUBE_R = 2.0;
+        const TUBE_Y = 2.0;
+        // ท่อปรับความหนาตามซูม: ซูมออก→หนา (เห็นชัดตอนดูทั้งแนว) · ซูมเข้า→ขนาดจริง
+        // ponytail: hardcode ค่าจูน visual — ย้ายเข้า config ภายหลัง
+        const TUBE_REAL_R = 2.0, TUBE_MAX_R = 90, TUBE_K = 390000;
+        const tubeRadiusForZoom = (z) => Math.max(TUBE_REAL_R, Math.min(TUBE_MAX_R, TUBE_K / Math.pow(2, z)));
         const customLayer = {
           id: "tbm-3d", type: "custom", renderingMode: "3d",
           onAdd(m, gl) {
@@ -254,9 +253,9 @@ export default function AlignmentMapView({ segmentRecords = [], machine = "TBM1"
             this.renderer.autoClear = false;
             this.camera = new THREE.Camera();
             this.scene = new THREE.Scene();
-            this.scene.add(new THREE.AmbientLight(0xffffff, 1.6));
-            const dir = new THREE.DirectionalLight(0xffffff, 2.2); dir.position.set(0, 80, 60); this.scene.add(dir);
-            const dir2 = new THREE.DirectionalLight(0xbfd4ee, 0.9); dir2.position.set(60, 40, -60); this.scene.add(dir2);
+            this.scene.add(new THREE.AmbientLight(0xffffff, 0.95));
+            const dir = new THREE.DirectionalLight(0xffffff, 0.85); dir.position.set(0, 80, 60); this.scene.add(dir);
+            const dir2 = new THREE.DirectionalLight(0xbfd4ee, 0.35); dir2.position.set(60, 40, -60); this.scene.add(dir2);
 
             // origin (กลางแนว) + scale เมตร→mercator
             const ORIGIN = LINE[Math.floor(LINE.length / 2)];
@@ -268,29 +267,49 @@ export default function AlignmentMapView({ segmentRecords = [], machine = "TBM1"
               return new THREE.Vector3((mc.x - merc0.x) / mscale, TUBE_Y, (mc.y - merc0.y) / mscale);
             };
 
-            // ท่อ: ขุดแล้ว (ส้มทึบ) + เหลือ (ฟ้าจางโปร่ง)
-            this.matDrilled = new THREE.MeshStandardMaterial({ color: 0xF2741B, roughness: 0.5, metalness: 0.15 });
-            this.matRest = new THREE.MeshStandardMaterial({ color: 0x9fc4e8, roughness: 0.6, metalness: 0.1, transparent: true, opacity: 0.5 });
+            // ท่อ: ขุดแล้ว (ส้มสดเด่น) + เหลือ (เทาจางโปร่ง — subtle เน้น progress)
+            this.matDrilled = new THREE.MeshStandardMaterial({ color: 0xF15A22, emissive: 0xB23C0A, emissiveIntensity: 0.42, roughness: 1, metalness: 0 });
+            this.matRest = new THREE.MeshStandardMaterial({ color: 0xB4BCC6, emissive: 0x2C333B, emissiveIntensity: 0.12, roughness: 1, metalness: 0, transparent: true, opacity: 0.6 });
             this.tubeRest = new THREE.Mesh(undefined, this.matRest);
             this.tubeDrilled = new THREE.Mesh(undefined, this.matDrilled);
             this.scene.add(this.tubeRest); this.scene.add(this.tubeDrilled);
             this.model = makeTBM(THREE);
+            this.modelBaseScale = this.model.scale.x; // เก็บ scale ฐาน (=METER) ไว้คูณตามรัศมีท่อ
             this.scene.add(this.model);
 
-            const buildTube = (chHi, chLo) => {
+            const curveOf = (chHi, chLo) => {
               const pts = lineBetween(chHi, chLo).map(([lng, lat]) => this.toLocal(lng, lat));
-              if (pts.length < 2) return null;
-              const curve = new THREE.CatmullRomCurve3(pts);
-              return new THREE.TubeGeometry(curve, Math.max(8, pts.length * 6), TUBE_R, 16, false);
+              return pts.length < 2 ? null : new THREE.CatmullRomCurve3(pts);
             };
-            this.setHead = (ch) => {
+            const geomOf = (curve, R) =>
+              curve ? new THREE.TubeGeometry(curve, Math.max(8, curve.points.length * 6), R, 16, false)
+                    : new THREE.BufferGeometry();
+            // rebuild ท่อทั้งสองด้วยรัศมี R (จาก curve ที่เก็บไว้)
+            this.buildTubes = (R) => {
               if (this.tubeDrilled.geometry) this.tubeDrilled.geometry.dispose();
               if (this.tubeRest.geometry) this.tubeRest.geometry.dispose();
-              this.tubeDrilled.geometry = buildTube(CH_EXCAV_START, ch) || new THREE.BufferGeometry();
-              this.tubeRest.geometry = buildTube(ch, CH_MIN) || new THREE.BufferGeometry();
+              this.tubeDrilled.geometry = geomOf(this.curveDrilled, R);
+              this.tubeRest.geometry = geomOf(this.curveRest, R);
+              this._lastR = R;
+            };
+            const scaleHead = (R) => this.model.scale.setScalar(this.modelBaseScale * (R / TUBE_REAL_R));
+            // headCh เปลี่ยน (records อัปเดต) → คำนวณ curve ใหม่ + rebuild + ขยับ/ปรับหัว
+            this.setHead = (ch) => {
+              this.curveDrilled = curveOf(CH_EXCAV_START, ch);
+              this.curveRest = curveOf(ch, CH_MIN);
+              const R = tubeRadiusForZoom(map.getZoom());
+              this.buildTubes(R);
               const ll = lngLatAtCh(ch);
               this.model.position.copy(this.toLocal(ll[0], ll[1])); // coaxial กับท่อ (y = TUBE_Y)
               this.model.rotation.y = (-bearingAtCh(ch) * Math.PI) / 180; // คัตเตอร์ชี้ทิศเจาะ
+              scaleHead(R); // หัวเจาะโตตามความหนาท่อ
+            };
+            // zoom เปลี่ยน → rebuild ท่อด้วยรัศมีใหม่ (curve เดิม) — throttle ที่ผู้เรียก
+            this.setRadius = () => {
+              const R = tubeRadiusForZoom(map.getZoom());
+              if (this._lastR != null && Math.abs(R - this._lastR) < 0.05) return;
+              this.buildTubes(R);
+              scaleHead(R);
             };
             sceneApiRef.current = this;
             this.setHead(headChRef.current);
@@ -310,6 +329,17 @@ export default function AlignmentMapView({ segmentRecords = [], machine = "TBM1"
           },
         };
         map.addLayer(customLayer);
+        // ปรับความหนาท่อตามซูม (throttle ด้วย rAF) — ท่อยืด/หดตอนซูมเข้า-ออก
+        let zoomPending = false;
+        map.on("zoom", () => {
+          if (zoomPending || !sceneApiRef.current) return;
+          zoomPending = true;
+          requestAnimationFrame(() => {
+            zoomPending = false;
+            if (sceneApiRef.current && sceneApiRef.current.setRadius) sceneApiRef.current.setRadius();
+            map.triggerRepaint();
+          });
+        });
         applyHead(headChRef.current);
         applyInstVisibility(showInstRef.current);
         } catch (err) {
@@ -453,14 +483,13 @@ const CSS = `
 .a3m-ctrl button{font-family:inherit;font-size:11px;font-weight:600;color:#0C2C65;background:rgba(255,255,255,.94);
   border:1px solid #E8E8E8;border-radius:8px;padding:7px 12px;cursor:pointer;box-shadow:0 4px 14px rgba(12,44,101,.12)}
 .a3m-ctrl button:hover{background:#fff;border-color:#C8500A}
-.a3m-shaft{display:flex;align-items:center;gap:6px;pointer-events:none;transform:translateX(6px)}
-.a3m-shaft .dot{width:11px;height:11px;border-radius:50%;background:#1E80BD;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4);flex:none}
+.a3m-shaft{display:flex;align-items:center;gap:7px;pointer-events:none;transform:translateX(7px)}
+.a3m-shaft.rtl{flex-direction:row-reverse;transform:translateX(-7px)}
+.a3m-shaft .dot{width:14px;height:14px;border-radius:50%;background:#1E80BD;border:2.5px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.5);flex:none}
 .a3m-shaft .dot.launch{background:#F4B740}
-.a3m-shaft .lab{background:rgba(12,44,101,.86);border-radius:7px;padding:3px 8px;white-space:nowrap}
-.a3m-shaft .lab b{display:block;font-size:11px;font-weight:700;color:#fff;line-height:1.1}
-.a3m-shaft .lab small{font-size:8.5px;color:#bcd0ec}
-.a3m-km{font-family:'IBM Plex Mono',monospace;font-size:9.5px;font-weight:600;color:#fff;background:rgba(12,44,101,.62);
-  border:1px solid rgba(255,255,255,.35);border-radius:5px;padding:1px 5px;pointer-events:none;white-space:nowrap}
+.a3m-shaft .lab{background:rgba(9,20,40,.9);border:1px solid rgba(255,255,255,.45);border-radius:8px;padding:4px 10px;white-space:nowrap;box-shadow:0 4px 14px rgba(0,0,0,.4)}
+.a3m-shaft .lab b{display:block;font-size:13px;font-weight:800;color:#fff;line-height:1.15}
+.a3m-shaft .lab small{font-size:9.5px;color:#a8c6ec}
 .a3m-head-callout{pointer-events:none;background:#C8500A;border:1.5px solid #fff;border-radius:8px;padding:4px 9px;text-align:center;
   box-shadow:0 6px 18px rgba(200,80,10,.45);white-space:nowrap}
 .a3m-head-callout b{display:block;font-size:11px;font-weight:700;color:#fff;line-height:1.1}
@@ -475,10 +504,9 @@ const CSS = `
   .a3m-head-callout span{font-size:8px}
   .a3m-ctrl{bottom:10px;left:8px;gap:6px}
   .a3m-ctrl button{font-size:10px;padding:5px 9px}
-  .a3m-shaft .lab{padding:2px 6px}
-  .a3m-shaft .lab b{font-size:9.5px}
+  .a3m-shaft .lab{padding:3px 7px}
+  .a3m-shaft .lab b{font-size:11px}
   .a3m-shaft .lab small{display:none}
-  .a3m-km{font-size:8px;padding:1px 4px}
   .a3m-hdr{max-width:200px;padding:8px 11px}
   .a3m-hdr h2{font-size:13px}
   .a3m-hdr p,.a3m-hdr .demo{display:none}

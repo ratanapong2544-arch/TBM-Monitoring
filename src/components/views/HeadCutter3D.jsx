@@ -111,7 +111,13 @@ export default function HeadCutter3D({ posture = null, machine = "TBM1", readOnl
           // depthTest:false + renderOrder สูง → วาดทับโมเดล (ของเดิมลากผ่านใจกลางโมเดลเลยถูกบังจนเห็นแค่ปลาย)
           const L = (sz.z || 6) * 0.62; // ครึ่งความยาว ยาวกว่าตัวโมเดลเล็กน้อย
 
-          // แนวออกแบบ: อยู่นอก tiltGroup → นอนราบเสมอ · เส้นประบาง = อ่านว่าเป็น "เส้นอ้างอิง"
+          // ทิศแนวออกแบบ: อยู่นอก tiltGroup → นอนราบเสมอ · เส้นประบาง = อ่านว่าเป็น "เส้นอ้างอิง"
+          // ⚠ เส้นนี้บอก "ทิศ" ไม่ใช่ "ตำแหน่ง" ของแนวออกแบบ — โมเดลถูกบังคับให้อยู่กลางฉาก
+          // (model.position.sub(ctr)) และ tiltGroup ใส่แค่การหมุน ไม่เคยใส่ offset
+          // → เส้นนี้ผ่าใจกลางเครื่องเสมอโดยการก่อสร้าง ทั้งที่จริง P497 ลอยเหนือแนว ~36mm ทั้งตัว
+          // จงใจไม่โชว์ offset: การ์ด "เป้า 2 แกน" ข้างๆ บอกไว้แล้วแบบมีสเกล ±75mm จริง
+          // ถ้าขยาย offset มาโชว์ที่นี่ (36mm บน ø~6m = 0.6% ต้องขยาย ~40 เท่า) ริงที่ยังอยู่ใน
+          // tolerance จะดูเหมือนหลุดแนวไปไกล = หลอกตากว่าเดิม
           const ref = new THREE.Line(
             new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, -L), new THREE.Vector3(0, 0, L)]),
             new THREE.LineDashedMaterial({
@@ -228,7 +234,7 @@ export default function HeadCutter3D({ posture = null, machine = "TBM1", readOnl
               H {fmt(posture.headV)}·A {fmt(posture.artV)}·T {fmt(posture.tailV)} mm · VRT {fmtDeg(posture.vrt)}°
               <br />
               <span className="opacity-80">
-                <i className="inline-block w-3 h-[2px] align-middle mr-1" style={{ background: "#B23A34" }} />แนวออกแบบ
+                <i className="inline-block w-3 h-[2px] align-middle mr-1" style={{ background: "#B23A34" }} />ทิศแนวออกแบบ
                 <i className="inline-block w-3 h-[3px] align-middle mr-1 ml-2.5" style={{ background: "#E0A33E" }} />แกนเครื่อง
                 <span className="ml-2.5">มุมในภาพขยายให้เห็นชัด ไม่ใช่สเกลจริง</span>
               </span>

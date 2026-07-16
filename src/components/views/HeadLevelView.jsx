@@ -139,7 +139,7 @@ export default function HeadLevelView({ segmentRecords = [], machine = "TBM1", r
             {/* ── Cutterhead 3D (attitude, live) ── */}
             <div className="bg-surface rounded-card shadow-card border border-line p-5 sm:p-6">
               <h3 className="font-semibold text-ink text-base mb-1">หัวเจาะ 3D (ท่าทางด้านข้าง)</h3>
-              <p className="text-xs text-ink-3 font-semibold mb-3">ลากเพื่อหมุน · สกอลล์เพื่อซูม · เอียงตามท่าจริงของริง {latest ? latest.ringNo : ""} (ขยายมุมให้เห็นชัด)</p>
+              <p className="text-xs text-ink-3 font-semibold mb-3">เทียบ<b className="text-ink-2">เฉพาะมุม ก้ม/เงย</b> ของริง {latest ? latest.ringNo : ""} (ขยายให้เห็นชัด) · ระยะห่างจากแนวออกแบบ ดูที่เป้า 2 แกน · ลากเพื่อหมุน สกอลล์เพื่อซูม</p>
               <HeadCutter3D posture={latest} machine={machine} readOnly={readOnly} printing={printing} className="w-full" />
             </div>
             </div>

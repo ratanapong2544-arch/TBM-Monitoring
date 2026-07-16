@@ -56,11 +56,12 @@ export const KM_LABELS = [
 ];
 
 // ปล่อง (chainage จาก constants.js ROUTE_SEGMENTS: ระยะขุดจาก launch → chainage = CH_EXCAV_START − ระยะ)
+// fullName + capacity (ลบ.ม./วินาที) จากแผนผังโครงการทางการ · labelDir = ทิศกางป้ายบนแผนที่ (กันทับท่อ+กันทับกันเอง)
 export const SHAFTS = [
-  { id: "IS4", name: "รัชดา IS4",  role: "Launch · Main+Working Shaft", ch: 8830.5, lng: 100.5501688, lat: 13.8315422 },
-  { id: "IS3", name: "บางเขน IS3", role: "Intermediate",                ch: 5764.5, lng: 100.5637312, lat: 13.8558372 },
-  { id: "IS2", name: "หลักสี่ IS2", role: "Intermediate",                ch: 1670.9, lng: 100.5814474, lat: 13.8884532 },
-  { id: "IS1", name: "บางบัว IS1", role: "Reception",                   ch: 0.0,    lng: 100.5949822, lat: 13.8882031 },
+  { id: "IS4", name: "รัชดา IS4",  fullName: "อาคารรับน้ำคลองเปรมประชากร ตอนถนนรัชดาภิเษก", capacity: 20, role: "Launch · Main+Working Shaft", ch: 8830.5, lng: 100.5501688, lat: 13.8315422, labelDir: "W" },
+  { id: "IS3", name: "บางเขน IS3", fullName: "อาคารรับน้ำคลองเปรมประชากร ตอนคลองบางเขน",   capacity: 40, role: "Intermediate",                ch: 5764.5, lng: 100.5637312, lat: 13.8558372, labelDir: "NW" },
+  { id: "IS2", name: "หลักสี่ IS2", fullName: "อาคารรับน้ำคลองเปรมประชากร ตอนวัดหลักสี่",   capacity: 40, role: "Intermediate",                ch: 1670.9, lng: 100.5814474, lat: 13.8884532, labelDir: "N" },
+  { id: "IS1", name: "บางบัว IS1", fullName: "อาคารรับน้ำคลองบางบัว",                       capacity: 60, role: "Reception",                   ch: 0.0,    lng: 100.5949822, lat: 13.8882031, labelDir: "SE" },
 ];
 
 // ───────── helpers ─────────

@@ -140,6 +140,8 @@ export default function AlignmentMapView({ segmentRecords = [], machine = "TBM1"
   const mapRef = useRef(null);
   const sceneApiRef = useRef(null);   // custom layer API { setHead(ch) }
   const calloutRef = useRef(null);
+  const shaftMarkersRef = useRef([]);   // [{el, priority, fixed?}] — dynamic label-collision (รวมกล่องหัวเจาะ)
+  const resolveLabelsRef = useRef(null);
   const headChRef = useRef(headCh);
   headChRef.current = headCh;
   const showInstRef = useRef(showInst);
@@ -176,13 +178,60 @@ export default function AlignmentMapView({ segmentRecords = [], machine = "TBM1"
         if (disposed) return;
         try {
 
-        // ── ปล่อง (HTML markers) ──
-        SHAFTS.forEach((s) => {
+        // ── ปล่อง (HTML markers) — กางป้ายออก "ด้านนอกแนว" (labelDir) กันทับท่อ + กันทับกันเอง ──
+        // offset ใช้ของ maplibre (ไม่ใช่ CSS transform — maplibre เขียน transform ทับ inline) ให้ dot center อยู่บนจุด
+        const DIR = {
+          E:  { anchor: "left",     cls: "dir-e",  off: [-7, 0] },
+          W:  { anchor: "right",    cls: "dir-w",  off: [7, 0] },
+          N:  { anchor: "bottom",   cls: "dir-n",  off: [0, 7] },
+          S:  { anchor: "top",      cls: "dir-s",  off: [0, -7] },
+          SE: { anchor: "top-left",     cls: "dir-se", off: [-7, -7] }, // กางลงล่าง-ขวา (IS1 หนี IS2)
+          NW: { anchor: "bottom-right", cls: "dir-nw", off: [7, 7] },   // กางบน-ซ้าย (IS3 หนีกล่องหัวเจาะที่อยู่ใต้)
+        };
+        shaftMarkersRef.current = [];
+        SHAFTS.forEach((s, i) => {
+          const d = DIR[s.labelDir] || DIR.E;
           const el = document.createElement("div");
-          const flip = s.id === "IS2"; // IS2 ชิด IS1 → กางป้ายไปทางซ้าย ไม่ทับกัน
-          el.className = "a3m-shaft" + (flip ? " rtl" : "");
-          el.innerHTML = `<span class="dot ${s.id === "IS4" ? "launch" : ""}"></span><div class="lab"><b>${s.name}</b><small>${s.role}</small></div>`;
-          new maplibregl.Marker({ element: el, anchor: flip ? "right" : "left" }).setLngLat([s.lng, s.lat]).addTo(map);
+          el.className = `a3m-shaft ${d.cls}`;
+          el.innerHTML =
+            `<span class="dot ${s.id === "IS4" ? "launch" : ""}"></span>` +
+            `<div class="lab"><b>${s.name}</b>` +           // ชื่อย่อ — โชว์เฉพาะตอน collision ย่อ (.mini)
+            `<em>${s.fullName}</em>` +                      // ชื่อเต็ม = หัวหลักตอนเต็ม
+            `<small>${s.id} · ${s.role} · รับน้ำ ${s.capacity} ลบ.ม./วิ</small></div>`;
+          new maplibregl.Marker({ element: el, anchor: d.anchor, offset: d.off }).setLngLat([s.lng, s.lat]).addTo(map);
+          const entry = { el, priority: i, dx: 0, dy: 0 }; // IS4=0 (เด่นสุด) → IS1=3 (ย่อก่อน)
+          shaftMarkersRef.current.push(entry);
+
+          // ── ลากได้เฉพาะ "กล่องข้อความ" — จุด (dot) ต้องค้างที่พิกัดปล่องจริงเสมอ ──
+          // ขยับด้วย CSS transform บน .lab เท่านั้น (ห้ามใช้ marker.setOffset — มันลากทั้ง marker รวม dot ไปด้วย
+          //  = ตำแหน่งอาคารผิดจาก KMZ) · transform บน .lab ไม่ชน maplibre เพราะ maplibre เขียน transform ที่ marker root
+          // ชั่วคราว — reload กลับเป็น auto · ลากแล้ว priority = -1 → collision ไม่ย่อป้ายที่จัดเอง (ย่อตัวอื่นแทน)
+          const lab = el.querySelector(".lab");
+          let dragging = false, sx = 0, sy = 0, bx = 0, by = 0;
+          lab.addEventListener("pointerdown", (e) => {
+            dragging = true;
+            try { lab.setPointerCapture(e.pointerId); } catch (err) { /* no capture */ }
+            lab.classList.add("grabbing");
+            sx = e.clientX; sy = e.clientY; bx = entry.dx; by = entry.dy;
+            e.preventDefault(); e.stopPropagation(); // กันแผนที่เลื่อน/ซูมตามระหว่างลาก
+          });
+          lab.addEventListener("pointermove", (e) => {
+            if (!dragging) return;
+            entry.dx = bx + (e.clientX - sx);
+            entry.dy = by + (e.clientY - sy);
+            lab.style.transform = `translate(${entry.dx}px, ${entry.dy}px)`;
+            e.preventDefault(); e.stopPropagation();
+          });
+          const endDrag = (e) => {
+            if (!dragging) return;
+            dragging = false;
+            try { lab.releasePointerCapture(e.pointerId); } catch (err) { /* ignore */ }
+            lab.classList.remove("grabbing");
+            entry.priority = -1;
+            resolveShaftLabels();
+          };
+          lab.addEventListener("pointerup", endDrag);
+          lab.addEventListener("pointercancel", endDrag);
         });
 
         // (ป้าย กม. / chainage เอาออกแล้ว — user ขอให้หน้าโล่งสำหรับแคปรายงาน)
@@ -238,6 +287,8 @@ export default function AlignmentMapView({ segmentRecords = [], machine = "TBM1"
         cEl.className = "a3m-head-callout";
         calloutRef.current = new maplibregl.Marker({ element: cEl, anchor: "bottom", offset: [0, -26] }).setLngLat(start).addTo(map);
         calloutRef.current._el = cEl;
+        // กล่องหัวเจาะเข้าระบบกันทับด้วย — สำคัญสุด + fixed (ย่อ/ซ่อนไม่ได้) → ป้ายอาคารที่จะทับมันหลบเอง
+        shaftMarkersRef.current.push({ el: cEl, priority: -2, fixed: true });
 
         // ── 3D custom layer: ท่อแนวอุโมงค์ (TubeGeometry) + หัวเจาะ ──
         // ทั้ง scene อยู่ใน local-meters จาก origin กลางแนว · ใช้ transform เดียว
@@ -340,6 +391,53 @@ export default function AlignmentMapView({ segmentRecords = [], machine = "TBM1"
             map.triggerRepaint();
           });
         });
+
+        // ── ป้ายกันทับแบบ dynamic: เต็มเป็น default · ย่อตัว priority ต่ำเมื่อจะทับ (ทุก pan/zoom/ขนาดจอ) ──
+        const GAP = 4; // เผื่อระยะกันชิด (px)
+        // ไล่ทีละขั้นจนไม่มีคู่ไหนทับ: เต็ม → ย่อชื่อสั้น (.mini) → ซ่อนป้ายเหลือจุด (.hidden)
+        // แต่ละ pass แก้ 1 คู่แล้ววัด rect ใหม่ (จับกรณี mini แล้วยังทับ → ย่ออีกตัว/ซ่อน)
+        const resolveShaftLabels = () => {
+          const arr = shaftMarkersRef.current;
+          if (!arr.length) return;
+          arr.forEach((m) => { if (!m.fixed) m.el.classList.remove("mini", "hidden"); });
+          const canMini = (m) => !m.fixed && !m.el.classList.contains("mini") && !m.el.classList.contains("hidden");
+          const canHide = (m) => !m.fixed && !m.el.classList.contains("hidden");
+          for (let pass = 0; pass < 10; pass++) {
+            // กล่องหัวเจาะไม่มี .lab → วัดจากตัว element เอง
+            const R = arr.map((m) => (m.el.classList.contains("hidden") ? null : (m.el.querySelector(".lab") || m.el).getBoundingClientRect()));
+            let acted = false;
+            outer:
+            for (let i = 0; i < arr.length; i++) for (let j = i + 1; j < arr.length; j++) {
+              const a = R[i], b = R[j];
+              if (!a || !b) continue; // ป้ายที่ซ่อนแล้ว ไม่นับ
+              if (Math.min(a.right, b.right) - Math.max(a.left, b.left) > -GAP &&
+                  Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > -GAP) {
+                const lo = arr[i].priority >= arr[j].priority ? arr[i] : arr[j]; // สำคัญน้อยกว่า (ย่อ/ซ่อนก่อน)
+                const hi = lo === arr[i] ? arr[j] : arr[i];
+                // fixed (กล่องหัวเจาะ) ย่อ/ซ่อนไม่ได้ → ให้อีกฝั่งหลบแทน
+                if (canMini(lo)) lo.el.classList.add("mini");
+                else if (canMini(hi)) hi.el.classList.add("mini");
+                else if (canHide(lo)) lo.el.classList.add("hidden");
+                else if (canHide(hi)) hi.el.classList.add("hidden");
+                else continue; // ปรับไม่ได้ทั้งคู่ → ข้ามไปคู่อื่น
+                acted = true;
+                break outer; // วัด rect ใหม่ใน pass ถัดไป
+              }
+            }
+            if (!acted) break;
+          }
+        };
+        resolveLabelsRef.current = resolveShaftLabels;
+        let colPending = false;
+        const scheduleResolve = () => {
+          if (colPending) return;
+          colPending = true;
+          requestAnimationFrame(() => { colPending = false; resolveShaftLabels(); });
+        };
+        map.on("move", scheduleResolve);
+        map.on("moveend", resolveShaftLabels);
+        resolveShaftLabels();
+
         applyHead(headChRef.current);
         applyInstVisibility(showInstRef.current);
         } catch (err) {
@@ -378,6 +476,7 @@ export default function AlignmentMapView({ segmentRecords = [], machine = "TBM1"
       if (calloutRef.current._el)
         calloutRef.current._el.innerHTML = `<b>หัวเจาะ TBM1</b><span>CH ${fmtCH(ch)} · ขุดแล้ว ${drilledM.toFixed(1)} ม.</span>`;
     }
+    if (resolveLabelsRef.current) resolveLabelsRef.current(); // กล่องหัวเจาะขยับ → จัดป้ายกันทับใหม่
     if (mapRef.current) mapRef.current.triggerRepaint();
   }
 
@@ -405,7 +504,8 @@ export default function AlignmentMapView({ segmentRecords = [], machine = "TBM1"
     const map = mapRef.current; if (!map) return;
     let minLng = 180, minLat = 90, maxLng = -180, maxLat = -90;
     LINE.forEach(([lng, lat]) => { minLng = Math.min(minLng, lng); maxLng = Math.max(maxLng, lng); minLat = Math.min(minLat, lat); maxLat = Math.max(maxLat, lat); });
-    map.fitBounds([[minLng, minLat], [maxLng, maxLat]], { padding: 70, pitch: 0, bearing: 0, duration: 1400 });
+    // เผื่อขอบให้ป้ายที่กางออก (IS4 ซ้าย · IS1 ขวา · IS2 บน) ไม่ยื่นพ้นกรอบแผนที่
+    map.fitBounds([[minLng, minLat], [maxLng, maxLat]], { padding: { top: 86, bottom: 74, left: 232, right: 150 }, pitch: 0, bearing: 0, duration: 1400 });
   }
 
   return (
@@ -483,13 +583,25 @@ const CSS = `
 .a3m-ctrl button{font-family:inherit;font-size:11px;font-weight:600;color:#0C2C65;background:rgba(255,255,255,.94);
   border:1px solid #E8E8E8;border-radius:8px;padding:7px 12px;cursor:pointer;box-shadow:0 4px 14px rgba(12,44,101,.12)}
 .a3m-ctrl button:hover{background:#fff;border-color:#C8500A}
-.a3m-shaft{display:flex;align-items:center;gap:7px;pointer-events:none;transform:translateX(7px)}
-.a3m-shaft.rtl{flex-direction:row-reverse;transform:translateX(-7px)}
+.a3m-shaft{display:flex;align-items:center;gap:7px;pointer-events:none}
+.a3m-shaft.dir-e{flex-direction:row}
+.a3m-shaft.dir-w{flex-direction:row-reverse}
+.a3m-shaft.dir-n{flex-direction:column-reverse}
+.a3m-shaft.dir-s{flex-direction:column}
+.a3m-shaft.dir-se{flex-direction:column;align-items:flex-start}
+.a3m-shaft.dir-nw{flex-direction:column-reverse;align-items:flex-end}
 .a3m-shaft .dot{width:14px;height:14px;border-radius:50%;background:#1E80BD;border:2.5px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.5);flex:none}
 .a3m-shaft .dot.launch{background:#F4B740}
-.a3m-shaft .lab{background:rgba(9,20,40,.9);border:1px solid rgba(255,255,255,.45);border-radius:8px;padding:4px 10px;white-space:nowrap;box-shadow:0 4px 14px rgba(0,0,0,.4)}
-.a3m-shaft .lab b{display:block;font-size:13px;font-weight:800;color:#fff;line-height:1.15}
-.a3m-shaft .lab small{font-size:9.5px;color:#a8c6ec}
+.a3m-shaft .lab{background:rgba(9,20,40,.92);border:1px solid rgba(255,255,255,.45);border-radius:8px;padding:5px 10px;max-width:230px;box-shadow:0 4px 14px rgba(0,0,0,.4);
+  pointer-events:auto;cursor:grab;touch-action:none;user-select:none}
+.a3m-shaft .lab.grabbing{cursor:grabbing;border-color:rgba(255,255,255,.85);box-shadow:0 6px 20px rgba(0,0,0,.55)}
+.a3m-shaft .lab b{display:none;font-size:13px;font-weight:800;color:#fff;line-height:1.18;white-space:nowrap}
+.a3m-shaft .lab em{display:block;font-size:11.5px;font-style:normal;font-weight:800;color:#fff;line-height:1.22}
+.a3m-shaft .lab small{display:block;font-size:9.5px;color:#a8c6ec;line-height:1.3;margin-top:2px}
+/* dynamic collision — เต็ม(ชื่อเต็ม) → ย่อเหลือชื่อย่อ (.mini) → ซ่อนเหลือจุด (.hidden) */
+.a3m-shaft.mini .lab b{display:block}
+.a3m-shaft.mini .lab em,.a3m-shaft.mini .lab small{display:none}
+.a3m-shaft.hidden .lab{display:none}
 .a3m-head-callout{pointer-events:none;background:#C8500A;border:1.5px solid #fff;border-radius:8px;padding:4px 9px;text-align:center;
   box-shadow:0 6px 18px rgba(200,80,10,.45);white-space:nowrap}
 .a3m-head-callout b{display:block;font-size:11px;font-weight:700;color:#fff;line-height:1.1}
@@ -504,9 +616,9 @@ const CSS = `
   .a3m-head-callout span{font-size:8px}
   .a3m-ctrl{bottom:10px;left:8px;gap:6px}
   .a3m-ctrl button{font-size:10px;padding:5px 9px}
-  .a3m-shaft .lab{padding:3px 7px}
+  .a3m-shaft .lab{padding:3px 7px;max-width:150px}
   .a3m-shaft .lab b{font-size:11px}
-  .a3m-shaft .lab small{display:none}
+  .a3m-shaft .lab em,.a3m-shaft .lab small{display:none}
   .a3m-hdr{max-width:200px;padding:8px 11px}
   .a3m-hdr h2{font-size:13px}
   .a3m-hdr p,.a3m-hdr .demo{display:none}

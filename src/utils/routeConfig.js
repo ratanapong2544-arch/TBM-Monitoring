@@ -8,23 +8,23 @@ export const PROJECT_TOTAL_M = 13600;
 // ค่าละเอียด (ปัดตอนแสดง); TBM1 = ค่าเดิมทั้งแอพ; TBM2 seed รอผู้ใช้ยืนยัน
 export const ROUTE_TOTAL = { TBM1: 8874.683, TBM2: 4726 };
 export const ROUTE_NAME = {
-  TBM1: "TBM1 จากรัษฎา → บางบัว",
-  TBM2: "TBM2 จากรัษฎา → ปากคลองขุง",
+  TBM1: "TBM1 จากรัชดา → บางบัว",
+  TBM2: "TBM2 จากรัชดา → ปากคลองซุง",
 };
 
 // seed จากรูปที่ 2 — ring range เก็บเป็น "remark" (แสดงอย่างเดียว) ไม่ใช้คำนวณ status
 export const DEFAULT_ROUTE_LEGS = {
   TBM1: [
-    { order: "1.1",   level: 2, name: "ช่วง Main Shaft รัษฎา → Working Shaft รัษฎา", plannedDistance: 43.80,  remark: "" },
+    { order: "1.1",   level: 2, name: "ช่วง Main Shaft รัชดา → Working Shaft รัชดา", plannedDistance: 43.80,  remark: "" },
     { order: "1.1.1", level: 3, name: "ประกอบและติดตั้ง Segment",                    plannedDistance: 43.80,  remark: "Ring No. 1–32" },
     { order: "1.1.2", level: 3, name: "ประกอบและติดตั้ง Temporary Segment",           plannedDistance: 10.30,  temporary: true, remark: "ในบ่อ Working Shaft · Ring P33–P40" },
-    { order: "1.2",   level: 2, name: "ช่วง Working Shaft รัษฎา → จุด Maintenance",   plannedDistance: 3056.00, remark: "" },
+    { order: "1.2",   level: 2, name: "ช่วง Working Shaft รัชดา → จุด Maintenance",   plannedDistance: 3056.00, remark: "" },
     { order: "1.2.1", level: 3, name: "ประกอบและติดตั้ง Segment",                    plannedDistance: 3056.00, remark: "Ring No. P41–P653" },
     { order: "1.3",   level: 2, name: "ช่วง จุด Maintenance → หลักสี่",              plannedDistance: 4100.00, remark: "" },
     { order: "1.4",   level: 2, name: "ช่วง หลักสี่ → บางบัว",                        plannedDistance: 1700.00, remark: "" },
   ],
   TBM2: [
-    { order: "2.1",   level: 2, name: "ช่วง รัษฎา → ปากคลองขุง",                     plannedDistance: 4700.00, remark: "" },
+    { order: "2.1",   level: 2, name: "ช่วง รัชดา → ปากคลองซุง",                     plannedDistance: 4700.00, remark: "" },
   ],
 };
 

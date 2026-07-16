@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useState } from "react";
-import { headPostureAngles } from "../../utils/headPosture";
+import { headPostureAngles, pitchLabel } from "../../utils/headPosture";
 
 const MODEL_URL = (process.env.PUBLIC_URL || "") + "/models/prem-tbm-head.glb";
 const DEG = Math.PI / 180;
@@ -73,13 +73,6 @@ export default function HeadCutter3D({ posture = null, machine = "TBM1", readOnl
       };
       resetRef.current = resetView;
 
-      // Faint design-line reference (the axis the head tilts against): red dashed +Z line.
-      const refMat = new THREE.LineBasicMaterial({ color: 0xB23A34, transparent: true, opacity: 0.55 });
-      const refGeo = new THREE.BufferGeometry().setFromPoints([
-        new THREE.Vector3(0, 0, -6), new THREE.Vector3(0, 0, 6),
-      ]);
-      scene.add(new THREE.Line(refGeo, refMat));
-
       // Posture tilt is applied to this group; the model lives inside it.
       const tiltGroup = new THREE.Group();
       scene.add(tiltGroup);
@@ -110,9 +103,37 @@ export default function HeadCutter3D({ posture = null, machine = "TBM1", readOnl
           // มองจากแกน X: แนวนอนบนจอ = ความยาว (Z), แนวตั้ง = เส้นผ่านศูนย์กลาง (Y)
           // เผื่อ Y เยอะกว่าเพราะพอเอียง 15° ตัวโมเดลกินที่แนวตั้งเพิ่ม
           fitW = (sz.z || 6) * 1.30;
-          fitH = (sz.y || 6) * 1.55;
+          fitH = (sz.y || 6) * 1.80; // เผื่อแนวตั้ง: เอียง 15° ตัวเครื่องกินที่สูงขึ้นจนเบียดป้ายล่าง
           camDist = (Math.max(sz.x, sz.y, sz.z) || 6) * 3;
           resetView();
+
+          // เส้นอ้างอิง 2 เส้น — มุมระหว่างสองเส้นคือ ก้ม/เงย
+          // depthTest:false + renderOrder สูง → วาดทับโมเดล (ของเดิมลากผ่านใจกลางโมเดลเลยถูกบังจนเห็นแค่ปลาย)
+          const L = (sz.z || 6) * 0.62; // ครึ่งความยาว ยาวกว่าตัวโมเดลเล็กน้อย
+
+          // แนวออกแบบ: อยู่นอก tiltGroup → นอนราบเสมอ · เส้นประบาง = อ่านว่าเป็น "เส้นอ้างอิง"
+          const ref = new THREE.Line(
+            new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, -L), new THREE.Vector3(0, 0, L)]),
+            new THREE.LineDashedMaterial({
+              color: 0xB23A34, depthTest: false, transparent: true, opacity: 0.95,
+              dashSize: (sz.z || 6) * 0.035, gapSize: (sz.z || 6) * 0.025,
+            })
+          );
+          ref.computeLineDistances(); // ไม่เรียก = เส้นประกลายเป็นเส้นทึบ
+          ref.renderOrder = 999;
+          scene.add(ref);
+
+          // แกนเครื่องจริง: อยู่ใน tiltGroup → เอียงตามหัวเจาะ
+          // ใช้ Mesh ไม่ใช่ Line เพราะ WebGL คุม linewidth ไม่ได้ (บังคับ 1px เสมอ)
+          // สีอำพัน: อ่านออกทั้งบนตัวถังสีอ่อนและท้ายเครื่องสีเกือบดำ (navy จมหายบนพื้นดำ)
+          const t = (sz.y || 6) * 0.02;
+          const axis = new THREE.Mesh(
+            new THREE.BoxGeometry(t, t, L * 2),
+            new THREE.MeshBasicMaterial({ color: 0xE0A33E, depthTest: false, transparent: true, opacity: 0.98 })
+          );
+          axis.renderOrder = 1000;
+          tiltGroup.add(axis);
+
           applyPosture(postureRef.current); // ค่าล่าสุด ไม่ใช่ค่าตอน mount
         },
         undefined,
@@ -181,13 +202,38 @@ export default function HeadCutter3D({ posture = null, machine = "TBM1", readOnl
       {printing && snap && (
         <img src={snap} alt="หัวเจาะ 3D" className="absolute inset-0 w-full h-full object-contain bg-white" />
       )}
+      {!err && (() => {
+        const pl = pitchLabel(posture);
+        if (!pl) return null;
+        // navy โทนเดียวทั้ง เงย/ก้ม — เป็นทิศทาง ไม่ใช่ดี/แย่ ใส่เขียว-แดงจะสื่อการตัดสินที่ไม่มีจริง
+        const tone = pl.dir === "level" ? "text-ink-3" : "text-navy";
+        const arrow = pl.dir === "up" ? "▲" : pl.dir === "down" ? "▼" : "–";
+        return (
+          <div className="absolute left-3 top-2 pointer-events-none">
+            <div className={`text-[15px] font-bold ${tone}`}>
+              {arrow} {pl.word} {pl.mm > 0 ? "+" : ""}{pl.mm} mm
+            </div>
+            <div className="text-[11px] text-ink-3 font-semibold">{pl.hint}</div>
+          </div>
+        );
+      })()}
       {err ? (
         <div className="absolute inset-0 grid place-items-center text-sm text-ink-3 text-center px-4">
           แสดงหัวเจาะ 3D ไม่ได้ (เบราว์เซอร์ไม่รองรับ WebGL)
         </div>
       ) : (
-        <div className="absolute left-3 bottom-2 text-[11px] text-ink-3 font-semibold pointer-events-none">
-          {posture ? <>H {fmt(posture.headV)}·A {fmt(posture.artV)}·T {fmt(posture.tailV)} mm · VRT {fmt(posture.vrt)}° <span className="opacity-70">(มุมขยายให้เห็นชัด)</span></> : "—"}
+        <div className="absolute left-3 bottom-2 right-3 text-[11px] text-ink-3 font-semibold pointer-events-none leading-relaxed">
+          {posture ? (
+            <>
+              H {fmt(posture.headV)}·A {fmt(posture.artV)}·T {fmt(posture.tailV)} mm · VRT {fmtDeg(posture.vrt)}°
+              <br />
+              <span className="opacity-80">
+                <i className="inline-block w-3 h-[2px] align-middle mr-1" style={{ background: "#B23A34" }} />แนวออกแบบ
+                <i className="inline-block w-3 h-[3px] align-middle mr-1 ml-2.5" style={{ background: "#E0A33E" }} />แกนเครื่อง
+                <span className="ml-2.5">มุมในภาพขยายให้เห็นชัด ไม่ใช่สเกลจริง</span>
+              </span>
+            </>
+          ) : "—"}
         </div>
       )}
     </div>
@@ -195,3 +241,5 @@ export default function HeadCutter3D({ posture = null, machine = "TBM1", readOnl
 }
 
 const fmt = (v) => (v == null || isNaN(v) ? "—" : `${v > 0 ? "+" : ""}${Math.round(v)}`);
+// VRT เป็นทศนิยม (ของจริง p50 = 0.15°, p90 = 0.48°) — Math.round ทำให้เกือบทุกริงกลายเป็น 0
+const fmtDeg = (v) => (v == null || isNaN(v) ? "—" : `${v > 0 ? "+" : ""}${Number(v).toFixed(1)}`);

@@ -7,6 +7,11 @@ const DEG = Math.PI / 180;
 export default function HeadCutter3D({ posture = null, machine = "TBM1", readOnly = false, printing = false, className = "" }) {
   const mountRef = useRef(null);
   const applyRef = useRef(null); // (posture) => void, set once scene is built
+  const resetRef = useRef(null); // () => void, กลับมุมมองมาตรฐาน (ตั้งเมื่อ scene พร้อม)
+  // GLB (798KB) มักโหลดเสร็จหลัง posture มาจาก GAS — callback ของ loader อยู่ใน effect ที่ผูก []
+  // ถ้าอ่าน prop ตรงๆ จะได้ค่าตอน mount (null) แล้วลบมุมที่ใส่ไปแล้วทิ้ง → ต้องอ่านผ่าน ref ที่สดเสมอ
+  const postureRef = useRef(posture);
+  postureRef.current = posture;
   const canvasRef = useRef(null); // renderer.domElement, for print snapshot
   const [err, setErr] = useState(false);
   const [snap, setSnap] = useState(null); // frozen PNG while printing
@@ -42,12 +47,31 @@ export default function HeadCutter3D({ posture = null, machine = "TBM1", readOnl
       const key = new THREE.DirectionalLight(0xffffff, 2.2); key.position.set(6, 8, 7); scene.add(key);
       const fill = new THREE.DirectionalLight(0xcfe0ff, 0.5); fill.position.set(-6, 3, -4); scene.add(fill);
 
-      const camera = new THREE.PerspectiveCamera(35, w / h, 0.1, 1000);
+      // Orthographic = ไม่มี perspective มาบิดเบือนการอ่านมุมเอียง (frustum ตั้งจริงหลัง GLB โหลด)
+      const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 1000);
       const controls = new OrbitControls(camera, renderer.domElement);
       controls.enableDamping = true;
       controls.enablePan = false;
-      controls.autoRotate = true;
-      controls.autoRotateSpeed = 0.6;
+      controls.autoRotate = false; // มุมข้างตรงมีความหมาย — หมุนเองทำให้อ่าน ก้ม/เงย ไม่ได้
+
+      // fit* ตั้งค่าหลัง GLB โหลด (ต้องรู้ขนาดโมเดลก่อน); camDist ใช้แค่ near/far ไม่มีผลกับขนาดภาพในโหมด ortho
+      let fitW = 12, fitH = 8, camDist = 30;
+      const setFrustum = () => {
+        const W = mount.clientWidth || 400, H = mount.clientHeight || 300;
+        const a = W / H;
+        const halfH = Math.max(fitH / 2, fitW / 2 / a); // กันโมเดลล้นทั้งแนวตั้งและแนวนอน
+        camera.left = -halfH * a; camera.right = halfH * a;
+        camera.top = halfH; camera.bottom = -halfH;
+        camera.updateProjectionMatrix();
+      };
+      const resetView = () => {
+        camera.position.set(camDist, 0, 0); // แกน X, y=0 → มองข้างตรง 90°
+        camera.zoom = 1;
+        controls.target.set(0, 0, 0);
+        setFrustum();
+        controls.update();
+      };
+      resetRef.current = resetView;
 
       // Faint design-line reference (the axis the head tilts against): red dashed +Z line.
       const refMat = new THREE.LineBasicMaterial({ color: 0xB23A34, transparent: true, opacity: 0.55 });
@@ -64,8 +88,9 @@ export default function HeadCutter3D({ posture = null, machine = "TBM1", readOnl
 
       const applyPosture = (p) => {
         const { pitchDeg, rollDeg, yawDeg } = headPostureAngles(p);
-        // +Z = drilling axis. pitch about X (nose up/down), yaw about Y, roll about Z.
-        // NOTE: signs verified against real data in browser (Task 3 / Step 5).
+        // +Z = แกนเจาะ (ชี้ไปทางซ้ายจอเมื่อกล้องอยู่แกน X) · pitch รอบ X, yaw รอบ Y, roll รอบ Z
+        // sign ยืนยันด้วยการวัดพิกเซลจริงในเบราว์เซอร์ 2026-07-16:
+        //   +15° → หัวสูงกว่าหาง 34.5px (เงย) · 0° → เท่ากันเป๊ะ · -15° → หัวต่ำกว่าหาง 28.5px (ก้ม)
         tiltGroup.rotation.set(-pitchDeg * DEG, yawDeg * DEG, rollDeg * DEG);
       };
       applyRef.current = applyPosture;
@@ -82,11 +107,13 @@ export default function HeadCutter3D({ posture = null, machine = "TBM1", readOnl
           const sz = box.getSize(new THREE.Vector3());
           model.position.sub(ctr); // center at origin
           tiltGroup.add(model);
-          const maxd = Math.max(sz.x, sz.y, sz.z) || 6;
-          camera.position.set(maxd * 0.9, maxd * 0.5, maxd * 1.05);
-          camera.lookAt(0, 0, 0);
-          controls.update();
-          applyPosture(posture);
+          // มองจากแกน X: แนวนอนบนจอ = ความยาว (Z), แนวตั้ง = เส้นผ่านศูนย์กลาง (Y)
+          // เผื่อ Y เยอะกว่าเพราะพอเอียง 15° ตัวโมเดลกินที่แนวตั้งเพิ่ม
+          fitW = (sz.z || 6) * 1.30;
+          fitH = (sz.y || 6) * 1.55;
+          camDist = (Math.max(sz.x, sz.y, sz.z) || 6) * 3;
+          resetView();
+          applyPosture(postureRef.current); // ค่าล่าสุด ไม่ใช่ค่าตอน mount
         },
         undefined,
         () => { if (alive) setErr(true); }
@@ -103,7 +130,8 @@ export default function HeadCutter3D({ posture = null, machine = "TBM1", readOnl
       ro = new ResizeObserver(() => {
         const W = mount.clientWidth, H = mount.clientHeight;
         if (!W || !H) return;
-        camera.aspect = W / H; camera.updateProjectionMatrix(); renderer.setSize(W, H);
+        renderer.setSize(W, H);
+        setFrustum(); // ortho ใช้ left/right/top/bottom ไม่ใช่ aspect
       });
       ro.observe(mount);
 
@@ -120,6 +148,7 @@ export default function HeadCutter3D({ posture = null, machine = "TBM1", readOnl
         const el = renderer.domElement;
         if (el && el.parentNode) el.parentNode.removeChild(el);
         applyRef.current = null;
+        resetRef.current = null;
         canvasRef.current = null;
       };
     })();
@@ -139,6 +168,16 @@ export default function HeadCutter3D({ posture = null, machine = "TBM1", readOnl
   return (
     <div className={`relative ${className}`} data-testid="head-cutter-3d">
       <div ref={mountRef} style={{ width: "100%", height: 300 }} />
+      {!err && !printing && (
+        <button
+          type="button"
+          onClick={() => resetRef.current && resetRef.current()}
+          className="absolute right-2 top-2 px-2 py-1 text-[11px] font-semibold text-ink-3 hover:text-navy bg-surface/80 hover:bg-cyan-tint rounded-input border border-line print:hidden"
+          title="กลับมุมมองด้านข้างมาตรฐาน"
+        >
+          มุมมาตรฐาน
+        </button>
+      )}
       {printing && snap && (
         <img src={snap} alt="หัวเจาะ 3D" className="absolute inset-0 w-full h-full object-contain bg-white" />
       )}

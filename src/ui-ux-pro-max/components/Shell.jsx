@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Eye } from "lucide-react";
 import Sidebar from "./Sidebar";
 import TopBar from "./TopBar";
@@ -13,6 +13,8 @@ import IssuesBell from "../../components/issues/IssuesBell";
 import DashboardHeaderActions from "../../components/dashboard/DashboardHeaderActions";
 import IssueFormModal from "../../components/issues/IssueFormModal";
 import { openCount } from "../../utils/issues";
+import { installPrintFit } from "../../utils/printFit";
+import { printSpecFor } from "../../utils/printPages";
 
 function buildMobileItems() {
   const seen = new Set();
@@ -74,6 +76,16 @@ export default function Shell({
 
   const mobileItems = isViewer ? viewerGroups().flatMap((g) => g.items) : MOBILE_ITEMS;
 
+  // ปริ้นได้ทุกหน้า: Ctrl+P / File→Print ปลุก beforeprint -> handler ย่อกล่องของหน้าที่เปิดอยู่ให้พอดี A4
+  // ผูกกับ tab/module เพราะแต่ละหน้าใช้แนวกระดาษคนละแบบ (ดู utils/printPages.js)
+  useEffect(
+    () => installPrintFit(() => ({
+      el: document.getElementById("page-print-root"),
+      ...printSpecFor(active.tab, active.module),
+    })),
+    [active.tab, active.module]
+  );
+
   const railProps = {
     issues,
     onAdd: openAdd,
@@ -119,12 +131,12 @@ export default function Shell({
           {showIssues ? (
             <div className="flex w-full print:block">
               <div className="flex-1 min-w-0 px-4 sm:px-6 py-6 print:p-0 print:m-0">
-                <div className="max-w-[1200px] mx-auto w-full print:max-w-none">{children}</div>
+                <div id="page-print-root" className="max-w-[1200px] mx-auto w-full print:max-w-none">{children}</div>
               </div>
               <IssuesRail {...railProps} />
             </div>
           ) : (
-            <div className="px-4 sm:px-6 py-6 w-full print:p-0 print:m-0">{children}</div>
+            <div id="page-print-root" className="px-4 sm:px-6 py-6 w-full print:p-0 print:m-0">{children}</div>
           )}
         </main>
       </div>

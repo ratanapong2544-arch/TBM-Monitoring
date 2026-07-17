@@ -1,7 +1,7 @@
 import React, { useRef, useEffect, useMemo, useState } from "react";
 import "maplibre-gl/dist/maplibre-gl.css";
 import {
-  LINE, SHAFTS, CH_EXCAV_START, CH_MIN, TOTAL_ROUTE_DISTANCE,
+  LINE, SHAFTS, SHAFT_SPANS, CH_EXCAV_START, CH_MIN, TOTAL_ROUTE_DISTANCE,
   drilledMetersFromRecords, headChainageFromRecords, lngLatAtCh, lineBetween, bearingAtCh,
 } from "../../utils/alignmentGeo";
 import { INSTRUMENT_META, settlementGeoJSON } from "../../utils/instrumentGeo";
@@ -39,10 +39,10 @@ const SAT_STYLE = {
   ],
 };
 
-// แปลง chainage → "X+YYY.YYY"
-function fmtCH(ch) {
+// แปลง chainage → "X+YYY" (dp = ทศนิยมของเมตร · default 0 = หัวเจาะ/popup, 3 = ป้ายปล่องที่ต้องการค่าสำรวจเต็ม)
+function fmtCH(ch, dp = 0) {
   const km = Math.floor(ch / 1000);
-  const m = (ch - km * 1000).toFixed(0).padStart(3, "0");
+  const m = (ch - km * 1000).toFixed(dp).padStart(dp > 0 ? dp + 4 : 3, "0");
   return `${km}+${m}`;
 }
 
@@ -197,7 +197,8 @@ export default function AlignmentMapView({ segmentRecords = [], machine = "TBM1"
             `<span class="dot ${s.id === "IS4" ? "launch" : ""}"></span>` +
             `<div class="lab"><b>${s.name}</b>` +           // ชื่อย่อ — โชว์เฉพาะตอน collision ย่อ (.mini)
             `<em>${s.fullName}</em>` +                      // ชื่อเต็ม = หัวหลักตอนเต็ม
-            `<small>${s.id} · ${s.role} · รับน้ำ ${s.capacity} ลบ.ม./วิ</small></div>`;
+            `<small>${s.id} · ${s.role} · รับน้ำ ${s.capacity} ลบ.ม./วิ</small>` +
+            `<span class="ch">CH ${fmtCH(s.ch, 3)}</span></div>`; // chainage ระบบแนว KMZ (ชุดเดียวกับ CH หัวเจาะ)
           new maplibregl.Marker({ element: el, anchor: d.anchor, offset: d.off }).setLngLat([s.lng, s.lat]).addTo(map);
           const entry = { el, priority: i, dx: 0, dy: 0 }; // IS4=0 (เด่นสุด) → IS1=3 (ย่อก่อน)
           shaftMarkersRef.current.push(entry);
@@ -234,7 +235,40 @@ export default function AlignmentMapView({ segmentRecords = [], machine = "TBM1"
           lab.addEventListener("pointercancel", endDrag);
         });
 
-        // (ป้าย กม. / chainage เอาออกแล้ว — user ขอให้หน้าโล่งสำหรับแคปรายงาน)
+        // (ป้าย กม. ทุก 1 กม. เอาออกแล้ว — user ขอให้หน้าโล่งสำหรับแคปรายงาน · เหลือเฉพาะ CH ที่ปล่อง + ระยะระหว่างปล่อง)
+
+        // ── ป้ายระยะทางระหว่างปล่อง — วางกึ่งกลางช่วง หมุนทาบไปกับแนวเส้นเหมือนแบบก่อสร้าง ──
+        // ⚠ เลขนี้คือ "ระยะทางทางการ" ไม่ใช่ผลต่าง ch ของสองปล่อง (ช่วง IS2→IS1 ต่างกัน 44.195 ม. โดยตั้งใจ)
+        //   — อ่านคอมเมนต์ SHAFT_SPANS ใน alignmentGeo.js ก่อนแก้
+        const distLabels = [];
+        SHAFT_SPANS.forEach((sp) => {
+          const a = SHAFTS.find((s) => s.id === sp.from);
+          const b = SHAFTS.find((s) => s.id === sp.to);
+          if (!a || !b) return;
+          const mid = (a.ch + b.ch) / 2;
+          const el = document.createElement("div");
+          el.className = "a3m-dist";
+          // ตัวลูกใช้ class "lab" เหมือนป้ายอาคาร — เพื่อให้โค้ดกันทับวัดกรอบ "หลังหมุน" ได้โดยไม่ต้องแก้ selector
+          // (CSS ของป้ายอาคาร scope ใต้ .a3m-shaft → ไม่รั่วมาที่นี่ · ลากไม่ได้เพราะ handler ผูกรายปล่อง)
+          el.innerHTML = `<span class="lab">${sp.distance.toLocaleString("en-US", { minimumFractionDigits: 3, maximumFractionDigits: 3 })} ม.</span>`;
+          new maplibregl.Marker({ element: el, anchor: "center" }).setLngLat(lngLatAtCh(mid)).addTo(map);
+          // เก็บ 2 จุดคร่อมกึ่งกลางไว้หามุมของเส้นบนจอ (ต้องอยู่ในช่วงเสมอ → เผื่อไม่เกิน 1/4 ของช่วง)
+          const half = Math.min(60, Math.abs(a.ch - b.ch) / 4);
+          distLabels.push({ lab: el.querySelector(".lab"), p1: lngLatAtCh(mid + half), p2: lngLatAtCh(mid - half) });
+          // สำคัญน้อยสุด + ไม่มีรูปแบบย่อ → ถ้าจะทับใคร ซ่อนตัวเองทิ้งเลย
+          shaftMarkersRef.current.push({ el, priority: 9, noMini: true });
+        });
+
+        // หมุนป้ายระยะให้ทาบเส้น — map.project() ให้พิกัดจอจริง จึงรวมผลของ bearing + pitch มาให้แล้ว ไม่ต้องคิดเอง
+        // ต้องเรียก "ก่อน" วัดกรอบกันทับเสมอ เพราะหมุนแล้วกรอบเปลี่ยน
+        const rotateDistLabels = () => {
+          distLabels.forEach((d) => {
+            const s1 = map.project(d.p1), s2 = map.project(d.p2);
+            let deg = (Math.atan2(s2.y - s1.y, s2.x - s1.x) * 180) / Math.PI;
+            if (deg > 90) deg -= 180; else if (deg < -90) deg += 180; // กันตัวหนังสือกลับหัว
+            d.lab.style.transform = `rotate(${deg}deg)`;
+          });
+        };
 
         // ── settlement crosses (orange line layer) ──
         map.addSource("settlement", { type: "geojson", data: settlementGeoJSON() });
@@ -400,7 +434,7 @@ export default function AlignmentMapView({ segmentRecords = [], machine = "TBM1"
           const arr = shaftMarkersRef.current;
           if (!arr.length) return;
           arr.forEach((m) => { if (!m.fixed) m.el.classList.remove("mini", "hidden"); });
-          const canMini = (m) => !m.fixed && !m.el.classList.contains("mini") && !m.el.classList.contains("hidden");
+          const canMini = (m) => !m.fixed && !m.noMini && !m.el.classList.contains("mini") && !m.el.classList.contains("hidden");
           const canHide = (m) => !m.fixed && !m.el.classList.contains("hidden");
           for (let pass = 0; pass < 10; pass++) {
             // กล่องหัวเจาะไม่มี .lab → วัดจากตัว element เอง
@@ -415,7 +449,9 @@ export default function AlignmentMapView({ segmentRecords = [], machine = "TBM1"
                 const lo = arr[i].priority >= arr[j].priority ? arr[i] : arr[j]; // สำคัญน้อยกว่า (ย่อ/ซ่อนก่อน)
                 const hi = lo === arr[i] ? arr[j] : arr[i];
                 // fixed (กล่องหัวเจาะ) ย่อ/ซ่อนไม่ได้ → ให้อีกฝั่งหลบแทน
-                if (canMini(lo)) lo.el.classList.add("mini");
+                // noMini (ป้ายระยะ) ไม่มีรูปแบบย่อ → ซ่อนตัวเองก่อน อย่าไปย่อป้ายอาคารที่สำคัญกว่า
+                if (lo.noMini && canHide(lo)) lo.el.classList.add("hidden");
+                else if (canMini(lo)) lo.el.classList.add("mini");
                 else if (canMini(hi)) hi.el.classList.add("mini");
                 else if (canHide(lo)) lo.el.classList.add("hidden");
                 else if (canHide(hi)) hi.el.classList.add("hidden");
@@ -427,16 +463,19 @@ export default function AlignmentMapView({ segmentRecords = [], machine = "TBM1"
             if (!acted) break;
           }
         };
+        // แผนที่ขยับ → หมุนป้ายระยะตามเส้นก่อน แล้วค่อยวัดกรอบจัดป้ายกันทับ (ลำดับสำคัญ)
+        // applyHead ไม่ต้องหมุน (แผนที่ไม่ได้ขยับ ขยับแค่กล่องหัวเจาะ) → ref ชี้ไปที่ resolve อย่างเดียวพอ
+        const refreshLabels = () => { rotateDistLabels(); resolveShaftLabels(); };
         resolveLabelsRef.current = resolveShaftLabels;
         let colPending = false;
         const scheduleResolve = () => {
           if (colPending) return;
           colPending = true;
-          requestAnimationFrame(() => { colPending = false; resolveShaftLabels(); });
+          requestAnimationFrame(() => { colPending = false; refreshLabels(); });
         };
         map.on("move", scheduleResolve);
-        map.on("moveend", resolveShaftLabels);
-        resolveShaftLabels();
+        map.on("moveend", refreshLabels);
+        refreshLabels();
 
         applyHead(headChRef.current);
         applyInstVisibility(showInstRef.current);
@@ -598,10 +637,17 @@ const CSS = `
 .a3m-shaft .lab b{display:none;font-size:13px;font-weight:800;color:#fff;line-height:1.18;white-space:nowrap}
 .a3m-shaft .lab em{display:block;font-size:11.5px;font-style:normal;font-weight:800;color:#fff;line-height:1.22}
 .a3m-shaft .lab small{display:block;font-size:9.5px;color:#a8c6ec;line-height:1.3;margin-top:2px}
+.a3m-shaft .lab .ch{display:block;font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;color:#F4B740;line-height:1.3;margin-top:3px}
 /* dynamic collision — เต็ม(ชื่อเต็ม) → ย่อเหลือชื่อย่อ (.mini) → ซ่อนเหลือจุด (.hidden) */
 .a3m-shaft.mini .lab b{display:block}
-.a3m-shaft.mini .lab em,.a3m-shaft.mini .lab small{display:none}
+.a3m-shaft.mini .lab em,.a3m-shaft.mini .lab small,.a3m-shaft.mini .lab .ch{display:none}
 .a3m-shaft.hidden .lab{display:none}
+/* ป้ายระยะทางระหว่างปล่อง — ตัวหนังสือเปล่าทาบเส้น (ไม่มีกล่อง) · เงาหนาให้อ่านออกบนภาพดาวเทียม
+   หมุนที่ .lab (ลูก) เท่านั้น — ห้ามหมุน marker root เพราะ maplibre เขียน transform ทับทุกเฟรม */
+.a3m-dist{pointer-events:none}
+.a3m-dist .lab{display:inline-block;white-space:nowrap;font-family:'IBM Plex Mono',monospace;font-size:10.5px;font-weight:700;
+  color:#fff;letter-spacing:.02em;text-shadow:0 0 5px rgba(0,0,0,.95),0 1px 3px rgba(0,0,0,.85)}
+.a3m-dist.hidden .lab{display:none}
 .a3m-head-callout{pointer-events:none;background:#C8500A;border:1.5px solid #fff;border-radius:8px;padding:4px 9px;text-align:center;
   box-shadow:0 6px 18px rgba(200,80,10,.45);white-space:nowrap}
 .a3m-head-callout b{display:block;font-size:11px;font-weight:700;color:#fff;line-height:1.1}
@@ -618,7 +664,8 @@ const CSS = `
   .a3m-ctrl button{font-size:10px;padding:5px 9px}
   .a3m-shaft .lab{padding:3px 7px;max-width:150px}
   .a3m-shaft .lab b{font-size:11px}
-  .a3m-shaft .lab em,.a3m-shaft .lab small{display:none}
+  .a3m-shaft .lab em,.a3m-shaft .lab small,.a3m-shaft .lab .ch{display:none}
+  .a3m-dist .lab{font-size:9px}
   .a3m-hdr{max-width:200px;padding:8px 11px}
   .a3m-hdr h2{font-size:13px}
   .a3m-hdr p,.a3m-hdr .demo{display:none}

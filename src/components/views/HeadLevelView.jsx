@@ -201,7 +201,7 @@ export default function HeadLevelView({ segmentRecords = [], machine = "TBM1", r
                       label={{ value: "ค่าเบี่ยง (mm)", angle: -90, position: "insideLeft", offset: 16, style: { fontSize: 12, fill: chartColors.axisLabel, fontWeight: "bold" } }} />
                     <Tooltip {...tooltipStyle} labelFormatter={(v) => `Ring P${v}`} />
                     {spans.map((s, i) => (
-                      <ReferenceArea key={i} x1={s.from - 0.5} x2={s.to + 0.5} fill={C_BREACH} fillOpacity={0.10} />
+                      <ReferenceArea key={i} x1={s.from - 0.5} x2={s.to + 0.5} ifOverflow="hidden" fill={C_BREACH} fillOpacity={0.10} />
                     ))}
                     <ReferenceArea y1={-HEAD_TOL_MM} y2={HEAD_TOL_MM} fill="#2F5D50" fillOpacity={0.08} />
                     <ReferenceLine y={HEAD_TOL_MM} stroke="#2F5D50" strokeDasharray="5 5" label={{ position: "insideTopRight", value: `+${HEAD_TOL_MM}`, fill: "#2F5D50", fontSize: 11, fontWeight: "bold" }} />

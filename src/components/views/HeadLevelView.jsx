@@ -1,17 +1,19 @@
 import React, { useMemo, useState } from "react";
-import { ArrowUpDown, Printer, AlertTriangle } from "lucide-react";
+import { ArrowUpDown, Printer, AlertTriangle, CheckCircle2 } from "lucide-react";
 import {
   ResponsiveContainer, LineChart, Line, BarChart, Bar, Cell,
-  CartesianGrid, XAxis, YAxis, Tooltip, ReferenceArea, ReferenceLine, LabelList,
+  CartesianGrid, XAxis, YAxis, Tooltip, ReferenceArea, ReferenceLine,
 } from "recharts";
 import { chartColors, axisTick, tooltipStyle } from "../../ui-ux-pro-max/chartTheme";
 import { HEAD_TOL_MM } from "../../utils/constants";
 import { DESIGN_LINE } from "../../utils/profileGeo";
 import { deviationSeries, latestRingState, toleranceBreaches, parseRingNo } from "../../utils/profileSection";
+import { focusWindow, niceDomain, breachSpans, latestStatus, RANGE_OPTIONS } from "../../utils/headTrend";
 import SectionHeader from "../common/SectionHeader";
 import StatCard from "../common/StatCard";
 import { fitAndPrint } from "../../utils/printFit";
 import HeadCutter3D from "./HeadCutter3D";
+import HeadTrendContext from "./HeadTrendContext";
 
 // สี Head/Art/Tail (ให้ต่างชัด, โทน CMI)
 const C_HEAD = "#243B53", C_ART = "#2F5D50", C_TAIL = "#B08D4C", C_BREACH = "#B23A34";
@@ -20,6 +22,8 @@ const fmtMM = (v) => (v == null || isNaN(v) ? "—" : `${v > 0 ? "+" : ""}${Math
 
 export default function HeadLevelView({ segmentRecords = [], machine = "TBM1", readOnly = false }) {
   const [printing, setPrinting] = useState(false);
+  const [winSize, setWinSize] = useState(150);   // ค่าเริ่มต้น = 150 ริงล่าสุด
+  const [winEnd, setWinEnd] = useState(null);    // null = เกาะริงล่าสุดเสมอ · เลข = ตำแหน่งที่คลิกบนแถบภาพรวม
 
   const series = useMemo(() => deviationSeries(segmentRecords, DESIGN_LINE), [segmentRecords]);
   const latest = useMemo(() => latestRingState(segmentRecords), [segmentRecords]);
@@ -34,15 +38,13 @@ export default function HeadLevelView({ segmentRecords = [], machine = "TBM1", r
 
   const vrtData = useMemo(() => chartData.filter((d) => d.vrt != null), [chartData]);
 
-  const breachSet = useMemo(() => new Set(breaches.map((b) => String(b.ringNo))), [breaches]);
-  const yDomain = useMemo(() => {
-    const vals = [];
-    chartData.forEach((d) => [d.headV, d.artV, d.tailV].forEach((v) => { if (v != null && !isNaN(v)) vals.push(v); }));
-    if (!vals.length) return [-100, 100];
-    const lo = Math.min(-HEAD_TOL_MM - 10, ...vals), hi = Math.max(HEAD_TOL_MM + 10, ...vals);
-    const pad = Math.max(20, (hi - lo) * 0.08);
-    return [Math.floor(lo - pad), Math.ceil(hi + pad)];
-  }, [chartData]);
+  const view = useMemo(() => focusWindow(chartData, winSize, winEnd), [chartData, winSize, winEnd]);
+  const yDomain = useMemo(() => niceDomain(view, HEAD_TOL_MM), [view]);
+  const spans = useMemo(() => breachSpans(view, HEAD_TOL_MM), [view]);
+  const status = useMemo(() => latestStatus(chartData, HEAD_TOL_MM), [chartData]);
+  const spansAll = useMemo(() => breachSpans(chartData, HEAD_TOL_MM), [chartData]);
+  const winFrom = view.length ? view[0].ringN : 0;
+  const winTo = view.length ? view[view.length - 1].ringN : 0;
 
   const pitch = latest && latest.headV != null && latest.tailV != null ? latest.headV - latest.tailV : null;
 
@@ -81,7 +83,14 @@ export default function HeadLevelView({ segmentRecords = [], machine = "TBM1", r
               <StatCard label="ริงล่าสุด" value={latest ? String(latest.ringNo) : "—"} subtext={latest && latest.ch != null ? `CH ${latest.ch.toLocaleString()}` : ""} color="text-navy" icon={ArrowUpDown} />
               <StatCard label="Head · Art · Tail" value={latest ? `${fmtMM(latest.headV)}·${fmtMM(latest.artV)}·${fmtMM(latest.tailV)}` : "—"} subtext="mm (ล่าสุด)" color="text-navy" valueColor="text-ink" />
               <StatCard label="ก้ม/เงย (Head−Tail)" value={pitch == null ? "—" : `${fmtMM(pitch)} mm`} subtext={pitch == null ? "" : (pitch < 0 ? "หัวต่ำกว่าหาง (ก้ม)" : pitch > 0 ? "หัวสูงกว่าหาง (เงย)" : "ระดับ")} color="text-code-c" valueColor="text-ink" />
-              <StatCard label={`เกิน ±${HEAD_TOL_MM} mm`} value={`${breaches.length} ริง`} subtext="Head/Art/Tail อย่างใดอย่างหนึ่ง" color="text-code-d" valueColor={breaches.length > 0 ? "text-code-d" : "text-sgreen-dark"} icon={AlertTriangle} />
+              <StatCard
+                label="สถานะริงล่าสุด"
+                value={status == null ? "—" : status.status === "over" ? "เกินเกณฑ์" : "อยู่ในเกณฑ์"}
+                subtext={breaches.length ? `เคยหลุด ${spansAll.length} ช่วง · ${breaches.length} ริง` : "ไม่เคยหลุดเกณฑ์"}
+                color={status && status.status === "over" ? "text-code-d" : "text-sgreen-dark"}
+                valueColor={status && status.status === "over" ? "text-code-d" : "text-sgreen-dark"}
+                icon={status && status.status === "over" ? AlertTriangle : CheckCircle2}
+              />
             </div>
 
             {/* ── ท่าทางหัวเจาะ: bullseye + side-view เรียง 2 คอลัมน์ ── */}
@@ -89,7 +98,12 @@ export default function HeadLevelView({ segmentRecords = [], machine = "TBM1", r
             {/* ── Bullseye cross-section (Concept B · 2 แกน) ── */}
             <div className="bg-surface rounded-card shadow-card border border-line p-5 sm:p-6">
               <h3 className="font-semibold text-ink text-base mb-1">ท่าทางหัวเจาะ · เป้า 2 แกน (cross-section)</h3>
-              <p className="text-xs text-ink-3 font-semibold mb-3">ตำแหน่ง Head / Art / Tail เทียบแนวออกแบบ (สูง-ต่ำ × ซ้าย-ขวา) · วง = ±{HEAD_TOL_MM} mm · ริง {latest ? latest.ringNo : ""}</p>
+              <p className="text-[11px] text-ink-3 font-semibold mb-3">
+                ตำแหน่ง Head / Art / Tail เทียบแนวออกแบบ (สูง-ต่ำ × ซ้าย-ขวา) · วง = ±{HEAD_TOL_MM} mm · ริง {latest ? latest.ringNo : ""}
+                {latest && latest.headH == null && (
+                  <span className="block text-code-d mt-0.5">ริงนี้ไม่มีข้อมูลแนวราบ — จุดจึงตกบนแกนตั้ง (ค่าแนวราบมีถึง P509)</span>
+                )}
+              </p>
               {(() => {
                 const R = 110, cx = 150, cy = 150, sc = R / HEAD_TOL_MM;
                 const pts = [
@@ -147,45 +161,76 @@ export default function HeadLevelView({ segmentRecords = [], machine = "TBM1", r
             {/* ── Trend chart Head/Art/Tail ── */}
             <div className="bg-surface rounded-card shadow-card border border-line p-5 sm:p-6">
               <div className="flex items-center justify-between mb-1 flex-wrap gap-2">
-                <h3 className="font-semibold text-ink text-base">แนวโน้มค่าเบี่ยง Head / Art / Tail</h3>
+                <h3 className="font-semibold text-ink text-base">
+                  แนวโน้มค่าเบี่ยง Head / Art / Tail
+                  {view.length > 0 && <span className="ml-2 text-[11px] font-bold text-ink-3">P{winFrom}–P{winTo}</span>}
+                </h3>
                 <div className="flex gap-4 text-xs font-semibold">
                   <span className="flex items-center gap-1.5"><i className="inline-block w-4 h-[3px] rounded" style={{ background: C_HEAD }} /> Head</span>
                   <span className="flex items-center gap-1.5"><i className="inline-block w-4 h-[3px] rounded" style={{ background: C_ART }} /> Art</span>
                   <span className="flex items-center gap-1.5"><i className="inline-block w-4 h-[3px] rounded" style={{ background: C_TAIL }} /> Tail</span>
                 </div>
               </div>
-              <p className="text-xs text-ink-3 font-semibold mb-3">แกน X = เลขริง · แถบเขียว = ช่วงยอมรับ ±{HEAD_TOL_MM} mm · จุดแดง = เกิน tolerance</p>
-              <div className="w-full" style={{ height: 340 }}>
+              <p className="text-[11px] text-ink-3 font-semibold mb-3">
+                แกน X = เลขริง · แถบเขียว = ช่วงยอมรับ ±{HEAD_TOL_MM} mm · พื้นแดง = ช่วงที่เกินเกณฑ์
+              </p>
+              <div className="flex gap-1.5 mb-3 print:hidden">
+                {RANGE_OPTIONS.map((o) => (
+                  <button key={o.value}
+                    onClick={() => { setWinSize(o.value); setWinEnd(null); }}
+                    className={`text-[11px] font-bold px-2.5 py-1 rounded-input border transition-colors ${
+                      winSize === o.value ? "bg-navy text-white border-navy" : "bg-surface text-ink-3 border-line hover:bg-cyan-tint"
+                    }`}>{o.label}</button>
+                ))}
+                {winEnd != null && (
+                  <button onClick={() => setWinEnd(null)}
+                    className="text-[11px] font-bold px-2.5 py-1 rounded-input border border-line text-ink-3 bg-surface hover:bg-cyan-tint">
+                    ← กลับไปริงล่าสุด
+                  </button>
+                )}
+              </div>
+              <div className="w-full" style={{ height: 320 }}>
                 <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={chartData} margin={{ top: 12, right: 24, left: -6, bottom: 4 }}>
+                  <LineChart data={view} margin={{ top: 12, right: 24, left: -6, bottom: 4 }}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={chartColors.grid} />
-                    <XAxis dataKey="ring" tick={axisTick} axisLine={false} tickLine={false} minTickGap={24} label={{ value: "Ring No.", position: "insideBottomRight", offset: -4, style: { fontSize: 12, fill: chartColors.axisLabel, fontWeight: "bold" } }} />
-                    <YAxis domain={yDomain} tick={axisTick} axisLine={false} tickLine={false} label={{ value: "ค่าเบี่ยง (mm)", angle: -90, position: "insideLeft", offset: 16, style: { fontSize: 12, fill: chartColors.axisLabel, fontWeight: "bold" } }} />
-                    <Tooltip {...tooltipStyle} />
+                    <XAxis dataKey="ringN" type="number" domain={["dataMin", "dataMax"]} allowDecimals={false}
+                      tick={axisTick} axisLine={false} tickLine={false} minTickGap={28}
+                      tickFormatter={(v) => `P${v}`}
+                      label={{ value: "Ring No.", position: "insideBottomRight", offset: -4, style: { fontSize: 12, fill: chartColors.axisLabel, fontWeight: "bold" } }} />
+                    <YAxis domain={yDomain} tick={axisTick} axisLine={false} tickLine={false}
+                      label={{ value: "ค่าเบี่ยง (mm)", angle: -90, position: "insideLeft", offset: 16, style: { fontSize: 12, fill: chartColors.axisLabel, fontWeight: "bold" } }} />
+                    <Tooltip {...tooltipStyle} labelFormatter={(v) => `Ring P${v}`} />
+                    {spans.map((s, i) => (
+                      <ReferenceArea key={i} x1={s.from} x2={s.to} fill={C_BREACH} fillOpacity={0.10} />
+                    ))}
                     <ReferenceArea y1={-HEAD_TOL_MM} y2={HEAD_TOL_MM} fill="#2F5D50" fillOpacity={0.08} />
                     <ReferenceLine y={HEAD_TOL_MM} stroke="#2F5D50" strokeDasharray="5 5" label={{ position: "insideTopRight", value: `+${HEAD_TOL_MM}`, fill: "#2F5D50", fontSize: 11, fontWeight: "bold" }} />
                     <ReferenceLine y={-HEAD_TOL_MM} stroke="#2F5D50" strokeDasharray="5 5" label={{ position: "insideBottomRight", value: `−${HEAD_TOL_MM}`, fill: "#2F5D50", fontSize: 11, fontWeight: "bold" }} />
-                    <ReferenceLine y={0} stroke={C_BREACH} strokeWidth={1.2} strokeDasharray="4 4" />
-                    <Line type="monotone" dataKey="tailV" stroke={C_TAIL} strokeWidth={2} dot={false} connectNulls name="Tail" isAnimationActive={!printing} />
-                    <Line type="monotone" dataKey="artV" stroke={C_ART} strokeWidth={2} dot={false} connectNulls name="Art" isAnimationActive={!printing} />
-                    <Line type="monotone" dataKey="headV" stroke={C_HEAD} strokeWidth={2.6} connectNulls name="Head" isAnimationActive={!printing}
-                      dot={(p) => breachSet.has(String(p.payload.ring)) ? <circle key={p.key} cx={p.cx} cy={p.cy} r={3.6} fill={C_BREACH} /> : false} />
+                    <ReferenceLine y={0} stroke="#B9C2CC" strokeWidth={1} />
+                    <Line type="monotone" dataKey="tailV" stroke={C_TAIL} strokeWidth={1.8} dot={false} connectNulls name="Tail" isAnimationActive={!printing} />
+                    <Line type="monotone" dataKey="artV" stroke={C_ART} strokeWidth={1.8} dot={false} connectNulls name="Art" isAnimationActive={!printing} />
+                    <Line type="monotone" dataKey="headV" stroke={C_HEAD} strokeWidth={2.6} dot={false} connectNulls name="Head" isAnimationActive={!printing} />
                   </LineChart>
                 </ResponsiveContainer>
               </div>
+              <HeadTrendContext series={chartData} tol={HEAD_TOL_MM}
+                windowFrom={winFrom} windowTo={winTo}
+                onPick={(r) => setWinEnd(r)} />
             </div>
 
             {/* ── VRT bar chart ── */}
             {vrtData.length > 0 && (
               <div className="bg-surface rounded-card shadow-card border border-line p-5 sm:p-6">
                 <h3 className="font-semibold text-ink text-base mb-1">VRT (°) ต่อริง</h3>
-                <p className="text-xs text-ink-3 font-semibold mb-3">ค่าการหมุน/เอียงหัวเจาะ</p>
+                <p className="text-[11px] text-ink-3 font-semibold mb-3">
+                  มุมงอข้อต่อ articulation แนวดิ่ง — ค่าบวก = บังคับหัวขึ้น · ยิ่งมาก = ยิ่งดัดกลับแรง · แดง = |VRT| ≥ 0.3°
+                </p>
                 <div className="w-full" style={{ height: 180 }}>
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={vrtData} margin={{ top: 16, right: 24, left: -6, bottom: 4 }}>
                       <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={chartColors.grid} />
                       <XAxis dataKey="ring" tick={axisTick} axisLine={false} tickLine={false} minTickGap={24} />
-                      <YAxis tick={axisTick} axisLine={false} tickLine={false} />
+                      <YAxis domain={[-0.6, 0.6]} tick={axisTick} axisLine={false} tickLine={false} />
                       <Tooltip {...tooltipStyle} />
                       <ReferenceLine y={0} stroke={chartColors.axis} />
                       <Bar dataKey="vrt" radius={[2, 2, 0, 0]} maxBarSize={22} isAnimationActive={!printing}>

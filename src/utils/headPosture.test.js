@@ -1,8 +1,8 @@
-import { headPostureAngles, pitchLabel, PITCH_MAX, PITCH_REF_MM, ROLL_MAX } from "./headPosture";
+import { headPostureAngles, pitchLabel, PITCH_MAX, PITCH_REF_MM } from "./headPosture";
 
 describe("headPostureAngles — pitch (sqrt saturation)", () => {
   test("null posture → all zero", () => {
-    expect(headPostureAngles(null)).toEqual({ pitchDeg: 0, rollDeg: 0, yawDeg: 0 });
+    expect(headPostureAngles(null)).toEqual({ pitchDeg: 0, yawDeg: 0 });
   });
 
   // sqrt mapping: sign(d) * PITCH_MAX * min(1, sqrt(|d| / PITCH_REF_MM))
@@ -39,18 +39,20 @@ describe("headPostureAngles — pitch (sqrt saturation)", () => {
   });
 });
 
-describe("headPostureAngles — roll/yaw (ไม่เปลี่ยน)", () => {
-  test("roll จาก vrt คูณ gain", () => {
-    expect(headPostureAngles({ vrt: 0.5 }).rollDeg).toBeCloseTo(10, 5); // 0.5 * 20
-  });
-  test("roll clamp ที่ ±ROLL_MAX", () => {
-    expect(headPostureAngles({ vrt: 10 }).rollDeg).toBe(ROLL_MAX);
-  });
+describe("headPostureAngles — yaw + ไม่มี roll แล้ว", () => {
   test("yaw จาก headH-tailH", () => {
     expect(headPostureAngles({ headH: 40, tailH: 0 }).yawDeg).toBeCloseTo(4, 5);
   });
   test("metric ขาด → แกนนั้นเป็น 0", () => {
-    expect(headPostureAngles({ headV: 30 })).toMatchObject({ rollDeg: 0, yawDeg: 0 });
+    expect(headPostureAngles({ headV: 30 })).toMatchObject({ yawDeg: 0 });
+  });
+  // VRT = มุมงอข้อต่อ articulation แนวดิ่ง (คอลัมน์ [36]) ไม่ใช่ roll — เราไม่มีข้อมูล roll จริง
+  // หลักฐาน: corr(VRT, ค่าเบี่ยง Head) = -0.862 · ช่วงดึงกลับสูงกว่าช่วงวิ่งนิ่ง 25 เท่า
+  test("ไม่คืน rollDeg อีกแล้ว แม้ส่ง vrt มา", () => {
+    expect(headPostureAngles({ vrt: 0.5 })).not.toHaveProperty("rollDeg");
+  });
+  test("vrt ไม่มีผลต่อ pitch/yaw", () => {
+    expect(headPostureAngles({ vrt: 10 })).toEqual({ pitchDeg: 0, yawDeg: 0 });
   });
 });
 

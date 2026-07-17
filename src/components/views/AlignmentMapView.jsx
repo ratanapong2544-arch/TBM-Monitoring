@@ -39,6 +39,13 @@ const SAT_STYLE = {
   ],
 };
 
+// ตำแหน่งที่ป้ายระยะจะลองวาง (px): [ไถตามแนวเส้น, ออกข้างตั้งฉาก] — กึ่งกลางช่วงก่อน แล้วค่อยขยับทีละน้อย
+// ถ่วงน้ำหนักให้ "ออกข้าง" แพงกว่า → ยอมไถไปตามแนวมากกว่าลอยหนีเส้น (ป้ายต้องยังอ่านคู่กับเส้นรู้เรื่อง)
+const DIST_TRIES = [];
+for (const along of [0, 15, -15, 30, -30, 45, -45, 60, -60, 75, -75, 90, -90])
+  for (const off of [0, 12, -12, 20, -20]) DIST_TRIES.push([along, off]);
+DIST_TRIES.sort((p, q) => (Math.abs(p[0]) + Math.abs(p[1]) * 1.5) - (Math.abs(q[0]) + Math.abs(q[1]) * 1.5));
+
 // แปลง chainage → "X+YYY" (dp = ทศนิยมของเมตร · default 0 = หัวเจาะ/popup, 3 = ป้ายปล่องที่ต้องการค่าสำรวจเต็ม)
 function fmtCH(ch, dp = 0) {
   const km = Math.floor(ch / 1000);
@@ -254,18 +261,16 @@ export default function AlignmentMapView({ segmentRecords = [], machine = "TBM1"
           new maplibregl.Marker({ element: el, anchor: "center" }).setLngLat(lngLatAtCh(mid)).addTo(map);
           // เก็บ 2 จุดคร่อมกึ่งกลางไว้หามุมของเส้นบนจอ (ต้องอยู่ในช่วงเสมอ → เผื่อไม่เกิน 1/4 ของช่วง)
           const half = Math.min(60, Math.abs(a.ch - b.ch) / 4);
-          distLabels.push({ lab: el.querySelector(".lab"), p1: lngLatAtCh(mid + half), p2: lngLatAtCh(mid - half) });
-          // สำคัญน้อยสุด + ไม่มีรูปแบบย่อ → ถ้าจะทับใคร ซ่อนตัวเองทิ้งเลย
-          shaftMarkersRef.current.push({ el, priority: 9, noMini: true });
+          distLabels.push({ el, lab: el.querySelector(".lab"), rot: 0, p1: lngLatAtCh(mid + half), p2: lngLatAtCh(mid - half) });
         });
 
         // หมุนป้ายระยะให้ทาบเส้น — map.project() ให้พิกัดจอจริง จึงรวมผลของ bearing + pitch มาให้แล้ว ไม่ต้องคิดเอง
-        // ต้องเรียก "ก่อน" วัดกรอบกันทับเสมอ เพราะหมุนแล้วกรอบเปลี่ยน
         const rotateDistLabels = () => {
           distLabels.forEach((d) => {
             const s1 = map.project(d.p1), s2 = map.project(d.p2);
             let deg = (Math.atan2(s2.y - s1.y, s2.x - s1.x) * 180) / Math.PI;
             if (deg > 90) deg -= 180; else if (deg < -90) deg += 180; // กันตัวหนังสือกลับหัว
+            d.rot = deg;
             d.lab.style.transform = `rotate(${deg}deg)`;
           });
         };
@@ -428,13 +433,14 @@ export default function AlignmentMapView({ segmentRecords = [], machine = "TBM1"
 
         // ── ป้ายกันทับแบบ dynamic: เต็มเป็น default · ย่อตัว priority ต่ำเมื่อจะทับ (ทุก pan/zoom/ขนาดจอ) ──
         const GAP = 4; // เผื่อระยะกันชิด (px)
+
         // ไล่ทีละขั้นจนไม่มีคู่ไหนทับ: เต็ม → ย่อชื่อสั้น (.mini) → ซ่อนป้ายเหลือจุด (.hidden)
         // แต่ละ pass แก้ 1 คู่แล้ววัด rect ใหม่ (จับกรณี mini แล้วยังทับ → ย่ออีกตัว/ซ่อน)
         const resolveShaftLabels = () => {
           const arr = shaftMarkersRef.current;
           if (!arr.length) return;
           arr.forEach((m) => { if (!m.fixed) m.el.classList.remove("mini", "hidden"); });
-          const canMini = (m) => !m.fixed && !m.noMini && !m.el.classList.contains("mini") && !m.el.classList.contains("hidden");
+          const canMini = (m) => !m.fixed && !m.el.classList.contains("mini") && !m.el.classList.contains("hidden");
           const canHide = (m) => !m.fixed && !m.el.classList.contains("hidden");
           for (let pass = 0; pass < 10; pass++) {
             // กล่องหัวเจาะไม่มี .lab → วัดจากตัว element เอง
@@ -449,9 +455,7 @@ export default function AlignmentMapView({ segmentRecords = [], machine = "TBM1"
                 const lo = arr[i].priority >= arr[j].priority ? arr[i] : arr[j]; // สำคัญน้อยกว่า (ย่อ/ซ่อนก่อน)
                 const hi = lo === arr[i] ? arr[j] : arr[i];
                 // fixed (กล่องหัวเจาะ) ย่อ/ซ่อนไม่ได้ → ให้อีกฝั่งหลบแทน
-                // noMini (ป้ายระยะ) ไม่มีรูปแบบย่อ → ซ่อนตัวเองก่อน อย่าไปย่อป้ายอาคารที่สำคัญกว่า
-                if (lo.noMini && canHide(lo)) lo.el.classList.add("hidden");
-                else if (canMini(lo)) lo.el.classList.add("mini");
+                if (canMini(lo)) lo.el.classList.add("mini");
                 else if (canMini(hi)) hi.el.classList.add("mini");
                 else if (canHide(lo)) lo.el.classList.add("hidden");
                 else if (canHide(hi)) hi.el.classList.add("hidden");
@@ -463,10 +467,63 @@ export default function AlignmentMapView({ segmentRecords = [], machine = "TBM1"
             if (!acted) break;
           }
         };
-        // แผนที่ขยับ → หมุนป้ายระยะตามเส้นก่อน แล้วค่อยวัดกรอบจัดป้ายกันทับ (ลำดับสำคัญ)
-        // applyHead ไม่ต้องหมุน (แผนที่ไม่ได้ขยับ ขยับแค่กล่องหัวเจาะ) → ref ชี้ไปที่ resolve อย่างเดียวพอ
-        const refreshLabels = () => { rotateDistLabels(); resolveShaftLabels(); };
-        resolveLabelsRef.current = resolveShaftLabels;
+        // ── วางป้ายระยะ — ทำ "หลัง" ป้ายอาคารจัดตัวเสร็จ เพราะต้องรู้กล่องสุดท้ายก่อนถึงจะหลบถูก ──
+        // ป้ายระยะเป็นริบบิ้นบางที่หมุน → วัดด้วยกรอบแนวแกนไม่ได้ (หมุน 62° ทำกรอบสูง 79px ทั้งที่ตัวหนังสือหนา 20px
+        //   = ตัดสินว่าทับทั้งที่ยังไม่แตะ) จึงวัด 4 มุมจริงแล้วเทียบด้วย SAT
+        // ที่มุม "ดูทั้งแนว" ป้ายอาคาร+กล่องหัวเจาะกินพื้นที่เกือบหมด — วัดจริงแล้วกึ่งกลางช่วงไม่ว่าง 2 ใน 3 ช่วง
+        //   → ไถไปตามแนว/ออกข้างเล็กน้อยหาที่ว่าง (แบบก่อสร้างก็เลื่อนตัวเลขหนีเส้นบอกขนาดแบบนี้)
+        // หาที่ว่างด้วยคณิตศาสตร์ล้วน (ไม่แตะ DOM ต่อ candidate) → วัด rect ครั้งเดียวต่อป้าย
+        const rectCorners = (el) => {
+          const r = el.getBoundingClientRect();
+          return [{ x: r.left, y: r.top }, { x: r.right, y: r.top }, { x: r.right, y: r.bottom }, { x: r.left, y: r.bottom }];
+        };
+        // สี่เหลี่ยมสองอันทับกันไหม (SAT) — เจอแกนที่แยกกันได้แม้แกนเดียว = ไม่ทับ
+        const boxesOverlap = (A, B) => {
+          for (const poly of [A, B]) {
+            for (let i = 0; i < poly.length; i++) {
+              const p = poly[i], q = poly[(i + 1) % poly.length];
+              const L = Math.hypot(q.x - p.x, q.y - p.y);
+              if (!L) continue;
+              const nx = -(q.y - p.y) / L, ny = (q.x - p.x) / L; // ตั้งฉากกับด้านนี้
+              let a0 = Infinity, a1 = -Infinity, b0 = Infinity, b1 = -Infinity;
+              for (const v of A) { const d = v.x * nx + v.y * ny; if (d < a0) a0 = d; if (d > a1) a1 = d; }
+              for (const v of B) { const d = v.x * nx + v.y * ny; if (d < b0) b0 = d; if (d > b1) b1 = d; }
+              if (Math.min(a1, b1) - Math.max(a0, b0) <= -GAP) return false;
+            }
+          }
+          return true;
+        };
+        const placeDistLabels = () => {
+          // สิ่งกีดขวาง = ป้ายอาคารที่ยังโชว์ + กล่องหัวเจาะ · แล้วสะสมป้ายระยะที่วางไปแล้วเข้าไปด้วย
+          // (ตอนซูมออกลึก ช่วงบีบเข้าหากันจนป้ายระยะชนกันเอง — ถ้าไม่สะสมจะทับกันเอง)
+          const obstacles = shaftMarkersRef.current
+            .filter((m) => !m.el.classList.contains("hidden"))
+            .map((m) => rectCorners(m.el.querySelector(".lab") || m.el));
+          distLabels.forEach((d) => {
+            d.el.classList.remove("hidden");
+            d.lab.style.transform = `rotate(${d.rot}deg)`; // ล้าง translate เดิมก่อนวัดจุดกลางฐาน
+            const r = d.lab.getBoundingClientRect();
+            if (!r.width) return; // ป้ายไม่มีตัวตน (เช่นถูกซ่อนด้วย CSS จอแคบ) → ไม่ต้องจัด
+            const cx = (r.left + r.right) / 2, cy = (r.top + r.bottom) / 2;
+            const hw = d.lab.offsetWidth / 2, hh = d.lab.offsetHeight / 2; // ขนาด "ก่อนหมุน"
+            const rad = (d.rot * Math.PI) / 180, c = Math.cos(rad), s = Math.sin(rad);
+            const boxAt = (dx, dy) => [[-hw, -hh], [hw, -hh], [hw, hh], [-hw, hh]]
+              .map(([x, y]) => ({ x: cx + dx + x * c - y * s, y: cy + dy + x * s + y * c }));
+            let placed = null;
+            for (const [along, off] of DIST_TRIES) {
+              const dx = c * along - s * off, dy = s * along + c * off; // ตามแนว + ตั้งฉาก → พิกัดจอ
+              const box = boxAt(dx, dy);
+              if (!obstacles.some((o) => boxesOverlap(box, o))) { placed = [dx, dy]; obstacles.push(box); break; }
+            }
+            if (placed) d.lab.style.transform = `translate(${placed[0].toFixed(1)}px, ${placed[1].toFixed(1)}px) rotate(${d.rot}deg)`;
+            else d.el.classList.add("hidden"); // ไม่มีที่ว่างจริง ๆ → ซ่อน ดีกว่าทับจนอ่านไม่ออก
+          });
+        };
+
+        // แผนที่ขยับ → หมุนป้ายระยะก่อน → ป้ายอาคารจัดตัว → ป้ายระยะหาที่วางจากผลลัพธ์นั้น (ลำดับสำคัญ)
+        // applyHead (กล่องหัวเจาะขยับ) ไม่ต้องหมุนใหม่ แต่ต้องวางป้ายระยะใหม่ เพราะกล่องหัวเจาะเป็นสิ่งกีดขวาง
+        const refreshLabels = () => { rotateDistLabels(); resolveShaftLabels(); placeDistLabels(); };
+        resolveLabelsRef.current = () => { resolveShaftLabels(); placeDistLabels(); };
         let colPending = false;
         const scheduleResolve = () => {
           if (colPending) return;
@@ -544,7 +601,10 @@ export default function AlignmentMapView({ segmentRecords = [], machine = "TBM1"
     let minLng = 180, minLat = 90, maxLng = -180, maxLat = -90;
     LINE.forEach(([lng, lat]) => { minLng = Math.min(minLng, lng); maxLng = Math.max(maxLng, lng); minLat = Math.min(minLat, lat); maxLat = Math.max(maxLat, lat); });
     // เผื่อขอบให้ป้ายที่กางออก (IS4 ซ้าย · IS1 ขวา · IS2 บน) ไม่ยื่นพ้นกรอบแผนที่
-    map.fitBounds([[minLng, minLat], [maxLng, maxLat]], { padding: { top: 86, bottom: 74, left: 232, right: 150 }, pitch: 0, bearing: 0, duration: 1400 });
+    // bottom เผื่อเยอะกว่าด้านอื่น: IS4 อยู่ใต้สุด ป้ายกางซ้ายและจัดกึ่งกลางแนวตั้งกับจุด → ครึ่งล่างของป้าย
+    // ต้องพ้นแถวปุ่ม (.a3m-ctrl สูง 33px + ห่างขอบล่าง 16px) ซึ่งเป็น overlay ที่ไม่ได้อยู่ในระบบกันป้ายทับ
+    // ⚠ ค่านี้ผูกกับ "ความสูงของป้าย IS4" — เพิ่ม/ลดบรรทัดในป้ายเมื่อไร ต้องวัดใหม่ (บรรทัด CH ทำให้สูงขึ้น 16px)
+    map.fitBounds([[minLng, minLat], [maxLng, maxLat]], { padding: { top: 86, bottom: 96, left: 232, right: 150 }, pitch: 0, bearing: 0, duration: 1400 });
   }
 
   return (

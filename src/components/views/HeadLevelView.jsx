@@ -177,7 +177,7 @@ export default function HeadLevelView({ segmentRecords = [], machine = "TBM1", r
               <div className="flex gap-1.5 mb-3 print:hidden">
                 {RANGE_OPTIONS.map((o) => (
                   <button key={o.value}
-                    onClick={() => { setWinSize(o.value); setWinEnd(null); }}
+                    onClick={() => setWinSize(o.value)}
                     className={`text-[11px] font-bold px-2.5 py-1 rounded-input border transition-colors ${
                       winSize === o.value ? "bg-navy text-white border-navy" : "bg-surface text-ink-3 border-line hover:bg-cyan-tint"
                     }`}>{o.label}</button>
@@ -201,7 +201,7 @@ export default function HeadLevelView({ segmentRecords = [], machine = "TBM1", r
                       label={{ value: "ค่าเบี่ยง (mm)", angle: -90, position: "insideLeft", offset: 16, style: { fontSize: 12, fill: chartColors.axisLabel, fontWeight: "bold" } }} />
                     <Tooltip {...tooltipStyle} labelFormatter={(v) => `Ring P${v}`} />
                     {spans.map((s, i) => (
-                      <ReferenceArea key={i} x1={s.from} x2={s.to} fill={C_BREACH} fillOpacity={0.10} />
+                      <ReferenceArea key={i} x1={s.from - 0.5} x2={s.to + 0.5} fill={C_BREACH} fillOpacity={0.10} />
                     ))}
                     <ReferenceArea y1={-HEAD_TOL_MM} y2={HEAD_TOL_MM} fill="#2F5D50" fillOpacity={0.08} />
                     <ReferenceLine y={HEAD_TOL_MM} stroke="#2F5D50" strokeDasharray="5 5" label={{ position: "insideTopRight", value: `+${HEAD_TOL_MM}`, fill: "#2F5D50", fontSize: 11, fontWeight: "bold" }} />
@@ -215,7 +215,7 @@ export default function HeadLevelView({ segmentRecords = [], machine = "TBM1", r
               </div>
               <HeadTrendContext series={chartData} tol={HEAD_TOL_MM}
                 windowFrom={winFrom} windowTo={winTo}
-                onPick={(r) => setWinEnd(r)} />
+                onPick={(r) => { setWinEnd(r); if (winSize === 0) setWinSize(150); }} />
             </div>
 
             {/* ── VRT bar chart ── */}

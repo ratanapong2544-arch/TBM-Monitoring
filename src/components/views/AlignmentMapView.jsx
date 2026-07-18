@@ -144,6 +144,7 @@ export default function AlignmentMapView({ segmentRecords = [], machine = "TBM1"
   const pct = TOTAL_ROUTE_DISTANCE > 0 ? (drilledM / TOTAL_ROUTE_DISTANCE) * 100 : 0;
 
   const hostRef = useRef(null);
+  const wrapRef = useRef(null);       // .a3m-mapwrap — ตัวที่ขยายเต็มจอ (ครอบทั้งแผนที่+ปุ่ม overlay)
   const mapRef = useRef(null);
   const sceneApiRef = useRef(null);   // custom layer API { setHead(ch) }
   const calloutRef = useRef(null);
@@ -179,6 +180,9 @@ export default function AlignmentMapView({ segmentRecords = [], machine = "TBM1"
       });
       mapRef.current = map;
       map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), "bottom-right");
+      // ปุ่มขยายเต็มจอ — ขยาย .a3m-mapwrap (ครอบปุ่ม overlay + การ์ดหัวเจาะไปด้วย) ไม่ใช่แค่ canvas
+      // maplibregl มี FullscreenControl ให้ในตัว (Fullscreen API + ไอคอน + สลับ enter/exit) — ไม่ต้องเขียนเอง
+      if (wrapRef.current) map.addControl(new maplibregl.FullscreenControl({ container: wrapRef.current }), "top-right");
       map.scrollZoom.setWheelZoomRate(1 / 250);
 
       map.on("load", () => {
@@ -202,8 +206,7 @@ export default function AlignmentMapView({ segmentRecords = [], machine = "TBM1"
           el.className = `a3m-shaft ${d.cls}`;
           el.innerHTML =
             `<span class="dot ${s.id === "IS4" ? "launch" : ""}"></span>` +
-            `<div class="lab"><b>${s.name}</b>` +           // ชื่อย่อ — โชว์เฉพาะตอน collision ย่อ (.mini)
-            `<em>${s.fullName}</em>` +                      // ชื่อเต็ม = หัวหลักตอนเต็ม
+            `<div class="lab"><em>${s.fullName}</em>` +      // ชื่อเต็ม = หัวป้าย (ไม่มี "ชื่อย่อ" แล้ว — ป้ายชนกันซ่อนเหลือจุดเลย)
             `<small>${s.id} · ${s.role} · รับน้ำ ${s.capacity} ลบ.ม./วิ</small>` +
             `<span class="ch">CH ${fmtCH(s.ch, 3)}</span></div>`; // chainage ระบบแนว KMZ (ชุดเดียวกับ CH หัวเจาะ)
           new maplibregl.Marker({ element: el, anchor: d.anchor, offset: d.off }).setLngLat([s.lng, s.lat]).addTo(map);
@@ -434,13 +437,12 @@ export default function AlignmentMapView({ segmentRecords = [], machine = "TBM1"
         // ── ป้ายกันทับแบบ dynamic: เต็มเป็น default · ย่อตัว priority ต่ำเมื่อจะทับ (ทุก pan/zoom/ขนาดจอ) ──
         const GAP = 4; // เผื่อระยะกันชิด (px)
 
-        // ไล่ทีละขั้นจนไม่มีคู่ไหนทับ: เต็ม → ย่อชื่อสั้น (.mini) → ซ่อนป้ายเหลือจุด (.hidden)
-        // แต่ละ pass แก้ 1 คู่แล้ววัด rect ใหม่ (จับกรณี mini แล้วยังทับ → ย่ออีกตัว/ซ่อน)
+        // ไล่ทีละขั้นจนไม่มีคู่ไหนทับ: เต็ม → ซ่อนป้ายเหลือจุด (.hidden) · ไม่มี "ชื่อย่อ" (.mini) แล้ว (user ขอเอาออก)
+        // แต่ละ pass แก้ 1 คู่แล้ววัด rect ใหม่ (จับกรณีซ่อนตัวหนึ่งแล้วยังมีคู่อื่นทับ)
         const resolveShaftLabels = () => {
           const arr = shaftMarkersRef.current;
           if (!arr.length) return;
-          arr.forEach((m) => { if (!m.fixed) m.el.classList.remove("mini", "hidden"); });
-          const canMini = (m) => !m.fixed && !m.el.classList.contains("mini") && !m.el.classList.contains("hidden");
+          arr.forEach((m) => { if (!m.fixed) m.el.classList.remove("hidden"); });
           const canHide = (m) => !m.fixed && !m.el.classList.contains("hidden");
           for (let pass = 0; pass < 10; pass++) {
             // กล่องหัวเจาะไม่มี .lab → วัดจากตัว element เอง
@@ -452,12 +454,10 @@ export default function AlignmentMapView({ segmentRecords = [], machine = "TBM1"
               if (!a || !b) continue; // ป้ายที่ซ่อนแล้ว ไม่นับ
               if (Math.min(a.right, b.right) - Math.max(a.left, b.left) > -GAP &&
                   Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > -GAP) {
-                const lo = arr[i].priority >= arr[j].priority ? arr[i] : arr[j]; // สำคัญน้อยกว่า (ย่อ/ซ่อนก่อน)
+                const lo = arr[i].priority >= arr[j].priority ? arr[i] : arr[j]; // สำคัญน้อยกว่า (ซ่อนก่อน)
                 const hi = lo === arr[i] ? arr[j] : arr[i];
-                // fixed (กล่องหัวเจาะ) ย่อ/ซ่อนไม่ได้ → ให้อีกฝั่งหลบแทน
-                if (canMini(lo)) lo.el.classList.add("mini");
-                else if (canMini(hi)) hi.el.classList.add("mini");
-                else if (canHide(lo)) lo.el.classList.add("hidden");
+                // fixed (กล่องหัวเจาะ) ซ่อนไม่ได้ → ให้อีกฝั่งหลบแทน · ป้ายชนกัน = ซ่อนตัวสำคัญน้อยกว่าเหลือจุด
+                if (canHide(lo)) lo.el.classList.add("hidden");
                 else if (canHide(hi)) hi.el.classList.add("hidden");
                 else continue; // ปรับไม่ได้ทั้งคู่ → ข้ามไปคู่อื่น
                 acted = true;
@@ -532,6 +532,7 @@ export default function AlignmentMapView({ segmentRecords = [], machine = "TBM1"
         };
         map.on("move", scheduleResolve);
         map.on("moveend", refreshLabels);
+        map.on("resize", scheduleResolve); // เข้า/ออกเต็มจอ → ขนาดแผนที่เปลี่ยน → จัดป้ายใหม่
         refreshLabels();
 
         applyHead(headChRef.current);
@@ -611,8 +612,9 @@ export default function AlignmentMapView({ segmentRecords = [], machine = "TBM1"
     <div className="a3m-root max-w-full mx-auto animate-fade-in">
       <style>{CSS}</style>
 
-      {/* map + overlay ทั้งหมด อยู่ใน wrapper เดียว → ปุ่ม/ป้าย absolute เกาะแผนที่ ไม่หลุดไปทับการ์ดใต้แผนที่ */}
-      <div className="a3m-mapwrap">
+      {/* map + overlay ทั้งหมด อยู่ใน wrapper เดียว → ปุ่ม/ป้าย absolute เกาะแผนที่ ไม่หลุดไปทับการ์ดใต้แผนที่
+          + เป็นตัวที่ FullscreenControl ขยายเต็มจอ (ปุ่ม overlay ติดไปด้วย) */}
+      <div ref={wrapRef} className="a3m-mapwrap">
         <div ref={hostRef} className="a3m-stage" style={embedded ? { height: "clamp(420px, 56vh, 600px)", minHeight: "420px" } : undefined} />
 
         {/* header — ซ่อนเมื่อ embed (หน้า Dashboard มีหัวข้อ section อยู่แล้ว) */}
@@ -668,6 +670,12 @@ export default function AlignmentMapView({ segmentRecords = [], machine = "TBM1"
 const CSS = `
 .a3m-root{position:relative}
 .a3m-mapwrap{position:relative}
+/* เต็มจอ — .a3m-stage ต้องเต็มพื้นที่ (ทับ inline height:clamp ของ embedded ด้วย !important)
+   :fullscreen กับ :-webkit-full-screen ต้องแยกคนละ rule — ถ้ารวมด้วย comma แล้ว browser ไม่รู้จักตัวใดตัวหนึ่ง จะทิ้งทั้ง rule */
+.a3m-mapwrap:fullscreen{width:100%;height:100%;background:#0a1526}
+.a3m-mapwrap:-webkit-full-screen{width:100%;height:100%;background:#0a1526}
+.a3m-mapwrap:fullscreen .a3m-stage{height:100vh!important;min-height:0!important;border-radius:0;border:none}
+.a3m-mapwrap:-webkit-full-screen .a3m-stage{height:100vh!important;min-height:0!important;border-radius:0;border:none}
 .a3m-stage{position:relative;width:100%;height:78vh;min-height:480px;border-radius:12px;overflow:hidden;
   border:1px solid #E8E8E8;box-shadow:0 1px 2px rgba(12,44,101,.05),0 12px 32px rgba(12,44,101,.10)}
 .a3m-stage .maplibregl-ctrl-attrib{font-size:9px}
@@ -694,13 +702,10 @@ const CSS = `
 .a3m-shaft .lab{background:rgba(9,20,40,.92);border:1px solid rgba(255,255,255,.45);border-radius:8px;padding:5px 10px;max-width:230px;box-shadow:0 4px 14px rgba(0,0,0,.4);
   pointer-events:auto;cursor:grab;touch-action:none;user-select:none}
 .a3m-shaft .lab.grabbing{cursor:grabbing;border-color:rgba(255,255,255,.85);box-shadow:0 6px 20px rgba(0,0,0,.55)}
-.a3m-shaft .lab b{display:none;font-size:13px;font-weight:800;color:#fff;line-height:1.18;white-space:nowrap}
 .a3m-shaft .lab em{display:block;font-size:11.5px;font-style:normal;font-weight:800;color:#fff;line-height:1.22}
 .a3m-shaft .lab small{display:block;font-size:9.5px;color:#a8c6ec;line-height:1.3;margin-top:2px}
 .a3m-shaft .lab .ch{display:block;font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;color:#F4B740;line-height:1.3;margin-top:3px}
-/* dynamic collision — เต็ม(ชื่อเต็ม) → ย่อเหลือชื่อย่อ (.mini) → ซ่อนเหลือจุด (.hidden) */
-.a3m-shaft.mini .lab b{display:block}
-.a3m-shaft.mini .lab em,.a3m-shaft.mini .lab small,.a3m-shaft.mini .lab .ch{display:none}
+/* dynamic collision — เต็ม(ชื่อเต็ม) → ซ่อนเหลือจุด (.hidden) · ไม่มีชื่อย่อแล้ว */
 .a3m-shaft.hidden .lab{display:none}
 /* ป้ายระยะทางระหว่างปล่อง — ตัวหนังสือเปล่าทาบเส้น (ไม่มีกล่อง) · เงาหนาให้อ่านออกบนภาพดาวเทียม
    หมุนที่ .lab (ลูก) เท่านั้น — ห้ามหมุน marker root เพราะ maplibre เขียน transform ทับทุกเฟรม */
@@ -723,7 +728,6 @@ const CSS = `
   .a3m-ctrl{bottom:10px;left:8px;gap:6px}
   .a3m-ctrl button{font-size:10px;padding:5px 9px}
   .a3m-shaft .lab{padding:3px 7px;max-width:150px}
-  .a3m-shaft .lab b{font-size:11px}
   .a3m-shaft .lab em,.a3m-shaft .lab small,.a3m-shaft .lab .ch{display:none}
   .a3m-dist .lab{font-size:9px}
   .a3m-hdr{max-width:200px;padding:8px 11px}

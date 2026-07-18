@@ -80,11 +80,12 @@ export default function HeadCutter3D({ posture = null, machine = "TBM1", readOnl
       let cutterFace = null, raf = 0, ro = null, disposed = false;
 
       const applyPosture = (p) => {
-        const { pitchDeg, rollDeg, yawDeg } = headPostureAngles(p);
+        const { pitchDeg, yawDeg } = headPostureAngles(p);
         // +Z = แกนเจาะ (ชี้ไปทางซ้ายจอเมื่อกล้องอยู่แกน X) · pitch รอบ X, yaw รอบ Y, roll รอบ Z
         // sign ยืนยันด้วยการวัดพิกเซลจริงในเบราว์เซอร์ 2026-07-16:
         //   +15° → หัวสูงกว่าหาง 34.5px (เงย) · 0° → เท่ากันเป๊ะ · -15° → หัวต่ำกว่าหาง 28.5px (ก้ม)
-        tiltGroup.rotation.set(-pitchDeg * DEG, yawDeg * DEG, rollDeg * DEG);
+        // roll (Z) = 0 ตั้งใจ ไม่ใช่ลืมต่อ — เราไม่มีข้อมูล roll จริง (VRT = มุมงอข้อต่อ articulation ไม่ใช่การหมุน ดู headPosture.js)
+        tiltGroup.rotation.set(-pitchDeg * DEG, yawDeg * DEG, 0);
       };
       applyRef.current = applyPosture;
 

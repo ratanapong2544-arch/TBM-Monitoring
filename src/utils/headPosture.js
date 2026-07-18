@@ -10,8 +10,6 @@
 
 export const PITCH_MAX = 15;      // deg — มุมสูงสุดที่แสดง
 export const PITCH_REF_MM = 75;   // mm — จุดอิ่มตัว = p90 ของข้อมูลจริง (บังเอิญเท่า HEAD_TOL_MM แต่คนละความหมาย ห้ามผูกกัน)
-export const ROLL_GAIN = 20;      // vrt° → deg (roll)
-export const ROLL_MAX = 30;
 export const YAW_DEG_PER_MM = 0.10; // (headH - tailH) mm → deg (yaw, ซ้าย/ขวา)
 export const YAW_MAX = 18;
 
@@ -23,10 +21,9 @@ const clamp = (v, m) => Math.max(-m, Math.min(m, v));
 const pitchFromMM = (d) => Math.sign(d) * PITCH_MAX * Math.min(1, Math.sqrt(Math.abs(d) / PITCH_REF_MM));
 
 export function headPostureAngles(posture) {
-  if (!posture) return { pitchDeg: 0, rollDeg: 0, yawDeg: 0 };
+  if (!posture) return { pitchDeg: 0, yawDeg: 0 };
   return {
     pitchDeg: pitchFromMM(num(posture.headV) - num(posture.tailV)),
-    rollDeg: clamp(num(posture.vrt) * ROLL_GAIN, ROLL_MAX),
     yawDeg: clamp((num(posture.headH) - num(posture.tailH)) * YAW_DEG_PER_MM, YAW_MAX),
   };
 }

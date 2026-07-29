@@ -29,6 +29,7 @@ export async function writeServerSnapshot(db, machine, data, fetchedAt) {
   const previousKeys = Object.values(previous && previous.entityKeys || {}).flat();
   previousKeys.forEach(key => entities.delete(key));
   const entityKeys = {};
+  const committed = emptyServerData(machine);
 
   collections.forEach(([field, entityType]) => {
     const incoming = (data[field] || []).map(payload => recordFor(machine, field, entityType, payload));
@@ -41,14 +42,15 @@ export async function writeServerSnapshot(db, machine, data, fetchedAt) {
       return record;
     }).concat(retained.map(record => ({ ...record, payload: { ...record.payload, syncStatus: "pending" } })));
     entityKeys[field] = merged.map(record => record.key);
+    committed[field] = merged.map(record => record.payload);
     merged.forEach(record => entities.put(record));
   });
 
   const snapshot = { scopeKey: scopeKey(machine), machine, fetchedAt, entityKeys };
-  singletonKeys.forEach(key => { snapshot[key] = data[key]; });
+  singletonKeys.forEach(key => { snapshot[key] = data[key]; committed[key] = data[key]; });
   snapshots.put(snapshot);
   await complete(transaction);
-  return readServerSnapshot(db, machine);
+  return { ...committed, fetchedAt };
 }
 
 export async function readServerSnapshot(db, machine) {

@@ -34,6 +34,28 @@ test("preserves an entity referenced by a pending mutation domain key", async ()
   await expect(readServerSnapshot(db, "TBM1")).resolves.toEqual(expect.objectContaining({ segments: [expect.objectContaining({ ringNo: "P1", status: "local", syncStatus: "pending" })] }));
 });
 
+test("each overlapping write returns its own committed snapshot even when a later write wins the database", async () => {
+  const db = await openOfflineDb();
+  const originalTransaction = db.transaction.bind(db);
+  const first = normalizeServerData({ segments: [{ ringNo: "P1", status: "first" }] }, "TBM1");
+  const second = normalizeServerData({ segments: [{ ringNo: "P2", status: "second" }] }, "TBM1");
+  let secondWrite;
+  let intercepted = false;
+  db.transaction = (stores, mode) => {
+    if (!intercepted && mode === "readonly" && Array.from(stores).includes("snapshots")) {
+      intercepted = true;
+      secondWrite = writeServerSnapshot(db, "TBM1", second, "second");
+    }
+    return originalTransaction(stores, mode);
+  };
+
+  const firstResult = await writeServerSnapshot(db, "TBM1", first, "first");
+  await secondWrite;
+
+  expect(firstResult).toEqual(expect.objectContaining({ fetchedAt: "first", segments: [expect.objectContaining({ ringNo: "P1", status: "first" })] }));
+  await expect(readServerSnapshot(db, "TBM1")).resolves.toEqual(expect.objectContaining({ fetchedAt: "second", segments: [expect.objectContaining({ ringNo: "P2", status: "second" })] }));
+});
+
 test("returns no snapshot before one has been written", async () => {
   await expect(readServerSnapshot(await openOfflineDb(), "TBM1")).resolves.toBeNull();
 });

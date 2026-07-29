@@ -7,3 +7,6 @@ build
 
 # superpowers scratch (SDD ledger, brainstorm visual-companion temp)
 .superpowers/
+
+# local feature worktrees
+.worktrees/

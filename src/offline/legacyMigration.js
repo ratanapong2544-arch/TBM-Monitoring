@@ -18,6 +18,8 @@ const LEGACY_TYPES = {
   instSchedules: { entityType: "instSchedule", serverKeys: ["instSchedules", "schedules"] },
 };
 
+const CONFIG_ENTITY_TYPES = new Set(["planConfig", "distPlanConfig", "routeConfig"]);
+
 function requestResult(request) {
   return new Promise((resolve, reject) => {
     request.onsuccess = () => resolve(request.result);
@@ -43,20 +45,40 @@ function recordsFor(value) {
   return Array.isArray(value) ? value : [value];
 }
 
+function parseConfigValue(value, definition) {
+  if (!CONFIG_ENTITY_TYPES.has(definition.entityType) || typeof value !== "string") return value;
+  try {
+    return JSON.parse(value);
+  } catch (error) {
+    return value;
+  }
+}
+
 function serverRecords(serverData, definition) {
   if (Array.isArray(serverData)) return serverData;
   return definition.serverKeys.flatMap(key => {
-    const value = serverData && serverData[key];
+    const value = parseConfigValue(serverData && serverData[key], definition);
     if (value == null) return [];
-    if (definition.machine && value && !Array.isArray(value) && value[definition.machine] != null) return recordsFor(value[definition.machine]);
+    if (definition.machine && value && !Array.isArray(value) && value[definition.machine] != null) {
+      return recordsFor(parseConfigValue(value[definition.machine], definition));
+    }
     return recordsFor(value);
   });
 }
 
 function keyFor(record, definition) {
+  if (CONFIG_ENTITY_TYPES.has(definition.entityType)) {
+    return `domain:${makeDomainKey({ entityType: definition.entityType, machine: record && record.machine || definition.machine, recordId: record && record.id, payload: record })}`;
+  }
   return record && record.id != null
     ? `id:${record.id}`
     : `domain:${makeDomainKey({ entityType: definition.entityType, machine: record && record.machine || definition.machine, recordId: record && record.id, payload: record })}`;
+}
+
+function comparableRecord(record, definition) {
+  if (!CONFIG_ENTITY_TYPES.has(definition.entityType) || !record || typeof record !== "object" || Array.isArray(record)) return record;
+  const { id, ...config } = record;
+  return config;
 }
 
 export async function stageLegacyLocalStorage(db, storage) {
@@ -100,7 +122,7 @@ export async function reconcileLegacyStage(db, serverData) {
         payload: localRecord,
       });
       const remoteRecord = remoteByKey.get(keyFor(localRecord, definition));
-      if (remoteRecord && stableJson(localRecord) === stableJson(remoteRecord)) return;
+      if (remoteRecord && stableJson(comparableRecord(localRecord, definition)) === stableJson(comparableRecord(remoteRecord, definition))) return;
       allConfirmed = false;
       conflictStore.put({
         conflictId: `legacy:${legacyKey}:${domainKey}`,

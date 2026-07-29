@@ -22,6 +22,7 @@ function readAll(db, storeName) {
 }
 
 beforeEach(async () => {
+  window.localStorage.clear();
   await deleteOfflineDbForTests();
 });
 
@@ -79,6 +80,67 @@ test("staged local differences become conflicts without auto-enqueuing", async (
   expect(await readAll(db, "conflicts")).toEqual([expect.objectContaining({
     reason: "legacy_local_difference",
     domainKey: "issue:GLOBAL:issue-1"
+  })]);
+  expect(await readAll(db, "mutations")).toEqual([]);
+});
+
+test("confirms plan config by domain when equivalent records have different ids", async () => {
+  const db = await openOfflineDb();
+  const storage = window.localStorage;
+  storage.setItem("tbmPlanConfig", JSON.stringify({ id: "legacy-plan", totalRings: 450, startRing: 1 }));
+  await stageLegacyLocalStorage(db, storage);
+
+  await reconcileLegacyStage(db, {
+    planConfig: { id: "server-plan", totalRings: 450, startRing: 1 }
+  });
+
+  expect(await readRecord(db, "syncMeta", "legacy:tbmPlanConfig")).toMatchObject({ confirmed: true });
+  expect(await readAll(db, "conflicts")).toEqual([]);
+  expect(await readAll(db, "mutations")).toEqual([]);
+});
+
+test("confirms a JSON-string encoded plan config without enqueuing", async () => {
+  const db = await openOfflineDb();
+  const storage = window.localStorage;
+  storage.setItem("tbmPlanConfig", JSON.stringify({ totalRings: 450, startRing: 1 }));
+  await stageLegacyLocalStorage(db, storage);
+
+  await reconcileLegacyStage(db, {
+    planConfig: JSON.stringify({ totalRings: 450, startRing: 1 })
+  });
+
+  expect(await readRecord(db, "syncMeta", "legacy:tbmPlanConfig")).toMatchObject({ confirmed: true });
+  expect(await readAll(db, "conflicts")).toEqual([]);
+  expect(await readAll(db, "mutations")).toEqual([]);
+});
+
+test("confirms a JSON-string encoded distance config without enqueuing", async () => {
+  const db = await openOfflineDb();
+  const storage = window.localStorage;
+  storage.setItem("tbmDistancePlanConfig", JSON.stringify({ targetMeters: 1200, startChainage: 100 }));
+  await stageLegacyLocalStorage(db, storage);
+
+  await reconcileLegacyStage(db, {
+    distPlanConfig: JSON.stringify({ targetMeters: 1200, startChainage: 100 })
+  });
+
+  expect(await readRecord(db, "syncMeta", "legacy:tbmDistancePlanConfig")).toMatchObject({ confirmed: true });
+  expect(await readAll(db, "conflicts")).toEqual([]);
+  expect(await readAll(db, "mutations")).toEqual([]);
+});
+
+test("treats an invalid JSON-string config as a nonmatching legacy difference", async () => {
+  const db = await openOfflineDb();
+  const storage = window.localStorage;
+  storage.setItem("tbmPlanConfig", JSON.stringify({ totalRings: 450 }));
+  await stageLegacyLocalStorage(db, storage);
+
+  await reconcileLegacyStage(db, { planConfig: "{invalid" });
+
+  expect(await readRecord(db, "syncMeta", "legacy:tbmPlanConfig")).toMatchObject({ confirmed: false });
+  expect(await readAll(db, "conflicts")).toEqual([expect.objectContaining({
+    reason: "legacy_local_difference",
+    domainKey: "planConfig:TBM1"
   })]);
   expect(await readAll(db, "mutations")).toEqual([]);
 });

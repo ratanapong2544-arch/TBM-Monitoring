@@ -2,7 +2,7 @@ import { fetchServerSnapshot as defaultFetchServerSnapshot } from "./apiTranspor
 import { openOfflineDb as defaultOpenDb } from "./db";
 import { getOrCreateDeviceId as defaultGetDeviceId } from "./device";
 import { makeDomainKey } from "./domainKey";
-import { claimDueMutations, confirmMutation, getConflict, getEntity, getMutation, getSyncCounts, listDueMutations, putOptimisticMutation, resolveStoredConflict, saveConflict, setLastSyncedAt, updateMutation } from "./mutationStore";
+import { claimDueMutations, confirmMutation, getConflict, getEntity, getMutation, getSyncCounts, listDueMutations, putOptimisticMutation, resolveConflictAndEnqueue, resolveStoredConflict, saveConflict, setLastSyncedAt, updateMutation } from "./mutationStore";
 import { MUTATION_STATUS } from "./schema";
 import { emptyServerData, normalizeServerData as defaultNormalizeServerData } from "./normalizeServerData";
 import { readServerSnapshot as defaultReadServerSnapshot, writeServerSnapshot as defaultWriteServerSnapshot } from "./snapshotStore";
@@ -85,12 +85,31 @@ export function createRepository(deps = {}) {
     }
     if (strategy === "manual" && (!payload || typeof payload !== "object")) throw new Error("Manual conflict resolution requires payload");
     const nextPayload = strategy === "local" ? (original && original.payload) : payload;
-    const queued = await mutate({
+    const successorInput = {
       entityType: original.entityType, operation: original.operation, machine: original.machine, recordId: original.recordId,
       domainKey: original.domainKey, baseVersion: conflict.currentVersion, payload: nextPayload, actorId: original.actorId,
+    };
+    const domainKey = requireMutationEnvelope(successorInput);
+    const resolvedAt = now();
+    const successor = {
+      ...successorInput,
+      requestId: createRequestId(),
+      domainKey,
+      deviceId: await getDeviceId(db),
+      createdAtLocal: resolvedAt,
+    };
+    const { mutation } = await resolveConflictAndEnqueue(db, {
+      conflictId,
+      originalRequestId: original.requestId,
+      successor,
+      resolvedAt,
+      strategy,
+      before,
+      after: nextPayload,
     });
-    await resolveStoredConflict(db, conflictId, { resolvedAt: now(), strategy, before, after: nextPayload, resolutionRequestId: queued.requestId });
-    return { status: "pending", requestId: queued.requestId };
+    emit({ type: "mutation", requestId: mutation.requestId, status: mutation.status, domainKey });
+    emit({ type: "conflict", requestId: original.requestId, conflictId, status: "resolved" });
+    return { status: MUTATION_STATUS.PENDING, requestId: mutation.requestId };
   }
 
   return {

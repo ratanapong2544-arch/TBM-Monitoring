@@ -14,6 +14,7 @@ export const MUTATION_STATUS = Object.freeze({
   PENDING: "pending",
   SYNCING: "syncing",
   SYNCED: "synced",
+  RESOLVED: "resolved",
   VALIDATION_ERROR: "validation_error",
   CONFLICT: "conflict",
   PERMANENT_ERROR: "permanent_error",

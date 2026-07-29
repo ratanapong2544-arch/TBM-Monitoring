@@ -84,7 +84,7 @@ export async function listDueMutations(db, now) {
 }
 
 function isTerminal(mutation) {
-  return mutation.status === MUTATION_STATUS.SYNCED;
+  return mutation.status === MUTATION_STATUS.SYNCED || mutation.status === MUTATION_STATUS.RESOLVED;
 }
 
 function domainHeads(mutations) {
@@ -151,7 +151,7 @@ export async function confirmMutation(db, requestId, response, { owner } = {}) {
   mutationStore.put(next);
   const newestOutstanding = mutations
     .map(item => item.requestId === requestId ? next : item)
-    .filter(item => item.domainKey === mutation.domainKey && item.status !== MUTATION_STATUS.SYNCED)
+    .filter(item => item.domainKey === mutation.domainKey && !isTerminal(item))
     .sort((left, right) => (right.queueSequence || 0) - (left.queueSequence || 0))[0];
   if (newestOutstanding) {
     entityStore.put(optimisticEntity(newestOutstanding));
@@ -205,6 +205,56 @@ export async function resolveStoredConflict(db, conflictId, update) {
   store.put(next);
   await complete(transaction);
   return next;
+}
+
+export async function resolveConflictAndEnqueue(db, { conflictId, originalRequestId, successor, resolvedAt, strategy, before, after }) {
+  const transaction = db.transaction([STORES.entities, STORES.mutations, STORES.conflicts, STORES.syncMeta], "readwrite");
+  const entities = transaction.objectStore(STORES.entities);
+  const mutations = transaction.objectStore(STORES.mutations);
+  const conflicts = transaction.objectStore(STORES.conflicts);
+  const sequenceStore = transaction.objectStore(STORES.syncMeta);
+  const [conflict, original, sequence] = await Promise.all([
+    requestResult(conflicts.get(conflictId)),
+    requestResult(mutations.get(originalRequestId)),
+    requestResult(sequenceStore.get("mutationSequence")),
+  ]);
+  if (!conflict || conflict.status !== "open" || !original || original.requestId !== conflict.requestId || original.status !== MUTATION_STATUS.CONFLICT) {
+    transaction.abort();
+    throw new Error(`Unknown open conflict ${conflictId}`);
+  }
+  const mutation = {
+    ...successor,
+    status: MUTATION_STATUS.PENDING,
+    attemptCount: 0,
+    nextAttemptAt: null,
+    lastError: null,
+    queueSequence: (sequence && sequence.value || 0) + 1,
+  };
+  const entity = optimisticEntity(mutation);
+  const resolvedOriginal = {
+    ...original,
+    status: MUTATION_STATUS.RESOLVED,
+    resolvedAt,
+    strategy,
+    resolutionRequestId: mutation.requestId,
+    syncOwner: null,
+    leaseExpiresAt: null,
+  };
+  mutations.put(resolvedOriginal);
+  mutations.put(mutation);
+  entities.put(entity);
+  conflicts.put({
+    ...conflict,
+    status: "resolved",
+    resolvedAt,
+    strategy,
+    before,
+    after,
+    resolutionRequestId: mutation.requestId,
+  });
+  sequenceStore.put({ key: "mutationSequence", value: mutation.queueSequence });
+  await complete(transaction);
+  return { mutation, entity, original: resolvedOriginal };
 }
 
 export async function getSyncCounts(db) {

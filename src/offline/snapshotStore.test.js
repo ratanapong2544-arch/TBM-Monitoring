@@ -85,3 +85,14 @@ test.each(["validation_error", "conflict"])("keeps newer %s local state after co
 
   await expect(readServerSnapshot(db, "TBM1")).resolves.toEqual(expect.objectContaining({ segments: [expect.objectContaining({ status: `newer-${status}`, syncStatus: status })] }));
 });
+
+test("does not preserve a resolved mutation's optimistic payload during refresh", async () => {
+  const db = await openOfflineDb();
+  const mutation = { requestId: "m-resolved", entityType: "segment", operation: "update", machine: "TBM1", recordId: "segment-1", domainKey: "segment:TBM1:P1:Permanent", baseVersion: 1, deviceId: "device", createdAtLocal: "2026-07-29T00:00:00.000Z", payload: { ringNo: "P1", installType: "Permanent", status: "local" } };
+  await putOptimisticMutation(db, mutation);
+  await updateMutation(db, mutation.requestId, { status: "resolved" });
+
+  await writeServerSnapshot(db, "TBM1", normalizeServerData({ segments: [{ ringNo: "P1", status: "server" }] }, "TBM1"), "refresh");
+
+  await expect(readServerSnapshot(db, "TBM1")).resolves.toEqual(expect.objectContaining({ segments: [expect.objectContaining({ status: "server" })] }));
+});

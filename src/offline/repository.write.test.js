@@ -84,3 +84,23 @@ test.each(["pending", "validation_error", "conflict"])("keeps a newer %s optimis
 
   await expect(repository.getEntity(first.optimisticRecord.domainKey)).resolves.toMatchObject({ payload: expect.objectContaining({ status: `newer-${status}`, syncStatus: status }) });
 });
+
+test.each([
+  ["local", undefined, "local"],
+  ["manual", { ringNo: "P1", installType: "Permanent", status: "manual" }, "manual"],
+])("resolves a %s conflict atomically into a terminal original and current-version successor", async (strategy, payload, expectedStatus) => {
+  const ids = jest.fn().mockReturnValueOnce("request-1").mockReturnValueOnce("request-2");
+  const repository = makeRepository({ createRequestId: ids });
+  const original = await repository.mutate(segmentInput);
+  await repository.applyConflict(original.requestId, {
+    status: "conflict", requestId: original.requestId, serverRecord: { recordId: "segment-1", entityType: "segment", machine: "TBM1", domainKey: original.optimisticRecord.domainKey, status: "server" },
+    localRecord: original.optimisticRecord, conflictingFields: ["status"], currentVersion: 9,
+  });
+
+  const result = await repository.resolveConflict(original.requestId, { strategy, payload });
+
+  expect(result).toEqual({ status: "pending", requestId: "request-2" });
+  await expect(repository.getMutation(original.requestId)).resolves.toMatchObject({ status: "resolved", resolvedAt: expect.any(String), strategy, resolutionRequestId: "request-2" });
+  await expect(repository.getConflict(original.requestId)).resolves.toMatchObject({ status: "resolved", strategy, resolvedAt: expect.any(String), resolutionRequestId: "request-2", before: expect.any(Object), after: expect.any(Object) });
+  await expect(repository.getMutation("request-2")).resolves.toMatchObject({ status: "pending", baseVersion: 9, payload: expect.objectContaining({ status: expectedStatus }) });
+});

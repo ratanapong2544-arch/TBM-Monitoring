@@ -226,3 +226,22 @@ test("does not claim a later same-domain mutation before an earlier retry is due
   await runner.runNow();
   expect(calls).toEqual(["request-1", "request-3", "request-1", "request-2"]);
 });
+
+test.each([
+  ["local", undefined, "local"],
+  ["manual", { ringNo: "P1", installType: "Permanent", status: "manual" }, "manual"],
+])("syncs the %s conflict-resolution successor against currentVersion", async (strategy, payload, expectedStatus) => {
+  const ids = jest.fn().mockReturnValueOnce("request-1").mockReturnValueOnce("request-2");
+  const repository = createRepository({ openDb: openOfflineDb, now: () => "2026-07-29T00:00:00.000Z", getDeviceId: async () => "device-1", createRequestId: ids });
+  const original = await repository.mutate(input("P1"));
+  await repository.applyConflict(original.requestId, { status: "conflict", requestId: original.requestId, serverRecord: { recordId: "segment-P1", entityType: "segment", machine: "TBM1", domainKey: original.optimisticRecord.domainKey, status: "server" }, localRecord: original.optimisticRecord, conflictingFields: ["status"], currentVersion: 9 });
+  const successor = await repository.resolveConflict(original.requestId, { strategy, payload });
+  const postSyncMutation = jest.fn().mockResolvedValue({ status: "success", requestId: successor.requestId, record: { status: "confirmed" }, version: 10, updatedAt: "2026-07-29T00:01:00.000Z" });
+  const runner = createSyncRunner({ repository, transport: { postSyncMutation }, clock: { now: () => Date.parse("2026-07-29T00:00:00.000Z") }, online: () => true, owner: "runner-a" });
+
+  await runner.runNow();
+
+  expect(postSyncMutation).toHaveBeenCalledWith(expect.objectContaining({ requestId: successor.requestId, baseVersion: 9, payload: expect.objectContaining({ status: expectedStatus }) }));
+  await expect(repository.getMutation(original.requestId)).resolves.toMatchObject({ status: "resolved" });
+  await expect(repository.getMutation(successor.requestId)).resolves.toMatchObject({ status: "synced" });
+});

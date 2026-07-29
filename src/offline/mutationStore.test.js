@@ -60,3 +60,14 @@ test("claims pending work for one owner and only permits takeover after lease ex
   await expect(claimDueMutations(db, { owner: "runner-b", now: 99, leaseMs: 100 })).resolves.toEqual([]);
   await expect(claimDueMutations(db, { owner: "runner-b", now: 101, leaseMs: 100 })).resolves.toEqual([expect.objectContaining({ requestId: "request-1", syncOwner: "runner-b" })]);
 });
+
+test("keeps a permanent error as the nonterminal head until a future explicit resolution exists", async () => {
+  const db = await openOfflineDb();
+  await putOptimisticMutation(db, mutation);
+  await putOptimisticMutation(db, { ...mutation, requestId: "request-2", payload: { ...mutation.payload, status: "later" } });
+  await updateMutation(db, mutation.requestId, { status: "permanent_error" });
+
+  await expect(listDueMutations(db, Date.parse(mutation.createdAtLocal))).resolves.toEqual([]);
+  await expect(claimDueMutations(db, { owner: "runner-a", now: Date.parse(mutation.createdAtLocal), leaseMs: 100 })).resolves.toEqual([]);
+  await expect(getMutation(db, "request-2")).resolves.toMatchObject({ status: "pending" });
+});

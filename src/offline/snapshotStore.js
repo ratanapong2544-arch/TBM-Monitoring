@@ -30,7 +30,13 @@ export async function writeServerSnapshot(db, machine, data, fetchedAt) {
     .filter(mutation => UNRESOLVED_STATUSES.has(mutation.status) && (mutation.status !== MUTATION_STATUS.SYNCING || !mutation.leaseExpiresAt || Date.parse(mutation.leaseExpiresAt) > Date.now()))
     .sort((left, right) => (left.queueSequence || 0) - (right.queueSequence || 0))
     .map(mutation => [mutation.domainKey, mutation]));
+  const terminalByDomain = new Map(pendingMutations
+    .filter(mutation => mutation.status === MUTATION_STATUS.SYNCED || mutation.status === MUTATION_STATUS.RESOLVED)
+    .sort((left, right) => (left.queueSequence || 0) - (right.queueSequence || 0))
+    .map(mutation => [mutation.domainKey, mutation.status]));
   const unresolvedStatus = domainKey => unresolvedByDomain.get(domainKey) && unresolvedByDomain.get(domainKey).status;
+  const terminalStatus = domainKey => terminalByDomain.get(domainKey);
+  const preserveLocal = record => Boolean(unresolvedStatus(record.domainKey)) || (!terminalStatus(record.domainKey) && UNRESOLVED_STATUSES.has(record.payload && record.payload.syncStatus));
   const localForDomain = (domainKey, entityType) => existing.find(record => record.domainKey === domainKey && record.entityType === entityType && record.key === `entity:optimistic:${domainKey}`) || existing.find(record => record.domainKey === domainKey && record.entityType === entityType);
   const preserve = (record, status) => ({ ...record, payload: { ...record.payload, syncStatus: status } });
   const previousKeys = Object.values(previous && previous.entityKeys || {}).flat();
@@ -41,12 +47,12 @@ export async function writeServerSnapshot(db, machine, data, fetchedAt) {
   collections.forEach(([field, entityType]) => {
     const incoming = (data[field] || []).map(payload => recordFor(machine, field, entityType, payload));
     const incomingDomains = new Set(incoming.map(record => record.domainKey));
-    const retained = existing.filter(record => record.machine === machine && record.entityType === entityType && (UNRESOLVED_STATUSES.has(record.payload && record.payload.syncStatus) || unresolvedStatus(record.domainKey)))
+    const retained = existing.filter(record => record.machine === machine && record.entityType === entityType && preserveLocal(record))
       .filter(record => !incomingDomains.has(record.domainKey));
     const merged = incoming.map(record => {
       const local = localForDomain(record.domainKey, entityType);
       const status = unresolvedStatus(record.domainKey) || local && local.payload && local.payload.syncStatus;
-      if (local && UNRESOLVED_STATUSES.has(status)) return preserve(local, status);
+      if (local && preserveLocal(local)) return preserve(local, status || local.payload.syncStatus);
       return record;
     }).concat(retained.map(record => preserve(record, unresolvedStatus(record.domainKey) || record.payload.syncStatus)));
     entityKeys[field] = merged.map(record => record.key);

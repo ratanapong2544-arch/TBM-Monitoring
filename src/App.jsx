@@ -2,8 +2,8 @@ import React, { useState, useEffect, useMemo, useRef } from "react";
 import { Loader2, AlertCircle, Activity, Clock } from "lucide-react";
 
 import { GAS_URL } from "./utils/constants";
-import { formatDisplayTime, formatDisplayDate } from "./utils/formatters";
-import { safeParseJSON, offsetRingNo, getRingNumeric } from "./utils/helpers";
+import { formatDisplayDate } from "./utils/formatters";
+import { offsetRingNo, getRingNumeric } from "./utils/helpers";
 
 import OverviewView from "./components/views/OverviewView";
 import GroutRecordView from "./components/views/GroutRecordView";
@@ -33,6 +33,7 @@ import { apiCall } from "./utils/api";
 import { getMachineConfig } from "./utils/machineConfig";
 import { savePrepTasks } from "./utils/prepGantt";
 import { isViewerMode, VIEWER_TABS } from "./utils/viewerMode";
+import { normalizeServerData } from "./offline/normalizeServerData";
 
 import { Shell, NAV_GROUPS } from "./ui-ux-pro-max";
 import "./styles/globals.css";
@@ -140,104 +141,47 @@ const PrimaryGroutApp = () => {
           if (textData.trim().startsWith("<")) throw new Error("Received HTML error.");
           const result = JSON.parse(textData);
           if (result.status === "success") {
-            const formattedSegments = (result.segments || []).map(r => ({ ...r, excavStartTime: formatDisplayTime(r.excavStartTime), excavEndTime: formatDisplayTime(r.excavEndTime), installStartTime: formatDisplayTime(r.installStartTime), installEndTime: formatDisplayTime(r.installEndTime), startTime: formatDisplayTime(r.startTime), endTime: formatDisplayTime(r.endTime) }));
-            setSegmentRecords(formattedSegments);
-
-            const parsePositions = (posStr) => {
-              if (typeof posStr === "object" && posStr !== null) return posStr;
-              if (!posStr || typeof posStr !== "string") return {};
-              try { return JSON.parse(posStr); }
-              catch (e) {
-                const cleanStr = posStr.replace(/[{}]/g, '').trim();
-                const pairs = cleanStr.split(',');
-                const res = {};
-                pairs.forEach(pair => {
-                  let parts = pair.split('=');
-                  if (parts.length !== 2) {
-                    parts = pair.split(':');
-                  }
-                  if (parts.length === 2) {
-                    const k = parts[0].trim().replace(/['"]/g, '');
-                    const v = parts[1].trim().replace(/['"]/g, '').toLowerCase();
-                    res[k] = (v === 'true');
-                  }
-                });
-                return res;
-              }
-            };
-
-            const parsedGrouts = (result.grouts || []).map((g) => {
-              const parsedPos = parsePositions(g.positions);
-              const primPos = parsePositions(g.primaryPositions);
-              const secPos = parsePositions(g.secondaryPositions);
-
-              const partA = g.partA !== undefined && g.partA !== "" ? g.partA : String((Number(g.primaryPartA || 0) + Number(g.secondaryPartA || 0)).toFixed(2));
-              const partB = g.partB !== undefined && g.partB !== "" ? g.partB : String((Number(g.primaryPartB || 0) + Number(g.secondaryPartB || 0)).toFixed(2));
-
-              return {
-                ...g,
-                positions: parsedPos,
-                primaryPositions: primPos,
-                secondaryPositions: secPos,
-                primaryPartA: g.primaryPartA || "",
-                primaryPartB: g.primaryPartB || "",
-                secondaryPartA: g.secondaryPartA || "",
-                secondaryPartB: g.secondaryPartB || "",
-                partA: partA,
-                partB: partB,
-                total: Number(g.total || 0),
-                ratio: Number(g.ratio || 0)
-              };
-            });
-            setGroutRecords(parsedGrouts);
+            const data = normalizeServerData(result, activeMachine);
+            setSegmentRecords(data.segments);
+            setGroutRecords(data.grouts);
 
             // F1: secondary grout (dataset แยก) — parse positions เหมือน primary, ไม่มี ratio
-            const parsedSecondary = (result.secondaryGrouts || []).map((g) => ({
-              ...g,
-              positions: parsePositions(g.positions),
-              total: Number(g.total || 0),
-            }));
-            setSecondaryGroutRecords(parsedSecondary);
+            setSecondaryGroutRecords(data.secondaryGrouts);
 
-            const defaultManpower = { Engineer: '', Operator: '', Surveyor: '', Machanic: '', Electrician: '', Foreman: '', Worker: '', CraneOp: '' };
-            const defaultResult = { startSta: '', finishSta: '', numberRing: '', totalDistance: '', progressRate: '' };
-            const parsedShiftReports = (result.shiftReports || []).map(sr => ({ ...sr, events: safeParseJSON(sr.events, {}), manpower: safeParseJSON(sr.manpower, defaultManpower), result: safeParseJSON(sr.result, defaultResult) }));
-            setShiftReports(parsedShiftReports);
-            if (Array.isArray(result.issues)) { setIssues(result.issues); persistIssues(result.issues); }
-            if (Array.isArray(result.dailyReports) && result.dailyReports.length) { const dr = normalize(result.dailyReports); setDailyReports(dr); persistDailyReports(dr); }
+            setShiftReports(data.shiftReports);
+            if (Array.isArray(result.issues)) { setIssues(data.issues); persistIssues(data.issues); }
+            if (Array.isArray(result.dailyReports) && result.dailyReports.length) { setDailyReports(data.dailyReports); persistDailyReports(data.dailyReports); }
             if (Array.isArray(result.prepTasks) && result.prepTasks.length) {
               const byM = {};
-              result.prepTasks.forEach((t) => { const m = t.machine || "TBM1"; (byM[m] = byM[m] || []).push(t); });
+              data.prepTasks.forEach((t) => { const m = t.machine || "TBM1"; (byM[m] = byM[m] || []).push(t); });
               Object.keys(byM).forEach((m) => savePrepTasks(m, byM[m]));
             }
             
-            if (result.planConfig) {
+            if (data.planConfig) {
               try {
-                const pc = typeof result.planConfig === 'string' ? JSON.parse(result.planConfig) : result.planConfig;
-                localStorage.setItem("tbmPlanConfig", JSON.stringify(pc));
+                localStorage.setItem("tbmPlanConfig", JSON.stringify(data.planConfig));
               } catch(e) { console.error("Parse planConfig error", e); }
             }
-            if (result.distPlanConfig) {
+            if (data.distPlanConfig) {
               try {
-                const dpc = typeof result.distPlanConfig === 'string' ? JSON.parse(result.distPlanConfig) : result.distPlanConfig;
-                localStorage.setItem("tbmDistancePlanConfig", JSON.stringify(dpc));
+                localStorage.setItem("tbmDistancePlanConfig", JSON.stringify(data.distPlanConfig));
               } catch(e) { console.error("Parse distPlanConfig error", e); }
             }
             // F3: route configs (ทั้ง 2 เครื่อง) → localStorage เพื่อให้ RouteScheduleView โหลด; progress/total → state
-            if (result.routeConfigs && typeof result.routeConfigs === "object") {
+            if (data.routeConfigs && typeof data.routeConfigs === "object") {
               try {
-                if (result.routeConfigs.TBM1) localStorage.setItem("tbmRouteConfig", JSON.stringify(result.routeConfigs.TBM1));
-                if (result.routeConfigs.TBM2) localStorage.setItem("tbmRouteConfig__TBM2", JSON.stringify(result.routeConfigs.TBM2));
+                if (data.routeConfigs.TBM1) localStorage.setItem("tbmRouteConfig", JSON.stringify(data.routeConfigs.TBM1));
+                if (data.routeConfigs.TBM2) localStorage.setItem("tbmRouteConfig__TBM2", JSON.stringify(data.routeConfigs.TBM2));
               } catch (e) { /* ignore */ }
             }
-            setMachineProgress(result.machineProgress || null);
-            setRouteProjectTotal(typeof result.routeProjectTotal === "number" ? result.routeProjectTotal : null);
+            setMachineProgress(data.machineProgress);
+            setRouteProjectTotal(data.routeProjectTotal);
             // Instrument module: project-wide (ไม่ขึ้นกับ activeMachine) → set เสมอเมื่อ GAS ส่งมา
-            if (Array.isArray(result.instLocations))   { setInstLocations(result.instLocations); persistCache(STORE.locations, result.instLocations); }
-            if (Array.isArray(result.instInstruments)) { setInstInstruments(result.instInstruments); persistCache(STORE.instruments, result.instInstruments); }
-            if (Array.isArray(result.instThresholds))  { setInstThresholds(result.instThresholds); persistCache(STORE.thresholds, result.instThresholds); }
-            if (Array.isArray(result.instReadings))    { setInstReadings(result.instReadings); persistCache(STORE.readings, result.instReadings); }
-            if (Array.isArray(result.instSchedules))   { setInstSchedules(result.instSchedules); persistCache(STORE.schedules, result.instSchedules); }
+            if (Array.isArray(result.instLocations))   { setInstLocations(data.instLocations); persistCache(STORE.locations, data.instLocations); }
+            if (Array.isArray(result.instInstruments)) { setInstInstruments(data.instInstruments); persistCache(STORE.instruments, data.instInstruments); }
+            if (Array.isArray(result.instThresholds))  { setInstThresholds(data.instThresholds); persistCache(STORE.thresholds, data.instThresholds); }
+            if (Array.isArray(result.instReadings))    { setInstReadings(data.instReadings); persistCache(STORE.readings, data.instReadings); }
+            if (Array.isArray(result.instSchedules))   { setInstSchedules(data.instSchedules); persistCache(STORE.schedules, data.instSchedules); }
           }
         } catch (error) { setLoadError("ไม่สามารถดึงข้อมูลได้: " + error.message); }
       }

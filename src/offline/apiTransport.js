@@ -6,6 +6,10 @@ export class ApiFailure extends Error {
   }
   static fromGas(result) {
     const code = result.code || result.errorCode || "GAS_ERROR";
+    if (result.httpStatus != null) {
+      const classified = classifyHttpFailure(Number(result.httpStatus));
+      return new ApiFailure(classified.kind, code, result.message || classified.message, { response: result, status: classified.status });
+    }
     const normalizedCode = String(code).toUpperCase();
     const kind = result.httpStatus === 422 || /VALIDATION|INVALID/.test(normalizedCode) ? "validation" : /RETRY|BUSY|LOCK|TIMEOUT|RATE/.test(normalizedCode) ? "retryable" : "permanent";
     return new ApiFailure(kind, code, result.message || "GAS request failed", { response: result });

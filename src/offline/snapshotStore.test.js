@@ -25,6 +25,15 @@ test("preserves a pending optimistic entity by domain key when server data arriv
   await expect(readServerSnapshot(db, "TBM1")).resolves.toEqual(expect.objectContaining({ segments: expect.arrayContaining([expect.objectContaining({ ringNo: "P1", status: "local", syncStatus: "pending" }), expect.objectContaining({ ringNo: "P2" })]) }));
 });
 
+test("preserves an entity referenced by a pending mutation domain key", async () => {
+  const db = await openOfflineDb();
+  await writeServerSnapshot(db, "TBM1", normalizeServerData({ segments: [{ ringNo: "P1", status: "local" }] }, "TBM1"), "first");
+  const entity = await new Promise((resolve, reject) => { const request = db.transaction("entities").objectStore("entities").getAll(); request.onsuccess = () => resolve(request.result[0]); request.onerror = () => reject(request.error); });
+  await new Promise((resolve, reject) => { const transaction = db.transaction("mutations", "readwrite"); transaction.objectStore("mutations").put({ requestId: "m1", status: "pending", domainKey: entity.domainKey }); transaction.oncomplete = resolve; transaction.onerror = () => reject(transaction.error); });
+  await writeServerSnapshot(db, "TBM1", normalizeServerData({ segments: [{ ringNo: "P1", status: "server" }] }, "TBM1"), "second");
+  await expect(readServerSnapshot(db, "TBM1")).resolves.toEqual(expect.objectContaining({ segments: [expect.objectContaining({ ringNo: "P1", status: "local", syncStatus: "pending" })] }));
+});
+
 test("returns no snapshot before one has been written", async () => {
   await expect(readServerSnapshot(await openOfflineDb(), "TBM1")).resolves.toBeNull();
 });

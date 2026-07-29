@@ -48,7 +48,7 @@ export async function writeServerSnapshot(db, machine, data, fetchedAt) {
   singletonKeys.forEach(key => { snapshot[key] = data[key]; });
   snapshots.put(snapshot);
   await complete(transaction);
-  return { ...data, fetchedAt };
+  return readServerSnapshot(db, machine);
 }
 
 export async function readServerSnapshot(db, machine) {

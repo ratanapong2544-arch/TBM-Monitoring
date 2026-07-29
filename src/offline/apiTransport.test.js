@@ -18,6 +18,11 @@ test("classifies a GAS validation error", async () => {
     .rejects.toMatchObject({ kind: "validation", code: "VALIDATION", message: "Bad ring" });
 });
 
+test.each([[429, "retryable"], [500, "retryable"], [503, "retryable"], [422, "validation"]])("classifies a wrapped GAS HTTP %s as %s", async (httpStatus, kind) => {
+  await expect(parseGasResponse({ text: async () => JSON.stringify({ status: "error", httpStatus, message: "wrapped" }) }))
+    .rejects.toMatchObject({ kind, status: httpStatus });
+});
+
 test("classifies malformed JSON as a permanent GAS response failure", async () => {
   await expect(parseGasResponse({ text: async () => "not json" }))
     .rejects.toMatchObject({ kind: "permanent", code: "GAS_MALFORMED_JSON" });
@@ -28,6 +33,11 @@ test("preserves abort failures as a distinct typed failure", async () => {
   await expect(fetchServerSnapshot("TBM 1", { signal: "signal" }))
     .rejects.toMatchObject({ kind: "aborted", code: "ABORTED" });
   expect(global.fetch).toHaveBeenCalledWith(expect.stringContaining("machine=TBM%201"), expect.objectContaining({ redirect: "follow", signal: "signal" }));
+});
+
+test("classifies normal network rejection as retryable", async () => {
+  global.fetch = jest.fn().mockRejectedValue(new Error("offline"));
+  await expect(fetchServerSnapshot("TBM1")).rejects.toMatchObject({ kind: "retryable", code: "NETWORK", message: "offline" });
 });
 
 test("rejects non-success HTTP responses before parsing their body", async () => {

@@ -14,24 +14,31 @@ export function createRepository(deps = {}) {
   const errorSubscribers = new Set();
   const emit = event => subscribers.forEach(listener => listener(event));
   const emitError = event => errorSubscribers.forEach(listener => listener(event));
+  const cachedResult = data => data
+    ? { data, source: "indexeddb", fetchedAt: data.fetchedAt || null, stale: true }
+    : null;
 
   return {
     subscribe(listener) { subscribers.add(listener); return () => subscribers.delete(listener); },
     subscribeErrors(listener) { errorSubscribers.add(listener); return () => errorSubscribers.delete(listener); },
     async load(machine) {
       const data = await readServerSnapshot(await openDb(), machine);
-      return data || emptyServerData(machine);
+      return cachedResult(data) || { data: emptyServerData(machine), source: "empty", fetchedAt: null, stale: true };
     },
     async refresh(machine, { signal } = {}) {
       try {
         const raw = await fetchServerSnapshot(machine, { signal });
         const data = normalizeServerData(raw, machine);
         const stored = await writeServerSnapshot(await openDb(), machine, data, now());
-        emit({ type: "data", machine, data: stored });
-        return stored;
+        const result = { data: stored, source: "server", fetchedAt: stored.fetchedAt, stale: false };
+        emit({ type: "data", machine, result });
+        return result;
       } catch (error) {
         const cached = await readServerSnapshot(await openDb(), machine);
-        emitError({ type: "error", machine, error, data: cached || null });
+        const result = cachedResult(cached);
+        const event = { type: "error", machine, error, result };
+        emit(event);
+        emitError(event);
         throw error;
       }
     },

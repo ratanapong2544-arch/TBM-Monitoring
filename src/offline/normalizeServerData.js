@@ -1,4 +1,5 @@
 import { formatDisplayTime } from "../utils/formatters";
+import { normalize as normalizeDailyReports } from "../utils/dailyReports";
 
 const defaultManpower = { Engineer: "", Operator: "", Surveyor: "", Machanic: "", Electrician: "", Foreman: "", Worker: "", CraneOp: "" };
 const defaultResult = { startSta: "", finishSta: "", numberRing: "", totalDistance: "", progressRate: "" };
@@ -12,7 +13,7 @@ function parsePositions(value) {
     return value.replace(/[{}]/g, "").split(",").reduce((positions, pair) => { const parts = pair.split("=").length === 2 ? pair.split("=") : pair.split(":"); if (parts.length === 2) positions[parts[0].trim().replace(/[\"']/g, "")] = parts[1].trim().replace(/[\"']/g, "").toLowerCase() === "true"; return positions; }, {});
   }
 }
-function parseConfig(value) { if (typeof value !== "string") return value == null ? null : value; try { return JSON.parse(value); } catch (error) { return value; } }
+function parseConfig(value) { if (typeof value !== "string") return value == null ? null : value; try { return JSON.parse(value); } catch (error) { return null; } }
 
 export function emptyServerData(machine) {
   return { machine, segments: [], grouts: [], secondaryGrouts: [], shiftReports: [], issues: [], dailyReports: [], prepTasks: [], planConfig: null, distPlanConfig: null, routeConfigs: {}, routeProjectTotal: null, machineProgress: null, instLocations: [], instInstruments: [], instThresholds: [], instReadings: [], instSchedules: [], syncMeta: {} };
@@ -29,6 +30,7 @@ export function normalizeServerData(result = {}, machine) {
   normalized.secondaryGrouts = (result.secondaryGrouts || []).map(grout => ({ ...grout, positions: parsePositions(grout.positions), total: Number(grout.total || 0) }));
   normalized.shiftReports = (result.shiftReports || []).map(report => ({ ...report, events: safeParseJSON(report.events, {}), manpower: safeParseJSON(report.manpower, defaultManpower), result: safeParseJSON(report.result, defaultResult) }));
   ["issues", "dailyReports", "prepTasks", "instLocations", "instInstruments", "instThresholds", "instReadings", "instSchedules"].forEach(key => { normalized[key] = Array.isArray(result[key]) ? result[key] : []; });
+  normalized.dailyReports = normalizeDailyReports(result.dailyReports);
   normalized.planConfig = parseConfig(result.planConfig); normalized.distPlanConfig = parseConfig(result.distPlanConfig);
   normalized.routeConfigs = result.routeConfigs && typeof result.routeConfigs === "object" ? result.routeConfigs : {};
   normalized.routeProjectTotal = typeof result.routeProjectTotal === "number" ? result.routeProjectTotal : null;

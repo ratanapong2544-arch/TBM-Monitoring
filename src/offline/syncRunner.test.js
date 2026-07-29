@@ -191,3 +191,38 @@ test("stop invalidates a queued start before it can claim or post", async () => 
   await expect(started).resolves.toBeUndefined();
   expect(repository.claimDueMutations).not.toHaveBeenCalled();
 });
+
+test("does not claim a later same-domain mutation before an earlier retry is due while an unrelated domain proceeds", async () => {
+  let now = 0;
+  let id = 0;
+  const calls = [];
+  const responses = {
+    "request-1": [retryable(), { status: "success", requestId: "request-1", record: { status: "a-confirmed" }, version: 2, updatedAt: "2026-07-29T00:02:00.000Z" }],
+    "request-2": [{ status: "success", requestId: "request-2", record: { status: "b-confirmed" }, version: 3, updatedAt: "2026-07-29T00:03:00.000Z" }],
+    "request-3": [{ status: "success", requestId: "request-3", record: { status: "other-confirmed" }, version: 2, updatedAt: "2026-07-29T00:01:00.000Z" }],
+  };
+  const postSyncMutation = jest.fn(mutation => {
+    calls.push(mutation.requestId);
+    const response = responses[mutation.requestId].shift();
+    return response instanceof Error ? Promise.reject(response) : Promise.resolve(response);
+  });
+  const repository = createRepository({ openDb: openOfflineDb, now: () => "2026-07-29T00:00:00.000Z", getDeviceId: async () => "device-1", createRequestId: () => `request-${++id}` });
+  const runner = createSyncRunner({ repository, transport: { postSyncMutation }, clock: { now: () => now }, jitter: () => 0, online: () => true, owner: "runner-a", leaseMs: 30000 });
+  const first = await repository.mutate(input("P1"));
+  await repository.updateMutation(first.requestId, { attemptCount: 4 });
+  const second = await repository.mutate({ ...input("P1"), recordId: "segment-P1-later", payload: { ringNo: "P1", installType: "Permanent", status: "later" } });
+  await repository.mutate(input("P2"));
+
+  await runner.runNow();
+  expect(calls).toEqual(["request-1", "request-3"]);
+  await expect(repository.getMutation(second.requestId)).resolves.toMatchObject({ status: "pending" });
+
+  now = 30001;
+  await runner.runNow();
+  expect(calls).toEqual(["request-1", "request-3"]);
+
+  now = 64000;
+  await runner.runNow();
+  await runner.runNow();
+  expect(calls).toEqual(["request-1", "request-3", "request-1", "request-2"]);
+});

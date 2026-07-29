@@ -78,9 +78,24 @@ export async function listDueMutations(db, now) {
   const transaction = db.transaction(STORES.mutations, "readonly");
   const mutations = await requestResult(transaction.objectStore(STORES.mutations).getAll());
   await complete(transaction);
-  return mutations
+  return domainHeads(mutations)
     .filter(mutation => isClaimable(mutation, now))
     .sort((left, right) => (left.queueSequence || 0) - (right.queueSequence || 0) || String(left.createdAtLocal).localeCompare(String(right.createdAtLocal)));
+}
+
+function isTerminal(mutation) {
+  return mutation.status === MUTATION_STATUS.SYNCED;
+}
+
+function domainHeads(mutations) {
+  const heads = new Map();
+  mutations
+    .filter(mutation => !isTerminal(mutation))
+    .sort((left, right) => (left.queueSequence || 0) - (right.queueSequence || 0) || String(left.createdAtLocal).localeCompare(String(right.createdAtLocal)))
+    .forEach(mutation => {
+      if (!heads.has(mutation.domainKey)) heads.set(mutation.domainKey, mutation);
+    });
+  return [...heads.values()];
 }
 
 function isClaimable(mutation, now) {
@@ -94,7 +109,7 @@ export async function claimDueMutations(db, { owner, now, leaseMs }) {
   const store = transaction.objectStore(STORES.mutations);
   const mutations = await requestResult(store.getAll());
   const leaseExpiresAt = new Date(now + leaseMs).toISOString();
-  const claimed = mutations
+  const claimed = domainHeads(mutations)
     .filter(mutation => isClaimable(mutation, now))
     .sort((left, right) => (left.queueSequence || 0) - (right.queueSequence || 0) || String(left.createdAtLocal).localeCompare(String(right.createdAtLocal)))
     .map(mutation => ({ ...mutation, status: MUTATION_STATUS.SYNCING, syncOwner: owner, leaseExpiresAt }));

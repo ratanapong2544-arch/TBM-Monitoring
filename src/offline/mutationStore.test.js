@@ -1,7 +1,7 @@
 import "fake-indexeddb/auto";
 if (!global.structuredClone) global.structuredClone = value => JSON.parse(JSON.stringify(value));
 import { closeOfflineDb, deleteOfflineDbForTests, openOfflineDb } from "./db";
-import { claimDueMutations, getConflict, getEntity, getMutation, listDueMutations, putOptimisticMutation } from "./mutationStore";
+import { claimDueMutations, getConflict, getEntity, getMutation, listDueMutations, putOptimisticMutation, updateMutation } from "./mutationStore";
 
 beforeEach(async () => { await deleteOfflineDbForTests(); });
 afterEach(async () => { await deleteOfflineDbForTests(); });
@@ -47,10 +47,9 @@ test("preserves insertion order for same-domain mutations created in the same mi
   await putOptimisticMutation(db, { ...mutation, requestId: "request-z" });
   await putOptimisticMutation(db, { ...mutation, requestId: "request-a", payload: { ...mutation.payload, status: "later" } });
 
-  await expect(listDueMutations(db, Date.parse(mutation.createdAtLocal))).resolves.toEqual([
-    expect.objectContaining({ requestId: "request-z" }),
-    expect.objectContaining({ requestId: "request-a" }),
-  ]);
+  await expect(listDueMutations(db, Date.parse(mutation.createdAtLocal))).resolves.toEqual([expect.objectContaining({ requestId: "request-z" })]);
+  await updateMutation(db, "request-z", { status: "synced" });
+  await expect(listDueMutations(db, Date.parse(mutation.createdAtLocal))).resolves.toEqual([expect.objectContaining({ requestId: "request-a" })]);
 });
 
 test("claims pending work for one owner and only permits takeover after lease expiry", async () => {

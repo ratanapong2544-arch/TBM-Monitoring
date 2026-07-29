@@ -1,4 +1,4 @@
-import { ApiFailure, classifyHttpFailure, fetchServerSnapshot, parseGasResponse } from "./apiTransport";
+import { ApiFailure, classifyHttpFailure, fetchServerSnapshot, parseGasResponse, postSyncMutation } from "./apiTransport";
 
 afterEach(() => jest.restoreAllMocks());
 
@@ -47,4 +47,22 @@ test("rejects non-success HTTP responses before parsing their body", async () =>
 
 test("ApiFailure retains a typed cause", () => {
   expect(new ApiFailure("permanent", "CODE", "message")).toMatchObject({ kind: "permanent", code: "CODE", message: "message" });
+});
+
+test("posts the complete mutation envelope and returns the typed sync response", async () => {
+  global.fetch = jest.fn().mockResolvedValue({ ok: true, text: async () => JSON.stringify({ status: "success", requestId: "request-1", record: { recordId: "segment-1" }, version: 2, updatedAt: "2026-07-29T00:00:00.000Z" }) });
+  const mutation = { requestId: "request-1", entityType: "segment", payload: { ringNo: "P1" } };
+
+  await expect(postSyncMutation(mutation)).resolves.toMatchObject({ status: "success", requestId: "request-1" });
+  expect(global.fetch).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ method: "POST", body: JSON.stringify({ action: "syncMutation", data: mutation }) }));
+});
+
+test("cleans up the 15 second timeout after a successful sync post", async () => {
+  jest.useFakeTimers();
+  global.fetch = jest.fn().mockResolvedValue({ ok: true, text: async () => JSON.stringify({ status: "validation_error", requestId: "request-1", fields: [], message: "Bad ring" }) });
+
+  await postSyncMutation({ requestId: "request-1" });
+
+  expect(jest.getTimerCount()).toBe(0);
+  jest.useRealTimers();
 });

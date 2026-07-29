@@ -47,3 +47,41 @@ export async function fetchServerSnapshot(machine, { signal } = {}) {
   if (!response.ok) throw classifyHttpFailure(response.status);
   return parseGasResponse(response);
 }
+
+function assertSyncResponse(mutation, result) {
+  if (!result || !["success", "conflict", "validation_error"].includes(result.status) || result.requestId !== mutation.requestId) {
+    throw new ApiFailure("permanent", "GAS_MALFORMED_SYNC_RESPONSE", "GAS returned a malformed sync response", { response: result });
+  }
+  if (result.status === "success" && (!result.record || result.version === undefined || !result.updatedAt)) {
+    throw new ApiFailure("permanent", "GAS_MALFORMED_SYNC_RESPONSE", "GAS did not return a complete success response", { response: result });
+  }
+  if (result.status === "conflict" && (!result.serverRecord || result.currentVersion === undefined)) {
+    throw new ApiFailure("permanent", "GAS_MALFORMED_SYNC_RESPONSE", "GAS did not return complete conflict details", { response: result });
+  }
+  if (result.status === "validation_error" && !Array.isArray(result.fields)) {
+    throw new ApiFailure("permanent", "GAS_MALFORMED_SYNC_RESPONSE", "GAS did not return validation fields", { response: result });
+  }
+  return result;
+}
+
+export async function postSyncMutation(mutation) {
+  const controller = new AbortController();
+  let timedOut = false;
+  const timeout = setTimeout(() => { timedOut = true; controller.abort(); }, 15000);
+  try {
+    const response = await fetch(GAS_URL, {
+      method: "POST",
+      redirect: "follow",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "syncMutation", data: mutation }),
+      signal: controller.signal,
+    });
+    if (!response.ok) throw classifyHttpFailure(response.status);
+    return assertSyncResponse(mutation, await parseGasResponse(response));
+  } catch (error) {
+    if (timedOut && error && error.name === "AbortError") throw new ApiFailure("retryable", "TIMEOUT", "Sync request timed out", { cause: error });
+    throw toApiFailure(error);
+  } finally {
+    clearTimeout(timeout);
+  }
+}

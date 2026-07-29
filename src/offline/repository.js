@@ -1,5 +1,9 @@
 import { fetchServerSnapshot as defaultFetchServerSnapshot } from "./apiTransport";
 import { openOfflineDb as defaultOpenDb } from "./db";
+import { getOrCreateDeviceId as defaultGetDeviceId } from "./device";
+import { makeDomainKey } from "./domainKey";
+import { confirmMutation, getConflict, getEntity, getMutation, getSyncCounts, listDueMutations, putOptimisticMutation, resolveStoredConflict, saveConflict, setLastSyncedAt, updateMutation } from "./mutationStore";
+import { MUTATION_STATUS } from "./schema";
 import { emptyServerData, normalizeServerData as defaultNormalizeServerData } from "./normalizeServerData";
 import { readServerSnapshot as defaultReadServerSnapshot, writeServerSnapshot as defaultWriteServerSnapshot } from "./snapshotStore";
 
@@ -9,7 +13,10 @@ export function createRepository(deps = {}) {
   const normalizeServerData = deps.normalizeServerData || defaultNormalizeServerData;
   const readServerSnapshot = deps.readServerSnapshot || defaultReadServerSnapshot;
   const writeServerSnapshot = deps.writeServerSnapshot || defaultWriteServerSnapshot;
+  const getDeviceId = deps.getDeviceId || defaultGetDeviceId;
   const now = deps.now || (() => new Date().toISOString());
+  const createRequestId = deps.createRequestId || (() => globalThis.crypto && globalThis.crypto.randomUUID ? globalThis.crypto.randomUUID() : `request-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+  const online = deps.online || (() => typeof navigator === "undefined" || navigator.onLine !== false);
   const subscribers = new Set();
   const errorSubscribers = new Set();
   const emit = event => subscribers.forEach(listener => listener(event));
@@ -17,6 +24,62 @@ export function createRepository(deps = {}) {
   const cachedResult = data => data
     ? { data, source: "indexeddb", fetchedAt: data.fetchedAt || null, stale: true }
     : null;
+
+  function requireMutationEnvelope(input) {
+    ["entityType", "operation", "recordId"].forEach(field => {
+      if (!input || input[field] === undefined || input[field] === null || input[field] === "") throw new Error(`Mutation requires ${field}`);
+    });
+    if (!input.payload || typeof input.payload !== "object") throw new Error("Mutation requires payload");
+  }
+
+  async function mutate(input) {
+    requireMutationEnvelope(input);
+    const db = await openDb();
+    const domainKey = input.domainKey || makeDomainKey(input);
+    const mutation = {
+      requestId: createRequestId(), entityType: input.entityType, operation: input.operation,
+      machine: input.machine, recordId: input.recordId, domainKey, baseVersion: input.baseVersion ?? null,
+      deviceId: await getDeviceId(db), actorId: input.actorId || null, createdAtLocal: now(), payload: input.payload,
+    };
+    const { entity } = await putOptimisticMutation(db, mutation);
+    emit({ type: "mutation", requestId: mutation.requestId, status: MUTATION_STATUS.PENDING, domainKey });
+    return { requestId: mutation.requestId, status: MUTATION_STATUS.PENDING, optimisticRecord: entity.payload };
+  }
+
+  async function applySyncSuccess(requestId, response) {
+    const mutation = await confirmMutation(await openDb(), requestId, response);
+    await setLastSyncedAt(await openDb(), response.updatedAt || now());
+    emit({ type: "sync", requestId, status: mutation.status });
+    return mutation;
+  }
+
+  async function applyConflict(requestId, response) {
+    const conflict = await saveConflict(await openDb(), requestId, response);
+    emit({ type: "conflict", requestId, conflictId: conflict.conflictId });
+    return conflict;
+  }
+
+  async function resolveConflict(conflictId, { strategy, payload } = {}) {
+    if (!["server", "local", "manual"].includes(strategy)) throw new Error("Conflict resolution requires a supported strategy");
+    const db = await openDb();
+    const conflict = await getConflict(db, conflictId);
+    if (!conflict || conflict.status !== "open") throw new Error(`Unknown open conflict ${conflictId}`);
+    const original = await getMutation(db, conflict.requestId);
+    const before = { serverRecord: conflict.serverRecord, localRecord: conflict.localRecord };
+    if (strategy === "server") {
+      await applySyncSuccess(conflict.requestId, { record: conflict.serverRecord, version: conflict.currentVersion, updatedAt: conflict.serverRecord && conflict.serverRecord.updatedAt });
+      await resolveStoredConflict(db, conflictId, { resolvedAt: now(), strategy, before, after: conflict.serverRecord });
+      return { status: "resolved" };
+    }
+    if (strategy === "manual" && (!payload || typeof payload !== "object")) throw new Error("Manual conflict resolution requires payload");
+    const nextPayload = strategy === "local" ? (original && original.payload) : payload;
+    const queued = await mutate({
+      entityType: original.entityType, operation: original.operation, machine: original.machine, recordId: original.recordId,
+      domainKey: original.domainKey, baseVersion: conflict.currentVersion, payload: nextPayload, actorId: original.actorId,
+    });
+    await resolveStoredConflict(db, conflictId, { resolvedAt: now(), strategy, before, after: nextPayload, resolutionRequestId: queued.requestId });
+    return { status: "pending", requestId: queued.requestId };
+  }
 
   return {
     subscribe(listener) { subscribers.add(listener); return () => subscribers.delete(listener); },
@@ -42,5 +105,15 @@ export function createRepository(deps = {}) {
         throw error;
       }
     },
+    mutate,
+    resolveConflict,
+    async getMutation(requestId) { return getMutation(await openDb(), requestId); },
+    async getEntity(domainKey) { return getEntity(await openDb(), domainKey); },
+    async getConflict(conflictId) { return getConflict(await openDb(), conflictId); },
+    async getDueMutations(at) { return listDueMutations(await openDb(), at); },
+    async updateMutation(requestId, update) { return updateMutation(await openDb(), requestId, update); },
+    applySyncSuccess,
+    applyConflict,
+    async getSyncSummary() { return { online: Boolean(online()), ...(await getSyncCounts(await openDb())) }; },
   };
 }

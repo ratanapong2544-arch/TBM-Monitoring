@@ -1,0 +1,15 @@
+[
+  { "input": { "entityType": "segment", "machine": "TBM1", "recordId": "s1", "payload": { "ringNo": "P41", "installType": "Permanent" } }, "domainKey": "segment:TBM1:P41:Permanent" },
+  { "input": { "entityType": "grout", "machine": "TBM2", "recordId": "g1", "payload": { "ringNo": "42" } }, "domainKey": "grout:TBM2:42:Primary" },
+  { "input": { "entityType": "secondaryGrout", "machine": "TBM1", "recordId": "sg1", "payload": { "ringNo": "P42" } }, "domainKey": "secondaryGrout:TBM1:P42:sg1" },
+  { "input": { "entityType": "shiftReport", "machine": "TBM1", "recordId": "sr1", "payload": { "date": "2026-07-29", "shift": "Night" } }, "domainKey": "shiftReport:TBM1:2026-07-29:Night" },
+  { "input": { "entityType": "issue", "recordId": "i1", "payload": {} }, "domainKey": "issue:GLOBAL:i1" },
+  { "input": { "entityType": "dailyReport", "machine": "TBM1", "recordId": "d1", "payload": {} }, "domainKey": "dailyReport:TBM1:d1" },
+  { "input": { "entityType": "prepTask", "machine": "TBM2", "recordId": "p1", "payload": {} }, "domainKey": "prepTask:TBM2:p1" },
+  { "input": { "entityType": "instrument", "recordId": "in1", "payload": {} }, "domainKey": "instrument:GLOBAL:in1" },
+  { "input": { "entityType": "instReading", "recordId": "r1", "payload": {} }, "domainKey": "instReading:GLOBAL:r1" },
+  { "input": { "entityType": "instSchedule", "recordId": "sc1", "payload": {} }, "domainKey": "instSchedule:GLOBAL:sc1" },
+  { "input": { "entityType": "planConfig", "machine": "TBM1", "recordId": "ignored", "payload": {} }, "domainKey": "planConfig:TBM1" },
+  { "input": { "entityType": "distPlanConfig", "machine": "TBM2", "recordId": "ignored", "payload": {} }, "domainKey": "distPlanConfig:TBM2" },
+  { "input": { "entityType": "routeConfig", "machine": "TBM1", "recordId": "ignored", "payload": {} }, "domainKey": "routeConfig:TBM1" }
+]

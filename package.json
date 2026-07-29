@@ -31,8 +31,9 @@
   },
   "scripts": {
     "start": "react-scripts start",
-    "build": "react-scripts build",
+    "build": "react-scripts build && node tools/build-service-worker.mjs",
     "test": "react-scripts test --env=jsdom",
+    "test:pwa": "npm run build && node --test tools/pwa-manifest.test.cjs tools/pwa-build.test.cjs",
     "eject": "react-scripts eject"
   },
   "browserslist": [

@@ -1,7 +1,7 @@
 import "fake-indexeddb/auto";
 if (!global.structuredClone) global.structuredClone = value => JSON.parse(JSON.stringify(value));
 import { ApiFailure } from "./apiTransport";
-import { deleteOfflineDbForTests, openOfflineDb } from "./db";
+import { closeOfflineDb, deleteOfflineDbForTests, openOfflineDb } from "./db";
 import { createRepository } from "./repository";
 import { createSyncRunner } from "./syncRunner";
 
@@ -80,4 +80,69 @@ test("runNow is single-flight and start only triggers while visible and online",
   resolvePost({ status: "success", requestId: "request-1", record: { status: "confirmed" }, version: 2, updatedAt: "2026-07-29T00:01:00.000Z" });
   await first;
   expect(postSyncMutation).toHaveBeenCalledTimes(1);
+});
+
+test("reclaims a durable in-flight mutation after reopening and retries its original requestId", async () => {
+  let markInFlight;
+  const inFlight = new Promise(resolve => { markInFlight = resolve; });
+  const postSyncMutation = jest.fn()
+    .mockImplementationOnce(() => new Promise(resolve => { markInFlight(); }))
+    .mockResolvedValueOnce({ status: "success", requestId: "request-1", record: { status: "confirmed" }, version: 2, updatedAt: "2026-07-29T00:01:00.000Z" });
+  const { repository, runner: originalRunner } = setup(postSyncMutation);
+  const queued = await repository.mutate(input("P1"));
+  originalRunner.runNow();
+  await inFlight;
+  await expect(repository.getMutation(queued.requestId)).resolves.toMatchObject({ status: "syncing" });
+  closeOfflineDb();
+  const reopened = createRepository({ openDb: openOfflineDb, now: () => "2026-07-29T00:00:00.000Z", getDeviceId: async () => "device-1" });
+  const runner = createSyncRunner({ repository: reopened, transport: { postSyncMutation }, clock: { now: () => Date.parse("2026-07-29T00:00:00.000Z") }, jitter: () => 0, online: () => true });
+
+  await runner.runNow();
+
+  expect(postSyncMutation).toHaveBeenCalledWith(expect.objectContaining({ requestId: queued.requestId }));
+  await expect(reopened.getMutation(queued.requestId)).resolves.toMatchObject({ status: "synced" });
+});
+
+test("uses window for online/focus and document for visibility, then removes both listener sets", async () => {
+  const windowEvents = new EventTarget();
+  const documentEvents = new EventTarget();
+  const windowAdd = jest.spyOn(windowEvents, "addEventListener");
+  const documentAdd = jest.spyOn(documentEvents, "addEventListener");
+  const windowRemove = jest.spyOn(windowEvents, "removeEventListener");
+  const documentRemove = jest.spyOn(documentEvents, "removeEventListener");
+  Object.defineProperty(documentEvents, "visibilityState", { configurable: true, value: "hidden", writable: true });
+  const postSyncMutation = jest.fn().mockResolvedValue({ status: "success", requestId: "request-1", record: { status: "confirmed" }, version: 2, updatedAt: "2026-07-29T00:01:00.000Z" });
+  const repository = createRepository({ openDb: openOfflineDb, now: () => "2026-07-29T00:00:00.000Z", getDeviceId: async () => "device-1", createRequestId: () => "request-1" });
+  await repository.mutate(input("P1"));
+  const runner = createSyncRunner({ repository, transport: { postSyncMutation }, clock: { now: () => Date.parse("2026-07-29T00:00:00.000Z") }, online: () => true, windowEvents, document: documentEvents });
+
+  runner.start();
+  expect(windowAdd).toHaveBeenCalledWith("online", expect.any(Function));
+  expect(windowAdd).toHaveBeenCalledWith("focus", expect.any(Function));
+  expect(documentAdd).toHaveBeenCalledWith("visibilitychange", expect.any(Function));
+  expect(postSyncMutation).not.toHaveBeenCalled();
+  documentEvents.visibilityState = "visible";
+  documentEvents.dispatchEvent(new Event("visibilitychange"));
+  await new Promise(resolve => setTimeout(resolve, 0));
+  expect(postSyncMutation).toHaveBeenCalledTimes(1);
+  runner.stop();
+  expect(windowRemove).toHaveBeenCalledWith("online", expect.any(Function));
+  expect(windowRemove).toHaveBeenCalledWith("focus", expect.any(Function));
+  expect(documentRemove).toHaveBeenCalledWith("visibilitychange", expect.any(Function));
+  await repository.mutate({ ...input("P2"), recordId: "segment-P2" });
+  windowEvents.dispatchEvent(new Event("online"));
+  documentEvents.dispatchEvent(new Event("visibilitychange"));
+  await new Promise(resolve => setTimeout(resolve, 0));
+  expect(postSyncMutation).toHaveBeenCalledTimes(1);
+});
+
+test.each([
+  [{ status: "success", requestId: "request-1", record: { status: "confirmed" }, updatedAt: "2026-07-29T00:01:00.000Z" }],
+  [{ status: "validation_error", requestId: "request-1", message: "bad" }],
+  [{ status: "conflict", requestId: "request-1", serverRecord: { status: "server" }, conflictingFields: ["status"], currentVersion: 2 }],
+])("treats incomplete typed response %j as permanent", async response => {
+  const { repository, runner } = setup(jest.fn().mockResolvedValue(response));
+  const queued = await repository.mutate(input("P1"));
+  await runner.runNow();
+  await expect(repository.getMutation(queued.requestId)).resolves.toMatchObject({ status: "permanent_error", lastError: { code: "GAS_MALFORMED_SYNC_RESPONSE" } });
 });

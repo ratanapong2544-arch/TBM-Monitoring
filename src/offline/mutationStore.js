@@ -15,7 +15,7 @@ function requestResult(request) {
   });
 }
 
-function optimisticEntity(mutation) {
+function optimisticEntity(mutation, status = mutation.status) {
   return {
     key: `entity:optimistic:${mutation.domainKey}`,
     entityType: mutation.entityType,
@@ -28,7 +28,7 @@ function optimisticEntity(mutation) {
       machine: mutation.machine,
       domainKey: mutation.domainKey,
       version: mutation.baseVersion,
-      syncStatus: MUTATION_STATUS.PENDING,
+      syncStatus: status,
     },
   };
 }
@@ -83,6 +83,16 @@ export async function listDueMutations(db, now) {
     .sort((left, right) => (left.queueSequence || 0) - (right.queueSequence || 0) || String(left.createdAtLocal).localeCompare(String(right.createdAtLocal)));
 }
 
+export async function reclaimSyncingMutations(db) {
+  const transaction = db.transaction(STORES.mutations, "readwrite");
+  const store = transaction.objectStore(STORES.mutations);
+  const mutations = await requestResult(store.getAll());
+  const reclaimed = mutations.filter(mutation => mutation.status === MUTATION_STATUS.SYNCING);
+  reclaimed.forEach(mutation => store.put({ ...mutation, status: MUTATION_STATUS.PENDING, nextAttemptAt: null }));
+  await complete(transaction);
+  return reclaimed.length;
+}
+
 export async function updateMutation(db, requestId, update) {
   const transaction = db.transaction(STORES.mutations, "readwrite");
   const store = transaction.objectStore(STORES.mutations);
@@ -101,18 +111,26 @@ export async function confirmMutation(db, requestId, response) {
   const transaction = db.transaction([STORES.entities, STORES.mutations], "readwrite");
   const mutationStore = transaction.objectStore(STORES.mutations);
   const entityStore = transaction.objectStore(STORES.entities);
-  const mutation = await requestResult(mutationStore.get(requestId));
+  const [mutation, mutations] = await Promise.all([requestResult(mutationStore.get(requestId)), requestResult(mutationStore.getAll())]);
   if (!mutation) { transaction.abort(); throw new Error(`Unknown mutation ${requestId}`); }
-  const record = response.record || {};
-  entityStore.put({
-    key: `entity:optimistic:${mutation.domainKey}`,
-    entityType: record.entityType || mutation.entityType,
-    machine: record.machine || mutation.machine || "GLOBAL",
-    domainKey: record.domainKey || mutation.domainKey,
-    payload: { ...record, version: response.version ?? record.version, updatedAt: response.updatedAt ?? record.updatedAt, syncStatus: MUTATION_STATUS.SYNCED },
-  });
   const next = { ...mutation, status: MUTATION_STATUS.SYNCED, syncedAt: response.updatedAt || null, lastError: null };
   mutationStore.put(next);
+  const newestOutstanding = mutations
+    .map(item => item.requestId === requestId ? next : item)
+    .filter(item => item.domainKey === mutation.domainKey && item.status !== MUTATION_STATUS.SYNCED)
+    .sort((left, right) => (right.queueSequence || 0) - (left.queueSequence || 0))[0];
+  if (newestOutstanding) {
+    entityStore.put(optimisticEntity(newestOutstanding));
+  } else {
+    const record = response.record || {};
+    entityStore.put({
+      key: `entity:optimistic:${mutation.domainKey}`,
+      entityType: record.entityType || mutation.entityType,
+      machine: record.machine || mutation.machine || "GLOBAL",
+      domainKey: record.domainKey || mutation.domainKey,
+      payload: { ...record, version: response.version ?? record.version, updatedAt: response.updatedAt ?? record.updatedAt, syncStatus: MUTATION_STATUS.SYNCED },
+    });
+  }
   await complete(transaction);
   return next;
 }

@@ -48,17 +48,17 @@ export async function fetchServerSnapshot(machine, { signal } = {}) {
   return parseGasResponse(response);
 }
 
-function assertSyncResponse(mutation, result) {
+export function assertSyncResponse(mutation, result) {
   if (!result || !["success", "conflict", "validation_error"].includes(result.status) || result.requestId !== mutation.requestId) {
     throw new ApiFailure("permanent", "GAS_MALFORMED_SYNC_RESPONSE", "GAS returned a malformed sync response", { response: result });
   }
   if (result.status === "success" && (!result.record || result.version === undefined || !result.updatedAt)) {
     throw new ApiFailure("permanent", "GAS_MALFORMED_SYNC_RESPONSE", "GAS did not return a complete success response", { response: result });
   }
-  if (result.status === "conflict" && (!result.serverRecord || result.currentVersion === undefined)) {
+  if (result.status === "conflict" && (!result.serverRecord || !result.localRecord || !Array.isArray(result.conflictingFields) || result.currentVersion === undefined)) {
     throw new ApiFailure("permanent", "GAS_MALFORMED_SYNC_RESPONSE", "GAS did not return complete conflict details", { response: result });
   }
-  if (result.status === "validation_error" && !Array.isArray(result.fields)) {
+  if (result.status === "validation_error" && (!Array.isArray(result.fields) || typeof result.message !== "string")) {
     throw new ApiFailure("permanent", "GAS_MALFORMED_SYNC_RESPONSE", "GAS did not return validation fields", { response: result });
   }
   return result;

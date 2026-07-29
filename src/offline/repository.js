@@ -2,7 +2,7 @@ import { fetchServerSnapshot as defaultFetchServerSnapshot } from "./apiTranspor
 import { openOfflineDb as defaultOpenDb } from "./db";
 import { getOrCreateDeviceId as defaultGetDeviceId } from "./device";
 import { makeDomainKey } from "./domainKey";
-import { confirmMutation, getConflict, getEntity, getMutation, getSyncCounts, listDueMutations, putOptimisticMutation, resolveStoredConflict, saveConflict, setLastSyncedAt, updateMutation } from "./mutationStore";
+import { confirmMutation, getConflict, getEntity, getMutation, getSyncCounts, listDueMutations, putOptimisticMutation, reclaimSyncingMutations, resolveStoredConflict, saveConflict, setLastSyncedAt, updateMutation } from "./mutationStore";
 import { MUTATION_STATUS } from "./schema";
 import { emptyServerData, normalizeServerData as defaultNormalizeServerData } from "./normalizeServerData";
 import { readServerSnapshot as defaultReadServerSnapshot, writeServerSnapshot as defaultWriteServerSnapshot } from "./snapshotStore";
@@ -30,12 +30,22 @@ export function createRepository(deps = {}) {
       if (!input || input[field] === undefined || input[field] === null || input[field] === "") throw new Error(`Mutation requires ${field}`);
     });
     if (!input.payload || typeof input.payload !== "object") throw new Error("Mutation requires payload");
+    if (!["create", "update", "delete"].includes(input.operation)) throw new Error("Mutation requires a supported operation");
+    if (["segment", "grout", "secondaryGrout", "shiftReport", "planConfig", "distPlanConfig", "routeConfig"].includes(input.entityType) && !input.machine) throw new Error("Mutation requires machine");
+    if (["segment", "grout", "secondaryGrout"].includes(input.entityType) && !input.payload.ringNo) throw new Error("Mutation requires ringNo");
+    if (input.entityType === "shiftReport") {
+      if (!input.payload.date) throw new Error("Mutation requires date");
+      if (!input.payload.shift) throw new Error("Mutation requires shift");
+    }
+    if (["update", "delete"].includes(input.operation) && (!Number.isInteger(input.baseVersion) || input.baseVersion < 0)) throw new Error("Mutation requires valid baseVersion");
+    const canonicalDomainKey = makeDomainKey(input);
+    if (input.domainKey && input.domainKey !== canonicalDomainKey) throw new Error("Mutation domainKey must match canonical domain key");
+    return canonicalDomainKey;
   }
 
   async function mutate(input) {
-    requireMutationEnvelope(input);
+    const domainKey = requireMutationEnvelope(input);
     const db = await openDb();
-    const domainKey = input.domainKey || makeDomainKey(input);
     const mutation = {
       requestId: createRequestId(), entityType: input.entityType, operation: input.operation,
       machine: input.machine, recordId: input.recordId, domainKey, baseVersion: input.baseVersion ?? null,
@@ -111,6 +121,7 @@ export function createRepository(deps = {}) {
     async getEntity(domainKey) { return getEntity(await openDb(), domainKey); },
     async getConflict(conflictId) { return getConflict(await openDb(), conflictId); },
     async getDueMutations(at) { return listDueMutations(await openDb(), at); },
+    async reclaimSyncingMutations() { return reclaimSyncingMutations(await openDb()); },
     async updateMutation(requestId, update) { return updateMutation(await openDb(), requestId, update); },
     applySyncSuccess,
     applyConflict,

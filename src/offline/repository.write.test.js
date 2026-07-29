@@ -55,3 +55,32 @@ test("conflict resolution preserves the audit record and uses currentVersion for
   await expect(repository.getConflict(queued.requestId)).resolves.toMatchObject({ status: "resolved", strategy: "local", before: expect.any(Object), after: expect.any(Object) });
   await expect(repository.getMutation("request-2")).resolves.toMatchObject({ baseVersion: 9, status: "pending" });
 });
+
+test.each([
+  [{ ...segmentInput, domainKey: "segment:TBM1:wrong:Permanent" }, "canonical domain key"],
+  [{ ...segmentInput, machine: "" }, "machine"],
+  [{ ...segmentInput, payload: { ...segmentInput.payload, ringNo: "" } }, "ringNo"],
+  [{ ...segmentInput, baseVersion: null }, "baseVersion"],
+  [{ ...segmentInput, entityType: "shiftReport", payload: { date: "2026-07-29" } }, "shift"],
+  [{ ...segmentInput, entityType: "issue", recordId: "" }, "recordId"],
+])("rejects malformed mutation envelope field %s", async (input, field) => {
+  await expect(makeRepository().mutate(input)).rejects.toThrow(field);
+});
+
+test("allows a create with canonical ring identity and no baseVersion", async () => {
+  const repository = makeRepository();
+  await expect(repository.mutate({ entityType: "segment", operation: "create", machine: "TBM1", recordId: "segment-new", payload: { ringNo: "P2", installType: "Permanent" } }))
+    .resolves.toEqual(expect.objectContaining({ status: "pending", optimisticRecord: expect.objectContaining({ domainKey: "segment:TBM1:P2:Permanent" }) }));
+});
+
+test.each(["pending", "validation_error", "conflict"])("keeps a newer %s optimistic record when an older same-domain mutation succeeds", async status => {
+  const ids = jest.fn().mockReturnValueOnce("request-1").mockReturnValueOnce("request-2");
+  const repository = makeRepository({ createRequestId: ids });
+  const first = await repository.mutate(segmentInput);
+  const second = await repository.mutate({ ...segmentInput, payload: { ...segmentInput.payload, status: `newer-${status}` } });
+  if (status !== "pending") await repository.updateMutation(second.requestId, { status });
+
+  await repository.applySyncSuccess(first.requestId, { requestId: first.requestId, status: "success", record: { recordId: "segment-1", entityType: "segment", machine: "TBM1", domainKey: first.optimisticRecord.domainKey, status: "confirmed" }, version: 3, updatedAt: "2026-07-29T01:00:00.000Z" });
+
+  await expect(repository.getEntity(first.optimisticRecord.domainKey)).resolves.toMatchObject({ payload: expect.objectContaining({ status: `newer-${status}`, syncStatus: status }) });
+});

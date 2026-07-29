@@ -1,4 +1,4 @@
-import { ApiFailure, toApiFailure } from "./apiTransport";
+import { assertSyncResponse, toApiFailure } from "./apiTransport";
 import { MUTATION_STATUS } from "./schema";
 
 function currentTime(clock) {
@@ -10,23 +10,16 @@ function retryAt(now, attemptCount, jitter) {
   return new Date(now + Math.min(300000, 2000 * 2 ** attemptCount) + jitter()).toISOString();
 }
 
-function assertResponse(mutation, response) {
-  if (!response || !["success", "conflict", "validation_error"].includes(response.status) || response.requestId !== mutation.requestId) {
-    throw new ApiFailure("permanent", "GAS_MALFORMED_SYNC_RESPONSE", "GAS returned a malformed sync response");
-  }
-  if (response.status === "success" && !response.record) throw new ApiFailure("permanent", "GAS_MALFORMED_SYNC_RESPONSE", "GAS did not return a confirmed record");
-  if (response.status === "conflict" && (!response.serverRecord || response.currentVersion === undefined)) throw new ApiFailure("permanent", "GAS_MALFORMED_SYNC_RESPONSE", "GAS did not return conflict details");
-  return response;
-}
-
-export function createSyncRunner({ repository, transport, clock = Date, jitter = () => 0, online = () => typeof navigator === "undefined" || navigator.onLine !== false, events = typeof window === "undefined" ? null : window } = {}) {
+export function createSyncRunner({ repository, transport, clock = Date, jitter = () => 0, online = () => typeof navigator === "undefined" || navigator.onLine !== false, events, windowEvents = events || (typeof window === "undefined" ? null : window), document: documentSource = typeof document === "undefined" ? null : document } = {}) {
   if (!repository || !transport || typeof transport.postSyncMutation !== "function") throw new Error("Sync runner requires a repository and postSyncMutation transport");
   let running = null;
   let started = false;
-  const canRun = () => online() && (!events || events.visibilityState !== "hidden");
+  const canRun = () => online() && (!documentSource || documentSource.visibilityState !== "hidden");
+  const reclaim = () => repository.reclaimSyncingMutations ? repository.reclaimSyncingMutations() : Promise.resolve(0);
 
   async function execute() {
     const result = { attempted: 0, synced: 0, conflicts: 0, errors: 0 };
+    await reclaim();
     if (!canRun()) return result;
     const blockedDomains = new Set();
     const mutations = await repository.getDueMutations(currentTime(clock));
@@ -35,7 +28,7 @@ export function createSyncRunner({ repository, transport, clock = Date, jitter =
       result.attempted += 1;
       await repository.updateMutation(mutation.requestId, { status: MUTATION_STATUS.SYNCING });
       try {
-        const response = assertResponse(mutation, await transport.postSyncMutation(mutation));
+        const response = assertSyncResponse(mutation, await transport.postSyncMutation(mutation));
         if (response.status === "success") {
           await repository.applySyncSuccess(mutation.requestId, response);
           result.synced += 1;
@@ -76,19 +69,23 @@ export function createSyncRunner({ repository, transport, clock = Date, jitter =
   return {
     runNow,
     start() {
-      if (started || !events) return;
+      if (started) return;
       started = true;
-      events.addEventListener("online", trigger);
-      events.addEventListener("focus", trigger);
-      events.addEventListener("visibilitychange", trigger);
-      trigger();
+      if (windowEvents) {
+        windowEvents.addEventListener("online", trigger);
+        windowEvents.addEventListener("focus", trigger);
+      }
+      if (documentSource) documentSource.addEventListener("visibilitychange", trigger);
+      reclaim().finally(trigger);
     },
     stop() {
-      if (!started || !events) return;
+      if (!started) return;
       started = false;
-      events.removeEventListener("online", trigger);
-      events.removeEventListener("focus", trigger);
-      events.removeEventListener("visibilitychange", trigger);
+      if (windowEvents) {
+        windowEvents.removeEventListener("online", trigger);
+        windowEvents.removeEventListener("focus", trigger);
+      }
+      if (documentSource) documentSource.removeEventListener("visibilitychange", trigger);
     },
   };
 }

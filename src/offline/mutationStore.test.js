@@ -1,7 +1,7 @@
 import "fake-indexeddb/auto";
 if (!global.structuredClone) global.structuredClone = value => JSON.parse(JSON.stringify(value));
 import { closeOfflineDb, deleteOfflineDbForTests, openOfflineDb } from "./db";
-import { getConflict, getEntity, getMutation, listDueMutations, putOptimisticMutation } from "./mutationStore";
+import { claimDueMutations, getConflict, getEntity, getMutation, listDueMutations, putOptimisticMutation } from "./mutationStore";
 
 beforeEach(async () => { await deleteOfflineDbForTests(); });
 afterEach(async () => { await deleteOfflineDbForTests(); });
@@ -51,4 +51,13 @@ test("preserves insertion order for same-domain mutations created in the same mi
     expect.objectContaining({ requestId: "request-z" }),
     expect.objectContaining({ requestId: "request-a" }),
   ]);
+});
+
+test("claims pending work for one owner and only permits takeover after lease expiry", async () => {
+  const db = await openOfflineDb();
+  await putOptimisticMutation(db, mutation);
+
+  await expect(claimDueMutations(db, { owner: "runner-a", now: 0, leaseMs: 100 })).resolves.toEqual([expect.objectContaining({ requestId: "request-1", syncOwner: "runner-a", leaseExpiresAt: new Date(100).toISOString() })]);
+  await expect(claimDueMutations(db, { owner: "runner-b", now: 99, leaseMs: 100 })).resolves.toEqual([]);
+  await expect(claimDueMutations(db, { owner: "runner-b", now: 101, leaseMs: 100 })).resolves.toEqual([expect.objectContaining({ requestId: "request-1", syncOwner: "runner-b" })]);
 });

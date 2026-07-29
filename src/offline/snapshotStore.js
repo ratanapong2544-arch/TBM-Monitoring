@@ -8,6 +8,7 @@ const collections = [
   ["instInstruments", "instInstrument"], ["instThresholds", "instThreshold"], ["instReadings", "instReading"], ["instSchedules", "instSchedule"],
 ];
 const singletonKeys = ["planConfig", "distPlanConfig", "routeConfigs", "routeProjectTotal", "machineProgress", "syncMeta"];
+const UNRESOLVED_STATUSES = new Set([MUTATION_STATUS.PENDING, MUTATION_STATUS.SYNCING, MUTATION_STATUS.VALIDATION_ERROR, MUTATION_STATUS.CONFLICT]);
 
 function requestResult(request) { return new Promise((resolve, reject) => { request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error); }); }
 function complete(transaction) { return new Promise((resolve, reject) => { transaction.oncomplete = () => resolve(); transaction.onerror = () => reject(transaction.error); transaction.onabort = () => reject(transaction.error); }); }
@@ -25,7 +26,13 @@ export async function writeServerSnapshot(db, machine, data, fetchedAt) {
   const mutations = transaction.objectStore(STORES.mutations);
   const previous = await requestResult(snapshots.get(scopeKey(machine)));
   const [existing, pendingMutations] = await Promise.all([requestResult(entities.getAll()), requestResult(mutations.getAll())]);
-  const pendingDomains = new Set(pendingMutations.filter(mutation => mutation.status === MUTATION_STATUS.PENDING || mutation.status === "pending").map(mutation => mutation.domainKey));
+  const unresolvedByDomain = new Map(pendingMutations
+    .filter(mutation => UNRESOLVED_STATUSES.has(mutation.status) && (mutation.status !== MUTATION_STATUS.SYNCING || !mutation.leaseExpiresAt || Date.parse(mutation.leaseExpiresAt) > Date.now()))
+    .sort((left, right) => (left.queueSequence || 0) - (right.queueSequence || 0))
+    .map(mutation => [mutation.domainKey, mutation]));
+  const unresolvedStatus = domainKey => unresolvedByDomain.get(domainKey) && unresolvedByDomain.get(domainKey).status;
+  const localForDomain = (domainKey, entityType) => existing.find(record => record.domainKey === domainKey && record.entityType === entityType && record.key === `entity:optimistic:${domainKey}`) || existing.find(record => record.domainKey === domainKey && record.entityType === entityType);
+  const preserve = (record, status) => ({ ...record, payload: { ...record.payload, syncStatus: status } });
   const previousKeys = Object.values(previous && previous.entityKeys || {}).flat();
   previousKeys.forEach(key => entities.delete(key));
   const entityKeys = {};
@@ -34,13 +41,14 @@ export async function writeServerSnapshot(db, machine, data, fetchedAt) {
   collections.forEach(([field, entityType]) => {
     const incoming = (data[field] || []).map(payload => recordFor(machine, field, entityType, payload));
     const incomingDomains = new Set(incoming.map(record => record.domainKey));
-    const retained = existing.filter(record => record.machine === machine && record.entityType === entityType && (record.payload && record.payload.syncStatus === "pending" || pendingDomains.has(record.domainKey)))
+    const retained = existing.filter(record => record.machine === machine && record.entityType === entityType && (UNRESOLVED_STATUSES.has(record.payload && record.payload.syncStatus) || unresolvedStatus(record.domainKey)))
       .filter(record => !incomingDomains.has(record.domainKey));
     const merged = incoming.map(record => {
-      const local = existing.find(existingRecord => existingRecord.machine === machine && existingRecord.entityType === entityType && existingRecord.domainKey === record.domainKey);
-      if (local && (local.payload && local.payload.syncStatus === "pending" || pendingDomains.has(local.domainKey))) return { ...local, payload: { ...local.payload, syncStatus: "pending" } };
+      const local = localForDomain(record.domainKey, entityType);
+      const status = unresolvedStatus(record.domainKey) || local && local.payload && local.payload.syncStatus;
+      if (local && UNRESOLVED_STATUSES.has(status)) return preserve(local, status);
       return record;
-    }).concat(retained.map(record => ({ ...record, payload: { ...record.payload, syncStatus: "pending" } })));
+    }).concat(retained.map(record => preserve(record, unresolvedStatus(record.domainKey) || record.payload.syncStatus)));
     entityKeys[field] = merged.map(record => record.key);
     committed[field] = merged.map(record => record.payload);
     merged.forEach(record => entities.put(record));

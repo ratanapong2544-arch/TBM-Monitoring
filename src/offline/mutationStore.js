@@ -79,21 +79,31 @@ export async function listDueMutations(db, now) {
   const mutations = await requestResult(transaction.objectStore(STORES.mutations).getAll());
   await complete(transaction);
   return mutations
-    .filter(mutation => mutation.status === MUTATION_STATUS.PENDING && (!mutation.nextAttemptAt || Date.parse(mutation.nextAttemptAt) <= now))
+    .filter(mutation => isClaimable(mutation, now))
     .sort((left, right) => (left.queueSequence || 0) - (right.queueSequence || 0) || String(left.createdAtLocal).localeCompare(String(right.createdAtLocal)));
 }
 
-export async function reclaimSyncingMutations(db) {
+function isClaimable(mutation, now) {
+  if (mutation.status === MUTATION_STATUS.PENDING) return !mutation.nextAttemptAt || Date.parse(mutation.nextAttemptAt) <= now;
+  return mutation.status === MUTATION_STATUS.SYNCING && (!mutation.leaseExpiresAt || Date.parse(mutation.leaseExpiresAt) <= now);
+}
+
+export async function claimDueMutations(db, { owner, now, leaseMs }) {
+  if (!owner) throw new Error("Mutation claim requires owner");
   const transaction = db.transaction(STORES.mutations, "readwrite");
   const store = transaction.objectStore(STORES.mutations);
   const mutations = await requestResult(store.getAll());
-  const reclaimed = mutations.filter(mutation => mutation.status === MUTATION_STATUS.SYNCING);
-  reclaimed.forEach(mutation => store.put({ ...mutation, status: MUTATION_STATUS.PENDING, nextAttemptAt: null }));
+  const leaseExpiresAt = new Date(now + leaseMs).toISOString();
+  const claimed = mutations
+    .filter(mutation => isClaimable(mutation, now))
+    .sort((left, right) => (left.queueSequence || 0) - (right.queueSequence || 0) || String(left.createdAtLocal).localeCompare(String(right.createdAtLocal)))
+    .map(mutation => ({ ...mutation, status: MUTATION_STATUS.SYNCING, syncOwner: owner, leaseExpiresAt }));
+  claimed.forEach(mutation => store.put(mutation));
   await complete(transaction);
-  return reclaimed.length;
+  return claimed;
 }
 
-export async function updateMutation(db, requestId, update) {
+export async function updateMutation(db, requestId, update, { owner } = {}) {
   const transaction = db.transaction(STORES.mutations, "readwrite");
   const store = transaction.objectStore(STORES.mutations);
   const mutation = await requestResult(store.get(requestId));
@@ -101,19 +111,28 @@ export async function updateMutation(db, requestId, update) {
     transaction.abort();
     throw new Error(`Unknown mutation ${requestId}`);
   }
-  const next = { ...mutation, ...update };
+  if (owner && (mutation.status !== MUTATION_STATUS.SYNCING || mutation.syncOwner !== owner)) {
+    await complete(transaction);
+    return null;
+  }
+  const nextStatus = update.status || mutation.status;
+  const next = { ...mutation, ...update, ...(nextStatus === MUTATION_STATUS.SYNCING ? {} : { syncOwner: null, leaseExpiresAt: null }) };
   store.put(next);
   await complete(transaction);
   return next;
 }
 
-export async function confirmMutation(db, requestId, response) {
+export async function confirmMutation(db, requestId, response, { owner } = {}) {
   const transaction = db.transaction([STORES.entities, STORES.mutations], "readwrite");
   const mutationStore = transaction.objectStore(STORES.mutations);
   const entityStore = transaction.objectStore(STORES.entities);
   const [mutation, mutations] = await Promise.all([requestResult(mutationStore.get(requestId)), requestResult(mutationStore.getAll())]);
   if (!mutation) { transaction.abort(); throw new Error(`Unknown mutation ${requestId}`); }
-  const next = { ...mutation, status: MUTATION_STATUS.SYNCED, syncedAt: response.updatedAt || null, lastError: null };
+  if (owner && (mutation.status !== MUTATION_STATUS.SYNCING || mutation.syncOwner !== owner)) {
+    await complete(transaction);
+    return null;
+  }
+  const next = { ...mutation, status: MUTATION_STATUS.SYNCED, syncedAt: response.updatedAt || null, lastError: null, syncOwner: null, leaseExpiresAt: null };
   mutationStore.put(next);
   const newestOutstanding = mutations
     .map(item => item.requestId === requestId ? next : item)
@@ -135,12 +154,16 @@ export async function confirmMutation(db, requestId, response) {
   return next;
 }
 
-export async function saveConflict(db, requestId, response) {
+export async function saveConflict(db, requestId, response, { owner } = {}) {
   const transaction = db.transaction([STORES.mutations, STORES.conflicts], "readwrite");
   const mutations = transaction.objectStore(STORES.mutations);
   const conflicts = transaction.objectStore(STORES.conflicts);
   const mutation = await requestResult(mutations.get(requestId));
   if (!mutation) { transaction.abort(); throw new Error(`Unknown mutation ${requestId}`); }
+  if (owner && (mutation.status !== MUTATION_STATUS.SYNCING || mutation.syncOwner !== owner)) {
+    await complete(transaction);
+    return null;
+  }
   const conflict = {
     conflictId: requestId,
     requestId,
@@ -152,7 +175,7 @@ export async function saveConflict(db, requestId, response) {
     currentVersion: response.currentVersion,
     createdAt: response.createdAt || mutation.createdAtLocal,
   };
-  mutations.put({ ...mutation, status: MUTATION_STATUS.CONFLICT, lastError: null });
+  mutations.put({ ...mutation, status: MUTATION_STATUS.CONFLICT, lastError: null, syncOwner: null, leaseExpiresAt: null });
   conflicts.put(conflict);
   await complete(transaction);
   return conflict;

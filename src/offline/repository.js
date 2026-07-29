@@ -2,7 +2,7 @@ import { fetchServerSnapshot as defaultFetchServerSnapshot } from "./apiTranspor
 import { openOfflineDb as defaultOpenDb } from "./db";
 import { getOrCreateDeviceId as defaultGetDeviceId } from "./device";
 import { makeDomainKey } from "./domainKey";
-import { confirmMutation, getConflict, getEntity, getMutation, getSyncCounts, listDueMutations, putOptimisticMutation, reclaimSyncingMutations, resolveStoredConflict, saveConflict, setLastSyncedAt, updateMutation } from "./mutationStore";
+import { claimDueMutations, confirmMutation, getConflict, getEntity, getMutation, getSyncCounts, listDueMutations, putOptimisticMutation, resolveStoredConflict, saveConflict, setLastSyncedAt, updateMutation } from "./mutationStore";
 import { MUTATION_STATUS } from "./schema";
 import { emptyServerData, normalizeServerData as defaultNormalizeServerData } from "./normalizeServerData";
 import { readServerSnapshot as defaultReadServerSnapshot, writeServerSnapshot as defaultWriteServerSnapshot } from "./snapshotStore";
@@ -56,15 +56,17 @@ export function createRepository(deps = {}) {
     return { requestId: mutation.requestId, status: MUTATION_STATUS.PENDING, optimisticRecord: entity.payload };
   }
 
-  async function applySyncSuccess(requestId, response) {
-    const mutation = await confirmMutation(await openDb(), requestId, response);
+  async function applySyncSuccess(requestId, response, options) {
+    const mutation = await confirmMutation(await openDb(), requestId, response, options);
+    if (!mutation) return null;
     await setLastSyncedAt(await openDb(), response.updatedAt || now());
     emit({ type: "sync", requestId, status: mutation.status });
     return mutation;
   }
 
-  async function applyConflict(requestId, response) {
-    const conflict = await saveConflict(await openDb(), requestId, response);
+  async function applyConflict(requestId, response, options) {
+    const conflict = await saveConflict(await openDb(), requestId, response, options);
+    if (!conflict) return null;
     emit({ type: "conflict", requestId, conflictId: conflict.conflictId });
     return conflict;
   }
@@ -121,8 +123,8 @@ export function createRepository(deps = {}) {
     async getEntity(domainKey) { return getEntity(await openDb(), domainKey); },
     async getConflict(conflictId) { return getConflict(await openDb(), conflictId); },
     async getDueMutations(at) { return listDueMutations(await openDb(), at); },
-    async reclaimSyncingMutations() { return reclaimSyncingMutations(await openDb()); },
-    async updateMutation(requestId, update) { return updateMutation(await openDb(), requestId, update); },
+    async claimDueMutations(options) { return claimDueMutations(await openDb(), options); },
+    async updateMutation(requestId, update, options) { return updateMutation(await openDb(), requestId, update, options); },
     applySyncSuccess,
     applyConflict,
     async getSyncSummary() { return { online: Boolean(online()), ...(await getSyncCounts(await openDb())) }; },

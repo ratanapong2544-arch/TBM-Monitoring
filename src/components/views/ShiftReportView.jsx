@@ -17,8 +17,10 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
   const [activeModal, setActiveModal] = useState(null);
   const [manpower, setManpower] = useState(defaultManpower);
   const [result, setResult] = useState(defaultResult);
-  // result fields the crew has typed into: the auto-derived values must not overwrite these
-  const [touchedResult, setTouchedResult] = useState({});
+  // result fields the crew typed into, or already saved: the auto-derived values must not overwrite
+  // these. A ref, not state — the auto-fill effect runs in the same commit as a form load, so a
+  // state update would not be visible to it yet and the seeded flags would arrive one render late.
+  const touchedRef = useRef({});
   const [editingEventId, setEditingEventId] = useState(null);
 
   const existingReport = useMemo(() => {
@@ -68,36 +70,66 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
   // the server pass, then each machine switch). Depending on them reset the form mid-edit and
   // silently wiped typed manpower and result values, or reverted unsaved corrections to the last
   // saved copy — and manpower/result have no auto-save to recover from, unlike events.
-  const formKey = existingReport ? `id:${existingReport.id}` : `new:${meta.date}|${meta.shift}`;
+  // Which report the crew asked for (their own choice) versus which row currently matches it (which
+  // a landing snapshot can change underneath them). Loading on the second is what destroyed typed
+  // reports: a device with no cached copy starts on a blank form, the server answers mid-typing,
+  // and the arriving row replaced everything.
+  const selectorKey = `${meta.date}|${meta.shift}`;
+  const reportId = existingReport ? existingReport.id : null;
   const autoResultRef = useRef(autoResult);
   autoResultRef.current = autoResult;
-  useEffect(() => {
-    if (existingReport) {
-      setEvents(existingReport.events || {});
-      setManpower(existingReport.manpower || defaultManpower);
-      const savedRes = existingReport.result || {};
+  const existingReportRef = useRef(existingReport);
+  existingReportRef.current = existingReport;
+  const dirtyRef = useRef(false);
+  const [serverCopyPending, setServerCopyPending] = useState(false);
+
+  const loadForm = React.useCallback(() => {
+    const report = existingReportRef.current;
+    if (report) {
+      setEvents(report.events || {});
+      setManpower(report.manpower || defaultManpower);
+      const savedRes = report.result || {};
       setResult({ startSta: savedRes.startSta || autoResultRef.current.startSta || '', finishSta: savedRes.finishSta || autoResultRef.current.finishSta || '', numberRing: savedRes.numberRing || autoResultRef.current.numberRing || '', totalDistance: savedRes.totalDistance || autoResultRef.current.totalDistance || '', progressRate: savedRes.progressRate || autoResultRef.current.progressRate || '' });
+      // a value the crew already saved is theirs: the auto-derived figure must not replace it later
+      // (a corrected ring count or progress rate would otherwise be silently recomputed away)
+      const seeded = {};
+      Object.keys(savedRes).forEach((key) => { if (savedRes[key]) seeded[key] = true; });
+      touchedRef.current = seeded;
     } else {
       setEvents({});
       setManpower(defaultManpower);
       setResult(autoResultRef.current);
+      touchedRef.current = {};
     }
-    setTouchedResult({});
-  }, [formKey]);
+    dirtyRef.current = false;
+    setServerCopyPending(false);
+    // eslint-disable-next-line
+  }, []);
+
+  // the crew picked a different date/shift — load that report
+  useEffect(() => { loadForm(); }, [selectorKey, loadForm]);
+
+  // a snapshot changed which row matches the current date/shift. Only take it over a form the crew
+  // has not started filling in; otherwise keep what they typed and tell them a copy arrived.
+  useEffect(() => {
+    if (!dirtyRef.current) loadForm();
+    else setServerCopyPending(true);
+    // eslint-disable-next-line
+  }, [reportId]);
 
   // Keep the auto-derived result fields current as rings are recorded during the shift, but never
-  // overwrite a field the crew has typed into.
+  // overwrite a field the crew typed into or already saved.
   useEffect(() => {
     setResult((prev) => {
       const next = { ...prev };
       let changed = false;
       Object.keys(autoResult).forEach((key) => {
-        if (touchedResult[key]) return;
+        if (touchedRef.current[key]) return;
         if (autoResult[key] && autoResult[key] !== prev[key]) { next[key] = autoResult[key]; changed = true; }
       });
       return changed ? next : prev;
     });
-  }, [autoResult, touchedResult]);
+  }, [autoResult]);
 
   const handleMetaChange = (e) => setMeta({ ...meta, [e.target.name]: e.target.value });
 
@@ -220,10 +252,14 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
     }
   };
 
-  const handleManpowerChange = (e) => setManpower({ ...manpower, [e.target.name]: e.target.value });
+  const handleManpowerChange = (e) => {
+    dirtyRef.current = true;
+    setManpower({ ...manpower, [e.target.name]: e.target.value });
+  };
   const handleResultChange = (e) => {
     // remember the crew edited this field so the auto-derived value never overwrites it again
-    setTouchedResult((prev) => ({ ...prev, [e.target.name]: true }));
+    dirtyRef.current = true;
+    touchedRef.current = { ...touchedRef.current, [e.target.name]: true };
     setResult({ ...result, [e.target.name]: e.target.value });
   };
   const handlePrint = () => fitAndPrint(document.getElementById("shift-report-container"), { orientation: "portrait", onePage: true });
@@ -273,6 +309,7 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
     if (!updatedEvents[activityName]) updatedEvents[activityName] = [];
     if (editingEventId) updatedEvents[activityName] = updatedEvents[activityName].map(ev => ev.id === editingEventId ? { ...ev, start: newEvent.start, end: newEvent.end, label: newEvent.label } : ev);
     else updatedEvents[activityName].push({ ...newEvent, id: Date.now() });
+    dirtyRef.current = true;
     setEvents(updatedEvents); setNewEvent({ start: '', end: '', label: '' }); setEditingEventId(null); triggerAutoSaveEvents(updatedEvents);
   };
 
@@ -280,6 +317,7 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
     const updatedEvents = { ...events };
     updatedEvents[activityName] = updatedEvents[activityName].filter(ev => ev.id !== id);
     if (updatedEvents[activityName].length === 0) delete updatedEvents[activityName];
+    dirtyRef.current = true;
     setEvents(updatedEvents); triggerAutoSaveEvents(updatedEvents);
   };
 
@@ -307,6 +345,12 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
         </div>
       </div>
 
+      {serverCopyPending && (
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2 bg-code-b/10 border border-code-b/30 text-code-b px-4 py-2 rounded-card text-[13px] no-print font-semibold">
+          <span>มีรายงานกะนี้จากเซิร์ฟเวอร์ — ข้อมูลที่กรอกไว้ยังอยู่ ไม่ถูกทับ</span>
+          <button type="button" onClick={loadForm} className="underline underline-offset-2">โหลดข้อมูลจากเซิร์ฟเวอร์แทน</button>
+        </div>
+      )}
       <div id="shift-report-container" className={`bg-white border border-line shadow-modal print:shadow-none print:border-none rounded-modal overflow-hidden print:rounded-none ${readOnly ? "pointer-events-none" : ""}`}>
         <div className="p-8 border-b border-line print:border-black print:p-2 text-center bg-surface-alt print:bg-white">
           <h2 className="text-2xl print:text-lg font-semibold mb-2 tracking-tight text-ink print:text-black">บันทึกการทำงานการขุดเจาะอุโมงค์</h2>

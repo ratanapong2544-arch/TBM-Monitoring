@@ -91,6 +91,59 @@ test("a snapshot landing mid-edit does not revert unsaved corrections to a saved
   form.unmount();
 });
 
+test("a report arriving from the server mid-typing does not replace what the crew filled in", () => {
+  // a device with no cached copy (fresh install, or a report created on another phone after this
+  // device's last refresh) starts on a blank form and is usable during the fetch
+  const form = render(view({ shiftReports: [] }));
+  type(form.container, "Engineer", "3");
+  type(form.container, "Operator", "2");
+
+  const arriving = {
+    id: "sr1", date: "2026-07-30", shift: "Day", tbmNo: "TBM1",
+    manpower: { Engineer: "9", Operator: "9" }, result: {}, events: {},
+  };
+  form.rerender(view({ shiftReports: [arriving], segmentRecords: [...segments] }));
+
+  expect(form.value("Engineer")).toBe("3");
+  expect(form.value("Operator")).toBe("2");
+  expect(form.container.textContent).toContain("มีรายงานกะนี้จากเซิร์ฟเวอร์");
+  form.unmount();
+});
+
+test("a report arriving on an untouched form is loaded normally", () => {
+  const form = render(view({ shiftReports: [] }));
+
+  const arriving = {
+    id: "sr1", date: "2026-07-30", shift: "Day", tbmNo: "TBM1",
+    manpower: { Engineer: "9" }, result: {}, events: {},
+  };
+  form.rerender(view({ shiftReports: [arriving], segmentRecords: [...segments] }));
+
+  expect(form.value("Engineer")).toBe("9");
+  expect(form.container.textContent).not.toContain("มีรายงานกะนี้จากเซิร์ฟเวอร์");
+  form.unmount();
+});
+
+test("a saved result correction is not recomputed away by the auto-derived value", () => {
+  // the crew deliberately corrected the ring count (one ring was double-recorded); reopening the
+  // report must not silently restore the computed figure, which any later save would push back
+  const saved = {
+    id: "sr1", date: "2026-07-30", shift: "Day", tbmNo: "TBM1",
+    manpower: {}, events: {},
+    result: { startSta: "8+010.20", finishSta: "8+008.80", numberRing: "1", totalDistance: "1.40", progressRate: "1.40" },
+  };
+  const twoRings = [
+    segments[0],
+    { id: "s2", ringNo: "P644", startCH: "8+008.80", finishCH: "8+007.40", length: "1.40", status: "Completed", installType: "Permanent", date: "2026-07-30", shift: "Day", installShift: "Day", installStartTime: "09:10" },
+  ];
+
+  const form = render(view({ shiftReports: [saved], segmentRecords: twoRings }));
+
+  expect(form.value("numberRing")).toBe("1");
+  expect(form.value("progressRate")).toBe("1.40");
+  form.unmount();
+});
+
 test("the auto-derived result still fills in as rings are recorded", () => {
   const form = render(view({ segmentRecords: [] }));
   expect(form.value("numberRing")).toBe("");

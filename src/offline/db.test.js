@@ -227,6 +227,32 @@ test("upgrading survives two records re-keying onto one canonical key", async ()
   expect(entities[0].key).toBe("entity:optimistic:issue:GLOBAL:i1");
 });
 
+test("upgrading a database with no stale keys preserves the cache", async () => {
+  // the snapshot clear must stay inside the empty-remap guard: an install whose keys are already
+  // canonical has nothing to migrate, and wiping its cache on every v1->v2 open would be wrong
+  const canonical = "issue:GLOBAL:i1";
+  await seedV1({
+    mutations: [{ requestId: "m1", status: "pending", entityType: "issue", machine: null, recordId: "i1", domainKey: canonical, payload: { id: "i1" } }],
+    entities: [{ key: `entity:optimistic:${canonical}`, entityType: "issue", machine: "GLOBAL", domainKey: canonical, payload: { id: "i1" } }],
+    conflicts: [],
+  });
+  await new Promise((resolve, reject) => {
+    const request = indexedDB.open(require("./schema").DB_NAME, 1);
+    request.onsuccess = () => {
+      const db = request.result;
+      const transaction = db.transaction("snapshots", "readwrite");
+      transaction.objectStore("snapshots").put({ scopeKey: "getData:TBM1", machine: "TBM1", entityKeys: { issues: [`entity:optimistic:${canonical}`] } });
+      transaction.oncomplete = () => { db.close(); resolve(); };
+      transaction.onerror = () => reject(transaction.error);
+    };
+    request.onerror = () => reject(request.error);
+  });
+
+  const db = await openOfflineDb();
+  expect(await readAllStore(db, "snapshots")).toHaveLength(1);
+  expect((await readAllStore(db, "entities"))[0].key).toBe(`entity:optimistic:${canonical}`);
+});
+
 test("upgrading discards the stale cache instead of leaving load() a gapped list", async () => {
   // the cache's entityKeys reference pre-migration keys; re-keying the rows under them would make
   // load() resolve keys that no longer exist and drop the record. Clearing the cache is clean:

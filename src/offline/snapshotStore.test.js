@@ -161,6 +161,22 @@ test("keeps a pending route project total, not only the config body", async () =
   expect(snapshot.routeProjectTotal).toBe(6193);
 });
 
+test("a raw plan config keeps a field named routeProjectTotal (strip is routeConfig-only)", async () => {
+  // routeProjectTotal is a routeConfig sibling stored in its own singleton; for plan/dist configs
+  // the server keeps it in the body, so the client must not strip it there
+  const db = await openOfflineDb();
+  await putOptimisticMutation(db, {
+    requestId: "m-plan-total", entityType: "planConfig", operation: "update", machine: "TBM1", recordId: "planConfig",
+    domainKey: "planConfig:TBM1", baseVersion: 1, deviceId: "device-1",
+    createdAtLocal: "2026-07-29T00:00:00.000Z", payload: { totalRings: 450, routeProjectTotal: 99 },
+  });
+
+  await writeServerSnapshot(db, "TBM1", normalizeServerData({ planConfig: { totalRings: 400 } }, "TBM1"), "after");
+
+  const snapshot = await readServerSnapshot(db, "TBM1");
+  expect(snapshot.planConfig).toEqual({ totalRings: 450, routeProjectTotal: 99 });
+});
+
 test("a raw config payload overlays a clean body, without injected metadata keys", async () => {
   const db = await openOfflineDb();
   await putOptimisticMutation(db, {

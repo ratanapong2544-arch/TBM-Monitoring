@@ -19,6 +19,8 @@ const {
   oversizedSyncFields_,
   invalidSyncImage_,
   classifySyncApplyFailure_,
+  syncErrorEnvelope_,
+  stableSyncJson_,
   handleSyncMutation_,
   handleLegacyWrite_,
   getSyncMetaRow_,
@@ -148,12 +150,17 @@ function makeFakeSpreadsheet(sheets) {
 const SEG_HEADERS = ["id", "date", "shift", "ringNo", "typeRing", "keyPos", "startTime", "endTime", "length", "startCH", "finishCH", "problem", "imageUrl", "timestamp", "installType"];
 const SHIFT_HEADERS = ["id", "date", "shift", "tbmNo", "location", "events", "manpower", "result", "timestamp"];
 const GROUT_HEADERS = ["id", "date", "shift", "ringNo", "excavRing", "key", "partA", "partB", "total", "ratio", "pressure", "positions", "remark", "imageUrl", "timestamp", "groutPass"];
+const DAILY_HEADERS = ["id", "machine", "date", "json"];
+const PREP_HEADERS = ["id", "machine", "json"];
 
 function makeFakeState(seed) {
   const sheets = {
     Segments: makeFakeSheet("Segments", [SEG_HEADERS.slice()]),
     ShiftReports: makeFakeSheet("ShiftReports", [SHIFT_HEADERS.slice()]),
     Grouts: makeFakeSheet("Grouts", [GROUT_HEADERS.slice()]),
+    DailyReports: makeFakeSheet("DailyReports", [DAILY_HEADERS.slice()]),
+    PrepTasks: makeFakeSheet("PrepTasks", [PREP_HEADERS.slice()]),
+    PlanConfig: makeFakeSheet("PlanConfig", [["Key", "Value"]]),
     SyncMeta: makeFakeSheet("SyncMeta", [SYNC_META_HEADERS.slice()]),
     SyncRequests: makeFakeSheet("SyncRequests", [SYNC_REQUEST_HEADERS.slice()]),
   };
@@ -687,6 +694,7 @@ test("getSyncMetaMap_ serializes Date cells and coerces deleted flags", () => {
   assert.equal(typeof entry.updatedAt, "string");
   assert.ok(entry.updatedAt.indexOf("T") !== -1, "updatedAt must be an ISO string");
   assert.equal(entry.deleted, true);
+  assert.deepEqual(Object.keys(entry).sort(), ["deleted", "updatedAt", "version"], "no unused fields on the hot read path");
 });
 
 test("an oversized response degrades to a marker row instead of throwing", () => {
@@ -755,13 +763,110 @@ test("an oversized field is refused before any write, upload, or ledger row", ()
 });
 
 test("an oversized structured field is measured as its serialized form", () => {
-  assert.deepEqual(oversizedSyncFields_({ events: { log: "x".repeat(60000) } }), ["events"]);
-  assert.deepEqual(oversizedSyncFields_({ note: "x".repeat(50000) }), []);
+  const seg = { entityType: "segment", machine: "TBM1", recordId: "s1" };
+  assert.deepEqual(oversizedSyncFields_({ ...seg, payload: { positions: { log: "x".repeat(60000) } } }), ["positions"]);
+  assert.deepEqual(oversizedSyncFields_({ ...seg, payload: { problem: "x".repeat(50000) } }), []);
   assert.deepEqual(
-    oversizedSyncFields_({ imageBase64: "data:image/png;base64," + "A".repeat(90000), imageName: "a.png" }),
+    oversizedSyncFields_({ ...seg, payload: { imageBase64: "data:image/png;base64," + "A".repeat(90000), imageName: "a.png" } }),
     [],
-    "imageBase64 is uploaded and stripped before any cell is written"
+    "a row entity uploads imageBase64 and strips it before any cell is written"
   );
+});
+
+test("JSON-blob entities are measured as the whole serialized record", () => {
+  const daily = { entityType: "dailyReport", machine: "TBM1", recordId: "d1" };
+  // each field fits a cell, but dailyReport stores the whole record in one json cell
+  assert.deepEqual(
+    oversizedSyncFields_({ ...daily, payload: { activities: "a".repeat(40000), remarks: "b".repeat(40000) } }),
+    ["json"]
+  );
+  assert.deepEqual(
+    oversizedSyncFields_({ ...daily, payload: { activities: "a".repeat(1000) } }),
+    []
+  );
+  assert.deepEqual(
+    oversizedSyncFields_({ ...daily, payload: { imageBase64: "data:image/png;base64," + "A".repeat(120000), imageName: "a.png" } }),
+    ["imageBase64", "json"],
+    "a JSON-blob entity never uploads images, so the base64 lands in the cell"
+  );
+  const prep = { entityType: "prepTask", machine: "TBM2", recordId: "p1" };
+  assert.deepEqual(oversizedSyncFields_({ ...prep, payload: { notes: "n".repeat(60000) } }), ["json", "notes"]);
+});
+
+test("a raw config payload is measured as the single stored config cell", () => {
+  const cfg = { entityType: "planConfig", machine: "TBM1", recordId: "planConfig" };
+  assert.deepEqual(
+    oversizedSyncFields_({ ...cfg, payload: { notesA: "a".repeat(30000), notesB: "b".repeat(30000) } }),
+    ["planConfig"]
+  );
+  assert.deepEqual(oversizedSyncFields_({ ...cfg, payload: { target: 4 } }), []);
+});
+
+test("an oversized JSON-blob record is refused before the json cell is written", () => {
+  const { ss, sheets } = makeFakeState();
+  withCellLimitEverywhere(sheets);
+  const envelope = {
+    requestId: "req-daily-big", entityType: "dailyReport", operation: "create", machine: "TBM1",
+    recordId: "d1", baseVersion: 0, deviceId: "device-A",
+    payload: { activities: "a".repeat(40000), remarks: "b".repeat(40000) },
+  };
+  envelope.domainKey = makeSyncRecordKey_(envelope);
+  const response = handleSyncMutation_(ss, envelope);
+  assert.equal(response.status, "validation_error");
+  assert.equal(response.code, "SYNC_FIELD_TOO_LARGE");
+  assert.deepEqual(response.fields, ["json"]);
+  assert.equal(sheetObjects(sheets.DailyReports).length, 0);
+  assert.equal(sheetObjects(sheets.SyncMeta).length, 0);
+});
+
+test("dailyReport and prepTask round-trip through the sync endpoint", () => {
+  const { ss, sheets } = makeFakeState();
+  withCellLimitEverywhere(sheets);
+  const daily = {
+    requestId: "req-daily-1", entityType: "dailyReport", operation: "create", machine: "TBM1",
+    recordId: "d1", baseVersion: 0, deviceId: "device-A", payload: { date: "2026-07-29", area: "Shaft" },
+  };
+  daily.domainKey = makeSyncRecordKey_(daily);
+  const created = handleSyncMutation_(ss, daily);
+  assert.equal(created.status, "success");
+  assert.equal(created.version, 1);
+  const rows = sheetObjects(sheets.DailyReports);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].id, "d1");
+  assert.equal(rows[0].machine, "TBM1");
+  assert.deepEqual(JSON.parse(rows[0].json), { date: "2026-07-29", area: "Shaft", id: "d1", machine: "TBM1" });
+  assert.equal(sheetObjects(sheets.SyncMeta)[0].recordKey, "dailyReport:TBM1:d1");
+
+  // a stale update on the same domain conflicts against the stored JSON record
+  const stale = Object.assign({}, daily, { requestId: "req-daily-2", operation: "update", baseVersion: 0, payload: { date: "2026-07-29", area: "Portal" } });
+  const conflict = handleSyncMutation_(ss, stale);
+  assert.equal(conflict.status, "conflict");
+  assert.equal(conflict.currentVersion, 1);
+  assert.deepEqual(conflict.conflictingFields, ["area"]);
+
+  const prep = {
+    requestId: "req-prep-1", entityType: "prepTask", operation: "create", machine: "TBM2",
+    recordId: "p1", baseVersion: 0, deviceId: "device-A", payload: { title: "Prep", percent: 10 },
+  };
+  prep.domainKey = makeSyncRecordKey_(prep);
+  assert.equal(handleSyncMutation_(ss, prep).status, "success");
+  assert.equal(sheetObjects(sheets.PrepTasks)[0].machine, "TBM2");
+});
+
+test("a JSON-blob delete tombstones the domain", () => {
+  const { ss, sheets } = makeFakeState();
+  const daily = {
+    requestId: "req-daily-c", entityType: "dailyReport", operation: "create", machine: "TBM1",
+    recordId: "d1", baseVersion: 0, deviceId: "device-A", payload: { date: "2026-07-29" },
+  };
+  daily.domainKey = makeSyncRecordKey_(daily);
+  handleSyncMutation_(ss, daily);
+  const del = handleSyncMutation_(ss, Object.assign({}, daily, { requestId: "req-daily-d", operation: "delete", baseVersion: 1 }));
+  assert.equal(del.status, "success");
+  assert.equal(sheetObjects(sheets.DailyReports).length, 0);
+  const meta = sheetObjects(sheets.SyncMeta)[0];
+  assert.equal(meta.version, 2);
+  assert.equal(meta.deleted, true);
 });
 
 test("a malformed image data URI is a terminal validation error, not a retry", () => {
@@ -775,14 +880,43 @@ test("a malformed image data URI is a terminal validation error, not a retry", (
   assert.equal(response.code, "SYNC_IMAGE_INVALID");
   assert.deepEqual(response.fields, ["imageBase64"]);
   assert.equal(sheetObjects(sheets.Segments).length, 0);
-  assert.equal(invalidSyncImage_({ imageBase64: "data:image/png;base64,AAA", imageName: "a.png" }), false);
+  assert.equal(invalidSyncImage_({ imageBase64: "data:image/png;base64,QUJD", imageName: "a.png" }), false);
+  assert.equal(invalidSyncImage_({ imageBase64: "data:image/jpeg;base64,QQ==", imageName: "a.jpg" }), false);
   assert.equal(invalidSyncImage_({}), false);
+  // shapes that pass a loose data-URI check but still throw inside Utilities.base64Decode
+  assert.equal(invalidSyncImage_({ imageBase64: "data:image/png;name=a,b;base64,QUJD", imageName: "a.png" }), true);
+  assert.equal(invalidSyncImage_({ imageBase64: "data:image/png;base64,%%%not-base64%%%", imageName: "a.png" }), true);
+  assert.equal(invalidSyncImage_({ imageBase64: "data:image/png;base64,", imageName: "a.png" }), true);
 });
 
 test("a deterministic apply failure is classified terminal, transient ones retryable", () => {
   assert.equal(classifySyncApplyFailure_(CELL_LIMIT_ERROR), "validation");
   assert.equal(classifySyncApplyFailure_("Service Spreadsheets timed out"), "retryable");
   assert.equal(classifySyncApplyFailure_(undefined), "retryable");
+});
+
+test("localized cell-limit errors are still classified terminal", () => {
+  // Apps Script localizes exception text to the executing account's language
+  assert.equal(
+    classifySyncApplyFailure_("ข้อมูลที่คุณป้อนมีอักขระมากกว่าจำนวนสูงสุด 50000 อักขระในเซลล์เดียว"),
+    "validation"
+  );
+  assert.equal(classifySyncApplyFailure_("Could not decode string."), "validation");
+  assert.equal(classifySyncApplyFailure_("Exception: Invalid argument: data"), "validation");
+});
+
+test("the doPost error envelope carries the terminal or retryable code", () => {
+  assert.deepEqual(syncErrorEnvelope_(new Error(CELL_LIMIT_ERROR)), {
+    status: "error", code: "SYNC_APPLY_INVALID", message: "Error: " + CELL_LIMIT_ERROR,
+  });
+  const transient = syncErrorEnvelope_(new Error("Service Spreadsheets timed out"));
+  assert.equal(transient.code, "SYNC_RETRYABLE");
+  assert.match(transient.message, /timed out/);
+});
+
+test("stable serialization makes key order irrelevant", () => {
+  assert.equal(stableSyncJson_({ b: 1, a: [2, { d: 4, c: 3 }] }), stableSyncJson_({ a: [2, { c: 3, d: 4 }], b: 1 }));
+  assert.deepEqual(diffSyncFields_({ positions: { b: 1, a: 2 } }, { positions: '{"a":2,"b":1}' }), []);
 });
 
 test("a config conflict reports only the fields that actually differ", () => {
@@ -807,6 +941,9 @@ test("a config conflict reports only the fields that actually differ", () => {
   assert.equal(same.status, "conflict");
   assert.deepEqual(same.conflictingFields, [], "an identical config must not report every field");
   assert.deepEqual(same.localRecord, { planConfig: { target: 4, crew: "A" } }, "localRecord is canonicalized");
+  // same config, different key insertion order — still not a difference
+  const reordered = Object.assign({}, identical, { requestId: "req-cfg-order", payload: { crew: "A", target: 4 } });
+  assert.deepEqual(handleSyncMutation_(ss, reordered).conflictingFields, []);
   const changed = Object.assign({}, identical, { requestId: "req-cfg-2", payload: { target: 5, crew: "A" } });
   const diff = handleSyncMutation_(ss, changed);
   assert.deepEqual(diff.conflictingFields, ["planConfig"]);
@@ -833,18 +970,58 @@ test("getData sync metadata drops the inactive machine's ring rows only", () => 
   assert.equal(Object.keys(getSyncMetaMap_(ss)).length, rows.length, "no machine argument keeps every row");
 });
 
-test("a time-zone mismatch refuses the mutation instead of drifting the domain key", () => {
+test("a time-zone mismatch refuses only the mutations whose keys use sheet dates", () => {
   const { ss, sheets } = makeFakeState();
   ss.getSpreadsheetTimeZone = () => "America/New_York";
   global.Session = { getScriptTimeZone: () => "Asia/Bangkok" };
   try {
-    const response = handleSyncMutation_(ss, segmentEnvelope({ requestId: "req-tz" }));
-    assert.equal(response.status, "validation_error");
-    assert.equal(response.code, "SYNC_TIMEZONE_MISMATCH");
-    assert.equal(sheetObjects(sheets.Segments).length, 0);
+    const shift = {
+      requestId: "req-tz-shift", entityType: "shiftReport", operation: "create", machine: "TBM1",
+      recordId: "sr1", baseVersion: 0, deviceId: "device-A", payload: { date: "2026-07-29", shift: "Day" },
+    };
+    shift.domainKey = makeSyncRecordKey_(shift);
+    // thrown, not returned: doPost maps it to a retryable code so the queue drains once an admin
+    // realigns the time zones, instead of terminally blocking the domain key
+    assert.throws(() => handleSyncMutation_(ss, shift), /SYNC_TIMEZONE_MISMATCH/);
+    assert.equal(syncErrorEnvelope_(new Error("SYNC_TIMEZONE_MISMATCH: script ...")).code, "SYNC_RETRYABLE");
+    assert.equal(sheetObjects(sheets.ShiftReports).length, 0);
     assert.equal(sheetObjects(sheets.SyncMeta).length, 0);
-    global.Session = { getScriptTimeZone: () => "America/New_York" };
-    assert.equal(handleSyncMutation_(ss, segmentEnvelope({ requestId: "req-tz-ok" })).status, "success");
+    // a segment key is ringNo-based, so a mismatch must not block it
+    assert.equal(handleSyncMutation_(ss, segmentEnvelope({ requestId: "req-tz-seg" })).status, "success");
+  } finally {
+    delete global.Session;
+  }
+});
+
+test("equivalent time zones named differently are not a mismatch", () => {
+  const { ss } = makeFakeState();
+  ss.getSpreadsheetTimeZone = () => "Etc/GMT-7";
+  global.Session = { getScriptTimeZone: () => "Asia/Bangkok" };
+  global.Utilities = { formatDate: () => "+0700" };
+  try {
+    const shift = {
+      requestId: "req-tz-equiv", entityType: "shiftReport", operation: "create", machine: "TBM1",
+      recordId: "sr1", baseVersion: 0, deviceId: "device-A", payload: { date: "2026-07-29", shift: "Day" },
+    };
+    shift.domainKey = makeSyncRecordKey_(shift);
+    assert.equal(handleSyncMutation_(ss, shift).status, "success", "equal offsets must not refuse the write");
+  } finally {
+    delete global.Session;
+    delete global.Utilities;
+  }
+});
+
+test("a late time-zone change cannot shadow an already stored response", () => {
+  const { ss, sheets } = makeFakeState();
+  const envelope = segmentEnvelope({ requestId: "req-tz-replay" });
+  const first = handleSyncMutation_(ss, envelope);
+  assert.equal(first.status, "success");
+  ss.getSpreadsheetTimeZone = () => "America/New_York";
+  global.Session = { getScriptTimeZone: () => "Asia/Bangkok" };
+  try {
+    const replay = handleSyncMutation_(ss, envelope);
+    assert.deepEqual(replay, first, "a duplicate must replay its stored response");
+    assert.equal(sheetObjects(sheets.Segments).length, 1);
   } finally {
     delete global.Session;
   }

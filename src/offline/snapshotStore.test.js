@@ -87,6 +87,92 @@ test("does not pull another machine's unsynced ring record into this machine's l
   expect(snapshot.segments.map(record => record.ringNo)).toEqual(["P1"]);
 });
 
+test("keeps a pending offline config edit through a refresh", async () => {
+  // configs arrive as singletons rather than collection rows, so they need the same optimistic
+  // overlay: without it the offline plan edit disappeared and was re-entered against itself
+  const db = await openOfflineDb();
+  await writeServerSnapshot(db, "TBM1", normalizeServerData({ planConfig: { target: 4 } }, "TBM1"), "first");
+  await putOptimisticMutation(db, {
+    requestId: "m-plan", entityType: "planConfig", operation: "update", machine: "TBM1", recordId: "planConfig",
+    domainKey: "planConfig:TBM1", baseVersion: 1, deviceId: "device-1",
+    createdAtLocal: "2026-07-29T00:00:00.000Z", payload: { planConfig: { target: 9 } },
+  });
+
+  await writeServerSnapshot(db, "TBM1", normalizeServerData({ planConfig: { target: 4 } }, "TBM1"), "second");
+
+  await expect(readServerSnapshot(db, "TBM1")).resolves.toEqual(expect.objectContaining({ planConfig: { target: 9 } }));
+});
+
+test("keeps a pending route config edit for the machine it belongs to", async () => {
+  const db = await openOfflineDb();
+  await putOptimisticMutation(db, {
+    requestId: "m-route", entityType: "routeConfig", operation: "update", machine: "TBM2", recordId: "routeConfig",
+    domainKey: "routeConfig:TBM2", baseVersion: 1, deviceId: "device-1",
+    createdAtLocal: "2026-07-29T00:00:00.000Z", payload: { routeConfig: { legs: [9] } },
+  });
+
+  await writeServerSnapshot(db, "TBM1", normalizeServerData({ routeConfigs: { TBM1: { legs: [1] }, TBM2: { legs: [2] } } }, "TBM1"), "after");
+
+  const snapshot = await readServerSnapshot(db, "TBM1");
+  expect(snapshot.routeConfigs).toEqual({ TBM1: { legs: [1] }, TBM2: { legs: [9] } });
+});
+
+test("keeps two server rows that share a ring identity distinct in the cache", async () => {
+  // live sheets hold duplicate ring rows (the views dedupe them); keying the cache by domain alone
+  // made one row overwrite the other and the survivor appear twice
+  const db = await openOfflineDb();
+  const data = normalizeServerData({
+    segments: [
+      { id: "s-old", ringNo: "P1", installType: "Permanent", status: "In Progress" },
+      { id: "s-new", ringNo: "P1", installType: "Permanent", status: "Completed" },
+    ],
+  }, "TBM1");
+  await writeServerSnapshot(db, "TBM1", data, "first");
+
+  const cached = await readServerSnapshot(db, "TBM1");
+  expect(cached.segments.map(record => record.id).sort()).toEqual(["s-new", "s-old"]);
+});
+
+test("lists a retained record once even when a stale server copy is also cached", async () => {
+  const db = await openOfflineDb();
+  await writeServerSnapshot(db, "TBM1", normalizeServerData({ segments: [{ id: "s1", ringNo: "P1", installType: "Permanent", length: "1.4" }] }, "TBM1"), "first");
+  await putOptimisticMutation(db, {
+    requestId: "m-seg", entityType: "segment", operation: "update", machine: "TBM1", recordId: "s1",
+    domainKey: "segment:TBM1:P1:Permanent", baseVersion: 1, deviceId: "device-1",
+    createdAtLocal: "2026-07-29T00:00:00.000Z", payload: { id: "s1", ringNo: "P1", installType: "Permanent", length: "9.9" },
+  });
+
+  // the record is missing from this response (deleted elsewhere), so it must be retained — once
+  await writeServerSnapshot(db, "TBM1", normalizeServerData({ segments: [] }, "TBM1"), "second");
+
+  const snapshot = await readServerSnapshot(db, "TBM1");
+  expect(snapshot.segments).toEqual([expect.objectContaining({ id: "s1", length: "9.9", syncStatus: "pending" })]);
+});
+
+test("prunes confirmed mutations past the retention window but keeps unsynced work", async () => {
+  const db = await openOfflineDb();
+  const write = (requestId, status, sequence) => new Promise((resolve, reject) => {
+    const transaction = db.transaction("mutations", "readwrite");
+    transaction.objectStore("mutations").put({ requestId, status, domainKey: `segment:TBM1:${requestId}:Permanent`, queueSequence: sequence });
+    transaction.oncomplete = resolve;
+    transaction.onerror = () => reject(transaction.error);
+  });
+  for (let index = 0; index < 210; index += 1) await write(`synced-${index}`, "synced", index);
+  await write("still-pending", "pending", 500);
+  await write("in-conflict", "conflict", 501);
+
+  await writeServerSnapshot(db, "TBM1", normalizeServerData({ segments: [] }, "TBM1"), "after");
+
+  const remaining = await new Promise((resolve, reject) => {
+    const request = db.transaction("mutations").objectStore("mutations").getAll();
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+  const statuses = remaining.map(mutation => mutation.status);
+  expect(statuses.filter(status => status === "synced")).toHaveLength(200);
+  expect(remaining.map(mutation => mutation.requestId)).toEqual(expect.arrayContaining(["still-pending", "in-conflict"]));
+});
+
 test("each overlapping write returns its own committed snapshot even when a later write wins the database", async () => {
   const db = await openOfflineDb();
   const originalTransaction = db.transaction.bind(db);

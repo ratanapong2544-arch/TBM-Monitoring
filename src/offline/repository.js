@@ -2,7 +2,7 @@ import { fetchServerSnapshot as defaultFetchServerSnapshot } from "./apiTranspor
 import { openOfflineDb as defaultOpenDb } from "./db";
 import { getOrCreateDeviceId as defaultGetDeviceId } from "./device";
 import { makeDomainKey } from "./domainKey";
-import { claimDueMutations, confirmMutation, getConflict, getEntity, getMutation, getSyncCounts, listDueMutations, putOptimisticMutation, resolveConflictAndEnqueue, resolveStoredConflict, saveConflict, setLastSyncedAt, updateMutation } from "./mutationStore";
+import { claimDueMutations, confirmMutation, getConflict, getEntity, getMutation, getSyncCounts, listDueMutations, putOptimisticMutation, resolveConflictAndEnqueue, resolveStoredConflict, retryMutationAsSuccessor, saveConflict, setLastSyncedAt, updateMutation } from "./mutationStore";
 import { MUTATION_STATUS } from "./schema";
 import { emptyServerData, normalizeServerData as defaultNormalizeServerData } from "./normalizeServerData";
 import { readServerSnapshot as defaultReadServerSnapshot, writeServerSnapshot as defaultWriteServerSnapshot } from "./snapshotStore";
@@ -123,6 +123,9 @@ export function createRepository(deps = {}) {
       baseVersion: conflict.currentVersion, payload: nextPayload, actorId: original.actorId,
     };
     const domainKey = requireMutationEnvelope(successorInput);
+    // a resolution must target the record it resolves: a manual payload that drops or alters a key
+    // field would otherwise queue against a different domain carrying this domain's baseVersion
+    if (domainKey !== original.domainKey) throw new Error(`Resolution payload changes the record identity from ${original.domainKey} to ${domainKey}`);
     const resolvedAt = now();
     const successor = {
       ...successorInput,
@@ -172,19 +175,33 @@ export function createRepository(deps = {}) {
     mutate,
     resolveConflict,
     // A terminal validation/permanent error stays the head of its domain and shadows every later
-    // mutation on that key, so there must be a way to put it back in flight after the user (or an
-    // admin) fixes the cause — an oversized field, a repaired sheet row, a realigned time zone.
-    // Explicitly user-driven: nothing resets a terminal mutation automatically.
-    async retryMutation(requestId) {
+    // mutation on that key, so there must be a way to put the work back in flight once the cause is
+    // fixed — an oversized field shortened, a repaired sheet row, a realigned time zone.
+    // It enqueues a SUCCESSOR with a fresh requestId rather than re-sending the original: GAS stores
+    // its response in the idempotency ledger, so re-posting the same requestId would replay the same
+    // terminal error forever. Explicitly user-driven; nothing resets a terminal mutation on its own.
+    async retryMutation(requestId, { payload } = {}) {
       const db = await openDb();
-      const mutation = await getMutation(db, requestId);
-      if (!mutation) throw new Error(`Unknown mutation ${requestId}`);
-      if (![MUTATION_STATUS.VALIDATION_ERROR, MUTATION_STATUS.PERMANENT_ERROR].includes(mutation.status)) {
-        throw new Error(`Mutation ${requestId} is ${mutation.status}, not a retryable error`);
+      const original = await getMutation(db, requestId);
+      if (!original) throw new Error(`Unknown mutation ${requestId}`);
+      if (![MUTATION_STATUS.VALIDATION_ERROR, MUTATION_STATUS.PERMANENT_ERROR].includes(original.status)) {
+        throw new Error(`Mutation ${requestId} is ${original.status}, not a retryable error`);
       }
-      const updated = await updateMutation(db, requestId, { status: MUTATION_STATUS.PENDING, attemptCount: 0, nextAttemptAt: null, lastError: null });
-      emit({ type: "mutation", requestId, status: MUTATION_STATUS.PENDING, domainKey: mutation.domainKey });
-      return updated;
+      const successorInput = {
+        entityType: original.entityType, operation: original.operation, machine: original.machine,
+        recordId: original.recordId, baseVersion: original.baseVersion,
+        payload: payload && typeof payload === "object" ? payload : original.payload, actorId: original.actorId,
+      };
+      const domainKey = requireMutationEnvelope(successorInput);
+      if (domainKey !== original.domainKey) throw new Error(`Retry payload changes the record identity from ${original.domainKey} to ${domainKey}`);
+      const retriedAt = now();
+      const { mutation } = await retryMutationAsSuccessor(db, {
+        originalRequestId: requestId,
+        successor: { ...successorInput, requestId: createRequestId(), domainKey, deviceId: await getDeviceId(db), createdAtLocal: retriedAt },
+        retriedAt,
+      });
+      emit({ type: "mutation", requestId: mutation.requestId, status: mutation.status, domainKey });
+      return mutation;
     },
     async getMutation(requestId) { return getMutation(await openDb(), requestId); },
     async getEntity(domainKey) { return getEntity(await openDb(), domainKey); },

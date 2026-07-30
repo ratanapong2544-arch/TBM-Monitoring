@@ -1,5 +1,6 @@
 export const DB_NAME = "tbm-monitoring";
-export const DB_VERSION = 1;
+// 2: re-key records written under the earlier domain-key format (see recanonicalizeDomainKeys)
+export const DB_VERSION = 2;
 
 export const STORES = Object.freeze({
   entities: "entities",

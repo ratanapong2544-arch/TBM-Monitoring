@@ -267,6 +267,37 @@ export async function resolveConflictAndEnqueue(db, { conflictId, originalReques
   return { mutation, entity, original: resolvedOriginal };
 }
 
+// Replace a terminal error with a fresh attempt in one transaction. A successor rather than a reset
+// because GAS stores its response per requestId, so re-posting the original would replay the same
+// terminal error; the original is retained as an audit record pointing at its retry.
+export async function retryMutationAsSuccessor(db, { originalRequestId, successor, retriedAt }) {
+  const transaction = db.transaction([STORES.entities, STORES.mutations, STORES.syncMeta], "readwrite");
+  const entities = transaction.objectStore(STORES.entities);
+  const mutations = transaction.objectStore(STORES.mutations);
+  const sequenceStore = transaction.objectStore(STORES.syncMeta);
+  const [original, sequence] = await Promise.all([
+    requestResult(mutations.get(originalRequestId)),
+    requestResult(sequenceStore.get("mutationSequence")),
+  ]);
+  const retryable = original && (original.status === MUTATION_STATUS.VALIDATION_ERROR || original.status === MUTATION_STATUS.PERMANENT_ERROR);
+  if (!retryable) { transaction.abort(); throw new Error(`Mutation ${originalRequestId} is not a retryable error`); }
+  const mutation = {
+    ...successor,
+    status: MUTATION_STATUS.PENDING,
+    attemptCount: 0,
+    nextAttemptAt: null,
+    lastError: null,
+    queueSequence: (sequence && sequence.value || 0) + 1,
+  };
+  const entity = optimisticEntity(mutation);
+  mutations.put({ ...original, status: MUTATION_STATUS.RESOLVED, resolvedAt: retriedAt, strategy: "retry", resolutionRequestId: mutation.requestId, syncOwner: null, leaseExpiresAt: null });
+  mutations.put(mutation);
+  entities.put(entity);
+  sequenceStore.put({ key: "mutationSequence", value: mutation.queueSequence });
+  await complete(transaction);
+  return { mutation, entity };
+}
+
 export async function getSyncCounts(db) {
   const transaction = db.transaction([STORES.mutations, STORES.conflicts, STORES.syncMeta], "readonly");
   const [mutations, conflicts, syncMeta] = await Promise.all([

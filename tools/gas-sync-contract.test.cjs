@@ -1157,6 +1157,93 @@ test("getData reads version metadata before the business rows", () => {
   assert.ok(metaAt < firstRowRead, "syncMeta must be read before any business sheet");
 });
 
+test("an unparseable stored record is refused, not replaced", () => {
+  const { ss, sheets } = makeFakeState();
+  sheets.DailyReports.appendRow(["d1", "TBM1", "2026-07-29", '{"date":"2026-07-29","area":"IS1",']);
+  bumpSyncMetaMany_(ss, [{
+    recordKey: "dailyReport:TBM1:d1", entityType: "dailyReport", machine: "TBM1",
+    recordId: "d1", version: 1, updatedAt: "2026-07-29T00:00:00.000Z", updatedByDevice: "x", deleted: false,
+  }]);
+  const envelope = {
+    requestId: "req-corrupt", entityType: "dailyReport", operation: "update", machine: "TBM1",
+    recordId: "d1", baseVersion: 1, deviceId: "device-A", payload: { area: "IS2" },
+  };
+  envelope.domainKey = makeSyncRecordKey_(envelope);
+  const response = handleSyncMutation_(ss, envelope);
+  assert.equal(response.status, "validation_error");
+  assert.equal(response.code, "SYNC_RECORD_UNPARSEABLE");
+  assert.match(String(sheetObjects(sheets.DailyReports)[0].json), /IS1/, "the repairable cell is untouched");
+});
+
+test("a small update onto a large record is refused by measuring the merged result", () => {
+  const { ss, sheets } = makeFakeState();
+  const big = JSON.stringify({ id: "d1", machine: "TBM1", notes: "n".repeat(49000) });
+  sheets.DailyReports.appendRow(["d1", "TBM1", "2026-07-29", big]);
+  bumpSyncMetaMany_(ss, [{
+    recordKey: "dailyReport:TBM1:d1", entityType: "dailyReport", machine: "TBM1",
+    recordId: "d1", version: 1, updatedAt: "2026-07-29T00:00:00.000Z", updatedByDevice: "x", deleted: false,
+  }]);
+  const envelope = {
+    requestId: "req-merge-big", entityType: "dailyReport", operation: "update", machine: "TBM1",
+    recordId: "d1", baseVersion: 1, deviceId: "device-A", payload: { extra: "e".repeat(2000) },
+  };
+  envelope.domainKey = makeSyncRecordKey_(envelope);
+  const response = handleSyncMutation_(ss, envelope);
+  assert.equal(response.status, "validation_error");
+  assert.equal(response.code, "SYNC_RECORD_TOO_LARGE", "the payload alone fits; the merged record does not");
+  assert.equal(JSON.parse(sheetObjects(sheets.DailyReports)[0].json).extra, undefined);
+});
+
+test("a partial row update echoes the whole stored row", () => {
+  const { ss, sheets } = makeFakeState();
+  sheets.Segments.appendRow(["s1", "2026-07-29", "Day", 41, "", "", "", "", 1.4, "8000", "8001", "", "", "", "Permanent"]);
+  bumpSyncMetaMany_(ss, [{
+    recordKey: "segment:TBM1:41:Permanent", entityType: "segment", machine: "TBM1",
+    recordId: "s1", version: 1, updatedAt: "2026-07-29T00:00:00.000Z", updatedByDevice: "x", deleted: false,
+  }]);
+  const envelope = segmentEnvelope({
+    requestId: "req-partial", operation: "update", recordId: "s1", baseVersion: 1,
+    payload: { ringNo: "41", installType: "Permanent", problem: "leak" },
+  });
+  const response = handleSyncMutation_(ss, envelope);
+  assert.equal(response.status, "success");
+  assert.equal(response.record.problem, "leak");
+  assert.equal(response.record.startCH, "8000", "an untouched column is still described");
+  assert.equal(response.record.shift, "Day");
+  assert.equal(response.record.date, "2026-07-29");
+});
+
+test("a structured column echoes as an object while the sheet stores a string", () => {
+  const { ss, sheets } = makeFakeState();
+  const envelope = {
+    requestId: "req-echo-obj", entityType: "shiftReport", operation: "create", machine: "TBM1",
+    recordId: "sr5", baseVersion: 0, deviceId: "device-A",
+    payload: { date: "2026-07-29", shift: "Day", events: { "08:00": { act: "boring" } } },
+  };
+  envelope.domainKey = makeSyncRecordKey_(envelope);
+  const response = handleSyncMutation_(ss, envelope);
+  assert.deepEqual(response.record.events, { "08:00": { act: "boring" } }, "the client gets back what it submitted");
+  assert.equal(typeof sheetObjects(sheets.ShiftReports)[0].events, "string");
+});
+
+test("the metadata sheet grows its grid rather than failing a bulk write", () => {
+  const { ss, sheets } = makeFakeState();
+  let maxRows = 3;
+  const inserted = [];
+  sheets.SyncMeta.getMaxRows = () => maxRows;
+  sheets.SyncMeta.insertRowsAfter = (after, count) => { inserted.push([after, count]); maxRows += count; };
+  const entries = [];
+  for (let index = 0; index < 8; index += 1) {
+    entries.push({
+      recordKey: `instReading:GLOBAL:r${index}`, entityType: "instReading", machine: "GLOBAL",
+      recordId: `r${index}`, version: 1, updatedAt: "2026-07-29T00:00:00.000Z", updatedByDevice: "legacy-client", deleted: false,
+    });
+  }
+  bumpSyncMetaMany_(ss, entries);
+  assert.deepEqual(inserted, [[3, 6]], "the grid is extended to fit header plus entries");
+  assert.equal(sheetObjects(sheets.SyncMeta).length, 8);
+});
+
 test("a JSON-blob delete tombstones the domain", () => {
   const { ss, sheets } = makeFakeState();
   const daily = {

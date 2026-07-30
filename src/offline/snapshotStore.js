@@ -14,14 +14,28 @@ const singletonKeys = ["planConfig", "distPlanConfig", "routeConfigs", "routePro
 // returned project-wide, so an unsynced record of any machine belongs in the list
 const MACHINE_SCOPED_COLLECTIONS = new Set(["segment", "grout", "secondaryGrout", "shiftReport"]);
 const UNRESOLVED_STATUSES = new Set([MUTATION_STATUS.PENDING, MUTATION_STATUS.SYNCING, MUTATION_STATUS.VALIDATION_ERROR, MUTATION_STATUS.CONFLICT]);
+// confirmed mutations kept for the Sync Center's recent list (it shows the last 50)
+const CONFIRMED_MUTATION_RETENTION = 200;
 
 function requestResult(request) { return new Promise((resolve, reject) => { request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error); }); }
 function complete(transaction) { return new Promise((resolve, reject) => { transaction.oncomplete = () => resolve(); transaction.onerror = () => reject(transaction.error); transaction.onabort = () => reject(transaction.error); }); }
 function scopeKey(machine) { return `getData:${machine}`; }
-function recordFor(machine, field, entityType, payload) {
+// The store key must be unique per server ROW, not per domain: live sheets legitimately hold two
+// rows sharing a ring identity (the views run deduplicateRecords over them), and keying by domain
+// alone made one row overwrite the other in the cache and appear twice in the list.
+function recordFor(machine, field, entityType, payload, index) {
   const recordMachine = payload.machine || machine;
   const domainKey = makeDomainKey({ entityType, machine: recordMachine, recordId: payload.id, payload });
-  return { key: `entity:${machine}:${field}:${domainKey}`, machine, entityType, domainKey, payload };
+  const rowId = payload.id != null && payload.id !== "" ? `id:${payload.id}` : `row:${index}`;
+  return { key: `entity:${machine}:${field}:${domainKey}:${rowId}`, machine, entityType, domainKey, payload };
+}
+
+// the config singletons are mutable sync entities, so a pending offline edit must survive a refresh
+// exactly as a collection record does
+const CONFIG_ENTITY_TYPES = [["planConfig", "planConfig"], ["distPlanConfig", "distPlanConfig"], ["routeConfig", "routeConfigs"]];
+function configValue(payload, entityType) {
+  const source = payload || {};
+  return source[entityType] !== undefined ? source[entityType] : source;
 }
 
 export async function writeServerSnapshot(db, machine, data, fetchedAt) {
@@ -59,10 +73,14 @@ export async function writeServerSnapshot(db, machine, data, fetchedAt) {
   const committed = emptyServerData(machine);
 
   collections.forEach(([field, entityType]) => {
-    const incoming = (data[field] || []).map(payload => recordFor(machine, field, entityType, payload));
+    const incoming = (data[field] || []).map((payload, index) => recordFor(machine, field, entityType, payload, index));
     const incomingDomains = new Set(incoming.map(record => record.domainKey));
-    const retained = existing.filter(record => inScope(record, entityType) && preserveLocal(record))
-      .filter(record => !incomingDomains.has(record.domainKey));
+    // one entry per retained domain: the optimistic row wins over a stale server copy of the same
+    // domain, otherwise the record appears twice with two different values
+    const retainedDomains = new Set(existing.filter(record => inScope(record, entityType) && preserveLocal(record))
+      .filter(record => !incomingDomains.has(record.domainKey))
+      .map(record => record.domainKey));
+    const retained = [...retainedDomains].map(domainKey => localForDomain(domainKey, entityType)).filter(Boolean);
     const merged = incoming.map(record => {
       const local = localForDomain(record.domainKey, entityType);
       const status = unresolvedStatus(record.domainKey) || local && local.payload && local.payload.syncStatus;
@@ -76,6 +94,27 @@ export async function writeServerSnapshot(db, machine, data, fetchedAt) {
 
   const snapshot = { scopeKey: scopeKey(machine), machine, fetchedAt, entityKeys };
   singletonKeys.forEach(key => { snapshot[key] = data[key]; committed[key] = data[key]; });
+  // A pending config edit must not be erased by server data either. These arrive as singletons
+  // rather than collection rows, so they need the same optimistic overlay: without it an offline
+  // plan edit disappeared on the next refresh and was re-entered, conflicting with itself.
+  CONFIG_ENTITY_TYPES.forEach(([entityType, field]) => {
+    existing.filter(record => record.entityType === entityType && preserveLocal(record)).forEach(record => {
+      const value = configValue(record.payload, entityType);
+      const recordMachine = record.domainKey.split(":")[1];
+      if (field === "routeConfigs") snapshot[field] = { ...(snapshot[field] || {}), [recordMachine]: value };
+      else if (recordMachine === machine) snapshot[field] = value;
+      else return;
+      committed[field] = snapshot[field];
+    });
+  });
+  // Bound the mutation log: every refresh reads it whole, so lifetime growth would slow the hot
+  // read path forever. Only already-confirmed mutations past the Sync Center's "recent" window are
+  // dropped — pending, error and conflict records are never touched (handoff safety note 5).
+  const confirmed = pendingMutations
+    .filter(mutation => mutation.status === MUTATION_STATUS.SYNCED || mutation.status === MUTATION_STATUS.RESOLVED)
+    .sort((left, right) => (right.queueSequence || 0) - (left.queueSequence || 0));
+  confirmed.slice(CONFIRMED_MUTATION_RETENTION).forEach(mutation => mutations.delete(mutation.requestId));
+
   snapshots.put(snapshot);
   await complete(transaction);
   return { ...committed, fetchedAt };

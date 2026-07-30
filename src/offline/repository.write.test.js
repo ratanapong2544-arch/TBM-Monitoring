@@ -115,14 +115,41 @@ test.each([
   await expect(makeRepository().mutate(input)).rejects.toThrow(/not supported/);
 });
 
-test("a terminal validation error can be put back in flight", async () => {
-  // otherwise it stays the head of its domain and shadows every later mutation on that key forever
-  const repository = makeRepository();
+test("a terminal validation error is retried as a successor with a fresh request id", async () => {
+  // re-sending the original requestId would replay the stored terminal response from the GAS
+  // idempotency ledger forever, so the retry must be a new request
+  const repository = makeRepository({ createRequestId: jest.fn().mockReturnValueOnce("request-1").mockReturnValueOnce("request-2") });
+  const queued = await repository.mutate(segmentInput);
+  await repository.updateMutation(queued.requestId, { status: "validation_error", nextAttemptAt: null, lastError: { code: "SYNC_META_ORPHAN" } });
+
+  const retried = await repository.retryMutation(queued.requestId);
+
+  expect(retried).toMatchObject({ requestId: "request-2", status: "pending", attemptCount: 0, lastError: null, domainKey: queued.optimisticRecord.domainKey });
+  await expect(repository.getMutation("request-1")).resolves.toMatchObject({ status: "resolved", strategy: "retry", resolutionRequestId: "request-2" });
+  await expect(repository.retryMutation("request-1")).rejects.toThrow(/not a retryable error/);
+});
+
+test("a retry with a corrected payload keeps the same record identity", async () => {
+  const repository = makeRepository({ createRequestId: jest.fn().mockReturnValueOnce("request-1").mockReturnValueOnce("request-2") });
   const queued = await repository.mutate(segmentInput);
   await repository.updateMutation(queued.requestId, { status: "validation_error", nextAttemptAt: null, lastError: { code: "SYNC_FIELD_TOO_LARGE" } });
 
-  await expect(repository.retryMutation(queued.requestId)).resolves.toMatchObject({ status: "pending", attemptCount: 0, lastError: null });
-  await expect(repository.retryMutation(queued.requestId)).rejects.toThrow(/not a retryable error/);
+  await expect(repository.retryMutation(queued.requestId, { payload: { ...segmentInput.payload, ringNo: "P9" } }))
+    .rejects.toThrow(/changes the record identity/);
+  await expect(repository.retryMutation(queued.requestId, { payload: { ...segmentInput.payload, status: "shortened" } }))
+    .resolves.toMatchObject({ payload: expect.objectContaining({ status: "shortened" }) });
+});
+
+test("a manual resolution cannot retarget a different record", async () => {
+  const repository = makeRepository({ createRequestId: jest.fn().mockReturnValueOnce("request-1").mockReturnValueOnce("request-2") });
+  const queued = await repository.mutate(segmentInput);
+  await repository.applyConflict(queued.requestId, {
+    status: "conflict", requestId: queued.requestId, serverRecord: { recordId: "segment-1", domainKey: queued.optimisticRecord.domainKey },
+    localRecord: queued.optimisticRecord, conflictingFields: ["status"], currentVersion: 9,
+  });
+
+  await expect(repository.resolveConflict(queued.requestId, { strategy: "manual", payload: { ringNo: "P9", installType: "Permanent" } }))
+    .rejects.toThrow(/changes the record identity/);
 });
 
 test("a legacy staged conflict reports why it cannot be resolved through the queue", async () => {

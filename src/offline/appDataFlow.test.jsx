@@ -131,6 +131,7 @@ test("a live server response does replace the collections it carries", async () 
 });
 
 test("an offline launch with a cached snapshot reports the snapshot, not a blocking error", async () => {
+  const onLine = jest.spyOn(window.navigator, "onLine", "get").mockReturnValue(false);
   const repository = makeRepository({ refresh: async () => { throw new Error("Failed to fetch"); } });
 
   const app = renderApp(repository);
@@ -138,6 +139,22 @@ test("an offline launch with a cached snapshot reports the snapshot, not a block
 
   expect(app.text()).toContain("ออฟไลน์");
   expect(app.text()).not.toContain("ไม่สามารถดึงข้อมูลได้");
+  app.unmount();
+  onLine.mockRestore();
+});
+
+test("a server failure while online is not reported as being offline", async () => {
+  // a permission page, an HTTP 4xx or malformed JSON all fail with the device online; claiming
+  // "offline" would send the crew looking for signal instead of reporting the real fault
+  const failure = Object.assign(new Error("GAS returned an HTML permission page"), { code: "GAS_PERMISSION_HTML" });
+  const repository = makeRepository({ refresh: async () => { throw failure; } });
+
+  const app = renderApp(repository);
+  await act(async () => {});
+
+  expect(app.text()).not.toContain("ออฟไลน์");
+  expect(app.text()).toContain("เชื่อมต่อเซิร์ฟเวอร์ไม่ได้");
+  expect(app.text()).toContain("GAS_PERMISSION_HTML");
   app.unmount();
 });
 

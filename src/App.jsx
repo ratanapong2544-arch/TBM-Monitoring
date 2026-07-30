@@ -282,18 +282,26 @@ const PrimaryGroutApp = () => {
   // Non-blocking snapshot state (design §7: keep the local snapshot visible and warn that it is
   // stale rather than blocking). Task 10 replaces this strip with the full Sync Center.
   const offlineNotice = useMemo(() => {
-    if (offlineData.refreshing && offlineData.source !== "empty") {
-      return { text: "กำลังอัปเดตข้อมูลจากเซิร์ฟเวอร์…", spinning: true };
-    }
+    // The rows for this machine are not on screen yet (first launch, or a machine switch whose
+    // snapshot is still loading). Step 4 requires a `refreshing` signal here: the lists are empty
+    // because we refuse to show another machine's rings, so say so rather than look like no data.
+    if (!rowsReady) return { text: "กำลังโหลดข้อมูลของเครื่องนี้…", spinning: true };
+    if (offlineData.refreshing) return { text: "กำลังอัปเดตข้อมูลจากเซิร์ฟเวอร์…", spinning: true };
     if (offlineData.cacheError) {
       return { text: "ข้อมูลล่าสุดแสดงอยู่ แต่บันทึกลงเครื่องไม่ได้ — ปิดแอพแล้วข้อมูลจะไม่อยู่", spinning: false };
     }
     if (offlineData.stale && offlineData.source !== "empty") {
       const at = offlineData.fetchedAt ? formatDisplayDate(offlineData.fetchedAt) : null;
-      return { text: at ? `ออฟไลน์ — แสดงข้อมูลที่บันทึกไว้ (${at})` : "ออฟไลน์ — แสดงข้อมูลที่บันทึกไว้", spinning: false };
+      const saved = at ? `แสดงข้อมูลที่บันทึกไว้ (${at})` : "แสดงข้อมูลที่บันทึกไว้";
+      // Only claim the device is offline when it is. A permission page, an HTTP 4xx or malformed
+      // JSON all fail while online, and their diagnostic code belongs on screen.
+      const offline = typeof navigator !== "undefined" && navigator.onLine === false;
+      if (offline) return { text: `ออฟไลน์ — ${saved}`, spinning: false };
+      const code = offlineData.error && offlineData.error.code ? ` (${offlineData.error.code})` : "";
+      return { text: `เชื่อมต่อเซิร์ฟเวอร์ไม่ได้${code} — ${saved}`, spinning: false };
     }
     return null;
-  }, [offlineData.refreshing, offlineData.stale, offlineData.source, offlineData.fetchedAt, offlineData.cacheError]);
+  }, [rowsReady, offlineData.refreshing, offlineData.stale, offlineData.source, offlineData.fetchedAt, offlineData.cacheError, offlineData.error]);
 
   if (isLoadingMain) return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-surface-page font-sans">

@@ -13,21 +13,26 @@ function renderProvider(deps, { strict = false } = {}) {
   }
   let container;
   let root;
-  const tree = (
-    <OfflineProvider deps={deps}>
-      <Probe />
-    </OfflineProvider>
-  );
+  // A fresh element and fresh `deps` object every render: reusing one element kept the prop identity
+  // stable, so the test passed even with the memo keyed on the raw deps object.
+  const build = () => {
+    const tree = (
+      <OfflineProvider deps={{ ...deps, repositoryDeps: { ...(deps.repositoryDeps || {}) }, runnerDeps: { ...(deps.runnerDeps || {}) } }}>
+        <Probe />
+      </OfflineProvider>
+    );
+    return strict ? <React.StrictMode>{tree}</React.StrictMode> : tree;
+  };
   act(() => {
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
-    root.render(strict ? <React.StrictMode>{tree}</React.StrictMode> : tree);
+    root.render(build());
   });
   return {
     seen,
     last: () => seen[seen.length - 1],
-    rerender: () => act(() => { root.render(strict ? <React.StrictMode>{tree}</React.StrictMode> : tree); }),
+    rerender: () => act(() => { root.render(build()); }),
     unmount: () => act(() => { root.unmount(); container.remove(); }),
   };
 }

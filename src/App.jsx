@@ -147,47 +147,55 @@ const PrimaryGroutApp = () => {
     setShiftReports(data.shiftReports);
     // the rows on screen now belong to this machine (see rowsReady below)
     setRowsMachine(activeMachine);
-    // Two rules protect the localStorage-backed collections (issues, dailyReports, prepTasks,
-    // inst*), which are still localStorage-primary until Tasks 8-9 route their writes through the
-    // queue, so the local copy is the ONLY copy of anything whose apiCall failed:
-    //   1. only a live server response may rewrite them — an IndexedDB read always succeeds
-    //      offline, so mirroring one would erase unsynced records with no server involved;
-    //   2. an empty or absent collection is never written through. normalizeServerData maps an
-    //      absent key to [], so an older GAS deployment or a partial doGet is indistinguishable
-    //      from a real deletion, and treating it as one would wipe local business data.
-    // Propagating a server-side deletion of the LAST record is therefore left to Task 9's
-    // reconciliation, which can compare the two sides properly.
+    // The localStorage-primary collections (issues, dailyReports, prepTasks, inst*, configs) are
+    // only ever touched by a LIVE SERVER response. Two reasons, both proven to lose field data:
+    //   1. an IndexedDB read always succeeds offline, and writes do not reach the queue until
+    //      Tasks 8-9, so an offline-created record exists only in localStorage. Putting a cached
+    //      snapshot into state is enough to destroy it, because state is what gets persisted —
+    //      `useEffect(() => persistIssues(issues), [issues])` above, and every save handler
+    //      rebuilds its next list from state.
+    //   2. normalizeServerData maps an absent key to [], so an older GAS deployment or a partial
+    //      doGet looks exactly like a real deletion. An empty collection is never written through;
+    //      propagating a server-side deletion of the last record is Task 9's reconciliation job,
+    //      which can compare both sides. Losing a field record outranks showing a stale one.
+    // These collections are already seeded from localStorage at mount, so skipping a cache read
+    // costs nothing.
     const serverAuthoritative = offlineData.source === "server";
-    if (data.issues.length) { setIssues(data.issues); if (serverAuthoritative) persistIssues(data.issues); }
-    if (data.dailyReports.length) { setDailyReports(data.dailyReports); if (serverAuthoritative) persistDailyReports(data.dailyReports); }
-    if (serverAuthoritative && data.prepTasks.length) {
-      const byM = {};
-      data.prepTasks.forEach((t) => { const m = t.machine || "TBM1"; (byM[m] = byM[m] || []).push(t); });
-      // only machines the payload actually carries: a machine absent from it keeps its local tasks
-      Object.keys(byM).forEach((m) => savePrepTasks(m, byM[m]));
+    if (serverAuthoritative) {
+      if (data.issues.length) { setIssues(data.issues); persistIssues(data.issues); }
+      if (data.dailyReports.length) { setDailyReports(data.dailyReports); persistDailyReports(data.dailyReports); }
+      if (data.prepTasks.length) {
+        const byM = {};
+        data.prepTasks.forEach((t) => { const m = t.machine || "TBM1"; (byM[m] = byM[m] || []).push(t); });
+        // only machines the payload actually carries: a machine absent from it keeps its local tasks
+        Object.keys(byM).forEach((m) => savePrepTasks(m, byM[m]));
+      }
     }
 
-    if (data.planConfig) {
-      try { localStorage.setItem("tbmPlanConfig", JSON.stringify(data.planConfig)); } catch (e) { console.error("Parse planConfig error", e); }
-    }
-    if (data.distPlanConfig) {
-      try { localStorage.setItem("tbmDistancePlanConfig", JSON.stringify(data.distPlanConfig)); } catch (e) { console.error("Parse distPlanConfig error", e); }
-    }
-    // F3: route configs (ทั้ง 2 เครื่อง) → localStorage เพื่อให้ RouteScheduleView โหลด; progress/total → state
-    if (data.routeConfigs && typeof data.routeConfigs === "object") {
-      try {
-        if (data.routeConfigs.TBM1) localStorage.setItem("tbmRouteConfig", JSON.stringify(data.routeConfigs.TBM1));
-        if (data.routeConfigs.TBM2) localStorage.setItem("tbmRouteConfig__TBM2", JSON.stringify(data.routeConfigs.TBM2));
-      } catch (e) { /* ignore */ }
+    // configs are localStorage-primary too: an offline plan or route edit lives only there until
+    // Tasks 8-9, so a cache read must not write over it
+    if (serverAuthoritative) {
+      if (data.planConfig) {
+        try { localStorage.setItem("tbmPlanConfig", JSON.stringify(data.planConfig)); } catch (e) { console.error("Parse planConfig error", e); }
+      }
+      if (data.distPlanConfig) {
+        try { localStorage.setItem("tbmDistancePlanConfig", JSON.stringify(data.distPlanConfig)); } catch (e) { console.error("Parse distPlanConfig error", e); }
+      }
+      // F3: route configs (ทั้ง 2 เครื่อง) → localStorage เพื่อให้ RouteScheduleView โหลด
+      if (data.routeConfigs && typeof data.routeConfigs === "object") {
+        try {
+          if (data.routeConfigs.TBM1) localStorage.setItem("tbmRouteConfig", JSON.stringify(data.routeConfigs.TBM1));
+          if (data.routeConfigs.TBM2) localStorage.setItem("tbmRouteConfig__TBM2", JSON.stringify(data.routeConfigs.TBM2));
+        } catch (e) { /* ignore */ }
+      }
     }
     if (data.machineProgress) setMachineProgress(data.machineProgress);
     if (data.routeProjectTotal != null) setRouteProjectTotal(data.routeProjectTotal);
-    // Instrument module: project-wide (ไม่ขึ้นกับ activeMachine). Same rule as above — the cache may
-    // populate memory, but only the server may rewrite the persisted copy.
+    // Instrument module: project-wide (ไม่ขึ้นกับ activeMachine). Server-only, same rule as above.
     const mirrorInst = (rows, setter, store) => {
-      if (!rows.length) return; // absent or empty: never write through (see the two rules above)
+      if (!serverAuthoritative || !rows.length) return;
       setter(rows);
-      if (serverAuthoritative) persistCache(store, rows);
+      persistCache(store, rows);
     };
     mirrorInst(data.instLocations, setInstLocations, STORE.locations);
     mirrorInst(data.instInstruments, setInstInstruments, STORE.instruments);

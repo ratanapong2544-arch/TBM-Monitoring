@@ -73,7 +73,14 @@ export function useOfflineData(machine, deps = {}) {
 
   useEffect(() => {
     const token = ++requestRef.current;
+    const previousMachine = machineRef.current;
     machineRef.current = machine;
+    // Provenance is per machine. Carrying the previous machine's source/fetchedAt/stale across a
+    // switch made an empty machine whose cache and fetch both failed report "offline — showing
+    // saved data" stamped with the OTHER machine's fetch time, and suppressed the real error.
+    if (previousMachine !== machine) {
+      setState(previous => ({ ...previous, source: "empty", fetchedAt: null, stale: true, error: null, cacheError: null }));
+    }
     hydrate(token);
   }, [hydrate, machine]);
 
@@ -86,10 +93,13 @@ export function useOfflineData(machine, deps = {}) {
     setState(previous => ({ ...previous, refreshing: true, error: null }));
     try {
       const fresh = await repository.refresh(machine);
-      applyIfCurrent(token, { data: fresh.data, source: fresh.source, fetchedAt: fresh.fetchedAt, stale: Boolean(fresh.stale), refreshing: false, error: null, cacheError: fresh.cacheError || null });
+      // `loading` must be cleared here too: claiming the token above invalidated any in-flight
+      // hydrate, whose passes carried the only other `loading:false`, so omitting it left the app
+      // on its splash screen forever.
+      applyIfCurrent(token, { data: fresh.data, source: fresh.source, fetchedAt: fresh.fetchedAt, stale: Boolean(fresh.stale), refreshing: false, loading: false, error: null, cacheError: fresh.cacheError || null });
       return fresh;
     } catch (error) {
-      applyIfCurrent(token, { refreshing: false, stale: true, error });
+      applyIfCurrent(token, { refreshing: false, loading: false, stale: true, error });
       return null;
     }
   }, [applyIfCurrent, machine, repository]);

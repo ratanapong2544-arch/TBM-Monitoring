@@ -16,6 +16,18 @@ const SegmentRecordView = ({ projectInfo, handleProjectInfoChange, segmentRecord
     headH: "", artH: "", tailH: "", // แนวราบ (+ = ขวา, mm) — สำหรับ bullseye 2 แกน
   });
 
+  // A form left open across a machine switch kept the previous machine's ring number and chainage,
+  // and the prefill below is guarded on an empty ringNo, so it never corrected them — submitting
+  // then wrote one machine's ring sequence and CH into the other machine's sheet.
+  useEffect(() => {
+    setFormData((prev) => ({
+      ...prev, id: null, ringNo: "", startCH: "", finishCH: "", excavStartTime: "", excavEndTime: "",
+      installStartTime: "", installEndTime: "", soilType: "", excavImageBase64: "", excavImageName: "",
+      imageBase64: "", imageName: "", status: "In Progress", installType: "Permanent",
+      headV: "", artV: "", tailV: "", vrt: "", headH: "", artH: "", tailH: "",
+    }));
+  }, [machine]);
+
   const lastRing = useMemo(() => {
     if (segmentRecords.length === 0) return "-";
     const map = new Map();

@@ -14,6 +14,16 @@ const GroutRecordView = ({ projectInfo, handleProjectInfoChange, groutRecords, s
   const [formData, setFormData] = useState({ ringNo: "", excavRing: "", pressure: "", partA: "", partB: "", keyType: "16", positions: { A: false, B1: false, B2: false, C1: false, C2: false, K: false }, remark: "", imageBase64: "", imageName: "" });
   const [isKeyLinked, setIsKeyLinked] = useState(false);
 
+  // A form left open across a machine switch kept the previous machine's ring, and the prefill
+  // below only fires on an empty ringNo — so a submit wrote that ring into the other machine.
+  useEffect(() => {
+    setFormData((prev) => ({
+      ...prev, ringNo: "", excavRing: "", pressure: "", partA: "", partB: "", remark: "",
+      imageBase64: "", imageName: "",
+      positions: { A: false, B1: false, B2: false, C1: false, C2: false, K: false },
+    }));
+  }, [machine]);
+
   // ริงนี้มี primary record อยู่แล้วไหม (โหมด primary เท่านั้น) → เตือน แต่บันทึกได้
   const dupPrimary = useMemo(() => {
     if (isSecondary || !formData.ringNo) return false;

@@ -117,6 +117,66 @@ test("keeps a pending route config edit for the machine it belongs to", async ()
   expect(snapshot.routeConfigs).toEqual({ TBM1: { legs: [1] }, TBM2: { legs: [9] } });
 });
 
+test("does not re-collapse two same-domain server rows while a mutation is pending", async () => {
+  // the optimistic overlay must replace at most one incoming row per domain, or the distinct
+  // second row is lost and the optimistic record is listed twice
+  const db = await openOfflineDb();
+  await writeServerSnapshot(db, "TBM1", normalizeServerData({
+    segments: [
+      { id: "s-a", ringNo: "P1", installType: "Permanent", status: "In Progress" },
+      { id: "s-b", ringNo: "P1", installType: "Permanent", status: "Completed" },
+    ],
+  }, "TBM1"), "first");
+  await putOptimisticMutation(db, {
+    requestId: "m-seg", entityType: "segment", operation: "update", machine: "TBM1", recordId: "s-a",
+    domainKey: "segment:TBM1:P1:Permanent", baseVersion: 1, deviceId: "device-1",
+    createdAtLocal: "2026-07-29T00:00:00.000Z", payload: { id: "s-a", ringNo: "P1", installType: "Permanent", status: "edited" },
+  });
+
+  await writeServerSnapshot(db, "TBM1", normalizeServerData({
+    segments: [
+      { id: "s-a", ringNo: "P1", installType: "Permanent", status: "In Progress" },
+      { id: "s-b", ringNo: "P1", installType: "Permanent", status: "Completed" },
+    ],
+  }, "TBM1"), "second");
+
+  const snapshot = await readServerSnapshot(db, "TBM1");
+  const statuses = snapshot.segments.map(record => record.status).sort();
+  expect(snapshot.segments).toHaveLength(2);
+  expect(statuses).toEqual(["Completed", "edited"]);
+});
+
+test("keeps a pending route project total, not only the config body", async () => {
+  const db = await openOfflineDb();
+  await putOptimisticMutation(db, {
+    requestId: "m-route-total", entityType: "routeConfig", operation: "update", machine: "TBM1", recordId: "routeConfig",
+    domainKey: "routeConfig:TBM1", baseVersion: 1, deviceId: "device-1",
+    createdAtLocal: "2026-07-29T00:00:00.000Z", payload: { routeConfig: { legs: [1, 2] }, routeProjectTotal: 6193 },
+  });
+
+  await writeServerSnapshot(db, "TBM1", normalizeServerData({ routeConfigs: { TBM1: { legs: [1] } }, routeProjectTotal: 5000 }, "TBM1"), "after");
+
+  const snapshot = await readServerSnapshot(db, "TBM1");
+  expect(snapshot.routeConfigs.TBM1).toEqual({ legs: [1, 2] });
+  expect(snapshot.routeProjectTotal).toBe(6193);
+});
+
+test("a raw config payload overlays a clean body, without injected metadata keys", async () => {
+  const db = await openOfflineDb();
+  await putOptimisticMutation(db, {
+    requestId: "m-plan-raw", entityType: "planConfig", operation: "update", machine: "TBM1", recordId: "planConfig",
+    domainKey: "planConfig:TBM1", baseVersion: 1, deviceId: "device-1",
+    createdAtLocal: "2026-07-29T00:00:00.000Z", payload: { totalRings: 450, startRing: 1 },
+  });
+
+  await writeServerSnapshot(db, "TBM1", normalizeServerData({ planConfig: { totalRings: 400 } }, "TBM1"), "after");
+
+  const snapshot = await readServerSnapshot(db, "TBM1");
+  // the optimisticEntity payload injects recordId/entityType/machine/domainKey/version/syncStatus;
+  // none of those belong in the stored config body
+  expect(snapshot.planConfig).toEqual({ totalRings: 450, startRing: 1 });
+});
+
 test("keeps two server rows that share a ring identity distinct in the cache", async () => {
   // live sheets hold duplicate ring rows (the views dedupe them); keying the cache by domain alone
   // made one row overwrite the other and the survivor appear twice

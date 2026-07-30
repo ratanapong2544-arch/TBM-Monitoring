@@ -33,9 +33,17 @@ function recordFor(machine, field, entityType, payload, index) {
 // the config singletons are mutable sync entities, so a pending offline edit must survive a refresh
 // exactly as a collection record does
 const CONFIG_ENTITY_TYPES = [["planConfig", "planConfig"], ["distPlanConfig", "distPlanConfig"], ["routeConfig", "routeConfigs"]];
+// keys optimisticEntity injects into a mutation payload; they are not part of the stored config body
+const INJECTED_PAYLOAD_KEYS = new Set(["recordId", "entityType", "machine", "domainKey", "version", "syncStatus", "routeProjectTotal"]);
+// mirror gas-live canonicalConfigPayload_: the config body is the wrapped field if present, else the
+// payload with the injected metadata (and routeProjectTotal, which is stored in its own singleton)
+// stripped, so the optimistic cache holds the same clean shape the server would store
 function configValue(payload, entityType) {
   const source = payload || {};
-  return source[entityType] !== undefined ? source[entityType] : source;
+  if (source[entityType] !== undefined) return source[entityType];
+  const body = {};
+  Object.keys(source).forEach(key => { if (!INJECTED_PAYLOAD_KEYS.has(key)) body[key] = source[key]; });
+  return body;
 }
 
 export async function writeServerSnapshot(db, machine, data, fetchedAt) {
@@ -81,10 +89,17 @@ export async function writeServerSnapshot(db, machine, data, fetchedAt) {
       .filter(record => !incomingDomains.has(record.domainKey))
       .map(record => record.domainKey));
     const retained = [...retainedDomains].map(domainKey => localForDomain(domainKey, entityType)).filter(Boolean);
+    // Overlay the optimistic record onto AT MOST ONE incoming row per domain. When the server
+    // returns two rows sharing a ring identity (a live dedupe situation), replacing every one of
+    // them with the same optimistic record both duplicated it and dropped the distinct second row.
+    const overlaidDomains = new Set();
     const merged = incoming.map(record => {
       const local = localForDomain(record.domainKey, entityType);
-      const status = unresolvedStatus(record.domainKey) || local && local.payload && local.payload.syncStatus;
-      if (local && preserveLocal(local)) return preserve(local, status || local.payload.syncStatus);
+      if (local && preserveLocal(local) && !overlaidDomains.has(record.domainKey)) {
+        overlaidDomains.add(record.domainKey);
+        const status = unresolvedStatus(record.domainKey) || local.payload && local.payload.syncStatus;
+        return preserve(local, status || local.payload.syncStatus);
+      }
       return record;
     }).concat(retained.map(record => preserve(record, unresolvedStatus(record.domainKey) || record.payload.syncStatus)));
     entityKeys[field] = merged.map(record => record.key);
@@ -101,9 +116,16 @@ export async function writeServerSnapshot(db, machine, data, fetchedAt) {
     existing.filter(record => record.entityType === entityType && preserveLocal(record)).forEach(record => {
       const value = configValue(record.payload, entityType);
       const recordMachine = record.domainKey.split(":")[1];
-      if (field === "routeConfigs") snapshot[field] = { ...(snapshot[field] || {}), [recordMachine]: value };
-      else if (recordMachine === machine) snapshot[field] = value;
-      else return;
+      if (field === "routeConfigs") {
+        snapshot[field] = { ...(snapshot[field] || {}), [recordMachine]: value };
+        // routeProjectTotal is a sibling singleton, edited through the same routeConfig mutation
+        const total = record.payload && record.payload.routeProjectTotal;
+        if (total !== undefined) { snapshot.routeProjectTotal = total; committed.routeProjectTotal = total; }
+      } else if (recordMachine === machine) {
+        snapshot[field] = value;
+      } else {
+        return;
+      }
       committed[field] = snapshot[field];
     });
   });

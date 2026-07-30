@@ -108,6 +108,86 @@ test("upgrading re-keys records written under the earlier domain-key format", as
   expect(await read("conflicts", "c1")).toMatchObject({ domainKey: canonical });
 });
 
+function seedV1(records) {
+  const { DB_NAME } = require("./schema");
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(DB_NAME, 1);
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      db.createObjectStore("entities", { keyPath: "key" });
+      db.createObjectStore("snapshots", { keyPath: "scopeKey" });
+      db.createObjectStore("mutations", { keyPath: "requestId" });
+      db.createObjectStore("conflicts", { keyPath: "conflictId" });
+      db.createObjectStore("syncMeta", { keyPath: "key" });
+      db.createObjectStore("deviceMeta", { keyPath: "key" });
+    };
+    request.onsuccess = () => {
+      const db = request.result;
+      const transaction = db.transaction(["mutations", "entities", "conflicts"], "readwrite");
+      records.mutations.forEach(row => transaction.objectStore("mutations").put(row));
+      records.entities.forEach(row => transaction.objectStore("entities").put(row));
+      (records.conflicts || []).forEach(row => transaction.objectStore("conflicts").put(row));
+      transaction.oncomplete = () => { db.close(); resolve(); };
+      transaction.onerror = () => reject(transaction.error);
+    };
+    request.onerror = () => reject(request.error);
+  });
+}
+
+function readAllStore(db, store) {
+  return new Promise((resolve, reject) => {
+    const request = db.transaction(store).objectStore(store).getAll();
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+test("upgrading re-keys every domain, not just the first (no half-built remap race)", async () => {
+  // the mutations/entities/conflicts passes must be strictly sequenced; a concurrent-cursor
+  // version stranded ~half the optimistic entities because their remap was not yet built
+  const mutations = [];
+  const entities = [];
+  for (let index = 0; index < 12; index += 1) {
+    const stale = `issue:TBM1:i${index}`;
+    // request ids deliberately unordered relative to the entity key order
+    mutations.push({ requestId: `zzz-${11 - index}-${index}`, status: "pending", entityType: "issue", machine: "TBM1", recordId: `i${index}`, domainKey: stale, payload: { id: `i${index}` } });
+    entities.push({ key: `entity:optimistic:${stale}`, entityType: "issue", machine: "TBM1", domainKey: stale, payload: { id: `i${index}` } });
+  }
+  await seedV1({ mutations, entities });
+
+  const db = await openOfflineDb();
+  const mutationKeys = (await readAllStore(db, "mutations")).map(row => row.domainKey).sort();
+  const entityKeys = (await readAllStore(db, "entities")).map(row => row.domainKey).sort();
+  const expected = Array.from({ length: 12 }, (unused, index) => `issue:GLOBAL:i${index}`).sort();
+  expect(mutationKeys).toEqual(expected);
+  expect(entityKeys).toEqual(expected);
+});
+
+test("upgrading survives two records re-keying onto one canonical key", async () => {
+  // the same project-wide record edited under two machines both collapse to issue:GLOBAL:i1;
+  // add() would throw ConstraintError and abort the upgrade, permanently bricking the database
+  await seedV1({
+    mutations: [
+      { requestId: "m-tbm1", status: "pending", entityType: "issue", machine: "TBM1", recordId: "i1", domainKey: "issue:TBM1:i1", payload: { id: "i1" } },
+      { requestId: "m-tbm2", status: "pending", entityType: "issue", machine: "TBM2", recordId: "i1", domainKey: "issue:TBM2:i1", payload: { id: "i1" } },
+    ],
+    entities: [
+      { key: "entity:optimistic:issue:TBM1:i1", entityType: "issue", machine: "TBM1", domainKey: "issue:TBM1:i1", payload: { id: "i1", note: "from-tbm1" } },
+      { key: "entity:optimistic:issue:TBM2:i1", entityType: "issue", machine: "TBM2", domainKey: "issue:TBM2:i1", payload: { id: "i1", note: "from-tbm2" } },
+    ],
+  });
+
+  const db = await openOfflineDb();
+  // both mutations survive (keyed by requestId), so neither offline edit is lost
+  const mutations = await readAllStore(db, "mutations");
+  expect(mutations.map(row => row.requestId).sort()).toEqual(["m-tbm1", "m-tbm2"]);
+  expect(mutations.every(row => row.domainKey === "issue:GLOBAL:i1")).toBe(true);
+  // one optimistic entity survives under the canonical key; the database is usable
+  const entities = await readAllStore(db, "entities");
+  expect(entities).toHaveLength(1);
+  expect(entities[0].key).toBe("entity:optimistic:issue:GLOBAL:i1");
+});
+
 test("a shift report loaded from the server keys the same as the sheet date", () => {
   // GAS reads the sheet date cell as a Date and serializes it as UTC ISO, so editing a loaded
   // record must reduce back to the Asia/Bangkok calendar date or the version check is bypassed

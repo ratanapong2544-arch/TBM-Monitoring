@@ -17,6 +17,8 @@ const {
   validateSyncEnvelope_,
   syncTimeZoneMismatch_,
   oversizedSyncFields_,
+  syncStoredCellLength_,
+  syncSizeRefusal_,
   invalidSyncImage_,
   classifySyncApplyFailure_,
   syncErrorEnvelope_,
@@ -247,6 +249,21 @@ test("success responses carry every field the client transport requires", () => 
   assert.deepEqual(response.record, record);
   assert.equal(response.version, 4);
   assert.equal(response.updatedAt, "2026-07-30T08:00:00.000Z");
+});
+
+test("a device label reaches the client on both success and conflict", () => {
+  const { ss, sheets } = makeFakeState();
+  const created = handleSyncMutation_(ss, segmentEnvelope({ requestId: "req-dev-1" }));
+  assert.equal(created.updatedByDevice, "device-A", "the writing device is echoed back");
+  assert.equal(sheetObjects(sheets.SyncMeta)[0].updatedByDevice, "device-A");
+  // a second device edits from a stale base — the conflict must say who holds the server version
+  const conflict = handleSyncMutation_(ss, segmentEnvelope({
+    requestId: "req-dev-2", operation: "update", baseVersion: 0, deviceId: "device-B",
+    payload: { ringNo: "41", installType: "Permanent", length: "9.9", date: "2026-07-29" },
+  }));
+  assert.equal(conflict.status, "conflict");
+  assert.equal(conflict.currentUpdatedByDevice, "device-A", "design §9 needs a device label in the comparison");
+  assert.equal(getSyncMetaMap_(ss, "TBM1")["segment:TBM1:41:Permanent"].updatedByDevice, "device-A");
 });
 
 test("conflict responses carry both records, sorted fields, and the current version", () => {
@@ -694,7 +711,7 @@ test("getSyncMetaMap_ serializes Date cells and coerces deleted flags", () => {
   assert.equal(typeof entry.updatedAt, "string");
   assert.ok(entry.updatedAt.indexOf("T") !== -1, "updatedAt must be an ISO string");
   assert.equal(entry.deleted, true);
-  assert.deepEqual(Object.keys(entry).sort(), ["deleted", "updatedAt", "version"], "no unused fields on the hot read path");
+  assert.equal(entry.updatedByDevice, "dev", "design §6.1 requires the writing device on a synchronized record");
 });
 
 test("an oversized response degrades to a marker row instead of throwing", () => {
@@ -776,30 +793,28 @@ test("an oversized structured field is measured as its serialized form", () => {
 test("JSON-blob entities are measured as the whole serialized record", () => {
   const daily = { entityType: "dailyReport", machine: "TBM1", recordId: "d1" };
   // each field fits a cell, but dailyReport stores the whole record in one json cell
-  assert.deepEqual(
-    oversizedSyncFields_({ ...daily, payload: { activities: "a".repeat(40000), remarks: "b".repeat(40000) } }),
-    ["json"]
-  );
-  assert.deepEqual(
-    oversizedSyncFields_({ ...daily, payload: { activities: "a".repeat(1000) } }),
-    []
-  );
-  assert.deepEqual(
-    oversizedSyncFields_({ ...daily, payload: { imageBase64: "data:image/png;base64," + "A".repeat(120000), imageName: "a.png" } }),
-    ["imageBase64", "json"],
-    "a JSON-blob entity never uploads images, so the base64 lands in the cell"
-  );
+  const split = syncSizeRefusal_({ ...daily, payload: { activities: "a".repeat(40000), remarks: "b".repeat(40000) } });
+  assert.equal(split.code, "SYNC_RECORD_TOO_LARGE");
+  assert.deepEqual(split.fields, ["activities", "remarks"], "real payload keys, largest first");
+  assert.match(split.message, /one cell/);
+  assert.equal(syncSizeRefusal_({ ...daily, payload: { activities: "a".repeat(1000) } }), null);
+  const withImage = syncSizeRefusal_({ ...daily, payload: { imageBase64: "data:image/png;base64," + "A".repeat(120000), imageName: "a.png" } });
+  assert.equal(withImage.code, "SYNC_FIELD_TOO_LARGE", "a JSON-blob entity never uploads images");
+  assert.deepEqual(withImage.fields, ["imageBase64"]);
   const prep = { entityType: "prepTask", machine: "TBM2", recordId: "p1" };
-  assert.deepEqual(oversizedSyncFields_({ ...prep, payload: { notes: "n".repeat(60000) } }), ["json", "notes"]);
+  const single = syncSizeRefusal_({ ...prep, payload: { notes: "n".repeat(60000) } });
+  assert.equal(single.code, "SYNC_FIELD_TOO_LARGE");
+  assert.deepEqual(single.fields, ["notes"], "one culprit field is named on its own");
+  assert.ok(syncStoredCellLength_({ ...prep, payload: { notes: "n" } }) > 0);
+  assert.equal(syncStoredCellLength_({ entityType: "segment", payload: { problem: "x" } }), 0, "row entities write one cell per key");
 });
 
 test("a raw config payload is measured as the single stored config cell", () => {
   const cfg = { entityType: "planConfig", machine: "TBM1", recordId: "planConfig" };
-  assert.deepEqual(
-    oversizedSyncFields_({ ...cfg, payload: { notesA: "a".repeat(30000), notesB: "b".repeat(30000) } }),
-    ["planConfig"]
-  );
-  assert.deepEqual(oversizedSyncFields_({ ...cfg, payload: { target: 4 } }), []);
+  const refusal = syncSizeRefusal_({ ...cfg, payload: { notesA: "a".repeat(30000), notesB: "b".repeat(30000) } });
+  assert.equal(refusal.code, "SYNC_RECORD_TOO_LARGE");
+  assert.deepEqual(refusal.fields, ["notesA", "notesB"]);
+  assert.equal(syncSizeRefusal_({ ...cfg, payload: { target: 4 } }), null);
 });
 
 test("an oversized JSON-blob record is refused before the json cell is written", () => {
@@ -813,8 +828,8 @@ test("an oversized JSON-blob record is refused before the json cell is written",
   envelope.domainKey = makeSyncRecordKey_(envelope);
   const response = handleSyncMutation_(ss, envelope);
   assert.equal(response.status, "validation_error");
-  assert.equal(response.code, "SYNC_FIELD_TOO_LARGE");
-  assert.deepEqual(response.fields, ["json"]);
+  assert.equal(response.code, "SYNC_RECORD_TOO_LARGE");
+  assert.deepEqual(response.fields, ["activities", "remarks"]);
   assert.equal(sheetObjects(sheets.DailyReports).length, 0);
   assert.equal(sheetObjects(sheets.SyncMeta).length, 0);
 });

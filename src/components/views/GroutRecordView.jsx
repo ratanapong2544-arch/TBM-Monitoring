@@ -27,6 +27,11 @@ const GroutRecordView = ({ projectInfo, handleProjectInfoChange, groutRecords, s
       positions: { A: false, B1: false, B2: false, C1: false, C2: false, K: false },
     }));
     setIsKeyLinked(false);
+    // Note: the sync effect below reads the render's formData.ringNo, which is still the previous
+    // machine's during this same commit, so if BOTH machines happen to have that ring number it
+    // would re-derive keyType and re-lock the slider straight after this reset. App gates the rows
+    // to empty on a machine switch (rowsReady in App.jsx), so the effect finds nothing to sync and
+    // the reset stands. That dependency is deliberate — see the App-level machine-switch test.
   }, [machine]);
 
   // ริงนี้มี primary record อยู่แล้วไหม (โหมด primary เท่านั้น) → เตือน แต่บันทึกได้
@@ -36,14 +41,17 @@ const GroutRecordView = ({ projectInfo, handleProjectInfoChange, groutRecords, s
     return groutRecords.some((r) => String(r.ringNo).trim().toUpperCase() === ring);
   }, [formData.ringNo, groutRecords, isSecondary]);
 
+  // Same shape as the segment form: the emptiness check reads `prev`, not the render's formData, so
+  // a snapshot arriving with a new array identity cannot revert a ring the crew corrected by hand,
+  // and the reset above (same commit) is visible to it.
   useEffect(() => {
-    if (groutRecords.length > 0 && segmentRecords.length > 0 && !formData.ringNo) {
+    if (groutRecords.length > 0 && segmentRecords.length > 0) {
       const lastRecord = groutRecords[groutRecords.length - 1];
       const nextGroutRing = getRingByOffsetFromHistory(lastRecord.ringNo, 2, segmentRecords);
       const latestSegmentRing = segmentRecords.length > 0 ? segmentRecords[segmentRecords.length - 1].ringNo : "";
-      setFormData((prev) => ({ ...prev, ringNo: nextGroutRing, excavRing: latestSegmentRing }));
+      setFormData((prev) => prev.ringNo ? prev : ({ ...prev, ringNo: nextGroutRing, excavRing: latestSegmentRing }));
     }
-  }, [groutRecords, segmentRecords]);
+  }, [groutRecords, segmentRecords, machine]);
 
   useEffect(() => {
     if (formData.ringNo) {

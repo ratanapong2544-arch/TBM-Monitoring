@@ -36,6 +36,7 @@ function renderApp(repository) {
     );
   });
   return {
+    container,
     text: () => container.textContent,
     unmount: () => act(() => { root.unmount(); container.remove(); }),
   };
@@ -205,9 +206,11 @@ test("a machine switch shows a loading signal instead of the other machine's rin
   // the live header derives the next ring from TBM1's last one
   expect(app.text()).toContain("P644");
 
-  // switch to TBM2 through the machine switcher in the top bar
+  // switch to TBM2 through the machine switcher in the top bar. Scoped to this app's own container:
+  // a test that fails before its unmount leaves its app in document.body, and an unscoped query
+  // would click that one instead.
   await act(async () => {
-    const pill = [...document.querySelectorAll("button")].find(b => b.textContent.trim() === "TBM2");
+    const pill = [...app.container.querySelectorAll("button")].find(b => b.textContent.trim() === "TBM2");
     pill.dispatchEvent(new MouseEvent("click", { bubbles: true }));
   });
 

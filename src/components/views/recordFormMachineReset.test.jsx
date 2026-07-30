@@ -4,12 +4,24 @@ import { act } from "react-dom/test-utils";
 
 import SegmentRecordView from "./SegmentRecordView";
 import GroutRecordView from "./GroutRecordView";
+import { apiCall } from "../../utils/api";
+
+jest.mock("../../utils/api", () => ({ apiCall: jest.fn(async () => ({ status: "success" })) }));
 
 // A record form left open across a machine switch kept the previous machine's ring number and
 // chainage. Both prefill effects are guarded on an empty ringNo, so they never corrected it, and a
 // submit wrote one machine's ring sequence and CH into the other machine's sheet — the ring numbers
 // must stay sequential per machine and the chainage is a real surveyed value.
 const projectInfo = { date: "2026-07-30", shift: "Day", location: "L", tbmNo: "TBM1" };
+
+function type(container, name, value) {
+  act(() => {
+    const field = container.querySelector(`[name="${name}"]`);
+    const proto = field.tagName === "TEXTAREA" ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
+    Object.getOwnPropertyDescriptor(proto, "value").set.call(field, value);
+    field.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+}
 
 function render(element) {
   let container;
@@ -118,12 +130,15 @@ test("a grout form drops every carried-over field on a machine switch", () => {
       segmentRecords={segmentsWithKey} setCurrentModule={() => {}} setActiveTab={() => {}} machine="TBM1" />
   );
   // the crew types the ring being grouted; the key segment then syncs from that segment record
-  act(() => {
-    const ring = view.container.querySelector('[name="ringNo"]');
-    Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set.call(ring, "P643");
-    ring.dispatchEvent(new Event("input", { bubbles: true }));
-  });
+  type(view.container, "ringNo", "P643");
   expect(view.value("keyType")).toBe("4");
+  // and fills the grout quantities — these must not ride into the other machine either, so they
+  // have to hold non-default values BEFORE the switch or the assertions below prove nothing
+  type(view.container, "partA", "12.5");
+  type(view.container, "partB", "6.25");
+  type(view.container, "pressure", "3.2");
+  type(view.container, "remark", "TBM1 note");
+  expect(view.value("partA")).toBe("12.5");
 
   // TBM2 has no rings yet, so nothing would ever re-sync keyType
   view.rerender(
@@ -139,6 +154,62 @@ test("a grout form drops every carried-over field on a machine switch", () => {
   expect(view.value("partA")).toBe("");
   expect(view.value("partB")).toBe("");
   expect(view.value("remark")).toBe("");
+  view.unmount();
+});
+
+test("a grout form never overwrites a hand-corrected ring when new records arrive", () => {
+  // the twin of the segment guard: the mirror hands this view a new array identity on every
+  // snapshot, so without it the typed ring reverts to the computed one and gets submitted
+  const segments = [{ id: "s1", ringNo: "P643", keyPos: "4", startCH: "8+010.20", finishCH: "8+008.80", length: "1.40", status: "Completed", installType: "Permanent" }];
+  const grouts = [{ id: "g1", ringNo: "P640", partA: "1", partB: "1", pressure: "2.5" }];
+  const view = render(
+    <GroutRecordView projectInfo={projectInfo} handleProjectInfoChange={() => {}} groutRecords={grouts}
+      setGroutRecords={() => {}} secondaryGroutRecords={[]} setSecondaryGroutRecords={() => {}}
+      segmentRecords={segments} setCurrentModule={() => {}} setActiveTab={() => {}} machine="TBM1" />
+  );
+  const prefilled = view.value("ringNo");
+  expect(prefilled).toBeTruthy();
+
+  type(view.container, "ringNo", "P700");
+  view.rerender(
+    <GroutRecordView projectInfo={projectInfo} handleProjectInfoChange={() => {}} groutRecords={[...grouts]}
+      setGroutRecords={() => {}} secondaryGroutRecords={[]} setSecondaryGroutRecords={() => {}}
+      segmentRecords={[...segments]} setCurrentModule={() => {}} setActiveTab={() => {}} machine="TBM1" />
+  );
+
+  expect(view.value("ringNo")).toBe("P700");
+  view.unmount();
+});
+
+test("a segment form does not carry the other machine's row id into a save", async () => {
+  // handleSubmit branches on formData.id to choose updateSegment over addSegment, so a leaked id
+  // would send an update carrying the previous machine's row id to this machine's sheet
+  apiCall.mockClear();
+  const inProgress = [{ id: "seg_tbm1_row", ringNo: "P643", typeRing: "C1", keyPos: "16", startCH: "8+010.20", finishCH: "8+008.80", length: "1.40", status: "In Progress", installType: "Permanent" }];
+  const view = render(
+    <SegmentRecordView projectInfo={projectInfo} handleProjectInfoChange={() => {}} segmentRecords={inProgress}
+      setSegmentRecords={() => {}} setCurrentModule={() => {}} setActiveTab={() => {}} machine="TBM1" />
+  );
+  // the in-progress ring is loaded for editing, so the form now holds that row's id
+  expect(view.value("ringNo")).toBe("P643");
+
+  view.rerender(
+    <SegmentRecordView projectInfo={projectInfo} handleProjectInfoChange={() => {}} segmentRecords={[]}
+      setSegmentRecords={() => {}} setCurrentModule={() => {}} setActiveTab={() => {}} machine="TBM2" />
+  );
+  type(view.container, "ringNo", "P1");
+  type(view.container, "startCH", "9+499.50");
+
+  await act(async () => {
+    const form = view.container.querySelector("form");
+    form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+  });
+
+  expect(apiCall).toHaveBeenCalled();
+  const [action, payload] = apiCall.mock.calls[apiCall.mock.calls.length - 1];
+  expect(action).toBe("addSegment");
+  expect(payload.machine).toBe("TBM2");
+  expect(payload.id).not.toBe("seg_tbm1_row");
   view.unmount();
 });
 

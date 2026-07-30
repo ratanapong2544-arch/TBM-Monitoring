@@ -30,9 +30,10 @@ const SegmentRecordView = ({ projectInfo, handleProjectInfoChange, segmentRecord
       excavStartTime: "", excavEndTime: "", installStartTime: "", installEndTime: "",
       soilType: "", excavImageBase64: "", excavImageName: "", imageBase64: "", imageName: "",
       status: "In Progress", installType: "Permanent",
+      excavShift: projectInfo.shift, installShift: projectInfo.shift,
       headV: "", artV: "", tailV: "", vrt: "", headH: "", artH: "", tailH: "",
     }));
-  }, [machine]);
+  }, [machine, projectInfo.shift]);
 
   const lastRing = useMemo(() => {
     if (segmentRecords.length === 0) return "-";

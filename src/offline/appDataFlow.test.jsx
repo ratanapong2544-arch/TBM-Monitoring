@@ -169,6 +169,53 @@ test("a server failure while online is not reported as being offline", async () 
   app.unmount();
 });
 
+test("the offline stamp carries the time, not just the date", async () => {
+  // two snapshots from the same day read identically without it, so a shift-start snapshot looks
+  // current to a crew at shift end
+  const onLine = jest.spyOn(window.navigator, "onLine", "get").mockReturnValue(false);
+  const repository = makeRepository({
+    load: async machine => ({ data: snapshot(machine), source: "indexeddb", fetchedAt: "2026-07-30T02:15:00.000Z", stale: true }),
+    refresh: async () => { throw new Error("NETWORK"); },
+  });
+
+  const app = renderApp(repository);
+  await act(async () => {});
+
+  expect(app.text()).toContain("2026-07-30 09:15"); // Asia/Bangkok
+  app.unmount();
+});
+
+test("a machine switch shows a loading signal instead of the other machine's rings", async () => {
+  // the rows are gated until the new machine's snapshot lands; without a signal the empty lists are
+  // indistinguishable from "this machine has no data"
+  const pending = { resolve: null };
+  const repository = makeRepository({
+    load: async machine => {
+      if (machine === "TBM2") return new Promise(resolve => { pending.resolve = () => resolve({ data: snapshot("TBM2"), source: "indexeddb", fetchedAt: "x", stale: true }); });
+      return { data: snapshot(machine, { segments: [{ id: "s1", ringNo: "P643", machine: "TBM1" }] }), source: "indexeddb", fetchedAt: "x", stale: true };
+    },
+    refresh: async machine => {
+      if (machine === "TBM2") return new Promise(() => {});
+      return { data: snapshot(machine, { segments: [{ id: "s1", ringNo: "P643", machine: "TBM1" }] }), source: "server", fetchedAt: "2026-07-30T00:00:00.000Z", stale: false };
+    },
+  });
+
+  const app = renderApp(repository);
+  await act(async () => {});
+  // the live header derives the next ring from TBM1's last one
+  expect(app.text()).toContain("P644");
+
+  // switch to TBM2 through the machine switcher in the top bar
+  await act(async () => {
+    const pill = [...document.querySelectorAll("button")].find(b => b.textContent.trim() === "TBM2");
+    pill.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  });
+
+  expect(app.text()).toContain("กำลังโหลดข้อมูลของเครื่องนี้");
+  expect(app.text()).not.toContain("P644");
+  app.unmount();
+});
+
 test("a launch with no snapshot at all still reports the failure", async () => {
   const repository = makeRepository({
     load: async () => { throw new Error("IDB blocked"); },

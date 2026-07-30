@@ -82,6 +82,66 @@ test("a segment form does not carry ring length or type into the next machine's 
   view.unmount();
 });
 
+test("a segment form never overwrites what the crew typed when new records arrive", () => {
+  // the prefill runs on every segmentRecords change now, so its `prev.ringNo ? prev : …` guard is
+  // the only thing stopping a background refresh from reverting a hand-corrected ring and chainage
+  const view = render(
+    <SegmentRecordView projectInfo={projectInfo} handleProjectInfoChange={() => {}} segmentRecords={tbm1Segments}
+      setSegmentRecords={() => {}} setCurrentModule={() => {}} setActiveTab={() => {}} machine="TBM1" />
+  );
+  expect(view.value("ringNo")).toBe("P644");
+
+  act(() => {
+    const ring = view.container.querySelector('[name="ringNo"]');
+    Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set.call(ring, "P700");
+    ring.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  expect(view.value("ringNo")).toBe("P700");
+
+  // a server refresh re-mirrors the same rows as a NEW array identity
+  view.rerender(
+    <SegmentRecordView projectInfo={projectInfo} handleProjectInfoChange={() => {}} segmentRecords={[...tbm1Segments]}
+      setSegmentRecords={() => {}} setCurrentModule={() => {}} setActiveTab={() => {}} machine="TBM1" />
+  );
+
+  expect(view.value("ringNo")).toBe("P700");
+  view.unmount();
+});
+
+test("a grout form drops every carried-over field on a machine switch", () => {
+  // asserting only ringNo let Part A/B volumes, injection positions and the derived key segment
+  // ride into the other machine's record
+  const segmentsWithKey = [{ id: "s1", ringNo: "P643", keyPos: "4", startCH: "8+010.20", finishCH: "8+008.80", length: "1.40", status: "Completed", installType: "Permanent" }];
+  const view = render(
+    <GroutRecordView projectInfo={projectInfo} handleProjectInfoChange={() => {}} groutRecords={[]}
+      setGroutRecords={() => {}} secondaryGroutRecords={[]} setSecondaryGroutRecords={() => {}}
+      segmentRecords={segmentsWithKey} setCurrentModule={() => {}} setActiveTab={() => {}} machine="TBM1" />
+  );
+  // the crew types the ring being grouted; the key segment then syncs from that segment record
+  act(() => {
+    const ring = view.container.querySelector('[name="ringNo"]');
+    Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set.call(ring, "P643");
+    ring.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  expect(view.value("keyType")).toBe("4");
+
+  // TBM2 has no rings yet, so nothing would ever re-sync keyType
+  view.rerender(
+    <GroutRecordView projectInfo={projectInfo} handleProjectInfoChange={() => {}} groutRecords={[]}
+      setGroutRecords={() => {}} secondaryGroutRecords={[]} setSecondaryGroutRecords={() => {}}
+      segmentRecords={[]} setCurrentModule={() => {}} setActiveTab={() => {}} machine="TBM2" />
+  );
+
+  expect(view.value("keyType")).toBe("16");
+  expect(view.value("ringNo")).toBe("");
+  expect(view.value("excavRing")).toBe("");
+  expect(view.value("pressure")).toBe("");
+  expect(view.value("partA")).toBe("");
+  expect(view.value("partB")).toBe("");
+  expect(view.value("remark")).toBe("");
+  view.unmount();
+});
+
 test("a segment form keeps its prefill across an unrelated re-render", () => {
   const element = machineProps => (
     <SegmentRecordView projectInfo={projectInfo} handleProjectInfoChange={() => {}} segmentRecords={tbm1Segments}

@@ -16,12 +16,17 @@ const GroutRecordView = ({ projectInfo, handleProjectInfoChange, groutRecords, s
 
   // A form left open across a machine switch kept the previous machine's ring, and the prefill
   // below only fires on an empty ringNo — so a submit wrote that ring into the other machine.
+  // keyType matters most: it is DERIVED from the previous machine's segment record (the effect
+  // below syncs it to that ring's keyPos), it is submitted as `key`, and RingVisualizer turns it
+  // into a rotation — so a stale value replays the injection positions 90° out of place. The other
+  // machine may have no rings yet, in which case nothing would ever re-sync it.
   useEffect(() => {
     setFormData((prev) => ({
       ...prev, ringNo: "", excavRing: "", pressure: "", partA: "", partB: "", remark: "",
-      imageBase64: "", imageName: "",
+      imageBase64: "", imageName: "", keyType: "16",
       positions: { A: false, B1: false, B2: false, C1: false, C2: false, K: false },
     }));
+    setIsKeyLinked(false);
   }, [machine]);
 
   // ริงนี้มี primary record อยู่แล้วไหม (โหมด primary เท่านั้น) → เตือน แต่บันทึกได้

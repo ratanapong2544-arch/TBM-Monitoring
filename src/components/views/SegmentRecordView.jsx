@@ -20,13 +20,13 @@ const SegmentRecordView = ({ projectInfo, handleProjectInfoChange, segmentRecord
   // and the prefill below is guarded on an empty ringNo, so it never corrected them — submitting
   // then wrote one machine's ring sequence and CH into the other machine's sheet.
   // Every field must go back to its default, not just the obvious ones: the prefill below computes
-  // finishCH as (last ring's finish − length) and soilVolume from length, so a ring length left
-  // over from the other machine's last record silently produced a wrong chainage and volume for
-  // this machine. typeRing/keyPos/remark carry over the same way.
+  // finishCH as (last ring's finish − length), and the submit derives the soil volume from length
+  // too, so a ring length left over from the other machine's last record silently produced a wrong
+  // chainage and volume for this machine. typeRing/keyPos/remark carry over the same way.
   useEffect(() => {
     setFormData((prev) => ({
       ...prev, id: null, ringNo: "", typeRing: "C1", keyPos: "16", startCH: "", finishCH: "",
-      length: "1.40", remark: "", soilVolume: "",
+      length: "1.40", remark: "",
       excavStartTime: "", excavEndTime: "", installStartTime: "", installEndTime: "",
       soilType: "", excavImageBase64: "", excavImageName: "", imageBase64: "", imageName: "",
       status: "In Progress", installType: "Permanent",

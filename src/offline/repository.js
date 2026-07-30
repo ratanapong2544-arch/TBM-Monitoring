@@ -2,7 +2,7 @@ import { fetchServerSnapshot as defaultFetchServerSnapshot } from "./apiTranspor
 import { openOfflineDb as defaultOpenDb } from "./db";
 import { getOrCreateDeviceId as defaultGetDeviceId } from "./device";
 import { makeDomainKey } from "./domainKey";
-import { claimDueMutations, confirmMutation, getConflict, getEntity, getMutation, getSyncCounts, listDueMutations, putOptimisticMutation, resolveConflictAndEnqueue, resolveStoredConflict, retryMutationAsSuccessor, saveConflict, setLastSyncedAt, updateMutation } from "./mutationStore";
+import { claimDueMutations, confirmMutation, getConflict, getEntity, getMutation, getSyncCounts, listDueMutations, putOptimisticMutation, resolveConflictAndEnqueue, resolveStoredConflict, retryMutationAsSuccessor, saveConflict, setLastSyncedAt, setSyncMetaValue, updateMutation } from "./mutationStore";
 import { MUTATION_STATUS } from "./schema";
 import { emptyServerData, normalizeServerData as defaultNormalizeServerData } from "./normalizeServerData";
 import { readServerSnapshot as defaultReadServerSnapshot, writeServerSnapshot as defaultWriteServerSnapshot } from "./snapshotStore";
@@ -212,5 +212,6 @@ export function createRepository(deps = {}) {
     applySyncSuccess,
     applyConflict,
     async getSyncSummary() { return { online: Boolean(online()), ...(await getSyncCounts(await openDb())) }; },
+    async setSyncMetaValue(key, value) { return setSyncMetaValue(await openDb(), key, value); },
   };
 }

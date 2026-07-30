@@ -1,7 +1,6 @@
-import React, { useState, useEffect, useMemo, useRef } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { Loader2, AlertCircle, Activity, Clock } from "lucide-react";
 
-import { GAS_URL } from "./utils/constants";
 import { formatDisplayDate } from "./utils/formatters";
 import { offsetRingNo, getRingNumeric } from "./utils/helpers";
 
@@ -33,7 +32,7 @@ import { apiCall } from "./utils/api";
 import { getMachineConfig } from "./utils/machineConfig";
 import { savePrepTasks } from "./utils/prepGantt";
 import { isViewerMode, VIEWER_TABS } from "./utils/viewerMode";
-import { normalizeServerData } from "./offline/normalizeServerData";
+import { useOfflineData } from "./offline/useOfflineData";
 
 import { Shell, NAV_GROUPS } from "./ui-ux-pro-max";
 import "./styles/globals.css";
@@ -55,7 +54,6 @@ const PrimaryGroutApp = () => {
   const [machineProgress, setMachineProgress] = useState(null);
   const [routeProjectTotal, setRouteProjectTotal] = useState(null);
   const [moreOpen, setMoreOpen] = useState(false);
-  const reqSeqRef = useRef(0); // S5: กัน fetch race (response เครื่องเก่าทับ state เครื่องใหม่)
 
   const [instLocations, setInstLocations] = useState(() => loadCache(STORE.locations));
   const [instInstruments, setInstInstruments] = useState(() => loadCache(STORE.instruments));
@@ -129,66 +127,54 @@ const PrimaryGroutApp = () => {
     apiCall("updateInstrument", ins).catch((e) => console.warn("inst update sync:", e.message));
   };
 
+  // Offline-first hydration: the cached snapshot renders immediately, then the server refresh
+  // replaces it. The repository owns the fetch, the race guard and the stale flag, so this effect
+  // only mirrors `data` into the existing state contracts (write migration lands in Tasks 8-9).
+  const offlineData = useOfflineData(activeMachine);
+
   useEffect(() => {
-    const seq = ++reqSeqRef.current; // S5: token ของ request นี้
-    setSegmentRecords([]); setGroutRecords([]); setSecondaryGroutRecords([]); setShiftReports([]);
-    const fetchData = async () => {
-      if (GAS_URL !== "YOUR_WEB_APP_URL_HERE" && GAS_URL.startsWith("http")) {
-        try {
-          const response = await fetch(`${GAS_URL}?action=getData&machine=${activeMachine}`, { redirect: "follow" });
-          const textData = await response.text();
-          if (reqSeqRef.current !== seq) return; // สลับเครื่องไปแล้ว → ทิ้ง response เก่า (กัน race)
-          if (textData.trim().startsWith("<")) throw new Error("Received HTML error.");
-          const result = JSON.parse(textData);
-          if (result.status === "success") {
-            const data = normalizeServerData(result, activeMachine);
-            setSegmentRecords(data.segments);
-            setGroutRecords(data.grouts);
+    const data = offlineData.data;
+    if (!data || data.machine !== activeMachine) return;
+    setSegmentRecords(data.segments);
+    setGroutRecords(data.grouts);
+    // F1: secondary grout (dataset แยก) — normalizer parse positions เหมือน primary, ไม่มี ratio
+    setSecondaryGroutRecords(data.secondaryGrouts);
+    setShiftReports(data.shiftReports);
+    if (data.issues.length) { setIssues(data.issues); persistIssues(data.issues); }
+    if (data.dailyReports.length) { setDailyReports(data.dailyReports); persistDailyReports(data.dailyReports); }
+    if (data.prepTasks.length) {
+      const byM = {};
+      data.prepTasks.forEach((t) => { const m = t.machine || "TBM1"; (byM[m] = byM[m] || []).push(t); });
+      Object.keys(byM).forEach((m) => savePrepTasks(m, byM[m]));
+    }
 
-            // F1: secondary grout (dataset แยก) — parse positions เหมือน primary, ไม่มี ratio
-            setSecondaryGroutRecords(data.secondaryGrouts);
+    if (data.planConfig) {
+      try { localStorage.setItem("tbmPlanConfig", JSON.stringify(data.planConfig)); } catch (e) { console.error("Parse planConfig error", e); }
+    }
+    if (data.distPlanConfig) {
+      try { localStorage.setItem("tbmDistancePlanConfig", JSON.stringify(data.distPlanConfig)); } catch (e) { console.error("Parse distPlanConfig error", e); }
+    }
+    // F3: route configs (ทั้ง 2 เครื่อง) → localStorage เพื่อให้ RouteScheduleView โหลด; progress/total → state
+    if (data.routeConfigs && typeof data.routeConfigs === "object") {
+      try {
+        if (data.routeConfigs.TBM1) localStorage.setItem("tbmRouteConfig", JSON.stringify(data.routeConfigs.TBM1));
+        if (data.routeConfigs.TBM2) localStorage.setItem("tbmRouteConfig__TBM2", JSON.stringify(data.routeConfigs.TBM2));
+      } catch (e) { /* ignore */ }
+    }
+    if (data.machineProgress) setMachineProgress(data.machineProgress);
+    if (data.routeProjectTotal != null) setRouteProjectTotal(data.routeProjectTotal);
+    // Instrument module: project-wide (ไม่ขึ้นกับ activeMachine) → set เมื่อมีข้อมูล
+    if (data.instLocations.length)   { setInstLocations(data.instLocations); persistCache(STORE.locations, data.instLocations); }
+    if (data.instInstruments.length) { setInstInstruments(data.instInstruments); persistCache(STORE.instruments, data.instInstruments); }
+    if (data.instThresholds.length)  { setInstThresholds(data.instThresholds); persistCache(STORE.thresholds, data.instThresholds); }
+    if (data.instReadings.length)    { setInstReadings(data.instReadings); persistCache(STORE.readings, data.instReadings); }
+    if (data.instSchedules.length)   { setInstSchedules(data.instSchedules); persistCache(STORE.schedules, data.instSchedules); }
+  }, [offlineData.data, activeMachine]);
 
-            setShiftReports(data.shiftReports);
-            if (Array.isArray(result.issues)) { setIssues(data.issues); persistIssues(data.issues); }
-            if (Array.isArray(result.dailyReports) && result.dailyReports.length) { setDailyReports(data.dailyReports); persistDailyReports(data.dailyReports); }
-            if (Array.isArray(result.prepTasks) && result.prepTasks.length) {
-              const byM = {};
-              data.prepTasks.forEach((t) => { const m = t.machine || "TBM1"; (byM[m] = byM[m] || []).push(t); });
-              Object.keys(byM).forEach((m) => savePrepTasks(m, byM[m]));
-            }
-            
-            if (data.planConfig) {
-              try {
-                localStorage.setItem("tbmPlanConfig", JSON.stringify(data.planConfig));
-              } catch(e) { console.error("Parse planConfig error", e); }
-            }
-            if (data.distPlanConfig) {
-              try {
-                localStorage.setItem("tbmDistancePlanConfig", JSON.stringify(data.distPlanConfig));
-              } catch(e) { console.error("Parse distPlanConfig error", e); }
-            }
-            // F3: route configs (ทั้ง 2 เครื่อง) → localStorage เพื่อให้ RouteScheduleView โหลด; progress/total → state
-            if (data.routeConfigs && typeof data.routeConfigs === "object") {
-              try {
-                if (data.routeConfigs.TBM1) localStorage.setItem("tbmRouteConfig", JSON.stringify(data.routeConfigs.TBM1));
-                if (data.routeConfigs.TBM2) localStorage.setItem("tbmRouteConfig__TBM2", JSON.stringify(data.routeConfigs.TBM2));
-              } catch (e) { /* ignore */ }
-            }
-            setMachineProgress(data.machineProgress);
-            setRouteProjectTotal(data.routeProjectTotal);
-            // Instrument module: project-wide (ไม่ขึ้นกับ activeMachine) → set เสมอเมื่อ GAS ส่งมา
-            if (Array.isArray(result.instLocations))   { setInstLocations(data.instLocations); persistCache(STORE.locations, data.instLocations); }
-            if (Array.isArray(result.instInstruments)) { setInstInstruments(data.instInstruments); persistCache(STORE.instruments, data.instInstruments); }
-            if (Array.isArray(result.instThresholds))  { setInstThresholds(data.instThresholds); persistCache(STORE.thresholds, data.instThresholds); }
-            if (Array.isArray(result.instReadings))    { setInstReadings(data.instReadings); persistCache(STORE.readings, data.instReadings); }
-            if (Array.isArray(result.instSchedules))   { setInstSchedules(data.instSchedules); persistCache(STORE.schedules, data.instSchedules); }
-          }
-        } catch (error) { setLoadError("ไม่สามารถดึงข้อมูลได้: " + error.message); }
-      }
-      setIsLoadingMain(false);
-    };
-    fetchData();
-  }, [activeMachine]);
+  useEffect(() => {
+    setIsLoadingMain(offlineData.loading);
+    setLoadError(offlineData.error ? "ไม่สามารถดึงข้อมูลได้: " + offlineData.error.message : null);
+  }, [offlineData.loading, offlineData.error]);
 
   const handleProjectInfoChange = (e) => setProjectInfo({ ...projectInfo, [e.target.name]: e.target.value });
 

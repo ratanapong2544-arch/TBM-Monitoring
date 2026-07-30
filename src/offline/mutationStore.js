@@ -320,3 +320,9 @@ export async function setLastSyncedAt(db, value) {
   transaction.objectStore(STORES.syncMeta).put({ key: "lastSyncedAt", value });
   await complete(transaction);
 }
+
+export async function setSyncMetaValue(db, key, value) {
+  const transaction = db.transaction(STORES.syncMeta, "readwrite");
+  transaction.objectStore(STORES.syncMeta).put({ key, value });
+  await complete(transaction);
+}

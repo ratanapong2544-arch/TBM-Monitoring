@@ -3,6 +3,7 @@ import "./ui-ux-pro-max/tokens.css";
 import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
+import { OfflineProvider } from "./offline/OfflineProvider";
 import { registerServiceWorker } from "./pwa/registerServiceWorker";
 
 const rootElement = document.getElementById("root");
@@ -10,7 +11,9 @@ if (rootElement) {
   const root = ReactDOM.createRoot(rootElement);
   root.render(
     <React.StrictMode>
-      <App />
+      <OfflineProvider>
+        <App />
+      </OfflineProvider>
     </React.StrictMode>
   );
 }

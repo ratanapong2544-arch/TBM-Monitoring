@@ -162,7 +162,13 @@ export async function confirmMutation(db, requestId, response, { owner } = {}) {
       entityType: record.entityType || mutation.entityType,
       machine: record.machine || mutation.machine || "GLOBAL",
       domainKey: record.domainKey || mutation.domainKey,
-      payload: { ...record, version: response.version ?? record.version, updatedAt: response.updatedAt ?? record.updatedAt, syncStatus: MUTATION_STATUS.SYNCED },
+      payload: {
+        ...record,
+        version: response.version ?? record.version,
+        updatedAt: response.updatedAt ?? record.updatedAt,
+        updatedByDevice: response.updatedByDevice ?? record.updatedByDevice ?? null,
+        syncStatus: MUTATION_STATUS.SYNCED,
+      },
     });
   }
   await complete(transaction);
@@ -188,7 +194,11 @@ export async function saveConflict(db, requestId, response, { owner } = {}) {
     localRecord: response.localRecord || mutation.payload,
     conflictingFields: response.conflictingFields || [],
     currentVersion: response.currentVersion,
-    createdAt: response.createdAt || mutation.createdAtLocal,
+    // server time and the installation holding that version — design §9 shows both beside the
+    // local save time in the field-by-field comparison
+    currentUpdatedAt: response.currentUpdatedAt ?? null,
+    currentUpdatedByDevice: response.currentUpdatedByDevice ?? null,
+    createdAt: mutation.createdAtLocal,
   };
   mutations.put({ ...mutation, status: MUTATION_STATUS.CONFLICT, lastError: null, syncOwner: null, leaseExpiresAt: null });
   conflicts.put(conflict);

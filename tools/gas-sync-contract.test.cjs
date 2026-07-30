@@ -16,6 +16,9 @@ const {
   diffSyncFields_,
   validateSyncEnvelope_,
   syncTimeZoneMismatch_,
+  syncDateKey_,
+  syncEntityHeaders_,
+  canonicalConfigPayload_,
   oversizedSyncFields_,
   syncStoredCellLength_,
   syncSizeRefusal_,
@@ -307,6 +310,48 @@ test("validation responses carry fields and a message", () => {
 
 test("unknown response types are refused", () => {
   assert.throws(() => buildSyncResponse_("partial", "req-4", {}));
+});
+
+// A shift report loaded from getData carries `date` as the UTC ISO string GAS produced from the
+// sheet cell. Editing that loaded record must not key differently from the record itself, or the
+// version check is bypassed and a stale edit overwrites a newer write with no conflict.
+test("a server-round-tripped shift report date keys the same as the sheet date", () => {
+  const fromSheet = { entityType: "shiftReport", machine: "TBM1", recordId: "sr1", payload: { date: new Date(2026, 6, 29), shift: "Day" } };
+  const canonical = makeSyncRecordKey_(fromSheet);
+  assert.equal(canonical, "shiftReport:TBM1:2026-07-29:Day");
+  // what the client submits after loading that record over the wire
+  const roundTripped = { ...fromSheet, payload: { date: "2026-07-28T17:00:00.000Z", shift: "Day" } };
+  assert.equal(makeSyncRecordKey_(roundTripped), canonical, "UTC ISO must reduce to the Bangkok date");
+  assert.equal(syncDateKey_("2026-07-28T17:00:00.000Z"), "2026-07-29");
+  assert.equal(syncDateKey_("2026-07-29"), "2026-07-29", "an already-canonical date is untouched");
+  assert.equal(syncDateKey_(""), "");
+  assert.equal(syncDateKey_("not-a-date"), "not-a-date");
+});
+
+test("a stale edit of a round-tripped shift report conflicts instead of overwriting", () => {
+  const { ss, sheets } = makeFakeState();
+  // the office writes the report through the legacy path, minting version 1
+  sheets.ShiftReports.appendRow(["sr1", new Date(2026, 6, 29), "Day", "TBM1", "", "", "", "office-latest", ""]);
+  handleLegacyWrite_(ss, "updateShiftReport", "TBM1", { id: "sr1", result: "office-latest" });
+  // a device that loaded the record over the wire edits it offline against version 0
+  const stale = {
+    requestId: "req-drift", entityType: "shiftReport", operation: "update", machine: "TBM1",
+    recordId: "sr1", baseVersion: 0, deviceId: "device-A",
+    payload: { date: "2026-07-28T17:00:00.000Z", shift: "Day", result: "stale-offline" },
+  };
+  stale.domainKey = makeSyncRecordKey_(stale);
+  const response = handleSyncMutation_(ss, stale);
+  assert.equal(response.status, "conflict", "must not silently overwrite the newer office write");
+  assert.equal(sheetObjects(sheets.ShiftReports)[0].result, "office-latest");
+  assert.equal(sheetObjects(sheets.SyncMeta).length, 1, "one version stream per business row");
+});
+
+test("only machine-scoped entities carry a machine in their key", () => {
+  // a caller passing machine for a GLOBAL entity must not fork a second version stream, because
+  // legacy writes always bump the GLOBAL key for these
+  assert.equal(makeSyncRecordKey_({ entityType: "issue", machine: "TBM1", recordId: "i1", payload: {} }), "issue:GLOBAL:i1");
+  assert.equal(makeSyncRecordKey_({ entityType: "instReading", machine: "TBM2", recordId: "r1", payload: {} }), "instReading:GLOBAL:r1");
+  assert.equal(makeSyncRecordKey_({ entityType: "dailyReport", machine: "TBM2", recordId: "d1", payload: {} }), "dailyReport:TBM2:d1");
 });
 
 test("field diff ignores representation-only differences", () => {
@@ -781,7 +826,11 @@ test("an oversized field is refused before any write, upload, or ledger row", ()
 
 test("an oversized structured field is measured as its serialized form", () => {
   const seg = { entityType: "segment", machine: "TBM1", recordId: "s1" };
-  assert.deepEqual(oversizedSyncFields_({ ...seg, payload: { positions: { log: "x".repeat(60000) } } }), ["positions"]);
+  // positions is a Grouts column, not a Segments one
+  assert.deepEqual(
+    oversizedSyncFields_({ entityType: "grout", machine: "TBM1", recordId: "g1", payload: { positions: { log: "x".repeat(60000) } } }),
+    ["positions"]
+  );
   assert.deepEqual(oversizedSyncFields_({ ...seg, payload: { problem: "x".repeat(50000) } }), []);
   assert.deepEqual(
     oversizedSyncFields_({ ...seg, payload: { imageBase64: "data:image/png;base64," + "A".repeat(90000), imageName: "a.png" } }),
@@ -807,6 +856,76 @@ test("JSON-blob entities are measured as the whole serialized record", () => {
   assert.deepEqual(single.fields, ["notes"], "one culprit field is named on its own");
   assert.ok(syncStoredCellLength_({ ...prep, payload: { notes: "n" } }) > 0);
   assert.equal(syncStoredCellLength_({ entityType: "segment", payload: { problem: "x" } }), 0, "row entities write one cell per key");
+});
+
+test("only keys that reach a cell can be refused as oversized", () => {
+  // a non-header key is dropped by the write, so it must not produce a terminal refusal
+  assert.deepEqual(
+    oversizedSyncFields_({ entityType: "segment", machine: "TBM1", recordId: "s1", payload: { excavImageBase64: "x".repeat(60000), problem: "ok" } }),
+    []
+  );
+  assert.deepEqual(
+    oversizedSyncFields_({ entityType: "segment", machine: "TBM1", recordId: "s1", payload: { problem: "x".repeat(60000) } }),
+    ["problem"]
+  );
+  assert.deepEqual(
+    oversizedSyncFields_({ entityType: "issue", recordId: "i1", payload: { uiOnlyNote: "x".repeat(60000) } }),
+    []
+  );
+  assert.ok(syncEntityHeaders_("segment").indexOf("problem") !== -1);
+  assert.equal(syncEntityHeaders_("dailyReport"), null, "JSON-blob entities have no column list");
+});
+
+test("an issue update merges instead of blanking the columns it omits", () => {
+  // let ensureSheet_ create Issues with the real ISSUE_HEADERS, so column mapping is faithful
+  const { ss, sheets } = makeFakeState();
+  const create = {
+    requestId: "req-issue-0", entityType: "issue", operation: "create",
+    recordId: "i1", baseVersion: 0, deviceId: "device-A",
+    payload: { machine: "TBM1", title: "Leak", severity: "high", detail: "at ring 41", status: "open" },
+  };
+  create.domainKey = makeSyncRecordKey_(create);
+  assert.equal(handleSyncMutation_(ss, create).status, "success");
+
+  const update = Object.assign({}, create, { requestId: "req-issue-1", operation: "update", baseVersion: 1, payload: { status: "closed" } });
+  const response = handleSyncMutation_(ss, update);
+  assert.equal(response.status, "success");
+  const row = sheetObjects(ss.getSheetByName("Issues"))[0];
+  assert.equal(row.status, "closed");
+  assert.equal(row.title, "Leak", "an omitted column must survive the update");
+  assert.equal(row.severity, "high");
+  assert.equal(row.machine, "TBM1");
+  assert.equal(row.detail, "at ring 41");
+});
+
+test("a raw route config keeps the project total out of the stored config body", () => {
+  assert.deepEqual(
+    canonicalConfigPayload_("routeConfig", { legs: [1, 2], routeProjectTotal: 6193 }),
+    { routeConfig: { legs: [1, 2] }, routeProjectTotal: 6193 }
+  );
+  assert.deepEqual(
+    canonicalConfigPayload_("routeConfig", { routeConfig: { legs: [1, 2] }, routeProjectTotal: 6193 }),
+    { routeConfig: { legs: [1, 2] }, routeProjectTotal: 6193 },
+    "wrapped and raw submissions store the same config body"
+  );
+});
+
+test("a config mutation writes the PlanConfig rows it owns", () => {
+  const { ss, sheets } = makeFakeState();
+  const envelope = {
+    requestId: "req-route-1", entityType: "routeConfig", operation: "create", machine: "TBM1",
+    recordId: "routeConfig", baseVersion: 0, deviceId: "device-A",
+    payload: { legs: [1, 2], routeProjectTotal: 6193 },
+  };
+  envelope.domainKey = makeSyncRecordKey_(envelope);
+  const response = handleSyncMutation_(ss, envelope);
+  assert.equal(response.status, "success");
+  const rows = sheetObjects(sheets.PlanConfig);
+  const byKey = {};
+  rows.forEach((r) => { byKey[r.Key] = r.Value; });
+  assert.deepEqual(JSON.parse(byKey["routeConfig_TBM1"]), { legs: [1, 2] });
+  assert.equal(byKey["routeProjectTotal"], "6193");
+  assert.equal(sheetObjects(sheets.SyncMeta)[0].recordKey, "routeConfig:TBM1");
 });
 
 test("a raw config payload is measured as the single stored config cell", () => {
@@ -910,14 +1029,29 @@ test("a deterministic apply failure is classified terminal, transient ones retry
   assert.equal(classifySyncApplyFailure_(undefined), "retryable");
 });
 
-test("localized cell-limit errors are still classified terminal", () => {
-  // Apps Script localizes exception text to the executing account's language
+test("localized and grouped cell-limit errors are still classified terminal", () => {
+  // Apps Script localizes exception text, and locales group digits differently
   assert.equal(
     classifySyncApplyFailure_("ข้อมูลที่คุณป้อนมีอักขระมากกว่าจำนวนสูงสุด 50000 อักขระในเซลล์เดียว"),
     "validation"
   );
+  assert.equal(
+    classifySyncApplyFailure_("ข้อมูลที่คุณป้อนมีอักขระมากกว่าจำนวนสูงสุด 50,000 อักขระในเซลล์เดียว"),
+    "validation"
+  );
+  assert.equal(
+    classifySyncApplyFailure_("ข้อมูลมีอักขระมากกว่า ๕๐,๐๐๐ อักขระในเซลล์เดียว"),
+    "validation",
+    "Thai numerals"
+  );
+  assert.equal(classifySyncApplyFailure_("Your input contains more than the maximum of 50,000 characters in a single cell."), "validation");
   assert.equal(classifySyncApplyFailure_("Could not decode string."), "validation");
   assert.equal(classifySyncApplyFailure_("Exception: Invalid argument: data"), "validation");
+});
+
+test("a transient error that merely contains the limit digits stays retryable", () => {
+  assert.equal(classifySyncApplyFailure_("Service Spreadsheets timed out while accessing document 50000abc"), "retryable");
+  assert.equal(classifySyncApplyFailure_("Timeout: Row 50000 could not be read"), "retryable");
 });
 
 test("the doPost error envelope carries the terminal or retryable code", () => {
@@ -1028,7 +1162,13 @@ test("equivalent time zones named differently are not a mismatch", () => {
 
 test("a late time-zone change cannot shadow an already stored response", () => {
   const { ss, sheets } = makeFakeState();
-  const envelope = segmentEnvelope({ requestId: "req-tz-replay" });
+  // must be a shiftReport: it is the only entity the guard refuses, so any other envelope would
+  // pass this test with the guard on either side of the ledger lookup
+  const envelope = {
+    requestId: "req-tz-replay", entityType: "shiftReport", operation: "create", machine: "TBM1",
+    recordId: "sr1", baseVersion: 0, deviceId: "device-A", payload: { date: "2026-07-29", shift: "Day" },
+  };
+  envelope.domainKey = makeSyncRecordKey_(envelope);
   const first = handleSyncMutation_(ss, envelope);
   assert.equal(first.status, "success");
   ss.getSpreadsheetTimeZone = () => "America/New_York";
@@ -1036,7 +1176,7 @@ test("a late time-zone change cannot shadow an already stored response", () => {
   try {
     const replay = handleSyncMutation_(ss, envelope);
     assert.deepEqual(replay, first, "a duplicate must replay its stored response");
-    assert.equal(sheetObjects(sheets.Segments).length, 1);
+    assert.equal(sheetObjects(sheets.ShiftReports).length, 1);
   } finally {
     delete global.Session;
   }

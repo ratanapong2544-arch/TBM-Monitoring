@@ -43,6 +43,40 @@ test("a synced mutation replaces its optimistic entity with the confirmed server
   await expect(repository.getEntity(confirmed.domainKey)).resolves.toMatchObject({ payload: expect.objectContaining({ status: "confirmed", version: 3, syncStatus: "synced" }) });
 });
 
+test("a stored conflict keeps the server time and device holding that version", async () => {
+  const repository = makeRepository();
+  const queued = await repository.mutate(segmentInput);
+
+  await repository.applyConflict(queued.requestId, {
+    status: "conflict", requestId: queued.requestId,
+    serverRecord: { recordId: "segment-1", domainKey: queued.optimisticRecord.domainKey, status: "server" },
+    localRecord: queued.optimisticRecord, conflictingFields: ["status"], currentVersion: 9,
+    currentUpdatedAt: "2026-07-29T02:00:00.000Z", currentUpdatedByDevice: "device-office",
+  });
+
+  // design §9 shows server time and device label beside the local save time
+  await expect(repository.getConflict(queued.requestId)).resolves.toMatchObject({
+    currentUpdatedAt: "2026-07-29T02:00:00.000Z",
+    currentUpdatedByDevice: "device-office",
+    createdAt: "2026-07-29T00:00:00.000Z",
+  });
+});
+
+test("a confirmed record keeps the device that wrote the server version", async () => {
+  const repository = makeRepository();
+  const queued = await repository.mutate(segmentInput);
+  const confirmed = { recordId: "segment-1", domainKey: queued.optimisticRecord.domainKey, status: "confirmed" };
+
+  await repository.applySyncSuccess(queued.requestId, {
+    requestId: queued.requestId, status: "success", record: confirmed, version: 3,
+    updatedAt: "2026-07-29T01:00:00.000Z", updatedByDevice: "device-1",
+  });
+
+  await expect(repository.getEntity(confirmed.domainKey)).resolves.toMatchObject({
+    payload: expect.objectContaining({ updatedByDevice: "device-1", syncStatus: "synced" }),
+  });
+});
+
 test("conflict resolution preserves the audit record and uses currentVersion for a local retry", async () => {
   const repository = makeRepository({ createRequestId: jest.fn().mockReturnValueOnce("request-1").mockReturnValueOnce("request-2") });
   const queued = await repository.mutate(segmentInput);

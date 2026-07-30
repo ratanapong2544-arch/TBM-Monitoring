@@ -13,9 +13,12 @@ const LEGACY_TYPES = {
   tbmDistancePlanConfig__TBM2: { entityType: "distPlanConfig", machine: "TBM2", serverKeys: ["distancePlanConfig", "distPlanConfig", "distancePlanConfigs"] },
   tbmRouteConfig: { entityType: "routeConfig", machine: "TBM1", serverKeys: ["routeConfig", "routeConfigs"] },
   tbmRouteConfig__TBM2: { entityType: "routeConfig", machine: "TBM2", serverKeys: ["routeConfig", "routeConfigs"] },
-  instLocations: { entityType: "instrument", serverKeys: ["instLocations", "locations"] },
+  // instLocation/instThreshold have no sync entity, so they keep their own key namespace rather
+  // than borrowing "instrument" — a conflict resolved through a borrowed key would write a
+  // location or threshold payload into the instrument sheet
+  instLocations: { entityType: "instLocation", serverKeys: ["instLocations", "locations"] },
   instInstruments: { entityType: "instrument", serverKeys: ["instInstruments", "instruments"] },
-  instThresholds: { entityType: "instrument", serverKeys: ["instThresholds", "thresholds"] },
+  instThresholds: { entityType: "instThreshold", serverKeys: ["instThresholds", "thresholds"] },
   instReadings: { entityType: "instReading", serverKeys: ["instReadings", "readings"] },
   instSchedules: { entityType: "instSchedule", serverKeys: ["instSchedules", "schedules"] },
 };

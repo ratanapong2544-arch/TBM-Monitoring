@@ -103,6 +103,22 @@ test.each([
   await expect(makeRepository().mutate(input)).rejects.toThrow(field);
 });
 
+test.each([
+  ["shiftReport", { date: "2026-07-29", shift: "Day" }],
+  ["planConfig", { target: 4 }],
+  ["instrument", {}],
+  ["instSchedule", {}],
+])("refuses a delete GAS has no action for: %s", async (entityType, payload) => {
+  // a queued mutation GAS rejects parks a terminal validation_error at the domain head and blocks
+  // every later mutation on that key, so it must never reach the queue
+  const input = { entityType, operation: "delete", machine: "TBM1", recordId: "r1", baseVersion: 1, payload };
+  await expect(makeRepository().mutate(input)).rejects.toThrow(/not supported/);
+});
+
+test("refuses an unknown entity type outright", async () => {
+  await expect(makeRepository().mutate({ ...segmentInput, entityType: "mystery" })).rejects.toThrow(/unsupported entityType/);
+});
+
 test("allows a create with canonical ring identity and no baseVersion", async () => {
   const repository = makeRepository();
   await expect(repository.mutate({ entityType: "segment", operation: "create", machine: "TBM1", recordId: "segment-new", payload: { ringNo: "P2", installType: "Permanent" } }))

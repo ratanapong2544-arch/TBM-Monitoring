@@ -11,9 +11,12 @@ const MACHINE_ENTITY_TYPES = new Set([
 // of a loaded record keys the same as the record itself. Thailand is a fixed UTC+7 with no DST.
 // MUST stay identical to syncDateKey_ in gas-live/Code.js.
 const BANGKOK_OFFSET_MS = 7 * 60 * 60 * 1000;
+const pad2 = n => String(n).padStart(2, "0");
 
 export function syncDateKey(value) {
-  if (value instanceof Date) return new Date(value.getTime() + BANGKOK_OFFSET_MS).toISOString().slice(0, 10);
+  // a Date reduces by its own calendar fields, matching how GAS reads a sheet date cell; adding an
+  // offset first would shift the day for any device east of UTC+7
+  if (value instanceof Date) return `${value.getFullYear()}-${pad2(value.getMonth() + 1)}-${pad2(value.getDate())}`;
   const text = String(value == null ? "" : value);
   if (!text.includes("T")) return text;
   const parsed = Date.parse(text);

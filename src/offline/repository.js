@@ -7,6 +7,25 @@ import { MUTATION_STATUS } from "./schema";
 import { emptyServerData, normalizeServerData as defaultNormalizeServerData } from "./normalizeServerData";
 import { readServerSnapshot as defaultReadServerSnapshot, writeServerSnapshot as defaultWriteServerSnapshot } from "./snapshotStore";
 
+// operations each entity supports, mirroring SYNC_ENTITY_OPS in gas-live/Code.js
+const CREATE_UPDATE = ["create", "update"];
+const CREATE_UPDATE_DELETE = ["create", "update", "delete"];
+const ENTITY_OPERATIONS = {
+  segment: CREATE_UPDATE_DELETE,
+  grout: CREATE_UPDATE_DELETE,
+  secondaryGrout: CREATE_UPDATE_DELETE,
+  shiftReport: CREATE_UPDATE,
+  issue: CREATE_UPDATE_DELETE,
+  dailyReport: CREATE_UPDATE_DELETE,
+  prepTask: CREATE_UPDATE_DELETE,
+  planConfig: CREATE_UPDATE,
+  distPlanConfig: CREATE_UPDATE,
+  routeConfig: CREATE_UPDATE,
+  instrument: CREATE_UPDATE,
+  instReading: CREATE_UPDATE_DELETE,
+  instSchedule: CREATE_UPDATE,
+};
+
 export function createRepository(deps = {}) {
   const openDb = deps.openDb || defaultOpenDb;
   const fetchServerSnapshot = deps.fetchServerSnapshot || defaultFetchServerSnapshot;
@@ -31,6 +50,12 @@ export function createRepository(deps = {}) {
     });
     if (!input.payload || typeof input.payload !== "object") throw new Error("Mutation requires payload");
     if (!["create", "update", "delete"].includes(input.operation)) throw new Error("Mutation requires a supported operation");
+    // GAS refuses operations its entity has no action for (SYNC_ENTITY_OPS in gas-live/Code.js).
+    // Queueing one would park a terminal validation_error at the head of its domain and block
+    // every later mutation on that key, so refuse it before it reaches the queue.
+    const allowed = ENTITY_OPERATIONS[input.entityType];
+    if (!allowed) throw new Error(`Mutation has an unsupported entityType ${input.entityType}`);
+    if (!allowed.includes(input.operation)) throw new Error(`Mutation operation ${input.operation} is not supported for ${input.entityType}`);
     // dailyReport/prepTask are machine-scoped domain keys, so GAS refuses machineless envelopes
     // (SYNC_MACHINE_ENTITIES in gas-live/Code.js); reject them here instead of queueing a
     // mutation that can only fail validation on the server.

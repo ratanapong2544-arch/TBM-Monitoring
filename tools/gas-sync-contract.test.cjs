@@ -18,6 +18,8 @@ const {
   syncTimeZoneMismatch_,
   syncDateKey_,
   syncEntityHeaders_,
+  serializeSyncRowValues_,
+  headerRecord_,
   canonicalConfigPayload_,
   oversizedSyncFields_,
   syncStoredCellLength_,
@@ -344,6 +346,107 @@ test("a stale edit of a round-tripped shift report conflicts instead of overwrit
   assert.equal(response.status, "conflict", "must not silently overwrite the newer office write");
   assert.equal(sheetObjects(sheets.ShiftReports)[0].result, "office-latest");
   assert.equal(sheetObjects(sheets.SyncMeta).length, 1, "one version stream per business row");
+});
+
+test("a datetime-typed date cell still keys by its calendar date", () => {
+  // syncDateString_ keeps the time of day for field diffing; a KEY must not, or a hand-typed
+  // "29/07/2026 08:30" cell keys as a full ISO string no client can reproduce
+  assert.equal(syncDateKey_(new Date(2026, 6, 29, 8, 30)), "2026-07-29");
+  assert.equal(syncDateKey_(new Date(2026, 6, 29, 23, 30)), "2026-07-29");
+  assert.equal(syncDateKey_(new Date(2026, 6, 29)), "2026-07-29");
+  const fromSheet = { entityType: "shiftReport", machine: "TBM1", recordId: "sr1", payload: { date: new Date(2026, 6, 29, 8, 30), shift: "Day" } };
+  assert.equal(makeSyncRecordKey_(fromSheet), "shiftReport:TBM1:2026-07-29:Day");
+  // and the wire form of that same cell agrees
+  const wire = { ...fromSheet, payload: { date: new Date(2026, 6, 29, 8, 30).toISOString(), shift: "Day" } };
+  assert.equal(makeSyncRecordKey_(wire), "shiftReport:TBM1:2026-07-29:Day");
+});
+
+test("a datetime-typed cell cannot be overwritten without a conflict", () => {
+  const { ss, sheets } = makeFakeState();
+  sheets.ShiftReports.appendRow(["sr1", new Date(2026, 6, 29, 8, 30), "Day", "TBM1", "", "", "", "office-latest", ""]);
+  handleLegacyWrite_(ss, "updateShiftReport", "TBM1", { id: "sr1", result: "office-latest" });
+  assert.equal(sheetObjects(sheets.SyncMeta)[0].recordKey, "shiftReport:TBM1:2026-07-29:Day");
+  const stale = {
+    requestId: "req-dt", entityType: "shiftReport", operation: "update", machine: "TBM1",
+    recordId: "sr1", baseVersion: 0, deviceId: "device-A",
+    payload: { date: new Date(2026, 6, 29, 8, 30).toISOString(), shift: "Day", result: "stale" },
+  };
+  stale.domainKey = makeSyncRecordKey_(stale);
+  assert.equal(handleSyncMutation_(ss, stale).status, "conflict");
+  assert.equal(sheetObjects(sheets.ShiftReports)[0].result, "office-latest");
+  assert.equal(sheetObjects(sheets.SyncMeta).length, 1, "one version stream per business row");
+});
+
+test("structured columns are serialized before they reach a cell", () => {
+  const rec = { events: { "08:00": { act: "boring" } }, manpower: ["a"], result: { ok: true }, ringNo: 41, when: new Date(2026, 6, 29) };
+  serializeSyncRowValues_(rec);
+  assert.equal(rec.events, '{"08:00":{"act":"boring"}}');
+  assert.equal(rec.manpower, '["a"]');
+  assert.equal(rec.result, '{"ok":true}');
+  assert.equal(rec.ringNo, 41, "scalars are untouched");
+  assert.ok(rec.when instanceof Date, "Sheets stores Dates natively");
+});
+
+test("a shift report write stores strings, not raw objects, and keeps the date canonical", () => {
+  const { ss, sheets } = makeFakeState();
+  const envelope = {
+    requestId: "req-obj", entityType: "shiftReport", operation: "create", machine: "TBM1",
+    recordId: "sr9", baseVersion: 0, deviceId: "device-A",
+    payload: { date: "2026-07-28T17:00:00.000Z", shift: "Day", events: { "08:00": { act: "boring" } }, manpower: { crew: 4 } },
+  };
+  envelope.domainKey = makeSyncRecordKey_(envelope);
+  const response = handleSyncMutation_(ss, envelope);
+  assert.equal(response.status, "success");
+  const row = sheetObjects(sheets.ShiftReports)[0];
+  assert.equal(typeof row.events, "string");
+  assert.deepEqual(JSON.parse(row.events), { "08:00": { act: "boring" } });
+  assert.equal(typeof row.manpower, "string");
+  assert.equal(row.date, "2026-07-29", "a round-tripped ISO date is written back as a date, not ISO text");
+});
+
+test("the response record only describes what was stored", () => {
+  assert.deepEqual(headerRecord_({ id: "s1", problem: "x", uiOnlyNote: "dropped" }, ["id", "problem"]), { id: "s1", problem: "x" });
+  const { ss } = makeFakeState();
+  const envelope = segmentEnvelope({ requestId: "req-echo", payload: { ringNo: "41", installType: "Permanent", uiOnlyNote: "dropped" } });
+  const response = handleSyncMutation_(ss, envelope);
+  assert.equal(response.status, "success");
+  assert.equal(response.record.uiOnlyNote, undefined, "a key with no column never reached the sheet");
+  assert.equal(response.record.ringNo, "41");
+});
+
+test("an unchanged round-tripped record reports no conflicting fields", () => {
+  const { ss, sheets } = makeFakeState();
+  sheets.ShiftReports.appendRow(["sr1", new Date(2026, 6, 29), "Day", "TBM1", "", "", "", "same", ""]);
+  handleLegacyWrite_(ss, "updateShiftReport", "TBM1", { id: "sr1", result: "same" });
+  const stale = {
+    requestId: "req-nodiff", entityType: "shiftReport", operation: "update", machine: "TBM1",
+    recordId: "sr1", baseVersion: 0, deviceId: "device-A",
+    payload: { date: "2026-07-28T17:00:00.000Z", shift: "Day", result: "same" },
+  };
+  stale.domainKey = makeSyncRecordKey_(stale);
+  const conflict = handleSyncMutation_(ss, stale);
+  assert.equal(conflict.status, "conflict");
+  assert.deepEqual(conflict.conflictingFields, [], "an ISO date equal to the sheet date is not a difference");
+  // two datetimes on one day are still a real difference
+  assert.deepEqual(diffSyncFields_({ measuredAt: "2026-07-29T01:00:00.000Z" }, { measuredAt: "2026-07-29T09:00:00.000Z" }), ["measuredAt"]);
+});
+
+test("a create successor keeps the columns it never carried", () => {
+  const { ss, sheets } = makeFakeState();
+  const create = {
+    requestId: "req-issue-full", entityType: "issue", operation: "create",
+    recordId: "i1", baseVersion: 0, deviceId: "device-A",
+    payload: { machine: "TBM1", title: "Leak", severity: "high", detail: "at ring 41", status: "open" },
+  };
+  create.domainKey = makeSyncRecordKey_(create);
+  handleSyncMutation_(ss, create);
+  // a post-conflict successor replays the ORIGINAL create against the existing row
+  const successor = Object.assign({}, create, { requestId: "req-issue-succ", baseVersion: 1, payload: { status: "closed" } });
+  assert.equal(handleSyncMutation_(ss, successor).status, "success");
+  const row = sheetObjects(ss.getSheetByName("Issues"))[0];
+  assert.equal(row.status, "closed");
+  assert.equal(row.title, "Leak", "a create successor must not blank stored columns");
+  assert.equal(row.severity, "high");
 });
 
 test("only machine-scoped entities carry a machine in their key", () => {
@@ -1021,6 +1124,8 @@ test("a malformed image data URI is a terminal validation error, not a retry", (
   assert.equal(invalidSyncImage_({ imageBase64: "data:image/png;name=a,b;base64,QUJD", imageName: "a.png" }), true);
   assert.equal(invalidSyncImage_({ imageBase64: "data:image/png;base64,%%%not-base64%%%", imageName: "a.png" }), true);
   assert.equal(invalidSyncImage_({ imageBase64: "data:image/png;base64,", imageName: "a.png" }), true);
+  // FileReader on a blob with no type still yields an empty mime; that is a real browser shape
+  assert.equal(invalidSyncImage_({ imageBase64: "data:;base64,QUJD", imageName: "a.png" }), false);
 });
 
 test("a deterministic apply failure is classified terminal, transient ones retryable", () => {
@@ -1052,6 +1157,8 @@ test("localized and grouped cell-limit errors are still classified terminal", ()
 test("a transient error that merely contains the limit digits stays retryable", () => {
   assert.equal(classifySyncApplyFailure_("Service Spreadsheets timed out while accessing document 50000abc"), "retryable");
   assert.equal(classifySyncApplyFailure_("Timeout: Row 50000 could not be read"), "retryable");
+  assert.equal(classifySyncApplyFailure_("Timeout reading cell A50000"), "retryable", "a cell reference is not the limit");
+  assert.equal(classifySyncApplyFailure_("more than the maximum of 50'000 characters in a single cell"), "validation", "apostrophe grouping");
 });
 
 test("the doPost error envelope carries the terminal or retryable code", () => {

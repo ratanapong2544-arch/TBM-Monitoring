@@ -1,4 +1,5 @@
 import { GAS_URL } from "../utils/constants";
+import { makeDomainKey } from "./domainKey";
 
 export class ApiFailure extends Error {
   constructor(kind, code, message = code, details = {}) {
@@ -64,7 +65,17 @@ export function assertSyncResponse(mutation, result) {
   return result;
 }
 
+// A mutation carries the domainKey computed when it was queued, and GAS rejects any envelope whose
+// key differs from the canonical one it recomputes. Recompute here so a mutation queued by an older
+// build (before a key-format fix) still syncs instead of dying as SYNC_ENVELOPE_INVALID and
+// blocking its domain forever.
+export function canonicalizeMutationEnvelope(mutation) {
+  const domainKey = makeDomainKey(mutation);
+  return mutation.domainKey === domainKey ? mutation : { ...mutation, domainKey };
+}
+
 export async function postSyncMutation(mutation) {
+  const envelope = canonicalizeMutationEnvelope(mutation);
   const controller = new AbortController();
   let timedOut = false;
   const timeout = setTimeout(() => { timedOut = true; controller.abort(); }, 15000);
@@ -73,11 +84,11 @@ export async function postSyncMutation(mutation) {
       method: "POST",
       redirect: "follow",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "syncMutation", data: mutation }),
+      body: JSON.stringify({ action: "syncMutation", data: envelope }),
       signal: controller.signal,
     });
     if (!response.ok) throw classifyHttpFailure(response.status);
-    return assertSyncResponse(mutation, await parseGasResponse(response));
+    return assertSyncResponse(envelope, await parseGasResponse(response));
   } catch (error) {
     if (timedOut && error && error.name === "AbortError") throw new ApiFailure("retryable", "TIMEOUT", "Sync request timed out", { cause: error });
     throw toApiFailure(error);

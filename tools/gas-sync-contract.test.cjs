@@ -16,6 +16,9 @@ const {
   diffSyncFields_,
   validateSyncEnvelope_,
   syncTimeZoneMismatch_,
+  oversizedSyncFields_,
+  invalidSyncImage_,
+  classifySyncApplyFailure_,
   handleSyncMutation_,
   handleLegacyWrite_,
   getSyncMetaRow_,
@@ -106,19 +109,33 @@ function makeFakeSheet(name, rows) {
   };
 }
 
-// Real Sheets rejects a cell over 50,000 characters. enforceCellLimit makes the fake reject it
-// too, so the oversized-response fallback in storeSyncResponse_ is exercised.
+// Real Sheets rejects any cell over 50,000 characters on EVERY write path, so the fake enforces
+// the limit on appendRow and setValues alike (a business row is written through both).
+const CELL_LIMIT_ERROR = "Your input contains more than the maximum of 50000 characters in a single cell.";
+function assertCellSizes(row) {
+  row.forEach((value) => {
+    if (typeof value === "string" && value.length > 50000) throw new Error(CELL_LIMIT_ERROR);
+  });
+}
+
 function withCellLimit(sheet) {
   const appendRow = sheet.appendRow.bind(sheet);
-  sheet.appendRow = (row) => {
-    row.forEach((value) => {
-      if (typeof value === "string" && value.length > 50000) {
-        throw new Error("Your input contains more than the maximum of 50000 characters in a single cell.");
-      }
-    });
-    appendRow(row);
+  sheet.appendRow = (row) => { assertCellSizes(row); appendRow(row); };
+  const getRange = sheet.getRange.bind(sheet);
+  sheet.getRange = (...args) => {
+    const range = getRange(...args);
+    if (range && typeof range.setValues === "function") {
+      const setValues = range.setValues.bind(range);
+      range.setValues = (vals) => { vals.forEach(assertCellSizes); setValues(vals); };
+    }
+    return range;
   };
   return sheet;
+}
+
+function withCellLimitEverywhere(sheets) {
+  Object.keys(sheets).forEach((name) => withCellLimit(sheets[name]));
+  return sheets;
 }
 
 function makeFakeSpreadsheet(sheets) {
@@ -684,15 +701,19 @@ test("an oversized response degrades to a marker row instead of throwing", () =>
   assert.equal(findStoredSyncResponse_(sheets.SyncRequests, "req-huge"), null, "a degraded row must not replay as a response");
 });
 
+// Every individual field here stays under the cell limit (so the row itself is writable) while
+// the serialized response exceeds it — the only way a real response can be too large to store.
+const NEAR_LIMIT = "C".repeat(24000);
+
 test("a lost oversized success replays without double-applying the write", () => {
   const { ss, sheets } = makeFakeState();
-  withCellLimit(sheets.SyncRequests);
+  withCellLimitEverywhere(sheets);
   const envelope = segmentEnvelope({
     requestId: "req-huge-seg",
-    payload: { ringNo: "41", installType: "Permanent", length: "1.4", date: "2026-07-29", problem: "C".repeat(60000) },
+    payload: { ringNo: "41", installType: "Permanent", date: "2026-07-29", problem: NEAR_LIMIT, keyPos: NEAR_LIMIT, typeRing: NEAR_LIMIT },
   });
   const first = handleSyncMutation_(ss, envelope);
-  assert.equal(first.status, "success");
+  assert.equal(first.status, "success", "each field fits a cell, so the write itself succeeds");
   assert.equal(sheetObjects(sheets.Segments).length, 1);
   assert.equal(sheetObjects(sheets.SyncRequests)[0].responseJson, "", "response too large to store");
   const retry = handleSyncMutation_(ss, envelope);
@@ -704,9 +725,9 @@ test("a lost oversized success replays without double-applying the write", () =>
 
 test("a lost oversized conflict replays as the identical conflict", () => {
   const { ss, sheets } = makeFakeState();
-  withCellLimit(sheets.SyncRequests);
-  sheets.Segments.appendRow(["seg-legacy", "2026-07-29", "Day", 41, "", "", "", "", 1.4, "", "", "D".repeat(60000), "", "", "Permanent"]);
-  const envelope = segmentEnvelope({ requestId: "req-huge-conflict" });
+  withCellLimitEverywhere(sheets);
+  sheets.Segments.appendRow(["seg-legacy", "2026-07-29", "Day", 41, "", NEAR_LIMIT, "", "", 1.4, "", "", NEAR_LIMIT, "", "", "Permanent"]);
+  const envelope = segmentEnvelope({ requestId: "req-huge-conflict", payload: { ringNo: "41", installType: "Permanent", problem: NEAR_LIMIT } });
   const first = handleSyncMutation_(ss, envelope);
   assert.equal(first.status, "conflict");
   assert.equal(sheetObjects(sheets.SyncRequests)[0].responseJson, "");
@@ -715,6 +736,118 @@ test("a lost oversized conflict replays as the identical conflict", () => {
   assert.deepEqual(retry.conflictingFields, first.conflictingFields);
   assert.equal(retry.currentVersion, first.currentVersion);
   assert.equal(sheetObjects(sheets.Segments).length, 1);
+});
+
+test("an oversized field is refused before any write, upload, or ledger row", () => {
+  const { ss, sheets } = makeFakeState();
+  withCellLimitEverywhere(sheets);
+  const envelope = segmentEnvelope({
+    requestId: "req-too-big",
+    payload: { ringNo: "41", installType: "Permanent", problem: "C".repeat(60001) },
+  });
+  const response = handleSyncMutation_(ss, envelope);
+  assert.equal(response.status, "validation_error");
+  assert.equal(response.code, "SYNC_FIELD_TOO_LARGE");
+  assert.deepEqual(response.fields, ["problem"]);
+  assert.equal(sheetObjects(sheets.Segments).length, 0, "no partial business write");
+  assert.equal(sheetObjects(sheets.SyncMeta).length, 0, "no version bump");
+  assert.equal(sheetObjects(sheets.SyncRequests).length, 0);
+});
+
+test("an oversized structured field is measured as its serialized form", () => {
+  assert.deepEqual(oversizedSyncFields_({ events: { log: "x".repeat(60000) } }), ["events"]);
+  assert.deepEqual(oversizedSyncFields_({ note: "x".repeat(50000) }), []);
+  assert.deepEqual(
+    oversizedSyncFields_({ imageBase64: "data:image/png;base64," + "A".repeat(90000), imageName: "a.png" }),
+    [],
+    "imageBase64 is uploaded and stripped before any cell is written"
+  );
+});
+
+test("a malformed image data URI is a terminal validation error, not a retry", () => {
+  const { ss, sheets } = makeFakeState();
+  const envelope = segmentEnvelope({
+    requestId: "req-bad-image",
+    payload: { ringNo: "41", installType: "Permanent", imageBase64: "not-a-data-uri", imageName: "a.png" },
+  });
+  const response = handleSyncMutation_(ss, envelope);
+  assert.equal(response.status, "validation_error");
+  assert.equal(response.code, "SYNC_IMAGE_INVALID");
+  assert.deepEqual(response.fields, ["imageBase64"]);
+  assert.equal(sheetObjects(sheets.Segments).length, 0);
+  assert.equal(invalidSyncImage_({ imageBase64: "data:image/png;base64,AAA", imageName: "a.png" }), false);
+  assert.equal(invalidSyncImage_({}), false);
+});
+
+test("a deterministic apply failure is classified terminal, transient ones retryable", () => {
+  assert.equal(classifySyncApplyFailure_(CELL_LIMIT_ERROR), "validation");
+  assert.equal(classifySyncApplyFailure_("Service Spreadsheets timed out"), "retryable");
+  assert.equal(classifySyncApplyFailure_(undefined), "retryable");
+});
+
+test("a config conflict reports only the fields that actually differ", () => {
+  const { ss, sheets } = makeFakeState({
+    PlanConfig: makeFakeSheet("PlanConfig", [
+      ["Key", "Value"],
+      ["planConfig_TBM1", JSON.stringify({ target: 4, crew: "A" })],
+    ]),
+  });
+  bumpSyncMetaMany_(ss, [{
+    recordKey: "planConfig:TBM1", entityType: "planConfig", machine: "TBM1",
+    recordId: "", version: 2, updatedAt: "2026-07-29T00:00:00.000Z", updatedByDevice: "x", deleted: false,
+  }]);
+  // raw (unwrapped) payload, identical to the stored config
+  const identical = {
+    requestId: "req-cfg-1", entityType: "planConfig", operation: "update", machine: "TBM1",
+    recordId: "planConfig", baseVersion: 1, deviceId: "device-A",
+    payload: { target: 4, crew: "A" },
+  };
+  identical.domainKey = makeSyncRecordKey_(identical);
+  const same = handleSyncMutation_(ss, identical);
+  assert.equal(same.status, "conflict");
+  assert.deepEqual(same.conflictingFields, [], "an identical config must not report every field");
+  assert.deepEqual(same.localRecord, { planConfig: { target: 4, crew: "A" } }, "localRecord is canonicalized");
+  const changed = Object.assign({}, identical, { requestId: "req-cfg-2", payload: { target: 5, crew: "A" } });
+  const diff = handleSyncMutation_(ss, changed);
+  assert.deepEqual(diff.conflictingFields, ["planConfig"]);
+});
+
+test("getData sync metadata drops the inactive machine's ring rows only", () => {
+  const { ss, sheets } = makeFakeState();
+  const rows = [
+    ["segment:TBM1:41:Permanent", "segment", "TBM1", "s1", 1],
+    ["segment:TBM2:12:Permanent", "segment", "TBM2", "s2", 1],
+    ["shiftReport:TBM2:2026-07-29:Day", "shiftReport", "TBM2", "sr2", 1],
+    ["routeConfig:TBM2", "routeConfig", "TBM2", "", 1],
+    ["dailyReport:TBM2:d9", "dailyReport", "TBM2", "d9", 1],
+    ["issue:GLOBAL:i1", "issue", "GLOBAL", "i1", 1],
+  ];
+  rows.forEach((r) => sheets.SyncMeta.appendRow(r.concat(["2026-07-29T00:00:00.000Z", "dev", false])));
+  const scoped = getSyncMetaMap_(ss, "TBM1");
+  assert.ok(scoped["segment:TBM1:41:Permanent"]);
+  assert.equal(scoped["segment:TBM2:12:Permanent"], undefined);
+  assert.equal(scoped["shiftReport:TBM2:2026-07-29:Day"], undefined);
+  assert.ok(scoped["routeConfig:TBM2"], "project-wide configs stay for every machine");
+  assert.ok(scoped["dailyReport:TBM2:d9"]);
+  assert.ok(scoped["issue:GLOBAL:i1"]);
+  assert.equal(Object.keys(getSyncMetaMap_(ss)).length, rows.length, "no machine argument keeps every row");
+});
+
+test("a time-zone mismatch refuses the mutation instead of drifting the domain key", () => {
+  const { ss, sheets } = makeFakeState();
+  ss.getSpreadsheetTimeZone = () => "America/New_York";
+  global.Session = { getScriptTimeZone: () => "Asia/Bangkok" };
+  try {
+    const response = handleSyncMutation_(ss, segmentEnvelope({ requestId: "req-tz" }));
+    assert.equal(response.status, "validation_error");
+    assert.equal(response.code, "SYNC_TIMEZONE_MISMATCH");
+    assert.equal(sheetObjects(sheets.Segments).length, 0);
+    assert.equal(sheetObjects(sheets.SyncMeta).length, 0);
+    global.Session = { getScriptTimeZone: () => "America/New_York" };
+    assert.equal(handleSyncMutation_(ss, segmentEnvelope({ requestId: "req-tz-ok" })).status, "success");
+  } finally {
+    delete global.Session;
+  }
 });
 
 test("the script and spreadsheet time zones must agree for sheet-date keys", () => {

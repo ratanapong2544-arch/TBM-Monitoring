@@ -84,6 +84,21 @@ test("staged local differences become conflicts without auto-enqueuing", async (
   expect(await readAll(db, "mutations")).toEqual([]);
 });
 
+test("keys a machineless legacy daily report to TBM1 like the server does", async () => {
+  const db = await openOfflineDb();
+  const storage = window.localStorage;
+  storage.setItem("tbmDailyReports", JSON.stringify([{ id: "daily-1", machine: "", area: "Local" }]));
+  await stageLegacyLocalStorage(db, storage);
+
+  await reconcileLegacyStage(db, { dailyReports: [{ id: "daily-1", machine: "TBM1", area: "Server" }] });
+
+  expect(await readAll(db, "conflicts")).toEqual([expect.objectContaining({
+    reason: "legacy_local_difference",
+    domainKey: "dailyReport:TBM1:daily-1"
+  })]);
+  expect(await readAll(db, "mutations")).toEqual([]);
+});
+
 test("confirms plan config by domain when equivalent records have different ids", async () => {
   const db = await openOfflineDb();
   const storage = window.localStorage;

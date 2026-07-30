@@ -95,6 +95,40 @@ test("a stalled cache read does not hold up the server fetch", async () => {
   hook.unmount();
 });
 
+test("a late cache read never replaces server-confirmed data", async () => {
+  // the parallel hydration must not let a slow IndexedDB read put an older snapshot back on screen
+  const slowCache = deferred();
+  const repository = makeRepository({
+    load: jest.fn(() => slowCache.promise),
+    refresh: jest.fn(async machine => ({ data: serverShape(machine), source: "server", fetchedAt: "2026-07-30T10:00:00.000Z", stale: false })),
+  });
+  const hook = renderHook(props => useOfflineData(props.machine, { repository }), { machine: "TBM1" });
+
+  await act(async () => {});
+  expect(hook.last()).toMatchObject({ source: "server", stale: false });
+
+  await act(async () => {
+    slowCache.resolve({ data: cachedShape("TBM1"), source: "indexeddb", fetchedAt: "2026-07-01T00:00:00.000Z", stale: true });
+  });
+
+  expect(hook.last()).toMatchObject({ source: "server", stale: false, fetchedAt: "2026-07-30T10:00:00.000Z" });
+  expect(hook.last().data.segments).toEqual([{ ringNo: "P1", status: "server" }]);
+  hook.unmount();
+});
+
+test("a server payload that could not be cached is reported, not hidden", async () => {
+  const repository = makeRepository({
+    refresh: jest.fn(async machine => ({ data: serverShape(machine), source: "server", fetchedAt: "2026-07-30T10:00:00.000Z", stale: false, cacheError: new Error("QuotaExceededError") })),
+  });
+  const hook = renderHook(props => useOfflineData(props.machine, { repository }), { machine: "TBM1" });
+
+  await act(async () => {});
+
+  expect(hook.last()).toMatchObject({ source: "server", stale: false });
+  expect(hook.last().cacheError).toBeInstanceOf(Error);
+  hook.unmount();
+});
+
 test("a failed cache read surfaces the error and still serves the server payload", async () => {
   const repository = makeRepository({ load: jest.fn(async () => { throw new Error("IDB blocked"); }) });
   const hook = renderHook(props => useOfflineData(props.machine, { repository }), { machine: "TBM1" });

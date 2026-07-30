@@ -166,8 +166,9 @@ export function createRepository(deps = {}) {
         } catch (writeError) {
           // The server data is already in hand. Throwing here would show an empty app to a crew
           // whose payload arrived fine, just because the cache could not be written (quota, private
-          // browsing, blocked upgrade). Serve it, flagged stale so nothing treats it as cached.
-          const result = { data: { ...data, fetchedAt }, source: "server", fetchedAt, stale: true, cacheError: writeError };
+          // browsing, blocked upgrade). The payload is server-fresh, so `stale` stays false per the
+          // documented contract; `cacheError` reports that it could not be persisted.
+          const result = { data: { ...data, fetchedAt }, source: "server", fetchedAt, stale: false, cacheError: writeError };
           emit({ type: "data", machine, result });
           return result;
         }

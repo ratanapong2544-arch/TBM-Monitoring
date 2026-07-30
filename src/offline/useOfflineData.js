@@ -11,6 +11,8 @@ const initialState = machine => ({
   source: "empty",
   fetchedAt: null,
   error: null,
+  // set when the server payload arrived but could not be written to the cache
+  cacheError: null,
 });
 
 /**
@@ -44,13 +46,27 @@ export function useOfflineData(machine, deps = {}) {
     setState(previous => ({ ...previous, refreshing: true, error: null }));
     // Both start now. Awaiting the cache first would let a blocked IndexedDB upgrade (two tabs on
     // different versions) or a WebKit stall hold up the network fetch and pin the app on its splash.
+    // Server data outranks the cache regardless of which settles first: a slow IndexedDB read must
+    // never put an older snapshot back over a server-confirmed one.
+    let serverSettled = false;
     const cachePass = Promise.resolve()
       .then(() => repository.load(machine))
-      .then(cached => { applyIfCurrent(token, { data: cached.data, source: cached.source, fetchedAt: cached.fetchedAt, stale: cached.stale, loading: false }); return true; })
-      .catch(error => { applyIfCurrent(token, { loading: false, error }); return false; });
+      .then(cached => {
+        if (serverSettled) return true; // the server already answered; the cache is history
+        applyIfCurrent(token, { data: cached.data, source: cached.source, fetchedAt: cached.fetchedAt, stale: cached.stale, loading: false });
+        return true;
+      })
+      .catch(error => {
+        if (!serverSettled) applyIfCurrent(token, { loading: false, error });
+        return false;
+      });
     const serverPass = Promise.resolve()
       .then(() => repository.refresh(machine))
-      .then(fresh => { applyIfCurrent(token, { data: fresh.data, source: fresh.source, fetchedAt: fresh.fetchedAt, stale: Boolean(fresh.stale), refreshing: false, loading: false, error: null }); return true; })
+      .then(fresh => {
+        serverSettled = true;
+        applyIfCurrent(token, { data: fresh.data, source: fresh.source, fetchedAt: fresh.fetchedAt, stale: Boolean(fresh.stale), refreshing: false, loading: false, error: null, cacheError: fresh.cacheError || null });
+        return true;
+      })
       .catch(error => { applyIfCurrent(token, { refreshing: false, loading: false, stale: true, error }); return false; });
     await Promise.all([cachePass, serverPass]);
   }, [applyIfCurrent, machine, repository]);
@@ -70,7 +86,7 @@ export function useOfflineData(machine, deps = {}) {
     setState(previous => ({ ...previous, refreshing: true, error: null }));
     try {
       const fresh = await repository.refresh(machine);
-      applyIfCurrent(token, { data: fresh.data, source: fresh.source, fetchedAt: fresh.fetchedAt, stale: Boolean(fresh.stale), refreshing: false, error: null });
+      applyIfCurrent(token, { data: fresh.data, source: fresh.source, fetchedAt: fresh.fetchedAt, stale: Boolean(fresh.stale), refreshing: false, error: null, cacheError: fresh.cacheError || null });
       return fresh;
     } catch (error) {
       applyIfCurrent(token, { refreshing: false, stale: true, error });

@@ -25,7 +25,8 @@ test("a server payload still reaches the caller when the cache write fails", asy
   const result = await repository.refresh("TBM1");
 
   expect(result.source).toBe("server");
-  expect(result.stale).toBe(true);
+  // the payload is server-fresh, so it is not stale; cacheError reports it could not be persisted
+  expect(result.stale).toBe(false);
   expect(result.data.segments).toHaveLength(1);
   expect(result.cacheError).toBeInstanceOf(Error);
 });

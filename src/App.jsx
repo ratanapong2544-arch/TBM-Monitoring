@@ -147,22 +147,24 @@ const PrimaryGroutApp = () => {
     setShiftReports(data.shiftReports);
     // the rows on screen now belong to this machine (see rowsReady below)
     setRowsMachine(activeMachine);
-    // Only a live server response may rewrite the localStorage-backed collections. Reading the
-    // IndexedDB cache always succeeds offline, and offline-created records still live only in
-    // localStorage until Tasks 8-9 route writes through the queue — mirroring a cache read over
-    // them would erase unsynced field records with no server involved.
+    // Two rules protect the localStorage-backed collections (issues, dailyReports, prepTasks,
+    // inst*), which are still localStorage-primary until Tasks 8-9 route their writes through the
+    // queue, so the local copy is the ONLY copy of anything whose apiCall failed:
+    //   1. only a live server response may rewrite them — an IndexedDB read always succeeds
+    //      offline, so mirroring one would erase unsynced records with no server involved;
+    //   2. an empty or absent collection is never written through. normalizeServerData maps an
+    //      absent key to [], so an older GAS deployment or a partial doGet is indistinguishable
+    //      from a real deletion, and treating it as one would wipe local business data.
+    // Propagating a server-side deletion of the LAST record is therefore left to Task 9's
+    // reconciliation, which can compare the two sides properly.
     const serverAuthoritative = offlineData.source === "server";
-    if (serverAuthoritative) {
-      setIssues(data.issues); persistIssues(data.issues);
-      setDailyReports(data.dailyReports); persistDailyReports(data.dailyReports);
+    if (data.issues.length) { setIssues(data.issues); if (serverAuthoritative) persistIssues(data.issues); }
+    if (data.dailyReports.length) { setDailyReports(data.dailyReports); if (serverAuthoritative) persistDailyReports(data.dailyReports); }
+    if (serverAuthoritative && data.prepTasks.length) {
       const byM = {};
       data.prepTasks.forEach((t) => { const m = t.machine || "TBM1"; (byM[m] = byM[m] || []).push(t); });
-      // a machine whose tasks were all deleted server-side must end up empty, not stale
-      ["TBM1", "TBM2"].forEach((m) => savePrepTasks(m, byM[m] || []));
-    } else {
-      // cached read: surface it in memory but never overwrite the durable localStorage copy
-      if (data.issues.length) setIssues(data.issues);
-      if (data.dailyReports.length) setDailyReports(data.dailyReports);
+      // only machines the payload actually carries: a machine absent from it keeps its local tasks
+      Object.keys(byM).forEach((m) => savePrepTasks(m, byM[m]));
     }
 
     if (data.planConfig) {
@@ -182,19 +184,16 @@ const PrimaryGroutApp = () => {
     if (data.routeProjectTotal != null) setRouteProjectTotal(data.routeProjectTotal);
     // Instrument module: project-wide (ไม่ขึ้นกับ activeMachine). Same rule as above — the cache may
     // populate memory, but only the server may rewrite the persisted copy.
-    if (serverAuthoritative) {
-      setInstLocations(data.instLocations); persistCache(STORE.locations, data.instLocations);
-      setInstInstruments(data.instInstruments); persistCache(STORE.instruments, data.instInstruments);
-      setInstThresholds(data.instThresholds); persistCache(STORE.thresholds, data.instThresholds);
-      setInstReadings(data.instReadings); persistCache(STORE.readings, data.instReadings);
-      setInstSchedules(data.instSchedules); persistCache(STORE.schedules, data.instSchedules);
-    } else {
-      if (data.instLocations.length)   setInstLocations(data.instLocations);
-      if (data.instInstruments.length) setInstInstruments(data.instInstruments);
-      if (data.instThresholds.length)  setInstThresholds(data.instThresholds);
-      if (data.instReadings.length)    setInstReadings(data.instReadings);
-      if (data.instSchedules.length)   setInstSchedules(data.instSchedules);
-    }
+    const mirrorInst = (rows, setter, store) => {
+      if (!rows.length) return; // absent or empty: never write through (see the two rules above)
+      setter(rows);
+      if (serverAuthoritative) persistCache(store, rows);
+    };
+    mirrorInst(data.instLocations, setInstLocations, STORE.locations);
+    mirrorInst(data.instInstruments, setInstInstruments, STORE.instruments);
+    mirrorInst(data.instThresholds, setInstThresholds, STORE.thresholds);
+    mirrorInst(data.instReadings, setInstReadings, STORE.readings);
+    mirrorInst(data.instSchedules, setInstSchedules, STORE.schedules);
   }, [offlineData.data, offlineData.source, activeMachine]);
 
   useEffect(() => {
@@ -272,6 +271,22 @@ const PrimaryGroutApp = () => {
     };
   }, [liveHeaderStatus]);
 
+  // Non-blocking snapshot state (design §7: keep the local snapshot visible and warn that it is
+  // stale rather than blocking). Task 10 replaces this strip with the full Sync Center.
+  const offlineNotice = useMemo(() => {
+    if (offlineData.refreshing && offlineData.source !== "empty") {
+      return { text: "กำลังอัปเดตข้อมูลจากเซิร์ฟเวอร์…", spinning: true };
+    }
+    if (offlineData.cacheError) {
+      return { text: "ข้อมูลล่าสุดแสดงอยู่ แต่บันทึกลงเครื่องไม่ได้ — ปิดแอพแล้วข้อมูลจะไม่อยู่", spinning: false };
+    }
+    if (offlineData.stale && offlineData.source !== "empty") {
+      const at = offlineData.fetchedAt ? formatDisplayDate(offlineData.fetchedAt) : null;
+      return { text: at ? `ออฟไลน์ — แสดงข้อมูลที่บันทึกไว้ (${at})` : "ออฟไลน์ — แสดงข้อมูลที่บันทึกไว้", spinning: false };
+    }
+    return null;
+  }, [offlineData.refreshing, offlineData.stale, offlineData.source, offlineData.fetchedAt, offlineData.cacheError]);
+
   if (isLoadingMain) return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-surface-page font-sans">
       <Loader2 className="animate-spin w-12 h-12 mb-5 text-navy" />
@@ -304,6 +319,12 @@ const PrimaryGroutApp = () => {
       isViewer={isViewer}
     >
       {loadError && <div className="mb-6 bg-code-d/10 border border-code-d/30 text-code-d p-4 rounded-card text-center no-print font-semibold">{loadError}</div>}
+      {!loadError && offlineNotice && (
+        <div className="mb-4 flex items-center justify-center gap-2 bg-code-b/10 border border-code-b/30 text-code-b px-4 py-2 rounded-card text-[13px] no-print font-semibold">
+          {offlineNotice.spinning ? <Loader2 className="w-4 h-4 animate-spin" /> : <AlertCircle className="w-4 h-4" />}
+          <span>{offlineNotice.text}</span>
+        </div>
+      )}
       {activeTab === "overview" && <OverviewView segmentRecords={activeSegments} groutRecords={activeGrouts} setCurrentModule={setCurrentModule} setActiveTab={setActiveTab} activeMachine={activeMachine} onMachineChange={setActiveMachine} />}
       {activeTab === "record" && currentModule === "grout" && <GroutRecordView projectInfo={projectInfo} handleProjectInfoChange={handleProjectInfoChange} groutRecords={activeGrouts} setGroutRecords={setGroutRecords} secondaryGroutRecords={activeSecondaryGrouts} setSecondaryGroutRecords={setSecondaryGroutRecords} segmentRecords={activeSegments} setCurrentModule={setCurrentModule} setActiveTab={setActiveTab} machine={activeMachine} />}
       {activeTab === "record" && currentModule === "segment" && <SegmentRecordView projectInfo={projectInfo} handleProjectInfoChange={handleProjectInfoChange} segmentRecords={activeSegments} setSegmentRecords={setSegmentRecords} setCurrentModule={setCurrentModule} setActiveTab={setActiveTab} machine={activeMachine} />}

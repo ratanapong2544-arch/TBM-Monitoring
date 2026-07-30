@@ -55,13 +55,15 @@ export function OfflineProvider({ children, deps = {} }) {
   }, []);
   const { repository, runner } = singletons;
   const [syncSummary, setSyncSummary] = useState(initialSummary);
-  const aliveRef = useRef(true);
-  useEffect(() => () => { aliveRef.current = false; }, []);
 
+  // No mounted flag here. A flag whose setup never restores it is left false for the component's
+  // whole life by StrictMode's setup/cleanup/setup, which would silently freeze the summary at
+  // zero — the same trap that broke hydration in useOfflineData. React 18 already makes a
+  // post-unmount setState a no-op, so no guard is needed.
   const refreshSummary = useCallback(async () => {
     try {
       const summary = await repository.getSyncSummary();
-      if (aliveRef.current) setSyncSummary(summary);
+      setSyncSummary(summary);
       return summary;
     } catch (error) {
       return null;

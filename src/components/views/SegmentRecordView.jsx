@@ -37,7 +37,6 @@ const SegmentRecordView = ({ projectInfo, handleProjectInfoChange, segmentRecord
     // Working Shift selector sits in this same form, so listing it made every shift correction wipe
     // the open record — excavation times, soil type, the head-level survey readings and the ring
     // length, which then corrupts the derived chainage and soil volume.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [machine]);
 
   const lastRing = useMemo(() => {

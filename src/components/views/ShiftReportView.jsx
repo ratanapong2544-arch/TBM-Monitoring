@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo, useEffect, useRef } from "react";
 import { FileText, CloudUpload, Save, Edit, Trash2, Plus, Users, Activity, Clock, Download, Loader2, Printer, X } from "lucide-react";
 import { formatDisplayDate, formatDisplayTime } from "../../utils/formatters";
 import { getLogicalShiftDate, getRingNumeric, loadHtml2Canvas } from "../../utils/helpers";
@@ -17,6 +17,8 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
   const [activeModal, setActiveModal] = useState(null);
   const [manpower, setManpower] = useState(defaultManpower);
   const [result, setResult] = useState(defaultResult);
+  // result fields the crew has typed into: the auto-derived values must not overwrite these
+  const [touchedResult, setTouchedResult] = useState({});
   const [editingEventId, setEditingEventId] = useState(null);
 
   const existingReport = useMemo(() => {
@@ -60,18 +62,42 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
 
   useEffect(() => { setMeta({ date: projectInfo.date, tbmNo: projectInfo.tbmNo, location: projectInfo.location, shift: projectInfo.shift }); }, [projectInfo.date, projectInfo.shift, projectInfo.tbmNo, projectInfo.location]);
 
+  // Load the form ONLY when the report being edited changes — its id, or the date/shift that
+  // selects it. `existingReport` and `autoResult` are derived from segmentRecords/shiftReports, and
+  // App re-mirrors those with a new array identity on every snapshot (the offline cache pass, then
+  // the server pass, then each machine switch). Depending on them reset the form mid-edit and
+  // silently wiped typed manpower and result values, or reverted unsaved corrections to the last
+  // saved copy — and manpower/result have no auto-save to recover from, unlike events.
+  const formKey = existingReport ? `id:${existingReport.id}` : `new:${meta.date}|${meta.shift}`;
+  const autoResultRef = useRef(autoResult);
+  autoResultRef.current = autoResult;
   useEffect(() => {
     if (existingReport) {
       setEvents(existingReport.events || {});
       setManpower(existingReport.manpower || defaultManpower);
       const savedRes = existingReport.result || {};
-      setResult({ startSta: autoResult.startSta || savedRes.startSta || '', finishSta: autoResult.finishSta || savedRes.finishSta || '', numberRing: autoResult.numberRing || savedRes.numberRing || '', totalDistance: autoResult.totalDistance || savedRes.totalDistance || '', progressRate: autoResult.progressRate || savedRes.progressRate || '' });
+      setResult({ startSta: savedRes.startSta || autoResultRef.current.startSta || '', finishSta: savedRes.finishSta || autoResultRef.current.finishSta || '', numberRing: savedRes.numberRing || autoResultRef.current.numberRing || '', totalDistance: savedRes.totalDistance || autoResultRef.current.totalDistance || '', progressRate: savedRes.progressRate || autoResultRef.current.progressRate || '' });
     } else {
       setEvents({});
       setManpower(defaultManpower);
-      setResult(autoResult);
+      setResult(autoResultRef.current);
     }
-  }, [existingReport, meta.date, meta.shift, autoResult]);
+    setTouchedResult({});
+  }, [formKey]);
+
+  // Keep the auto-derived result fields current as rings are recorded during the shift, but never
+  // overwrite a field the crew has typed into.
+  useEffect(() => {
+    setResult((prev) => {
+      const next = { ...prev };
+      let changed = false;
+      Object.keys(autoResult).forEach((key) => {
+        if (touchedResult[key]) return;
+        if (autoResult[key] && autoResult[key] !== prev[key]) { next[key] = autoResult[key]; changed = true; }
+      });
+      return changed ? next : prev;
+    });
+  }, [autoResult, touchedResult]);
 
   const handleMetaChange = (e) => setMeta({ ...meta, [e.target.name]: e.target.value });
 
@@ -195,7 +221,11 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
   };
 
   const handleManpowerChange = (e) => setManpower({ ...manpower, [e.target.name]: e.target.value });
-  const handleResultChange = (e) => setResult({ ...result, [e.target.name]: e.target.value });
+  const handleResultChange = (e) => {
+    // remember the crew edited this field so the auto-derived value never overwrites it again
+    setTouchedResult((prev) => ({ ...prev, [e.target.name]: true }));
+    setResult({ ...result, [e.target.name]: e.target.value });
+  };
   const handlePrint = () => fitAndPrint(document.getElementById("shift-report-container"), { orientation: "portrait", onePage: true });
 
   const handleDownloadImage = async () => {

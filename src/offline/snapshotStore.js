@@ -34,15 +34,20 @@ function recordFor(machine, field, entityType, payload, index) {
 // exactly as a collection record does
 const CONFIG_ENTITY_TYPES = [["planConfig", "planConfig"], ["distPlanConfig", "distPlanConfig"], ["routeConfig", "routeConfigs"]];
 // keys optimisticEntity injects into a mutation payload; they are not part of the stored config body
-const INJECTED_PAYLOAD_KEYS = new Set(["recordId", "entityType", "machine", "domainKey", "version", "syncStatus", "routeProjectTotal"]);
+const INJECTED_PAYLOAD_KEYS = new Set(["recordId", "entityType", "machine", "domainKey", "version", "syncStatus"]);
 // mirror gas-live canonicalConfigPayload_: the config body is the wrapped field if present, else the
-// payload with the injected metadata (and routeProjectTotal, which is stored in its own singleton)
-// stripped, so the optimistic cache holds the same clean shape the server would store
+// payload with the injected metadata stripped. routeProjectTotal is a routeConfig sibling stored in
+// its own singleton, so it is stripped from a routeConfig body only — a plan/dist body that
+// happened to carry that field would keep it, matching the server.
 function configValue(payload, entityType) {
   const source = payload || {};
   if (source[entityType] !== undefined) return source[entityType];
   const body = {};
-  Object.keys(source).forEach(key => { if (!INJECTED_PAYLOAD_KEYS.has(key)) body[key] = source[key]; });
+  Object.keys(source).forEach(key => {
+    if (INJECTED_PAYLOAD_KEYS.has(key)) return;
+    if (key === "routeProjectTotal" && entityType === "routeConfig") return;
+    body[key] = source[key];
+  });
   return body;
 }
 

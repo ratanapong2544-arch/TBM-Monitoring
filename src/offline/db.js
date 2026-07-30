@@ -21,7 +21,14 @@ function createStore(db, name, options, indexes) {
 // edited under two machines, or two shift edits on one day), and add() would throw ConstraintError
 // and abort the whole upgrade, bricking the database. put() keeps the last writer — the losing
 // mutation is still in the queue, so its edit is not lost, only its stale optimistic snapshot.
-function recanonicalizeDomainKeys(transaction) {
+//
+// Durable records are re-keyed in place; the cache is discarded. Only the optimistic entity rows
+// (which back a pending edit) are re-keyed — the server-snapshot cache rows and the snapshots
+// store are cleared, because their entityKeys lists reference the pre-migration keys and a
+// re-key would leave load() resolving keys that no longer exist. The cache rebuilds on the first
+// refresh (spec §7 empty-state until then); the pending mutations, conflicts and their optimistic
+// rows all survive re-keyed.
+export function recanonicalizeDomainKeys(transaction) {
   const mutations = transaction.objectStore(STORES.mutations);
   const entities = transaction.objectStore(STORES.entities);
   const conflicts = transaction.objectStore(STORES.conflicts);
@@ -39,11 +46,15 @@ function recanonicalizeDomainKeys(transaction) {
 
     entities.getAll().onsuccess = entitiesEvent => {
       (entitiesEvent.target.result || []).forEach(record => {
+        const optimisticKey = `entity:optimistic:${record.domainKey}`;
+        if (record.key !== optimisticKey) {
+          entities.delete(record.key); // server-snapshot cache row → rebuilt on refresh
+          return;
+        }
         const domainKey = remap.get(record.domainKey);
         if (!domainKey) return;
-        const key = String(record.key || "").replace(record.domainKey, domainKey);
-        if (key !== record.key) entities.delete(record.key);
-        entities.put({ ...record, key, domainKey }); // last-wins on a re-key collision
+        entities.delete(record.key);
+        entities.put({ ...record, key: `entity:optimistic:${domainKey}`, domainKey }); // last-wins
       });
     };
 
@@ -53,6 +64,9 @@ function recanonicalizeDomainKeys(transaction) {
         if (domainKey) conflicts.put({ ...conflict, domainKey });
       });
     };
+
+    // the cache references pre-migration keys; drop it so load() never resolves a stale key
+    transaction.objectStore(STORES.snapshots).clear();
   };
 }
 

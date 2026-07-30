@@ -2,7 +2,7 @@ import "fake-indexeddb/auto";
 
 if (!global.structuredClone) global.structuredClone = value => JSON.parse(JSON.stringify(value));
 
-import { closeOfflineDb, deleteOfflineDbForTests, openOfflineDb } from "./db";
+import { closeOfflineDb, deleteOfflineDbForTests, openOfflineDb, recanonicalizeDomainKeys } from "./db";
 import { getOrCreateDeviceId } from "./device";
 import { makeDomainKey, syncDateKey } from "./domainKey";
 
@@ -163,6 +163,45 @@ test("upgrading re-keys every domain, not just the first (no half-built remap ra
   expect(entityKeys).toEqual(expected);
 });
 
+test("the migration requests the entity and conflict passes only after the mutation remap is built", () => {
+  // pins the sequencing directly, independent of the IndexedDB implementation: fake-indexeddb
+  // serializes getAll so the multi-domain test alone would not catch a revert to concurrent cursors
+  const order = [];
+  const stale = "issue:TBM1:i1";
+  function fakeStore(name, rows) {
+    return {
+      getAll() {
+        order.push(`getAll:${name}`);
+        const request = {};
+        Promise.resolve().then(() => request.onsuccess && request.onsuccess({ target: { result: rows } }));
+        return request;
+      },
+      put() { order.push(`put:${name}`); },
+      delete() { order.push(`delete:${name}`); },
+      clear() { order.push(`clear:${name}`); },
+    };
+  }
+  const stores = {
+    mutations: fakeStore("mutations", [{ requestId: "m1", entityType: "issue", machine: "TBM1", recordId: "i1", domainKey: stale, payload: { id: "i1" } }]),
+    entities: fakeStore("entities", [{ key: `entity:optimistic:${stale}`, domainKey: stale, payload: {} }]),
+    conflicts: fakeStore("conflicts", []),
+    snapshots: fakeStore("snapshots", []),
+  };
+  recanonicalizeDomainKeys({ objectStore: name => stores[name] });
+
+  return Promise.resolve().then(() => Promise.resolve()).then(() => {
+    const mutationsGetAll = order.indexOf("getAll:mutations");
+    const entitiesGetAll = order.indexOf("getAll:entities");
+    const conflictsGetAll = order.indexOf("getAll:conflicts");
+    expect(mutationsGetAll).toBe(0);
+    expect(entitiesGetAll).toBeGreaterThan(mutationsGetAll);
+    expect(conflictsGetAll).toBeGreaterThan(mutationsGetAll);
+    // the remap-building put on mutations happens before the entity pass is even requested
+    expect(order.indexOf("put:mutations")).toBeLessThan(entitiesGetAll);
+    expect(order).toContain("clear:snapshots");
+  });
+});
+
 test("upgrading survives two records re-keying onto one canonical key", async () => {
   // the same project-wide record edited under two machines both collapse to issue:GLOBAL:i1;
   // add() would throw ConstraintError and abort the upgrade, permanently bricking the database
@@ -186,6 +225,42 @@ test("upgrading survives two records re-keying onto one canonical key", async ()
   const entities = await readAllStore(db, "entities");
   expect(entities).toHaveLength(1);
   expect(entities[0].key).toBe("entity:optimistic:issue:GLOBAL:i1");
+});
+
+test("upgrading discards the stale cache instead of leaving load() a gapped list", async () => {
+  // the cache's entityKeys reference pre-migration keys; re-keying the rows under them would make
+  // load() resolve keys that no longer exist and drop the record. Clearing the cache is clean:
+  // the pending mutation and its optimistic row survive re-keyed, and the cache rebuilds on refresh.
+  const stale = "issue:TBM1:i1";
+  const canonical = "issue:GLOBAL:i1";
+  await seedV1({
+    mutations: [{ requestId: "m1", status: "pending", entityType: "issue", machine: "TBM1", recordId: "i1", domainKey: stale, payload: { id: "i1" } }],
+    entities: [
+      { key: `entity:optimistic:${stale}`, entityType: "issue", machine: "TBM1", domainKey: stale, payload: { id: "i1", note: "pending" } },
+      { key: `entity:TBM1:issues:${stale}:id:i1`, entityType: "issue", machine: "TBM1", domainKey: stale, payload: { id: "i1", note: "cached" } },
+    ],
+    conflicts: [],
+  });
+  // seed the snapshot cache pointing at the stale keys
+  await new Promise((resolve, reject) => {
+    const request = indexedDB.open(require("./schema").DB_NAME, 1);
+    request.onsuccess = () => {
+      const db = request.result;
+      const transaction = db.transaction("snapshots", "readwrite");
+      transaction.objectStore("snapshots").put({ scopeKey: "getData:TBM1", machine: "TBM1", entityKeys: { issues: [`entity:optimistic:${stale}`] } });
+      transaction.oncomplete = () => { db.close(); resolve(); };
+      transaction.onerror = () => reject(transaction.error);
+    };
+    request.onerror = () => reject(request.error);
+  });
+
+  const db = await openOfflineDb();
+  // durable: the mutation and its optimistic row are re-keyed and survive
+  expect((await readAllStore(db, "mutations"))[0].domainKey).toBe(canonical);
+  const entities = await readAllStore(db, "entities");
+  expect(entities.map(row => row.key)).toEqual([`entity:optimistic:${canonical}`]);
+  // cache: discarded, so load() reads a clean empty state rather than a broken key list
+  expect(await readAllStore(db, "snapshots")).toEqual([]);
 });
 
 test("a shift report loaded from the server keys the same as the sheet date", () => {

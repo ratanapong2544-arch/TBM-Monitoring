@@ -139,6 +139,12 @@ test("a grout form drops every carried-over field on a machine switch", () => {
   type(view.container, "pressure", "3.2");
   type(view.container, "remark", "TBM1 note");
   expect(view.value("partA")).toBe("12.5");
+  // and ticks injection positions — these ride into the submitted record and drive the ring
+  // visualiser's rotation together with keyType, so they must clear too
+  act(() => {
+    const wedge = view.container.querySelector('svg g[style*="cursor"]');
+    wedge.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  });
 
   // TBM2 has no rings yet, so nothing would ever re-sync keyType
   view.rerender(
@@ -154,6 +160,38 @@ test("a grout form drops every carried-over field on a machine switch", () => {
   expect(view.value("partA")).toBe("");
   expect(view.value("partB")).toBe("");
   expect(view.value("remark")).toBe("");
+  view.unmount();
+});
+
+test("a grout machine switch clears the injection positions", async () => {
+  // positions are submitted with the record and drive the ring visualiser's rotation, so a wedge
+  // ticked on one machine must not be recorded against the other's ring
+  apiCall.mockClear();
+  const segments = [{ id: "s1", ringNo: "P643", keyPos: "4", startCH: "8+010.20", finishCH: "8+008.80", length: "1.40", status: "Completed", installType: "Permanent" }];
+  const view = render(
+    <GroutRecordView projectInfo={projectInfo} handleProjectInfoChange={() => {}} groutRecords={[]}
+      setGroutRecords={() => {}} secondaryGroutRecords={[]} setSecondaryGroutRecords={() => {}}
+      segmentRecords={segments} setCurrentModule={() => {}} setActiveTab={() => {}} machine="TBM1" />
+  );
+  act(() => {
+    view.container.querySelector('svg g[style*="cursor"]').dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  });
+
+  view.rerender(
+    <GroutRecordView projectInfo={projectInfo} handleProjectInfoChange={() => {}} groutRecords={[]}
+      setGroutRecords={() => {}} secondaryGroutRecords={[]} setSecondaryGroutRecords={() => {}}
+      segmentRecords={[]} setCurrentModule={() => {}} setActiveTab={() => {}} machine="TBM2" />
+  );
+  type(view.container, "ringNo", "P1");
+  type(view.container, "partA", "5");
+
+  await act(async () => {
+    view.container.querySelector("form").dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+  });
+
+  const [, payload] = apiCall.mock.calls[apiCall.mock.calls.length - 1];
+  expect(payload.machine).toBe("TBM2");
+  expect(payload.positions).toEqual({ A: false, B1: false, B2: false, C1: false, C2: false, K: false });
   view.unmount();
 });
 
@@ -210,6 +248,56 @@ test("a segment form does not carry the other machine's row id into a save", asy
   expect(action).toBe("addSegment");
   expect(payload.machine).toBe("TBM2");
   expect(payload.id).not.toBe("seg_tbm1_row");
+  view.unmount();
+});
+
+test("changing the working shift does not wipe the open segment record", () => {
+  // the Working Shift selector lives in this same form, so making it a dependency of the
+  // machine-switch reset silently cleared the excavation times, soil type, head-level survey
+  // readings and the ring length — which then corrupts the derived chainage and soil volume
+  const element = shift => (
+    <SegmentRecordView projectInfo={{ ...projectInfo, shift }} handleProjectInfoChange={() => {}}
+      segmentRecords={tbm1Segments} setSegmentRecords={() => {}} setCurrentModule={() => {}}
+      setActiveTab={() => {}} machine="TBM1" />
+  );
+  const view = render(element("Day"));
+  type(view.container, "excavStartTime", "08:15");
+  type(view.container, "soilType", "ดินเหนียวปนทราย");
+  type(view.container, "length", "0.90");
+  type(view.container, "headV", "29");
+  type(view.container, "vrt", "0.2");
+
+  view.rerender(element("Night"));
+
+  expect(view.value("excavStartTime")).toBe("08:15");
+  expect(view.value("soilType")).toBe("ดินเหนียวปนทราย");
+  expect(view.value("length")).toBe("0.90");
+  expect(view.value("headV")).toBe("29");
+  expect(view.value("vrt")).toBe("0.2");
+  view.unmount();
+});
+
+test("a segment machine switch clears the survey and excavation fields too", () => {
+  const view = render(
+    <SegmentRecordView projectInfo={projectInfo} handleProjectInfoChange={() => {}} segmentRecords={tbm1Segments}
+      setSegmentRecords={() => {}} setCurrentModule={() => {}} setActiveTab={() => {}} machine="TBM1" />
+  );
+  type(view.container, "excavStartTime", "08:15");
+  type(view.container, "excavEndTime", "09:40");
+  type(view.container, "soilType", "ดินเหนียว");
+  type(view.container, "headV", "29");
+  type(view.container, "artV", "33");
+  type(view.container, "tailV", "34");
+  type(view.container, "vrt", "0.2");
+
+  view.rerender(
+    <SegmentRecordView projectInfo={projectInfo} handleProjectInfoChange={() => {}} segmentRecords={[]}
+      setSegmentRecords={() => {}} setCurrentModule={() => {}} setActiveTab={() => {}} machine="TBM2" />
+  );
+
+  ["excavStartTime", "excavEndTime", "soilType", "headV", "artV", "tailV", "vrt"].forEach(name => {
+    expect(view.value(name)).toBe("");
+  });
   view.unmount();
 });
 

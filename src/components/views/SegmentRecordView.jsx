@@ -33,7 +33,12 @@ const SegmentRecordView = ({ projectInfo, handleProjectInfoChange, segmentRecord
       excavShift: projectInfo.shift, installShift: projectInfo.shift,
       headV: "", artV: "", tailV: "", vrt: "", headH: "", artH: "", tailH: "",
     }));
-  }, [machine, projectInfo.shift]);
+    // ONLY on a machine change. projectInfo.shift is read here but must never be a dependency: the
+    // Working Shift selector sits in this same form, so listing it made every shift correction wipe
+    // the open record — excavation times, soil type, the head-level survey readings and the ring
+    // length, which then corrupts the derived chainage and soil volume.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [machine]);
 
   const lastRing = useMemo(() => {
     if (segmentRecords.length === 0) return "-";

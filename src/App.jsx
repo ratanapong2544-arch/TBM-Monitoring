@@ -37,6 +37,9 @@ import { useOfflineData } from "./offline/useOfflineData";
 import { Shell, NAV_GROUPS } from "./ui-ux-pro-max";
 import "./styles/globals.css";
 
+// stable empty array so the machine-switch gate does not remount every consumer each render
+const EMPTY_ROWS = [];
+
 const PrimaryGroutApp = () => {
   const [currentModule, setCurrentModule] = useState("segment");
   const [activeTab, setActiveTab] = useState(() => (isViewerMode() ? "dashboard" : "overview"));
@@ -51,6 +54,8 @@ const PrimaryGroutApp = () => {
   const [secondaryGroutRecords, setSecondaryGroutRecords] = useState([]);
   const [segmentRecords, setSegmentRecords] = useState([]);
   const [shiftReports, setShiftReports] = useState([]);
+  // which machine the machine-scoped rows above currently hold (null until the first snapshot lands)
+  const [rowsMachine, setRowsMachine] = useState(null);
   const [machineProgress, setMachineProgress] = useState(null);
   const [routeProjectTotal, setRouteProjectTotal] = useState(null);
   const [moreOpen, setMoreOpen] = useState(false);
@@ -140,12 +145,24 @@ const PrimaryGroutApp = () => {
     // F1: secondary grout (dataset แยก) — normalizer parse positions เหมือน primary, ไม่มี ratio
     setSecondaryGroutRecords(data.secondaryGrouts);
     setShiftReports(data.shiftReports);
-    if (data.issues.length) { setIssues(data.issues); persistIssues(data.issues); }
-    if (data.dailyReports.length) { setDailyReports(data.dailyReports); persistDailyReports(data.dailyReports); }
-    if (data.prepTasks.length) {
+    // the rows on screen now belong to this machine (see rowsReady below)
+    setRowsMachine(activeMachine);
+    // Only a live server response may rewrite the localStorage-backed collections. Reading the
+    // IndexedDB cache always succeeds offline, and offline-created records still live only in
+    // localStorage until Tasks 8-9 route writes through the queue — mirroring a cache read over
+    // them would erase unsynced field records with no server involved.
+    const serverAuthoritative = offlineData.source === "server";
+    if (serverAuthoritative) {
+      setIssues(data.issues); persistIssues(data.issues);
+      setDailyReports(data.dailyReports); persistDailyReports(data.dailyReports);
       const byM = {};
       data.prepTasks.forEach((t) => { const m = t.machine || "TBM1"; (byM[m] = byM[m] || []).push(t); });
-      Object.keys(byM).forEach((m) => savePrepTasks(m, byM[m]));
+      // a machine whose tasks were all deleted server-side must end up empty, not stale
+      ["TBM1", "TBM2"].forEach((m) => savePrepTasks(m, byM[m] || []));
+    } else {
+      // cached read: surface it in memory but never overwrite the durable localStorage copy
+      if (data.issues.length) setIssues(data.issues);
+      if (data.dailyReports.length) setDailyReports(data.dailyReports);
     }
 
     if (data.planConfig) {
@@ -163,18 +180,30 @@ const PrimaryGroutApp = () => {
     }
     if (data.machineProgress) setMachineProgress(data.machineProgress);
     if (data.routeProjectTotal != null) setRouteProjectTotal(data.routeProjectTotal);
-    // Instrument module: project-wide (ไม่ขึ้นกับ activeMachine) → set เมื่อมีข้อมูล
-    if (data.instLocations.length)   { setInstLocations(data.instLocations); persistCache(STORE.locations, data.instLocations); }
-    if (data.instInstruments.length) { setInstInstruments(data.instInstruments); persistCache(STORE.instruments, data.instInstruments); }
-    if (data.instThresholds.length)  { setInstThresholds(data.instThresholds); persistCache(STORE.thresholds, data.instThresholds); }
-    if (data.instReadings.length)    { setInstReadings(data.instReadings); persistCache(STORE.readings, data.instReadings); }
-    if (data.instSchedules.length)   { setInstSchedules(data.instSchedules); persistCache(STORE.schedules, data.instSchedules); }
-  }, [offlineData.data, activeMachine]);
+    // Instrument module: project-wide (ไม่ขึ้นกับ activeMachine). Same rule as above — the cache may
+    // populate memory, but only the server may rewrite the persisted copy.
+    if (serverAuthoritative) {
+      setInstLocations(data.instLocations); persistCache(STORE.locations, data.instLocations);
+      setInstInstruments(data.instInstruments); persistCache(STORE.instruments, data.instInstruments);
+      setInstThresholds(data.instThresholds); persistCache(STORE.thresholds, data.instThresholds);
+      setInstReadings(data.instReadings); persistCache(STORE.readings, data.instReadings);
+      setInstSchedules(data.instSchedules); persistCache(STORE.schedules, data.instSchedules);
+    } else {
+      if (data.instLocations.length)   setInstLocations(data.instLocations);
+      if (data.instInstruments.length) setInstInstruments(data.instInstruments);
+      if (data.instThresholds.length)  setInstThresholds(data.instThresholds);
+      if (data.instReadings.length)    setInstReadings(data.instReadings);
+      if (data.instSchedules.length)   setInstSchedules(data.instSchedules);
+    }
+  }, [offlineData.data, offlineData.source, activeMachine]);
 
   useEffect(() => {
     setIsLoadingMain(offlineData.loading);
-    setLoadError(offlineData.error ? "ไม่สามารถดึงข้อมูลได้: " + offlineData.error.message : null);
-  }, [offlineData.loading, offlineData.error]);
+    // Only block the app with an error when there is nothing to show. With cached data on screen a
+    // failed refresh is the normal offline case and must not raise a full-width red banner.
+    const hasData = offlineData.source !== "empty";
+    setLoadError(offlineData.error && !hasData ? "ไม่สามารถดึงข้อมูลได้: " + offlineData.error.message : null);
+  }, [offlineData.loading, offlineData.error, offlineData.source]);
 
   const handleProjectInfoChange = (e) => setProjectInfo({ ...projectInfo, [e.target.name]: e.target.value });
 
@@ -184,11 +213,16 @@ const PrimaryGroutApp = () => {
     setMoreOpen(false);
   };
 
-  const activeSegments     = segmentRecords;
+  // Machine-scoped rows are only exposed once they belong to the selected machine. Between a switch
+  // and the new machine's snapshot resolving, the state still holds the previous machine's rows;
+  // showing those under the new machine's label also let the record form prefill the next ring
+  // number and chainage from the wrong machine's last ring.
+  const rowsReady = rowsMachine === activeMachine;
+  const activeSegments     = rowsReady ? segmentRecords : EMPTY_ROWS;
   const currentRingNum = activeSegments.reduce((mx, s) => Math.max(mx, getRingNumeric(s.ringNo) || 0), 0);
-  const activeGrouts       = groutRecords;
-  const activeSecondaryGrouts = secondaryGroutRecords;
-  const activeShiftReports = shiftReports;
+  const activeGrouts       = rowsReady ? groutRecords : EMPTY_ROWS;
+  const activeSecondaryGrouts = rowsReady ? secondaryGroutRecords : EMPTY_ROWS;
+  const activeShiftReports = rowsReady ? shiftReports : EMPTY_ROWS;
   const activeDailyReports = dailyReports.filter((r) => (r.machine || "TBM1") === activeMachine);
   const activeIssues = forMachine(issues, activeMachine);
   const dashFilter = useFilterState();
@@ -260,9 +294,9 @@ const PrimaryGroutApp = () => {
       onSaveIssue={handleSaveIssue}
       onSetIssueStatus={handleSetIssueStatus}
       onDeleteIssue={handleDeleteIssue}
-      segmentRecords={segmentRecords}
-      groutRecords={groutRecords}
-      shiftReports={shiftReports}
+      segmentRecords={activeSegments}
+      groutRecords={activeGrouts}
+      shiftReports={activeShiftReports}
       activeMachine={activeMachine}
       onMachineChange={setActiveMachine}
       currentRingNum={currentRingNum}
@@ -271,8 +305,8 @@ const PrimaryGroutApp = () => {
     >
       {loadError && <div className="mb-6 bg-code-d/10 border border-code-d/30 text-code-d p-4 rounded-card text-center no-print font-semibold">{loadError}</div>}
       {activeTab === "overview" && <OverviewView segmentRecords={activeSegments} groutRecords={activeGrouts} setCurrentModule={setCurrentModule} setActiveTab={setActiveTab} activeMachine={activeMachine} onMachineChange={setActiveMachine} />}
-      {activeTab === "record" && currentModule === "grout" && <GroutRecordView projectInfo={projectInfo} handleProjectInfoChange={handleProjectInfoChange} groutRecords={groutRecords} setGroutRecords={setGroutRecords} secondaryGroutRecords={secondaryGroutRecords} setSecondaryGroutRecords={setSecondaryGroutRecords} segmentRecords={segmentRecords} setCurrentModule={setCurrentModule} setActiveTab={setActiveTab} machine={activeMachine} />}
-      {activeTab === "record" && currentModule === "segment" && <SegmentRecordView projectInfo={projectInfo} handleProjectInfoChange={handleProjectInfoChange} segmentRecords={segmentRecords} setSegmentRecords={setSegmentRecords} setCurrentModule={setCurrentModule} setActiveTab={setActiveTab} machine={activeMachine} />}
+      {activeTab === "record" && currentModule === "grout" && <GroutRecordView projectInfo={projectInfo} handleProjectInfoChange={handleProjectInfoChange} groutRecords={activeGrouts} setGroutRecords={setGroutRecords} secondaryGroutRecords={activeSecondaryGrouts} setSecondaryGroutRecords={setSecondaryGroutRecords} segmentRecords={activeSegments} setCurrentModule={setCurrentModule} setActiveTab={setActiveTab} machine={activeMachine} />}
+      {activeTab === "record" && currentModule === "segment" && <SegmentRecordView projectInfo={projectInfo} handleProjectInfoChange={handleProjectInfoChange} segmentRecords={activeSegments} setSegmentRecords={setSegmentRecords} setCurrentModule={setCurrentModule} setActiveTab={setActiveTab} machine={activeMachine} />}
       {activeTab === "dashboard" && <ExecutiveDashboardView segmentRecords={activeSegments} groutRecords={activeGrouts} shiftReports={activeShiftReports} dailyReports={activeDailyReports} machine={activeMachine} onNavigate={handleNavigate} filterState={dashFilter.state} readOnly={isViewer} />}
       {activeTab === "analysis" && currentModule === "segment" && <SegmentAnalysisView segmentRecords={activeSegments} projectInfo={projectInfo} machine={activeMachine} filterState={dashFilter.state} readOnly={isViewer} />}
       {activeTab === "analysis" && currentModule === "grout" && <GroutAnalysisView groutRecords={activeGrouts} secondaryGroutRecords={activeSecondaryGrouts} readOnly={isViewer} />}
@@ -280,10 +314,10 @@ const PrimaryGroutApp = () => {
       {activeTab === "head_level" && <HeadLevelView segmentRecords={activeSegments} machine={activeMachine} readOnly={isViewer} />}
       {activeTab === "performance" && <PerformanceView segmentRecords={activeSegments} shiftReports={activeShiftReports} filterState={dashFilter.state} />}
       {activeTab === "prep_gantt" && <PrepGanttView machine={activeMachine} readOnly={isViewer} />}
-      {activeTab === "datalog" && currentModule === "grout" && <GroutDashboardView groutRecords={groutRecords} setGroutRecords={setGroutRecords} secondaryGroutRecords={secondaryGroutRecords} setSecondaryGroutRecords={setSecondaryGroutRecords} segmentRecords={segmentRecords} machine={activeMachine} readOnly={isViewer} />}
-      {activeTab === "datalog" && currentModule === "segment" && <SegmentDashboardView segmentRecords={segmentRecords} setSegmentRecords={setSegmentRecords} machine={activeMachine} />}
+      {activeTab === "datalog" && currentModule === "grout" && <GroutDashboardView groutRecords={activeGrouts} setGroutRecords={setGroutRecords} secondaryGroutRecords={activeSecondaryGrouts} setSecondaryGroutRecords={setSecondaryGroutRecords} segmentRecords={activeSegments} machine={activeMachine} readOnly={isViewer} />}
+      {activeTab === "datalog" && currentModule === "segment" && <SegmentDashboardView segmentRecords={activeSegments} setSegmentRecords={setSegmentRecords} machine={activeMachine} />}
       {activeTab === "report" && <ReportView segmentRecords={activeSegments} groutRecords={activeGrouts} projectInfo={projectInfo} shiftReports={activeShiftReports} onCreateDaily={(draft) => { setPendingRecordForm(draft); setActiveTab("record_daily"); }} />}
-      {activeTab === "shift_report" && <ShiftReportView projectInfo={projectInfo} segmentRecords={segmentRecords} shiftReports={shiftReports} setShiftReports={setShiftReports} machine={activeMachine} readOnly={isViewer} />}
+      {activeTab === "shift_report" && <ShiftReportView projectInfo={projectInfo} segmentRecords={activeSegments} shiftReports={activeShiftReports} setShiftReports={setShiftReports} machine={activeMachine} readOnly={isViewer} />}
       {activeTab === "record_daily" && <RecordDailyView dailyReports={activeDailyReports} onSave={(form) => { handleSaveDailyReport(form); setActiveTab("daily_report"); }} pendingForm={pendingRecordForm} onConsumePendingForm={() => setPendingRecordForm(null)} activeMachine={activeMachine} />}
       {activeTab === "daily_report" && <DailyReportView dailyReports={activeDailyReports} onDelete={handleDeleteDailyReport} onEdit={(formReady) => { setPendingRecordForm(formReady); setActiveTab("record_daily"); }} onGoRecord={() => setActiveTab("record_daily")} />}
       {activeTab === "inst_dashboard" && (

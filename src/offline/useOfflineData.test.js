@@ -28,6 +28,24 @@ function renderHook(useHook, initialProps) {
   };
 }
 
+// same harness under StrictMode, which double-invokes effects (setup/cleanup/setup) in development
+function renderHookStrict(useHook, initialProps) {
+  const renders = [];
+  let container;
+  let root;
+  function Probe(props) {
+    renders.push(useHook(props));
+    return null;
+  }
+  act(() => {
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    root.render(<React.StrictMode><Probe {...initialProps} /></React.StrictMode>);
+  });
+  return { renders, last: () => renders[renders.length - 1], unmount: () => act(() => { root.unmount(); container.remove(); }) };
+}
+
 function deferred() {
   let resolve;
   let reject;
@@ -49,6 +67,99 @@ function makeRepository(overrides = {}) {
 }
 
 afterEach(() => jest.restoreAllMocks());
+
+test("hydrates under StrictMode, where effects are double-invoked", async () => {
+  // index.tsx renders the app inside StrictMode. A mounted-flag guard that the setup never restored
+  // left every state update dropped here, so the app sat on its splash screen forever in dev.
+  const repository = makeRepository();
+  const hook = renderHookStrict(props => useOfflineData(props.machine, { repository }), { machine: "TBM1" });
+
+  await act(async () => {});
+
+  expect(hook.last()).toMatchObject({ loading: false, source: "server", stale: false });
+  expect(hook.last().data.segments).toEqual([{ ringNo: "P1", status: "server" }]);
+  hook.unmount();
+});
+
+test("a stalled cache read does not hold up the server fetch", async () => {
+  // awaiting load() before refresh() let a blocked IndexedDB upgrade pin the app on its splash and
+  // never even attempt the network
+  const stalled = deferred();
+  const repository = makeRepository({ load: jest.fn(() => stalled.promise) });
+  const hook = renderHook(props => useOfflineData(props.machine, { repository }), { machine: "TBM1" });
+
+  await act(async () => {});
+
+  expect(repository.refresh).toHaveBeenCalledWith("TBM1");
+  expect(hook.last()).toMatchObject({ loading: false, source: "server" });
+  hook.unmount();
+});
+
+test("a failed cache read surfaces the error and still serves the server payload", async () => {
+  const repository = makeRepository({ load: jest.fn(async () => { throw new Error("IDB blocked"); }) });
+  const hook = renderHook(props => useOfflineData(props.machine, { repository }), { machine: "TBM1" });
+
+  await act(async () => {});
+
+  expect(hook.last()).toMatchObject({ loading: false, source: "server" });
+  hook.unmount();
+});
+
+test("a cache read failure with no server either reports the error", async () => {
+  const repository = makeRepository({
+    load: jest.fn(async () => { throw new Error("IDB blocked"); }),
+    refresh: jest.fn(async () => { throw new Error("NETWORK") }),
+  });
+  const hook = renderHook(props => useOfflineData(props.machine, { repository }), { machine: "TBM1" });
+
+  await act(async () => {});
+
+  expect(hook.last()).toMatchObject({ loading: false, stale: true, source: "empty" });
+  expect(hook.last().error).toBeTruthy();
+  hook.unmount();
+});
+
+test("the initial state exposes the full empty shape, not null", async () => {
+  // App dereferences data.secondaryGrouts / data.instLocations.length on the first render
+  const repository = makeRepository({ load: jest.fn(() => deferred().promise), refresh: jest.fn(() => deferred().promise) });
+  const hook = renderHook(props => useOfflineData(props.machine, { repository }), { machine: "TBM1" });
+
+  const first = hook.renders[0];
+  expect(first.data).toEqual(expect.objectContaining({
+    machine: "TBM1", segments: [], grouts: [], secondaryGrouts: [], shiftReports: [], issues: [],
+    dailyReports: [], prepTasks: [], instLocations: [], instInstruments: [], instThresholds: [],
+    instReadings: [], instSchedules: [],
+  }));
+  hook.unmount();
+});
+
+test("a refresh callback captured on one machine cannot write into another", async () => {
+  // refresh() must claim its own token; reading the live one let a stale callback apply machine A's
+  // response to machine B's state
+  const repository = makeRepository();
+  const hook = renderHook(props => useOfflineData(props.machine, { repository }), { machine: "TBM1" });
+  await act(async () => {});
+  const staleRefresh = hook.last().refresh;
+
+  hook.rerender({ machine: "TBM2" });
+  await act(async () => {});
+  await act(async () => { await staleRefresh(); });
+
+  expect(hook.last().data.machine).toBe("TBM2");
+  hook.unmount();
+});
+
+test("a refresh failure marks the snapshot stale while keeping the cached data", async () => {
+  const repository = makeRepository({ refresh: jest.fn(async () => { throw new Error("NETWORK"); }) });
+  const hook = renderHook(props => useOfflineData(props.machine, { repository }), { machine: "TBM1" });
+
+  await act(async () => {});
+
+  expect(hook.last().stale).toBe(true);
+  expect(hook.last().refreshing).toBe(false);
+  expect(hook.last().data.segments).toEqual([{ ringNo: "P1", status: "cached" }]);
+  hook.unmount();
+});
 
 test("renders cached data before the refresh resolves", async () => {
   const pending = deferred();

@@ -159,7 +159,18 @@ export function createRepository(deps = {}) {
       try {
         const raw = await fetchServerSnapshot(machine, { signal });
         const data = normalizeServerData(raw, machine);
-        const stored = await writeServerSnapshot(await openDb(), machine, data, now());
+        const fetchedAt = now();
+        let stored;
+        try {
+          stored = await writeServerSnapshot(await openDb(), machine, data, fetchedAt);
+        } catch (writeError) {
+          // The server data is already in hand. Throwing here would show an empty app to a crew
+          // whose payload arrived fine, just because the cache could not be written (quota, private
+          // browsing, blocked upgrade). Serve it, flagged stale so nothing treats it as cached.
+          const result = { data: { ...data, fetchedAt }, source: "server", fetchedAt, stale: true, cacheError: writeError };
+          emit({ type: "data", machine, result });
+          return result;
+        }
         const result = { data: stored, source: "server", fetchedAt: stored.fetchedAt, stale: false };
         emit({ type: "data", machine, result });
         return result;

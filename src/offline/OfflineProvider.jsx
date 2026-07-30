@@ -8,7 +8,13 @@ import { createSyncRunner } from "./syncRunner";
 
 const OfflineContext = createContext(null);
 
-const emptySummary = { online: true, pending: 0, syncing: 0, conflicts: 0, errors: 0, lastSyncedAt: null };
+// `online` is read from the platform rather than assumed: if the database never opens, the first
+// real summary never arrives and a hardcoded `true` would leave Task 10's indicator claiming the
+// app is online on a device that is not.
+const initialSummary = () => ({
+  online: typeof navigator === "undefined" || navigator.onLine !== false,
+  pending: 0, syncing: 0, conflicts: 0, errors: 0, lastSyncedAt: null,
+});
 
 export function useOffline({ optional = false } = {}) {
   const context = useContext(OfflineContext);
@@ -24,6 +30,9 @@ export function useOffline({ optional = false } = {}) {
  * requested where the platform supports it so the browser is less likely to evict queued writes.
  */
 export function OfflineProvider({ children, deps = {} }) {
+  // Everything is captured once. Reading `deps` through the ref keeps the repository and runner
+  // stable even when a caller passes inline object literals — otherwise each render would build a
+  // new runner, and every render would start one and leave the previous listeners behind.
   const factories = useRef(null);
   if (!factories.current) {
     factories.current = {
@@ -33,18 +42,26 @@ export function OfflineProvider({ children, deps = {} }) {
       stageLegacy: deps.stageLegacyLocalStorage || stageLegacyLocalStorage,
       transport: deps.transport || { postSyncMutation },
       storage: deps.storage !== undefined ? deps.storage : (typeof navigator === "undefined" ? null : navigator.storage),
+      repositoryDeps: deps.repositoryDeps || {},
+      runnerDeps: deps.runnerDeps || {},
     };
   }
-  const { makeRepository, makeRunner, transport } = factories.current;
 
-  const repository = useMemo(() => makeRepository(deps.repositoryDeps || {}), [makeRepository, deps.repositoryDeps]);
-  const runner = useMemo(() => makeRunner({ repository, transport, ...(deps.runnerDeps || {}) }), [makeRunner, repository, transport, deps.runnerDeps]);
-  const [syncSummary, setSyncSummary] = useState(emptySummary);
+  const singletons = useMemo(() => {
+    const { makeRepository, makeRunner, transport, repositoryDeps, runnerDeps, openDb } = factories.current;
+    // the repository shares the provider's database handle, so an injected one applies to both
+    const repository = makeRepository({ openDb, ...repositoryDeps });
+    return { repository, runner: makeRunner({ repository, transport, ...runnerDeps }) };
+  }, []);
+  const { repository, runner } = singletons;
+  const [syncSummary, setSyncSummary] = useState(initialSummary);
+  const aliveRef = useRef(true);
+  useEffect(() => () => { aliveRef.current = false; }, []);
 
   const refreshSummary = useCallback(async () => {
     try {
       const summary = await repository.getSyncSummary();
-      setSyncSummary(summary);
+      if (aliveRef.current) setSyncSummary(summary);
       return summary;
     } catch (error) {
       return null;
@@ -67,7 +84,8 @@ export function OfflineProvider({ children, deps = {} }) {
           try {
             const persisted = typeof storage.persisted === "function" ? await storage.persisted() : false;
             const granted = persisted || await storage.persist();
-            await repository.setSyncMetaValue("storagePersistence", { granted: Boolean(granted), checkedAt: new Date().toISOString() });
+            // no database write after teardown
+            if (active) await repository.setSyncMetaValue("storagePersistence", { granted: Boolean(granted), checkedAt: new Date().toISOString() });
           } catch (error) { /* Safari variants reject or omit the API */ }
         }
         if (!active) return;

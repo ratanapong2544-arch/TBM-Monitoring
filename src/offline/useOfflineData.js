@@ -25,47 +25,52 @@ export function useOfflineData(machine, deps = {}) {
   const context = useOffline({ optional: true });
   const repository = deps.repository || (context && context.repository);
   const [state, setState] = useState(() => initialState(machine));
-  // one token per machine selection: a settled request whose token is stale is dropped
+  // one token per machine selection: a settled request whose token is stale is dropped.
+  // React 18 makes a setState after unmount a silent no-op, so the token is the only guard needed —
+  // a separate mounted flag was worse than useless: StrictMode's setup/cleanup/setup left it false
+  // for the component's whole life and every update was dropped.
   const requestRef = useRef(0);
-  const mountedRef = useRef(true);
-
-  useEffect(() => () => { mountedRef.current = false; }, []);
+  // the machine the latest hydration belongs to, so a callback captured for another one can be
+  // recognised as stale
+  const machineRef = useRef(machine);
 
   const applyIfCurrent = useCallback((token, update) => {
-    if (!mountedRef.current || requestRef.current !== token) return;
+    if (requestRef.current !== token) return;
     setState(previous => ({ ...previous, ...update }));
   }, []);
 
   const hydrate = useCallback(async token => {
     if (!repository) return;
     setState(previous => ({ ...previous, refreshing: true, error: null }));
-    try {
-      const cached = await repository.load(machine);
-      applyIfCurrent(token, { data: cached.data, source: cached.source, fetchedAt: cached.fetchedAt, stale: cached.stale, loading: false });
-    } catch (error) {
-      applyIfCurrent(token, { loading: false, error });
-    }
-    try {
-      const fresh = await repository.refresh(machine);
-      applyIfCurrent(token, { data: fresh.data, source: fresh.source, fetchedAt: fresh.fetchedAt, stale: false, refreshing: false, loading: false, error: null });
-    } catch (error) {
-      // keep whatever the cache gave us; the snapshot is simply stale
-      applyIfCurrent(token, { refreshing: false, loading: false, stale: true, error });
-    }
+    // Both start now. Awaiting the cache first would let a blocked IndexedDB upgrade (two tabs on
+    // different versions) or a WebKit stall hold up the network fetch and pin the app on its splash.
+    const cachePass = Promise.resolve()
+      .then(() => repository.load(machine))
+      .then(cached => { applyIfCurrent(token, { data: cached.data, source: cached.source, fetchedAt: cached.fetchedAt, stale: cached.stale, loading: false }); return true; })
+      .catch(error => { applyIfCurrent(token, { loading: false, error }); return false; });
+    const serverPass = Promise.resolve()
+      .then(() => repository.refresh(machine))
+      .then(fresh => { applyIfCurrent(token, { data: fresh.data, source: fresh.source, fetchedAt: fresh.fetchedAt, stale: Boolean(fresh.stale), refreshing: false, loading: false, error: null }); return true; })
+      .catch(error => { applyIfCurrent(token, { refreshing: false, loading: false, stale: true, error }); return false; });
+    await Promise.all([cachePass, serverPass]);
   }, [applyIfCurrent, machine, repository]);
 
   useEffect(() => {
     const token = ++requestRef.current;
+    machineRef.current = machine;
     hydrate(token);
-  }, [hydrate]);
+  }, [hydrate, machine]);
 
   const refresh = useCallback(async () => {
     if (!repository) return null;
-    const token = requestRef.current;
+    // A callback captured while another machine was active must not fetch for it, let alone apply
+    // the result: claiming a token would make its own response look current.
+    if (machineRef.current !== machine) return null;
+    const token = ++requestRef.current;
     setState(previous => ({ ...previous, refreshing: true, error: null }));
     try {
       const fresh = await repository.refresh(machine);
-      applyIfCurrent(token, { data: fresh.data, source: fresh.source, fetchedAt: fresh.fetchedAt, stale: false, refreshing: false, error: null });
+      applyIfCurrent(token, { data: fresh.data, source: fresh.source, fetchedAt: fresh.fetchedAt, stale: Boolean(fresh.stale), refreshing: false, error: null });
       return fresh;
     } catch (error) {
       applyIfCurrent(token, { refreshing: false, stale: true, error });

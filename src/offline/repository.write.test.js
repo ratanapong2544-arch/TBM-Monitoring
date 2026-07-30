@@ -63,6 +63,8 @@ test.each([
   [{ ...segmentInput, baseVersion: null }, "baseVersion"],
   [{ ...segmentInput, entityType: "shiftReport", payload: { date: "2026-07-29" } }, "shift"],
   [{ ...segmentInput, entityType: "issue", recordId: "" }, "recordId"],
+  [{ entityType: "dailyReport", operation: "create", recordId: "d1", payload: { date: "2026-07-29" } }, "machine"],
+  [{ entityType: "prepTask", operation: "create", recordId: "p1", payload: { title: "Prep" } }, "machine"],
 ])("rejects malformed mutation envelope field %s", async (input, field) => {
   await expect(makeRepository().mutate(input)).rejects.toThrow(field);
 });

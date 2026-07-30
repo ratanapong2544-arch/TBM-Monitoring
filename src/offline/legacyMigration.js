@@ -3,7 +3,9 @@ import { LEGACY_KEYS, STORES } from "./schema";
 
 const LEGACY_TYPES = {
   tbmIssues: { entityType: "issue", serverKeys: ["issues", "tbmIssues"] },
-  tbmDailyReports: { entityType: "dailyReport", serverKeys: ["dailyReports", "tbmDailyReports"] },
+  // machine fallback mirrors the GAS legacy default (data.machine || 'TBM1') so a staged record
+  // without machine keys the same on both sides
+  tbmDailyReports: { entityType: "dailyReport", machine: "TBM1", serverKeys: ["dailyReports", "tbmDailyReports"] },
   tbmPrepTasks_TBM1: { entityType: "prepTask", machine: "TBM1", serverKeys: ["prepTasks", "tbmPrepTasks"] },
   tbmPrepTasks_TBM2: { entityType: "prepTask", machine: "TBM2", serverKeys: ["prepTasks", "tbmPrepTasks"] },
   tbmPlanConfig: { entityType: "planConfig", machine: "TBM1", serverKeys: ["planConfig", "planConfigs"] },

@@ -31,7 +31,10 @@ export function createRepository(deps = {}) {
     });
     if (!input.payload || typeof input.payload !== "object") throw new Error("Mutation requires payload");
     if (!["create", "update", "delete"].includes(input.operation)) throw new Error("Mutation requires a supported operation");
-    if (["segment", "grout", "secondaryGrout", "shiftReport", "planConfig", "distPlanConfig", "routeConfig"].includes(input.entityType) && !input.machine) throw new Error("Mutation requires machine");
+    // dailyReport/prepTask are machine-scoped domain keys, so GAS refuses machineless envelopes
+    // (SYNC_MACHINE_ENTITIES in gas-live/Code.js); reject them here instead of queueing a
+    // mutation that can only fail validation on the server.
+    if (["segment", "grout", "secondaryGrout", "shiftReport", "planConfig", "distPlanConfig", "routeConfig", "dailyReport", "prepTask"].includes(input.entityType) && !input.machine) throw new Error("Mutation requires machine");
     if (["segment", "grout", "secondaryGrout"].includes(input.entityType) && !input.payload.ringNo) throw new Error("Mutation requires ringNo");
     if (input.entityType === "shiftReport") {
       if (!input.payload.date) throw new Error("Mutation requires date");

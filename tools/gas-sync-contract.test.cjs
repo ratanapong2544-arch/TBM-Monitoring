@@ -15,12 +15,14 @@ const {
   buildSyncResponse_,
   diffSyncFields_,
   validateSyncEnvelope_,
+  syncTimeZoneMismatch_,
   handleSyncMutation_,
   handleLegacyWrite_,
   getSyncMetaRow_,
   bumpSyncMetaMany_,
   getSyncMetaMap_,
   storeSyncResponse_,
+  findStoredSyncResponse_,
   SYNC_META_HEADERS,
   SYNC_REQUEST_HEADERS,
 } = gas;
@@ -102,6 +104,21 @@ function makeFakeSheet(name, rows) {
       return makeRange(row, col, numRows || 1, numCols || 1);
     },
   };
+}
+
+// Real Sheets rejects a cell over 50,000 characters. enforceCellLimit makes the fake reject it
+// too, so the oversized-response fallback in storeSyncResponse_ is exercised.
+function withCellLimit(sheet) {
+  const appendRow = sheet.appendRow.bind(sheet);
+  sheet.appendRow = (row) => {
+    row.forEach((value) => {
+      if (typeof value === "string" && value.length > 50000) {
+        throw new Error("Your input contains more than the maximum of 50000 characters in a single cell.");
+      }
+    });
+    appendRow(row);
+  };
+  return sheet;
 }
 
 function makeFakeSpreadsheet(sheets) {
@@ -653,6 +670,60 @@ test("getSyncMetaMap_ serializes Date cells and coerces deleted flags", () => {
   assert.equal(typeof entry.updatedAt, "string");
   assert.ok(entry.updatedAt.indexOf("T") !== -1, "updatedAt must be an ISO string");
   assert.equal(entry.deleted, true);
+});
+
+test("an oversized response degrades to a marker row instead of throwing", () => {
+  const { sheets } = makeFakeState();
+  withCellLimit(sheets.SyncRequests);
+  const huge = { status: "success", requestId: "req-huge", record: { note: "B".repeat(60000) }, version: 1, updatedAt: "x" };
+  storeSyncResponse_(sheets.SyncRequests, huge);
+  const rows = sheetObjects(sheets.SyncRequests);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].requestId, "req-huge");
+  assert.equal(rows[0].responseJson, "");
+  assert.equal(findStoredSyncResponse_(sheets.SyncRequests, "req-huge"), null, "a degraded row must not replay as a response");
+});
+
+test("a lost oversized success replays without double-applying the write", () => {
+  const { ss, sheets } = makeFakeState();
+  withCellLimit(sheets.SyncRequests);
+  const envelope = segmentEnvelope({
+    requestId: "req-huge-seg",
+    payload: { ringNo: "41", installType: "Permanent", length: "1.4", date: "2026-07-29", problem: "C".repeat(60000) },
+  });
+  const first = handleSyncMutation_(ss, envelope);
+  assert.equal(first.status, "success");
+  assert.equal(sheetObjects(sheets.Segments).length, 1);
+  assert.equal(sheetObjects(sheets.SyncRequests)[0].responseJson, "", "response too large to store");
+  const retry = handleSyncMutation_(ss, envelope);
+  assert.equal(sheetObjects(sheets.Segments).length, 1, "retry must not append a second row");
+  assert.equal(sheetObjects(sheets.SyncMeta)[0].version, 1, "retry must not bump the version again");
+  assert.equal(retry.status, "conflict", "the applied write is now the server truth");
+  assert.deepEqual(retry.conflictingFields, [], "server already holds exactly what was submitted");
+});
+
+test("a lost oversized conflict replays as the identical conflict", () => {
+  const { ss, sheets } = makeFakeState();
+  withCellLimit(sheets.SyncRequests);
+  sheets.Segments.appendRow(["seg-legacy", "2026-07-29", "Day", 41, "", "", "", "", 1.4, "", "", "D".repeat(60000), "", "", "Permanent"]);
+  const envelope = segmentEnvelope({ requestId: "req-huge-conflict" });
+  const first = handleSyncMutation_(ss, envelope);
+  assert.equal(first.status, "conflict");
+  assert.equal(sheetObjects(sheets.SyncRequests)[0].responseJson, "");
+  const retry = handleSyncMutation_(ss, envelope);
+  assert.equal(retry.status, "conflict");
+  assert.deepEqual(retry.conflictingFields, first.conflictingFields);
+  assert.equal(retry.currentVersion, first.currentVersion);
+  assert.equal(sheetObjects(sheets.Segments).length, 1);
+});
+
+test("the script and spreadsheet time zones must agree for sheet-date keys", () => {
+  assert.equal(syncTimeZoneMismatch_("Asia/Bangkok", "Asia/Bangkok"), null);
+  assert.equal(syncTimeZoneMismatch_("Asia/Bangkok", ""), null);
+  const warning = syncTimeZoneMismatch_("Asia/Bangkok", "America/New_York");
+  assert.match(warning, /^SYNC_TIMEZONE_MISMATCH/);
+  assert.match(warning, /Asia\/Bangkok/);
+  assert.match(warning, /America\/New_York/);
 });
 
 test("the idempotency ledger prunes oldest rows beyond the retention window", () => {

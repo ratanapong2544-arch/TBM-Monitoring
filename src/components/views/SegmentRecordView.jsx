@@ -19,11 +19,17 @@ const SegmentRecordView = ({ projectInfo, handleProjectInfoChange, segmentRecord
   // A form left open across a machine switch kept the previous machine's ring number and chainage,
   // and the prefill below is guarded on an empty ringNo, so it never corrected them — submitting
   // then wrote one machine's ring sequence and CH into the other machine's sheet.
+  // Every field must go back to its default, not just the obvious ones: the prefill below computes
+  // finishCH as (last ring's finish − length) and soilVolume from length, so a ring length left
+  // over from the other machine's last record silently produced a wrong chainage and volume for
+  // this machine. typeRing/keyPos/remark carry over the same way.
   useEffect(() => {
     setFormData((prev) => ({
-      ...prev, id: null, ringNo: "", startCH: "", finishCH: "", excavStartTime: "", excavEndTime: "",
-      installStartTime: "", installEndTime: "", soilType: "", excavImageBase64: "", excavImageName: "",
-      imageBase64: "", imageName: "", status: "In Progress", installType: "Permanent",
+      ...prev, id: null, ringNo: "", typeRing: "C1", keyPos: "16", startCH: "", finishCH: "",
+      length: "1.40", remark: "", soilVolume: "",
+      excavStartTime: "", excavEndTime: "", installStartTime: "", installEndTime: "",
+      soilType: "", excavImageBase64: "", excavImageName: "", imageBase64: "", imageName: "",
+      status: "In Progress", installType: "Permanent",
       headV: "", artV: "", tailV: "", vrt: "", headH: "", artH: "", tailH: "",
     }));
   }, [machine]);
@@ -36,15 +42,18 @@ const SegmentRecordView = ({ projectInfo, handleProjectInfoChange, segmentRecord
     return deduped[deduped.length - 1].ringNo;
   }, [segmentRecords]);
 
+  // `machine` is a dependency and the empty-form check reads `prev`, not the render's `formData`:
+  // the reset above runs in the same commit, so a closure over the old formData would still see the
+  // previous machine's ring number and skip, leaving the form blank after every machine switch.
   useEffect(() => {
-    if (segmentRecords.length > 0 && !formData.ringNo) {
+    if (segmentRecords.length > 0) {
       const map = new Map();
       segmentRecords.forEach(rec => map.set(rec.ringNo, rec));
       const deduped = Array.from(map.values());
       const lastRecord = deduped[deduped.length - 1];
 
       if (lastRecord.status === "In Progress") {
-        setFormData((prev) => ({
+        setFormData((prev) => prev.ringNo ? prev : ({
           ...prev, id: lastRecord.id, ringNo: lastRecord.ringNo, typeRing: lastRecord.typeRing || "C1", keyPos: lastRecord.keyPos || "16", startCH: lastRecord.startCH, finishCH: lastRecord.finishCH, length: lastRecord.length || "1.40", status: "In Progress", installType: lastRecord.installType || "Permanent", excavStartTime: lastRecord.excavStartTime || "", excavEndTime: lastRecord.excavEndTime || "", soilType: lastRecord.soilType || "", installStartTime: lastRecord.installStartTime || lastRecord.startTime || "", installEndTime: lastRecord.installEndTime || lastRecord.endTime || "",
           excavShift: lastRecord.excavShift || projectInfo.shift, installShift: lastRecord.installShift || projectInfo.shift,
           headV: lastRecord.headV != null ? lastRecord.headV : "", artV: lastRecord.artV != null ? lastRecord.artV : "", tailV: lastRecord.tailV != null ? lastRecord.tailV : "", vrt: lastRecord.vrt != null ? lastRecord.vrt : "",
@@ -52,13 +61,13 @@ const SegmentRecordView = ({ projectInfo, handleProjectInfoChange, segmentRecord
         }));
       } else {
         const lastFinishRaw = parseCH(lastRecord.finishCH);
-        setFormData((prev) => ({
+        setFormData((prev) => prev.ringNo ? prev : ({
           ...prev, id: null, ringNo: offsetRingNo(lastRecord.ringNo, 1), startCH: formatCH(lastFinishRaw), finishCH: formatCH(lastFinishRaw - parseFloat(prev.length || 0)), status: "In Progress", installType: "Permanent", soilType: "", excavImageBase64: "", excavImageName: "",
           excavShift: projectInfo.shift, installShift: projectInfo.shift
         }));
       }
     }
-  }, [segmentRecords, projectInfo.shift]);
+  }, [segmentRecords, projectInfo.shift, machine]);
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;

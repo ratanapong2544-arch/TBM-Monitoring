@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { Loader2, AlertCircle, Activity, Clock } from "lucide-react";
 
-import { formatDisplayDate } from "./utils/formatters";
+import { formatDisplayDate, formatDisplayTime } from "./utils/formatters";
 import { offsetRingNo, getRingNumeric } from "./utils/helpers";
 
 import OverviewView from "./components/views/OverviewView";
@@ -160,6 +160,12 @@ const PrimaryGroutApp = () => {
     //      which can compare both sides. Losing a field record outranks showing a stale one.
     // These collections are already seeded from localStorage at mount, so skipping a cache read
     // costs nothing.
+    //
+    // KNOWN HOLE, unchanged from before Task 7 and owned by Tasks 8-9: a NON-EMPTY server response
+    // still replaces these lists wholesale, so a record created offline whose apiCall never
+    // succeeded is destroyed the first time the server answers. The rules above only protect it
+    // while the app stays offline. It is fixed for real when writes go through the mutation queue
+    // (Task 8) and legacy localStorage is reconciled instead of overwritten (Task 9).
     const serverAuthoritative = offlineData.source === "server";
     if (serverAuthoritative) {
       if (data.issues.length) { setIssues(data.issues); persistIssues(data.issues); }
@@ -291,7 +297,11 @@ const PrimaryGroutApp = () => {
       return { text: "ข้อมูลล่าสุดแสดงอยู่ แต่บันทึกลงเครื่องไม่ได้ — ปิดแอพแล้วข้อมูลจะไม่อยู่", spinning: false };
     }
     if (offlineData.stale && offlineData.source !== "empty") {
-      const at = offlineData.fetchedAt ? formatDisplayDate(offlineData.fetchedAt) : null;
+      // date AND time: a snapshot from the start of the shift and one from minutes ago both render
+      // as today, so a date alone reads as current to a crew at the end of a shift
+      const at = offlineData.fetchedAt
+        ? `${formatDisplayDate(offlineData.fetchedAt)} ${formatDisplayTime(offlineData.fetchedAt)}`.trim()
+        : null;
       const saved = at ? `แสดงข้อมูลที่บันทึกไว้ (${at})` : "แสดงข้อมูลที่บันทึกไว้";
       // Only claim the device is offline when it is. A permission page, an HTTP 4xx or malformed
       // JSON all fail while online, and their diagnostic code belongs on screen.

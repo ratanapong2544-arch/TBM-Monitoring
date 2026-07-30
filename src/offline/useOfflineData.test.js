@@ -195,6 +195,41 @@ test("a refresh failure marks the snapshot stale while keeping the cached data",
   hook.unmount();
 });
 
+test("provenance does not carry across a machine switch", async () => {
+  // keeping the previous machine's source/fetchedAt made an empty, unreachable machine report
+  // "showing saved data" stamped with the other machine's fetch time, and suppressed the real error
+  const repository = makeRepository();
+  const hook = renderHook(props => useOfflineData(props.machine, { repository }), { machine: "TBM1" });
+  await act(async () => {});
+  expect(hook.last()).toMatchObject({ source: "server", stale: false });
+
+  repository.load = jest.fn(async () => { throw new Error("IDB blocked"); });
+  repository.refresh = jest.fn(async () => { throw new Error("NETWORK"); });
+  hook.rerender({ machine: "TBM2" });
+  await act(async () => {});
+
+  expect(hook.last()).toMatchObject({ source: "empty", stale: true });
+  expect(hook.last().fetchedAt).toBeNull();
+  expect(hook.last().error).toBeTruthy();
+  hook.unmount();
+});
+
+test("a manual refresh during hydration still clears loading", async () => {
+  // refresh claims the request token, invalidating the in-flight hydrate that carried the only
+  // other loading:false — omitting it here left the app on its splash screen forever
+  const slowCache = deferred();
+  const slowServer = deferred();
+  const repository = makeRepository({ load: jest.fn(() => slowCache.promise), refresh: jest.fn(() => slowServer.promise) });
+  const hook = renderHook(props => useOfflineData(props.machine, { repository }), { machine: "TBM1" });
+  expect(hook.last().loading).toBe(true);
+
+  repository.refresh = jest.fn(async machine => ({ data: serverShape(machine), source: "server", fetchedAt: "2026-07-30T02:00:00.000Z", stale: false }));
+  await act(async () => { await hook.last().refresh(); });
+
+  expect(hook.last()).toMatchObject({ loading: false, source: "server" });
+  hook.unmount();
+});
+
 test("renders cached data before the refresh resolves", async () => {
   const pending = deferred();
   const repository = makeRepository({ refresh: jest.fn(() => pending.promise) });

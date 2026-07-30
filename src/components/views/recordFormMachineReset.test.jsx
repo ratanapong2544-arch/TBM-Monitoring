@@ -56,6 +56,32 @@ test("a segment form drops the previous machine's ring and chainage on a machine
   view.unmount();
 });
 
+test("a segment form does not carry ring length or type into the next machine's chainage", () => {
+  // the prefill computes finishCH as (last ring's finish − length) and soilVolume from length, so a
+  // ring length left over from the other machine produced a wrong chainage for this one
+  // an in-progress ring is loaded into the form as-is, so its length becomes the form's length
+  const shortRing = [{ id: "s1", ringNo: "P643", typeRing: "C2", keyPos: "16", startCH: "8+010.20", finishCH: "8+009.30", length: "0.90", status: "In Progress", installType: "Permanent", remark: "TBM1 note" }];
+  const view = render(
+    <SegmentRecordView projectInfo={projectInfo} handleProjectInfoChange={() => {}} segmentRecords={shortRing}
+      setSegmentRecords={() => {}} setCurrentModule={() => {}} setActiveTab={() => {}} machine="TBM1" />
+  );
+  expect(view.value("length")).toBe("0.90");
+
+  const tbm2 = [{ id: "s9", ringNo: "P100", typeRing: "C1", keyPos: "16", startCH: "9+499.50", finishCH: "9+498.60", length: "1.40", status: "Completed", installType: "Permanent" }];
+  view.rerender(
+    <SegmentRecordView projectInfo={projectInfo} handleProjectInfoChange={() => {}} segmentRecords={tbm2}
+      setSegmentRecords={() => {}} setCurrentModule={() => {}} setActiveTab={() => {}} machine="TBM2" />
+  );
+
+  // TBM2's own last ring drives the next one: 9+498.60 − 1.40 = 9+497.20, not 9+497.70
+  expect(view.value("length")).toBe("1.40");
+  expect(view.value("typeRing")).toBe("C1");
+  expect(view.value("startCH")).toBe("9+498.60");
+  expect(view.value("finishCH")).toBe("9+497.20");
+  expect(view.value("remark")).toBe("");
+  view.unmount();
+});
+
 test("a segment form keeps its prefill across an unrelated re-render", () => {
   const element = machineProps => (
     <SegmentRecordView projectInfo={projectInfo} handleProjectInfoChange={() => {}} segmentRecords={tbm1Segments}

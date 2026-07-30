@@ -89,17 +89,28 @@ test("an offline relaunch keeps an unsynced route config", async () => {
   app.unmount();
 });
 
-test("a server response with an absent collection does not erase local prep tasks", async () => {
-  // normalizeServerData maps an absent key to [], so an older GAS deployment looked like a deletion
+test("a server response with an absent collection does not erase local business data", async () => {
+  // normalizeServerData maps an absent key to [], so an older GAS deployment or a partial doGet is
+  // indistinguishable from a real deletion. Every gated collection must survive it — asserting only
+  // prepTasks was vacuous, because an empty list produces no per-machine writes either way.
   window.localStorage.setItem("tbmPrepTasks_TBM2", JSON.stringify([{ id: "pt_local", title: "Local prep" }]));
+  window.localStorage.setItem("tbmIssues", JSON.stringify([{ id: "iss_local", machine: "TBM1", title: "Local", status: "open" }]));
+  window.localStorage.setItem("tbmDailyReports", JSON.stringify([{ id: "dr_local", machine: "TBM1", date: "2026-07-29" }]));
+  window.localStorage.setItem("instReadings", JSON.stringify([{ id: "rd_local", instrumentId: "in1" }]));
   const repository = makeRepository({
-    refresh: async machine => ({ data: snapshot(machine, { prepTasks: [] }), source: "server", fetchedAt: "x", stale: false }),
+    refresh: async machine => ({
+      data: snapshot(machine, { prepTasks: [], issues: [], dailyReports: [], instReadings: [] }),
+      source: "server", fetchedAt: "x", stale: false,
+    }),
   });
 
   const app = renderApp(repository);
   await act(async () => {});
 
   expect(JSON.parse(window.localStorage.getItem("tbmPrepTasks_TBM2"))).toEqual([{ id: "pt_local", title: "Local prep" }]);
+  expect(JSON.parse(window.localStorage.getItem("tbmIssues")).map(i => i.id)).toEqual(["iss_local"]);
+  expect(JSON.parse(window.localStorage.getItem("tbmDailyReports")).map(r => r.id)).toEqual(["dr_local"]);
+  expect(JSON.parse(window.localStorage.getItem("instReadings")).map(r => r.id)).toEqual(["rd_local"]);
   app.unmount();
 });
 

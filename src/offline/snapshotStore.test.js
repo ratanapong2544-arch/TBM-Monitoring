@@ -35,6 +35,58 @@ test("preserves an entity referenced by a pending mutation domain key", async ()
   await expect(readServerSnapshot(db, "TBM1")).resolves.toEqual(expect.objectContaining({ segments: [expect.objectContaining({ ringNo: "P1", status: "local", syncStatus: "pending" })] }));
 });
 
+test("keeps an offline-created project-wide record after a refresh", async () => {
+  // an optimistic record is stamped with its mutation's machine (GLOBAL here), a server-derived one
+  // with the active machine; comparing those labels dropped the local record from the list
+  const db = await openOfflineDb();
+  await putOptimisticMutation(db, {
+    requestId: "m-issue", entityType: "issue", operation: "create", machine: null, recordId: "i-local",
+    domainKey: "issue:GLOBAL:i-local", baseVersion: 0, deviceId: "device-1",
+    createdAtLocal: "2026-07-29T00:00:00.000Z", payload: { id: "i-local", title: "Offline issue" },
+  });
+
+  await writeServerSnapshot(db, "TBM1", normalizeServerData({ issues: [{ id: "i-server", title: "Server issue" }] }, "TBM1"), "after");
+
+  await expect(readServerSnapshot(db, "TBM1")).resolves.toEqual(expect.objectContaining({
+    issues: expect.arrayContaining([
+      expect.objectContaining({ id: "i-local", syncStatus: "pending" }),
+      expect.objectContaining({ id: "i-server" }),
+    ]),
+  }));
+});
+
+test("keeps an offline instrument edit instead of letting the server value win", async () => {
+  // the snapshot collection label must match the sync entity name, or the optimistic record keys
+  // differently from the incoming server record and is silently replaced on every refresh
+  const db = await openOfflineDb();
+  await writeServerSnapshot(db, "TBM1", normalizeServerData({ instInstruments: [{ id: "in1", installStatus: "pending" }] }, "TBM1"), "first");
+  await putOptimisticMutation(db, {
+    requestId: "m-inst", entityType: "instrument", operation: "update", machine: null, recordId: "in1",
+    domainKey: "instrument:GLOBAL:in1", baseVersion: 1, deviceId: "device-1",
+    createdAtLocal: "2026-07-29T00:00:00.000Z", payload: { id: "in1", installStatus: "installed" },
+  });
+
+  await writeServerSnapshot(db, "TBM1", normalizeServerData({ instInstruments: [{ id: "in1", installStatus: "pending" }] }, "TBM1"), "second");
+
+  await expect(readServerSnapshot(db, "TBM1")).resolves.toEqual(expect.objectContaining({
+    instInstruments: [expect.objectContaining({ id: "in1", installStatus: "installed", syncStatus: "pending" })],
+  }));
+});
+
+test("does not pull another machine's unsynced ring record into this machine's list", async () => {
+  const db = await openOfflineDb();
+  await putOptimisticMutation(db, {
+    requestId: "m-seg-tbm2", entityType: "segment", operation: "create", machine: "TBM2", recordId: "s-tbm2",
+    domainKey: "segment:TBM2:P9:Permanent", baseVersion: 0, deviceId: "device-1",
+    createdAtLocal: "2026-07-29T00:00:00.000Z", payload: { id: "s-tbm2", ringNo: "P9", installType: "Permanent" },
+  });
+
+  await writeServerSnapshot(db, "TBM1", normalizeServerData({ segments: [{ ringNo: "P1" }] }, "TBM1"), "after");
+
+  const snapshot = await readServerSnapshot(db, "TBM1");
+  expect(snapshot.segments.map(record => record.ringNo)).toEqual(["P1"]);
+});
+
 test("each overlapping write returns its own committed snapshot even when a later write wins the database", async () => {
   const db = await openOfflineDb();
   const originalTransaction = db.transaction.bind(db);

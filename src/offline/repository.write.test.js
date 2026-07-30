@@ -115,6 +115,30 @@ test.each([
   await expect(makeRepository().mutate(input)).rejects.toThrow(/not supported/);
 });
 
+test("a terminal validation error can be put back in flight", async () => {
+  // otherwise it stays the head of its domain and shadows every later mutation on that key forever
+  const repository = makeRepository();
+  const queued = await repository.mutate(segmentInput);
+  await repository.updateMutation(queued.requestId, { status: "validation_error", nextAttemptAt: null, lastError: { code: "SYNC_FIELD_TOO_LARGE" } });
+
+  await expect(repository.retryMutation(queued.requestId)).resolves.toMatchObject({ status: "pending", attemptCount: 0, lastError: null });
+  await expect(repository.retryMutation(queued.requestId)).rejects.toThrow(/not a retryable error/);
+});
+
+test("a legacy staged conflict reports why it cannot be resolved through the queue", async () => {
+  const repository = makeRepository();
+  const db = await openOfflineDb();
+  await new Promise((resolve, reject) => {
+    const transaction = db.transaction("conflicts", "readwrite");
+    transaction.objectStore("conflicts").put({ conflictId: "legacy:tbmIssues:issue:GLOBAL:i1", status: "open", reason: "legacy_local_difference", domainKey: "issue:GLOBAL:i1" });
+    transaction.oncomplete = resolve;
+    transaction.onerror = () => reject(transaction.error);
+  });
+
+  await expect(repository.resolveConflict("legacy:tbmIssues:issue:GLOBAL:i1", { strategy: "server" }))
+    .rejects.toThrow(/no mutation to resolve/);
+});
+
 test("refuses an unknown entity type outright", async () => {
   await expect(makeRepository().mutate({ ...segmentInput, entityType: "mystery" })).rejects.toThrow(/unsupported entityType/);
 });

@@ -1,26 +1,22 @@
-import { ApiFailure, canonicalizeMutationEnvelope, classifyHttpFailure, fetchServerSnapshot, parseGasResponse, postSyncMutation } from "./apiTransport";
+import { ApiFailure, classifyHttpFailure, fetchServerSnapshot, parseGasResponse, postSyncMutation } from "./apiTransport";
 
 afterEach(() => jest.restoreAllMocks());
 
-test("a stale queued domain key is recomputed before it is posted", async () => {
-  // a mutation queued by an older build carries a key GAS would reject as non-canonical, which
-  // would park a terminal error at the domain head forever
+test("posts the stored domain key verbatim rather than rewriting it in flight", async () => {
+  // rewriting would diverge the sent key from the persisted one, and per-domain ordering plus the
+  // confirmed entity are both filed under the stored key; GAS refuses a non-canonical key loudly
   const stale = {
     requestId: "request-1", entityType: "shiftReport", operation: "update", machine: "TBM1",
     recordId: "sr1", baseVersion: 1, domainKey: "shiftReport:TBM1:2026-07-28T17:00:00.000Z:Day",
     payload: { date: "2026-07-28T17:00:00.000Z", shift: "Day" },
   };
-  expect(canonicalizeMutationEnvelope(stale).domainKey).toBe("shiftReport:TBM1:2026-07-29:Day");
-  const canonical = { ...stale, domainKey: "shiftReport:TBM1:2026-07-29:Day" };
-  expect(canonicalizeMutationEnvelope(canonical)).toBe(canonical);
-
   global.fetch = jest.fn().mockResolvedValue({
     ok: true,
-    text: async () => JSON.stringify({ status: "success", requestId: "request-1", record: { id: "sr1" }, version: 2, updatedAt: "2026-07-29T00:00:00.000Z" }),
+    text: async () => JSON.stringify({ status: "validation_error", requestId: "request-1", fields: ["domainKey"], message: "invalid sync envelope" }),
   });
-  await postSyncMutation(stale);
-  const sent = JSON.parse(global.fetch.mock.calls[0][1].body);
-  expect(sent.data.domainKey).toBe("shiftReport:TBM1:2026-07-29:Day");
+
+  await expect(postSyncMutation(stale)).resolves.toMatchObject({ status: "validation_error", fields: ["domainKey"] });
+  expect(JSON.parse(global.fetch.mock.calls[0][1].body).data.domainKey).toBe(stale.domainKey);
 });
 
 test.each([
@@ -72,13 +68,12 @@ test("ApiFailure retains a typed cause", () => {
 
 test("posts the complete mutation envelope and returns the typed sync response", async () => {
   global.fetch = jest.fn().mockResolvedValue({ ok: true, text: async () => JSON.stringify({ status: "success", requestId: "request-1", record: { recordId: "segment-1" }, version: 2, updatedAt: "2026-07-29T00:00:00.000Z" }) });
-  const mutation = { requestId: "request-1", entityType: "segment", machine: "TBM1", recordId: "segment-1", payload: { ringNo: "P1" } };
+  const mutation = { requestId: "request-1", entityType: "segment", machine: "TBM1", recordId: "segment-1", domainKey: "segment:TBM1:P1:Permanent", payload: { ringNo: "P1" } };
 
   await expect(postSyncMutation(mutation)).resolves.toMatchObject({ status: "success", requestId: "request-1" });
-  // the posted envelope always carries the canonical domain key, recomputed at post time
   expect(global.fetch).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({
     method: "POST",
-    body: JSON.stringify({ action: "syncMutation", data: { ...mutation, domainKey: "segment:TBM1:P1:Permanent" } }),
+    body: JSON.stringify({ action: "syncMutation", data: mutation }),
   }));
 });
 

@@ -104,6 +104,9 @@ export function createRepository(deps = {}) {
     const db = await openDb();
     const conflict = await getConflict(db, conflictId);
     if (!conflict || conflict.status !== "open") throw new Error(`Unknown open conflict ${conflictId}`);
+    // legacyMigration files staging differences in the same store without a requestId; those are
+    // reviewed against the legacy cache, not resolved through the mutation queue
+    if (!conflict.requestId) throw new Error(`Conflict ${conflictId} has no mutation to resolve; review the legacy staged records instead`);
     const original = await getMutation(db, conflict.requestId);
     const before = { serverRecord: conflict.serverRecord, localRecord: conflict.localRecord };
     if (strategy === "server") {
@@ -113,9 +116,11 @@ export function createRepository(deps = {}) {
     }
     if (strategy === "manual" && (!payload || typeof payload !== "object")) throw new Error("Manual conflict resolution requires payload");
     const nextPayload = strategy === "local" ? (original && original.payload) : payload;
+    // the successor's key is recomputed from its fields rather than inherited, so a stored key from
+    // an older build cannot make its own resolution unresolvable
     const successorInput = {
       entityType: original.entityType, operation: original.operation, machine: original.machine, recordId: original.recordId,
-      domainKey: original.domainKey, baseVersion: conflict.currentVersion, payload: nextPayload, actorId: original.actorId,
+      baseVersion: conflict.currentVersion, payload: nextPayload, actorId: original.actorId,
     };
     const domainKey = requireMutationEnvelope(successorInput);
     const resolvedAt = now();
@@ -166,6 +171,21 @@ export function createRepository(deps = {}) {
     },
     mutate,
     resolveConflict,
+    // A terminal validation/permanent error stays the head of its domain and shadows every later
+    // mutation on that key, so there must be a way to put it back in flight after the user (or an
+    // admin) fixes the cause — an oversized field, a repaired sheet row, a realigned time zone.
+    // Explicitly user-driven: nothing resets a terminal mutation automatically.
+    async retryMutation(requestId) {
+      const db = await openDb();
+      const mutation = await getMutation(db, requestId);
+      if (!mutation) throw new Error(`Unknown mutation ${requestId}`);
+      if (![MUTATION_STATUS.VALIDATION_ERROR, MUTATION_STATUS.PERMANENT_ERROR].includes(mutation.status)) {
+        throw new Error(`Mutation ${requestId} is ${mutation.status}, not a retryable error`);
+      }
+      const updated = await updateMutation(db, requestId, { status: MUTATION_STATUS.PENDING, attemptCount: 0, nextAttemptAt: null, lastError: null });
+      emit({ type: "mutation", requestId, status: MUTATION_STATUS.PENDING, domainKey: mutation.domainKey });
+      return updated;
+    },
     async getMutation(requestId) { return getMutation(await openDb(), requestId); },
     async getEntity(domainKey) { return getEntity(await openDb(), domainKey); },
     async getConflict(conflictId) { return getConflict(await openDb(), conflictId); },

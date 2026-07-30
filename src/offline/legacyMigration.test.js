@@ -99,6 +99,21 @@ test("keys a machineless legacy daily report to TBM1 like the server does", asyn
   expect(await readAll(db, "mutations")).toEqual([]);
 });
 
+test("staged instrument families keep their own key namespaces", async () => {
+  // borrowing the "instrument" key would let a location or threshold resolution write its payload
+  // into the instrument sheet
+  const db = await openOfflineDb();
+  const storage = window.localStorage;
+  storage.setItem("instLocations", JSON.stringify([{ id: "loc1", name: "Local" }]));
+  storage.setItem("instThresholds", JSON.stringify([{ id: "th1", alert: 5 }]));
+  await stageLegacyLocalStorage(db, storage);
+
+  await reconcileLegacyStage(db, { instLocations: [{ id: "loc1", name: "Server" }], instThresholds: [{ id: "th1", alert: 9 }] });
+
+  const domainKeys = (await readAll(db, "conflicts")).map(conflict => conflict.domainKey).sort();
+  expect(domainKeys).toEqual(["instLocation:GLOBAL:loc1", "instThreshold:GLOBAL:th1"]);
+});
+
 test("confirms plan config by domain when equivalent records have different ids", async () => {
   const db = await openOfflineDb();
   const storage = window.localStorage;

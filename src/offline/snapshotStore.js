@@ -10,6 +10,9 @@ const collections = [
   ["instInstruments", "instrument"], ["instThresholds", "instThreshold"], ["instReadings", "instReading"], ["instSchedules", "instSchedule"],
 ];
 const singletonKeys = ["planConfig", "distPlanConfig", "routeConfigs", "routeProjectTotal", "machineProgress", "syncMeta"];
+// entities whose sheet (and therefore whose getData payload) is per machine; everything else is
+// returned project-wide, so an unsynced record of any machine belongs in the list
+const MACHINE_SCOPED_COLLECTIONS = new Set(["segment", "grout", "secondaryGrout", "shiftReport"]);
 const UNRESOLVED_STATUSES = new Set([MUTATION_STATUS.PENDING, MUTATION_STATUS.SYNCING, MUTATION_STATUS.VALIDATION_ERROR, MUTATION_STATUS.CONFLICT]);
 
 function requestResult(request) { return new Promise((resolve, reject) => { request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error); }); }
@@ -41,6 +44,15 @@ export async function writeServerSnapshot(db, machine, data, fetchedAt) {
   const preserveLocal = record => Boolean(unresolvedStatus(record.domainKey)) || (!terminalStatus(record.domainKey) && UNRESOLVED_STATUSES.has(record.payload && record.payload.syncStatus));
   const localForDomain = (domainKey, entityType) => existing.find(record => record.domainKey === domainKey && record.entityType === entityType && record.key === `entity:optimistic:${domainKey}`) || existing.find(record => record.domainKey === domainKey && record.entityType === entityType);
   const preserve = (record, status) => ({ ...record, payload: { ...record.payload, syncStatus: status } });
+  // An optimistic record is stamped with its mutation's machine ("GLOBAL" for a project-wide
+  // entity, or another machine's id), while a server-derived record is stamped with the active
+  // machine. Comparing those labels literally dropped every unsynced record whose label differed,
+  // so an offline entry vanished from the list on the next refresh and got re-entered as a second
+  // row. Scope by the domain key instead: it carries the owning machine for ring-scoped entities,
+  // and getData returns the project-wide collections for every machine anyway.
+  const domainMachine = domainKey => String(domainKey || "").split(":")[1];
+  const inScope = (record, entityType) => record.entityType === entityType
+    && (!MACHINE_SCOPED_COLLECTIONS.has(entityType) || domainMachine(record.domainKey) === machine);
   const previousKeys = Object.values(previous && previous.entityKeys || {}).flat();
   previousKeys.forEach(key => entities.delete(key));
   const entityKeys = {};
@@ -49,7 +61,7 @@ export async function writeServerSnapshot(db, machine, data, fetchedAt) {
   collections.forEach(([field, entityType]) => {
     const incoming = (data[field] || []).map(payload => recordFor(machine, field, entityType, payload));
     const incomingDomains = new Set(incoming.map(record => record.domainKey));
-    const retained = existing.filter(record => record.machine === machine && record.entityType === entityType && preserveLocal(record))
+    const retained = existing.filter(record => inScope(record, entityType) && preserveLocal(record))
       .filter(record => !incomingDomains.has(record.domainKey));
     const merged = incoming.map(record => {
       const local = localForDomain(record.domainKey, entityType);

@@ -5,6 +5,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const path = require("node:path");
+const fs = require("node:fs");
 
 const vectors = require(path.join(__dirname, "sync-domain-vectors.json"));
 const gas = require(path.join(__dirname, "..", "..", "gas-live", "Code.js"));
@@ -1088,6 +1089,72 @@ test("dailyReport and prepTask round-trip through the sync endpoint", () => {
   prep.domainKey = makeSyncRecordKey_(prep);
   assert.equal(handleSyncMutation_(ss, prep).status, "success");
   assert.equal(sheetObjects(sheets.PrepTasks)[0].machine, "TBM2");
+});
+
+test("a JSON-blob update keeps the fields it omits", () => {
+  const { ss, sheets } = makeFakeState();
+  const create = {
+    requestId: "req-daily-full", entityType: "dailyReport", operation: "create", machine: "TBM1",
+    recordId: "dr1", baseVersion: 0, deviceId: "device-A",
+    payload: { date: "2026-07-29", area: "IS1", weather: { am: "clear" }, workLog: [{ id: "w1" }], remark: "keep me" },
+  };
+  create.domainKey = makeSyncRecordKey_(create);
+  assert.equal(handleSyncMutation_(ss, create).status, "success");
+
+  const partial = Object.assign({}, create, { requestId: "req-daily-partial", operation: "update", baseVersion: 1, payload: { area: "IS2" } });
+  const response = handleSyncMutation_(ss, partial);
+  assert.equal(response.status, "success");
+  const stored = JSON.parse(sheetObjects(sheets.DailyReports)[0].json);
+  assert.equal(stored.area, "IS2");
+  assert.equal(stored.date, "2026-07-29", "an omitted field must not be deleted");
+  assert.deepEqual(stored.weather, { am: "clear" });
+  assert.deepEqual(stored.workLog, [{ id: "w1" }]);
+  assert.equal(stored.remark, "keep me");
+  assert.equal(response.record.remark, "keep me", "the echoed record describes the merged result");
+});
+
+test("a JSON-blob create successor keeps the fields it never carried", () => {
+  const { ss, sheets } = makeFakeState();
+  const create = {
+    requestId: "req-prep-full", entityType: "prepTask", operation: "create", machine: "TBM2",
+    recordId: "p1", baseVersion: 0, deviceId: "device-A",
+    payload: { title: "Prep", percent: 10, owner: "team-a" },
+  };
+  create.domainKey = makeSyncRecordKey_(create);
+  handleSyncMutation_(ss, create);
+  const successor = Object.assign({}, create, { requestId: "req-prep-succ", baseVersion: 1, payload: { percent: 55 } });
+  assert.equal(handleSyncMutation_(ss, successor).status, "success");
+  const stored = JSON.parse(sheetObjects(sheets.PrepTasks)[0].json);
+  assert.equal(stored.percent, 55);
+  assert.equal(stored.title, "Prep");
+  assert.equal(stored.owner, "team-a");
+});
+
+test("a datetime cell still reports a same-day time change as a difference", () => {
+  // reducing a datetime-typed cell to its calendar date would hide a real time-of-day change
+  assert.deepEqual(
+    diffSyncFields_({ measuredAt: "2026-07-29T01:00:00.000Z" }, { measuredAt: new Date(2026, 6, 29, 15, 0) }),
+    ["measuredAt"]
+  );
+  // a date-only cell versus its wire form is still not a difference
+  assert.deepEqual(diffSyncFields_({ date: "2026-07-28T17:00:00.000Z" }, { date: new Date(2026, 6, 29) }), []);
+});
+
+test("the echoed record carries no sheet Date objects", () => {
+  const stamped = headerRecord_({ id: "r1", date: new Date(2026, 6, 29), note: "x" }, ["id", "date", "note"]);
+  assert.equal(stamped.date, "2026-07-29");
+  assert.equal(typeof stamped.date, "string");
+});
+
+test("getData reads version metadata before the business rows", () => {
+  // doGet is not exported, so pin the ordering by source position: reading metadata last would
+  // return stale rows labelled with a fresh version and let the next write overwrite silently
+  const source = fs.readFileSync(path.join(__dirname, "..", "..", "gas-live", "Code.js"), "utf8");
+  const doGetBody = source.slice(source.indexOf("function doGet("), source.indexOf("function segProgress_"));
+  const metaAt = doGetBody.indexOf("getSyncMetaMap_(ss, machine)");
+  const firstRowRead = doGetBody.indexOf("getSheetDataAsJson(");
+  assert.ok(metaAt > -1 && firstRowRead > -1);
+  assert.ok(metaAt < firstRowRead, "syncMeta must be read before any business sheet");
 });
 
 test("a JSON-blob delete tombstones the domain", () => {

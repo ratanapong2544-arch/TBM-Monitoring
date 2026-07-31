@@ -1,12 +1,12 @@
 # Task 7 Completion Record — Offline Hydration of the App Shell
 
-**Status:** Code complete and independently reviewed on both axes. **Deployment NOT performed** (still gated on explicit owner confirmation — unchanged from Task 6).
+**Status:** Complete. **Both axes PASS at round 25** — spec compliance and code quality, independently, each having verified the final fix by mutation rather than by reading. **Deployment NOT performed** (still gated on explicit owner confirmation — unchanged from Task 6), and the promotion gate binds Tasks 7/8/9 to ship together.
 
 ## Verdicts
 
-Round 11 returned PASS on both axes and recommended shipping. Round 12 — run against the round-11 fixes, with both reviewers told what had changed — returned **FAIL on both axes**, with two BLOCKERs the earlier rounds had missed. Round 13 then failed again, on a BLOCKER introduced *by* a round-12 fix. That is the useful fact about this task: a PASS from a reviewer that has not seen the latest commit is not a verdict on it, and a fix is not finished until it has been reviewed as harshly as the defect was.
+Twenty-five review rounds. Round 11 returned PASS on both axes and recommended shipping. Round 12 — run against the round-11 fixes, with both reviewers told what had changed — returned **FAIL on both axes**, with two BLOCKERs the earlier rounds had missed. Round 13 then failed again, on a BLOCKER introduced *by* a round-12 fix. That is the useful fact about this task: a PASS from a reviewer that has not seen the latest commit is not a verdict on it, and a fix is not finished until it has been reviewed as harshly as the defect was.
 
-Twenty-two review rounds ran. Every round from 4 onward surfaced a real defect the earlier rounds missed. The recurring shape, found in three separate forms, is worth carrying forward:
+Every round from 4 onward surfaced a real defect the earlier rounds missed, and from round 13 to round 24 the defect was, every time, introduced by the previous round's fix — always in the shift-report write path, never in the read hydration this task is actually scoped to. That path is interim scaffolding for a legacy write that is neither idempotent nor cancellable; Task 8 deletes it wholesale. The recurring shape, found in three separate forms, is worth carrying forward:
 
 > An effect that resets user-editable state, keyed on a prop that `App.jsx` re-mirrors with a **new array identity on every snapshot**. Before Task 7 the app only ever mirrored once, on load; now the cache pass, the server pass and every machine switch each land a fresh identity while the crew is typing. A reset keyed on `segmentRecords`/`shiftReports` therefore fires mid-edit and wipes typed manpower, ring numbers, chainage and grout volumes — none of which have an auto-save to recover from.
 
@@ -42,7 +42,8 @@ A systematic sweep of every effect in the view layer established that only `Shif
 | `1c18cf9` | fix: carry the response's collection flags to the only thing that reads them |
 | `021ee9e` | fix: make the seam pin deterministic and close its untested corners |
 | `dee4876` | fix: release a save block only if it was armed when the check was asked |
-| _(pending)_ | fix: give the save block an identity, not a boolean |
+| `6eaba46` | fix: give the save block an identity, not a boolean |
+| _(pending)_ | docs: close Task 7 — both axes PASS, and what Task 8 must know |
 
 The last row is always the commit that carries this file; `git log --oneline` on the branch is authoritative for its SHA.
 
@@ -188,9 +189,23 @@ Two of my own tests were also weaker than they read:
 
 The recurring shape, stated once more because it has now cost five rounds in three costumes: **an argument about what is on screen, or about what is true at render, is not an argument about what is in flight.**
 
-## Test evidence (at the round-24 commit)
+## Round 25 — both axes PASS
 
-- `npm test -- --watchAll=false --runInBand` → 66 suites / 852 tests pass (run twice)
+The spec axis rebuilt the component outside the repo and ran this repo's own suite against three variants of the one changed expression: HEAD passes 48/48; the round-23 boolean fails exactly the new two-checks test; the round-22 unconditional release fails that one and the in-flight one. It then probed interleavings nobody had tried — three overlapping checks, a check spanning a machine round-trip back to the same report, a block armed twice with no check between — and confirmed the epoch holds, that a legitimate release is never withheld, and that `refresh()` failing closed on a stale machine (`null` rather than another machine's payload) is a second, independent reason the machine dimension is safe.
+
+Both MINORs were verified the same way: the previous version of the in-flight test still passes against a source with the runtime refusal deleted (it was clicking a disabled button), while the current version fails; and the previous invariant fixture passes two separate drop-mutants that the current one fails.
+
+**Verdict: ready to hand over**, with the promotion gate still binding Tasks 7/8/9 to ship together.
+
+The quality axis reached PASS independently, reproducing the round-24 defect against the old component (three sends for one shift) and confirming it gone, then covering the mirror-image case the repo's test omits: after a stale check is refused, a *fresh* check must still clear the block and saving must resume. It does.
+
+Its one finding is cosmetic and deliberately left alone: **a check answered after its own mount died clears the block in module state but cannot re-render the live form**, so the notice can linger while the next Save correctly goes out. It errs conservative (warns when it needn't; `saveUnresolved` never disables Save), self-heals on the next keystroke, is pre-existing, and Task 8 deletes the notice outright. Subscribing the live mount to module state would be new machinery inside code already scheduled for removal.
+
+One finding worth carrying rather than fixing: **the notice is not a behavioural assertion.** It is nudged by whichever mount issued the check or the save, so when that mount is gone the live DOM lags the module-scope fact in both directions. Against the boolean mutant, the notice assertion inside the very test that pins the blocker still passed — only the send count caught it. Every rule these tests encode is a rule about *what was sent*, which is exactly how Task 8 must rewrite them.
+
+## Test evidence (at the round-25 commit)
+
+- `npm test -- --watchAll=false --runInBand` → 66 suites / 852 tests pass (run twice, and twice more by the reviewer)
 - `npm run test:gas-sync` → 92 pass / 0 fail
 - `npm run build` → Compiled successfully (build output restored with `git checkout -- build/`; the build artefact is not committed — Vercel builds from source)
 - `node --check ../gas-live/Code.js` → OK

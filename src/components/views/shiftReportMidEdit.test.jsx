@@ -1065,6 +1065,10 @@ describe("what may release an unknown outcome", () => {
 
     // C1 was issued before B2 existed; it cannot speak to it. Both saves carry the same draft id, so
     // count the sends rather than filtering by id — a third `addShiftReport` is the harm.
+    //
+    // The send count below is the real pin. The notice assertion is secondary and must not be
+    // trusted on its own: the notice is nudged by whichever mount issued the check, so against a
+    // broken source it can still read correctly while the write goes out anyway.
     expect(form.container.textContent).toContain("ไม่ทราบผลการบันทึกล่าสุด");
     const sendsBefore = apiCall.mock.calls.length;
     await saveAgain(form);

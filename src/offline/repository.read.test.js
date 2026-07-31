@@ -177,6 +177,27 @@ test("an edit whose row another device removed does not displace a row that is s
   expect(rows.find(row => row.id === "seg_b").length).toBe("9.99"); // the crew's own work, still theirs
 });
 
+test("an edit of a row the sheet returned without an id reads the same before and after a refresh", async () => {
+  // The snapshot key patch and the refresh overlay both decide which row a queued edit is about, and
+  // they have to decide the same way. The patch used to hand an update a row that carried no id —
+  // the only row it could not possibly have named — while the overlay refused to. One record then
+  // showed as one row on a relaunch and two after a refresh: the flicker both rules exist to stop.
+  const sheet = [{ ringNo: "P643", length: "1.40" }]; // a legacy row, no id
+  const repository = createRepository({ openDb: openOfflineDb, fetchServerSnapshot: async () => ({ segments: sheet }) });
+  await repository.refresh("TBM1");
+  await repository.mutate({
+    entityType: "segment", operation: "update", machine: "TBM1", recordId: "seg_x",
+    payload: { id: "seg_x", ringNo: "P643", installType: "Permanent", length: "9.99" }, baseVersion: 0,
+    domainKey: "segment:TBM1:P643:Permanent",
+  });
+
+  const onRelaunch = (await createRepository({ openDb: openOfflineDb, fetchServerSnapshot: async () => { throw new Error("offline"); } }).load("TBM1")).data.segments;
+  const onRefresh = (await repository.refresh("TBM1")).data.segments;
+
+  expect(onRelaunch.map(row => row.length).sort()).toEqual(["1.40", "9.99"]);
+  expect(onRefresh.map(row => row.length).sort()).toEqual(["1.40", "9.99"]);
+});
+
 test("a confirmed delete of one row does not hide its neighbour", async () => {
   // the confirmed half of the tombstone names a row exactly as the pending half does; ignoring which
   // row it named took both off screen, on a device whose crew asked for neither
@@ -434,6 +455,34 @@ test("a confirmed edit leaves the key live, so the next record for that ring sti
   }).baseVersion).toBe(0);
 });
 
+test("a confirmed version does not walk backwards, and does not leak to the other machine", async () => {
+  // Two rules on the write that makes a confirmation outlive the tab. A confirmation can land after
+  // a getData that already knew a later version — writing the older one back would make the next
+  // edit claim it and be refused. And it belongs to ONE machine's snapshot: cross-machine
+  // contamination is this project's most-repeated defect, and a foreign key here grows the other
+  // machine's snapshot forever.
+  const repository = createRepository({
+    openDb: openOfflineDb,
+    fetchServerSnapshot: async machine => ({ segments: [], syncMeta: machine === "TBM1" ? { "segment:TBM1:P643:Permanent": { version: 9 } } : {} }),
+  });
+  await repository.refresh("TBM1");
+  await repository.refresh("TBM2");
+  const queued = await repository.mutate({
+    entityType: "segment", operation: "update", machine: "TBM1", recordId: "s1",
+    payload: { id: "s1", ringNo: "P643", status: "Completed" }, baseVersion: 9,
+    domainKey: "segment:TBM1:P643:Permanent",
+  });
+
+  // the server answers with an OLDER version than the snapshot already holds
+  await repository.applySyncSuccess(queued.requestId, {
+    requestId: queued.requestId, status: "success",
+    record: { id: "s1", ringNo: "P643" }, version: 4, updatedAt: "2026-07-30T02:00:00.000Z",
+  });
+
+  expect((await repository.load("TBM1")).data.syncMeta["segment:TBM1:P643:Permanent"]).toMatchObject({ version: 9 });
+  expect((await repository.load("TBM2")).data.syncMeta["segment:TBM1:P643:Permanent"]).toBeUndefined();
+});
+
 test("a ring another crew still holds is not quietly taken over by a second record", async () => {
   // the same lookup, the other answer: a LIVE key means someone else's row is there, and claiming
   // its version would tell GAS to merge this record onto theirs
@@ -470,6 +519,44 @@ test("a slower earlier refresh does not overwrite the cache a later one already 
   await earlier;
 
   expect((await repository.load("TBM1")).data.segments.map(row => row.ringNo)).toEqual(["P100", "P101"]);
+});
+
+test("a phone whose clock has never been set still builds its offline snapshot", async () => {
+  // The overtaken guard compares two stamps, and its sentinel for "no previous request" was `0` —
+  // which `Date.parse` reads as the string "0", i.e. the year 2000. A site phone that boots to
+  // epoch after a flat battery therefore looked overtaken on the FIRST refresh of every machine,
+  // read a snapshot that did not exist yet, and threw on it: the crew is told the server is
+  // unreachable when it answered fine, and the offline cache this whole task exists for is never
+  // written at all.
+  let tick = 0;
+  const repository = createRepository({
+    openDb: openOfflineDb,
+    now: () => new Date(Date.parse("1998-01-01T00:00:00.000Z") + (tick++ * 1000)).toISOString(),
+    fetchServerSnapshot: async () => ({ segments: [{ id: "s1", ringNo: "P644" }] }),
+  });
+
+  const refreshed = await repository.refresh("TBM1");
+
+  expect(refreshed.data.segments.map(row => row.ringNo)).toEqual(["P644"]);
+  expect((await repository.load("TBM1")).data.segments.map(row => row.ringNo)).toEqual(["P644"]);
+});
+
+test("an overtaking refresh that could not write its cache does not leave this one with nothing", async () => {
+  // the later request records itself as the newest and then fails on quota, so there is no newer
+  // snapshot to defer to — deferring anyway handed the caller a null and threw on it
+  let calls = 0;
+  const repository = createRepository({
+    openDb: openOfflineDb,
+    writeServerSnapshot: async () => { throw new Error("QuotaExceededError"); },
+    fetchServerSnapshot: async () => ({ segments: [{ id: `s${++calls}`, ringNo: "P644" }] }),
+  });
+  await repository.refresh("TBM1").catch(() => {});
+
+  const second = createRepository({
+    openDb: openOfflineDb,
+    fetchServerSnapshot: async () => ({ segments: [{ id: "s9", ringNo: "P645" }] }),
+  });
+  await expect(second.refresh("TBM1")).resolves.toMatchObject({ source: "server" });
 });
 
 test("a clock that steps backwards does not resurrect a deleted ring", async () => {

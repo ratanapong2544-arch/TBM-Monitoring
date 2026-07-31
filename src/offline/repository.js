@@ -43,9 +43,8 @@ export function createRepository(deps = {}) {
   let lastStamp = 0;
   const now = () => {
     const parsed = Date.parse(wallClock());
-    const stamp = Number.isNaN(parsed) ? lastStamp + 1 : Math.max(parsed, lastStamp + (parsed <= lastStamp ? 1 : 0));
-    lastStamp = stamp;
-    return new Date(stamp).toISOString();
+    lastStamp = Number.isNaN(parsed) ? lastStamp + 1 : Math.max(parsed, lastStamp + 1);
+    return new Date(lastStamp).toISOString();
   };
   // What the last COMPLETED refresh for a machine was asked at. A slower earlier request must not
   // overwrite the cache a later one already wrote: `useOfflineData` drops the stale answer from
@@ -102,8 +101,25 @@ export function createRepository(deps = {}) {
     return { requestId: mutation.requestId, status: MUTATION_STATUS.PENDING, optimisticRecord: entity.payload };
   }
 
+  // Whether the record is GONE afterwards. Normally that is the operation the crew performed, but a
+  // conflict resolved in the server's favour replays this path with the SERVER's record, and then it
+  // is the server that decides: a delete the server refused, resolved by keeping the server's copy,
+  // must leave a live row and a live key. Reading it from the operation instead marked the key as a
+  // tombstone at that version — so the next record for the ring claimed it, and GAS read a create
+  // whose base matches as a post-conflict successor and applied it onto the row the crew had just
+  // chosen to keep.
+  function makeResolvesToDeleted(options) {
+    return (mutation, response) => {
+      // resolved by taking the server's copy: the server's record is the outcome, and a record it
+      // returned without a `deleted` marker is one that still exists
+      if (options && options.fromServerRecord) return Boolean(response.record && response.record.deleted);
+      return mutation.operation === "delete";
+    };
+  }
+
   async function applySyncSuccess(requestId, response, options) {
-    const mutation = await confirmMutation(await openDb(), requestId, response, { ...options, confirmedAtLocal: now() });
+    const resolvesToDeleted = makeResolvesToDeleted(options);
+    const mutation = await confirmMutation(await openDb(), requestId, response, { ...options, confirmedAtLocal: now(), resolvesToDeleted });
     if (!mutation) return null;
     await setLastSyncedAt(await openDb(), response.updatedAt || now());
     // The confirmed version has to reach whoever stamps the NEXT mutation's `baseVersion`. Without
@@ -120,7 +136,7 @@ export function createRepository(deps = {}) {
       // create built from a version WITHOUT the flag claims 0 and is refused. Dropping it here left
       // exactly one window open: from a delete confirming until the next full getData, which since
       // Task 8 removed the last refresh caller is normally the rest of the session.
-      deleted: mutation.operation === "delete",
+      deleted: resolvesToDeleted(mutation, response),
     });
     return mutation;
   }
@@ -143,7 +159,13 @@ export function createRepository(deps = {}) {
     const original = await getMutation(db, conflict.requestId);
     const before = { serverRecord: conflict.serverRecord, localRecord: conflict.localRecord };
     if (strategy === "server") {
-      await applySyncSuccess(conflict.requestId, { record: conflict.serverRecord, version: conflict.currentVersion, updatedAt: conflict.serverRecord && conflict.serverRecord.updatedAt });
+      // `fromServerRecord`: what the crew chose IS the server's row, so whether the record ends up
+      // deleted is the server's answer and not the operation they originally attempted
+      await applySyncSuccess(
+        conflict.requestId,
+        { record: conflict.serverRecord, version: conflict.currentVersion, updatedAt: conflict.serverRecord && conflict.serverRecord.updatedAt },
+        { fromServerRecord: true },
+      );
       await resolveStoredConflict(db, conflictId, { resolvedAt: now(), strategy, before, after: conflict.serverRecord });
       return { status: "resolved" };
     }
@@ -200,14 +222,20 @@ export function createRepository(deps = {}) {
         // A later request may already have finished while this one was still out — a quick machine
         // switch back and forth is enough. Its answer is the newer description of the sheet, and
         // writing this one over it would put the older one in the cache, where a relaunch would find
-        // it. The caller still gets what it fetched; only the cache is left alone.
-        const overtaken = Date.parse(lastCompletedRequest.get(machine) || 0) > Date.parse(requestedAt);
+        // it. So the cache keeps what the newer request wrote, and this call returns that same
+        // newer snapshot rather than the payload it happens to be holding: two callers describing
+        // one machine differently is worse than one of them being a moment behind.
+        const previousRequest = lastCompletedRequest.get(machine);
+        // no `|| 0` sentinel: `Date.parse(0)` is `Date.parse("0")`, which is the year 2000, so on a
+        // phone whose clock has not been set yet EVERY first refresh would look overtaken
+        const overtaken = Boolean(previousRequest) && Date.parse(previousRequest) > Date.parse(requestedAt);
         if (!overtaken) lastCompletedRequest.set(machine, requestedAt);
         let stored;
         try {
-          stored = overtaken
-            ? await readServerSnapshot(await openDb(), machine)
-            : await writeServerSnapshot(await openDb(), machine, data, fetchedAt, requestedAt);
+          // and never trust the overtaking write to have produced something: it can have failed on
+          // quota or private browsing and returned through the cacheError path without writing
+          stored = (overtaken && await readServerSnapshot(await openDb(), machine))
+            || await writeServerSnapshot(await openDb(), machine, data, fetchedAt, requestedAt);
         } catch (writeError) {
           // The server data is already in hand. Throwing here would show an empty app to a crew
           // whose payload arrived fine, just because the cache could not be written (quota, private

@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect } from "react";
 import { FileText, Droplet, Activity, ChevronLeft, ChevronRight, Edit, Trash2, X, Camera, Calendar, Save, Loader2, Info } from "lucide-react";
 import { formatDisplayDate, formatCH } from "../../utils/formatters";
-import { getRingNumeric, getRingByOffsetFromHistory } from "../../utils/helpers";
+import { getRingNumeric } from "../../utils/helpers";
 import { THEORETICAL_VOL, VOL_120, VOL_150 } from "../../utils/constants";
 import { buildMutationEnvelope } from "../../offline/mutationEnvelope";
 import StatCard from "../common/StatCard";
@@ -77,11 +77,8 @@ const GroutDashboardView = ({ groutRecords, segmentRecords, secondaryGroutRecord
 
   const handleEditChange = (e) => {
     const { name, value } = e.target;
-    setEditFormData((prev) => {
-      const updated = { ...prev, [name]: value };
-      // there was a `ringNo` branch here re-deriving `excavRing`; the ring is no longer editable
-      return updated;
-    });
+    // the ring is not editable, so nothing here has to re-derive anything from it
+    setEditFormData((prev) => ({ ...prev, [name]: value }));
   };
 
   const handleSaveEdit = async () => {

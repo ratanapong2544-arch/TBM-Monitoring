@@ -72,8 +72,14 @@ export async function writeServerSnapshot(db, machine, data, fetchedAt, requeste
   const entities = transaction.objectStore(STORES.entities);
   const snapshots = transaction.objectStore(STORES.snapshots);
   const mutations = transaction.objectStore(STORES.mutations);
-  const previous = await requestResult(snapshots.get(scopeKey(machine)));
-  const [existing, pendingMutations] = await Promise.all([requestResult(entities.getAll()), requestResult(mutations.getAll())]);
+  // all three reads issued together and awaited as one. Awaiting the first before issuing the others
+  // leaves the transaction's survival resting on how promptly a microtask runs — the same reason
+  // `putOptimisticMutation` and `confirmMutation` batch theirs, and this is the hotter path.
+  const [previous, existing, pendingMutations] = await Promise.all([
+    requestResult(snapshots.get(scopeKey(machine))),
+    requestResult(entities.getAll()),
+    requestResult(mutations.getAll()),
+  ]);
   const unresolvedByDomain = new Map(pendingMutations
     .filter(mutation => UNRESOLVED_STATUSES.has(mutation.status) && (mutation.status !== MUTATION_STATUS.SYNCING || !mutation.leaseExpiresAt || Date.parse(mutation.leaseExpiresAt) > Date.now()))
     .sort((left, right) => (left.queueSequence || 0) - (right.queueSequence || 0))
@@ -114,15 +120,13 @@ export async function writeServerSnapshot(db, machine, data, fetchedAt, requeste
     return mutation;
   };
   // A delete names one row, and a row the sheet returned without an id cannot be matched to it.
-  // Both sides read the same way as `entityKeyForRecord`, which the snapshot key patch uses: an
-  // absent id on either side matches nothing. `requireMutationEnvelope` refuses a delete with no
-  // record id, so the mutation side cannot be absent anyway — and answering "matches everything"
-  // there would have made this half of the rule contradict the other.
-  const matchesDeletedRow = (mutation, recordId) => {
-    if (mutation.recordId == null || mutation.recordId === "") return false;
-    if (recordId == null || recordId === "") return false;
-    return String(recordId) === String(mutation.recordId);
-  };
+  // Reads the same way as `entityKeyForRecord`, which the snapshot key patch uses: an absent id on
+  // either side matches nothing. (`requireMutationEnvelope` refuses a delete with no record id, so
+  // only the row side is reachable — but the two halves of one rule answering differently is how
+  // a record ends up on screen after a relaunch and gone after a refresh.)
+  const matchesDeletedRow = (mutation, recordId) => (
+    recordId != null && recordId !== "" && String(recordId) === String(mutation.recordId)
+  );
   const deletePending = (domainKey, recordId) => {
     // A delete CONFIRMED after the request went out is in the same position as one still in flight:
     // the answer in hand was composed before it, so the row it removed is still in that answer. The

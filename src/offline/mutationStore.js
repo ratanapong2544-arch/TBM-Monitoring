@@ -59,15 +59,16 @@ function patchSnapshotKeys(snapshots, stored, mutation) {
       // Replacing rather than appending is the only way an update becomes visible at all — its
       // optimistic copy lives under a different key from the server row it supersedes.
       //
-      // An update names its row, so it matches on the record id. A CREATE has no row to name: it
-      // takes the domain's slot, because `writeServerSnapshot` overlays an optimistic record onto
-      // one incoming row per domain and the two have to agree. That is also what stops a ring the
-      // sheet already holds from reading as two rings until the server settles which it is.
+      // An update names its row, so it matches on the record id and takes no other. A CREATE has no
+      // row to name: it takes the domain's slot, because `writeServerSnapshot` overlays an
+      // optimistic record onto one incoming row per domain and the two have to agree — and that is
+      // what stops a ring the sheet already holds from reading as two rings until the server settles
+      // which record owns it. An update used to fall back to a row the sheet returned WITHOUT an id,
+      // which `overlaysThisRow` refuses on the other side: one record then showed as one row on a
+      // relaunch and two after a refresh, the flicker both rules exist to prevent.
       let slot = keys.findIndex(mine);
-      if (slot === -1) {
-        slot = mutation.operation === "create"
-          ? keys.findIndex(key => entityKeyBelongsToDomain(key, mutation.domainKey))
-          : keys.findIndex(key => entityKeyBelongsToDomain(key, mutation.domainKey) && !entityKeyHasRecordId(key));
+      if (slot === -1 && mutation.operation === "create") {
+        slot = keys.findIndex(key => entityKeyBelongsToDomain(key, mutation.domainKey));
       }
       next = slot === -1 ? keys.concat(optimisticKey) : keys.map((key, index) => (index === slot ? optimisticKey : key));
     }
@@ -79,7 +80,7 @@ function patchSnapshotKeys(snapshots, stored, mutation) {
 
 // The stored snapshot carries `syncMeta` as a singleton, and `readServerSnapshot` hands it straight
 // back — so writing a confirmed version here is what makes it outlive the tab.
-function patchSnapshotSyncMeta(snapshots, stored, mutation, version) {
+function patchSnapshotSyncMeta(snapshots, stored, mutation, version, deleted) {
   const scoped = isMachineScopedEntityType(mutation.entityType)
     ? stored.filter(snapshot => snapshot.machine === mutation.machine)
     : stored;
@@ -89,7 +90,7 @@ function patchSnapshotSyncMeta(snapshots, stored, mutation, version) {
     if (current && toSyncVersion(current.version) >= version) return;
     // `deleted` travels with the version because the next create on this key reads it: a tombstone
     // is not inert on the server, and a create that does not claim its version is refused.
-    const entry = { ...current, version, deleted: mutation.operation === "delete" };
+    const entry = { ...current, version, deleted };
     snapshots.put({ ...snapshot, syncMeta: { ...snapshot.syncMeta, [mutation.domainKey]: entry } });
   });
 }
@@ -228,7 +229,10 @@ export async function updateMutation(db, requestId, update, { owner } = {}) {
   return next;
 }
 
-export async function confirmMutation(db, requestId, response, { owner, confirmedAtLocal } = {}) {
+export async function confirmMutation(db, requestId, response, { owner, confirmedAtLocal, resolvesToDeleted } = {}) {
+  // whether the record is gone afterwards. The caller decides, because a conflict resolved in the
+  // server's favour replays this path with the server's record and the operation no longer says.
+  const leavesDeleted = mutation => (resolvesToDeleted ? resolvesToDeleted(mutation, response) : mutation.operation === "delete");
   const transaction = db.transaction([STORES.entities, STORES.mutations, STORES.snapshots], "readwrite");
   const mutationStore = transaction.objectStore(STORES.mutations);
   const entityStore = transaction.objectStore(STORES.entities);
@@ -288,7 +292,7 @@ export async function confirmMutation(db, requestId, response, { owner, confirme
     // what the last full `getData` carried. The next edit of this record would stamp the version
     // from before its own write, the server would answer `conflict` for a row nobody else touched,
     // and that conflict would block the record's domain with nothing on screen to show it.
-    patchSnapshotSyncMeta(snapshotStoreHandle, snapshots, mutation, confirmedVersion);
+    patchSnapshotSyncMeta(snapshotStoreHandle, snapshots, mutation, confirmedVersion, leavesDeleted(mutation));
   }
   const newestOutstanding = mutations
     .map(item => (item.requestId === requestId ? next : rebased.get(item.requestId) || item))
@@ -296,10 +300,13 @@ export async function confirmMutation(db, requestId, response, { owner, confirme
     .sort((left, right) => (right.queueSequence || 0) - (left.queueSequence || 0))[0];
   if (newestOutstanding) {
     entityStore.put(optimisticEntity(newestOutstanding));
-  } else if (mutation.operation === "delete") {
+  } else if (leavesDeleted(mutation)) {
     // a confirmed delete has no row left to describe. Writing one would leave an entity nothing
     // points at — `patchSnapshotKeys` took its key out of the list when the delete was queued — and
-    // the next refresh only deletes the keys the previous snapshot named, so it would simply sit there.
+    // the next refresh only deletes the keys the previous snapshot named, so it would simply sit
+    // there. `leavesDeleted`, not the operation: a delete the server refused and the crew resolved
+    // by keeping the server's copy ends with the row still there, and dropping it here would remove
+    // from the screen the very record they chose to keep.
     entityStore.delete(optimisticEntityKey(mutation.domainKey));
   } else {
     const record = response.record || {};
@@ -462,15 +469,17 @@ export async function getSyncCounts(db) {
     .map(item => item.domainKey));
   const isBlocked = item => blockedDomains.has(item.domainKey);
   const pending = mutations.filter(item => item.status === MUTATION_STATUS.PENDING);
-  const syncing = mutations.filter(item => item.status === MUTATION_STATUS.SYNCING);
   return {
     pending: pending.filter(item => !isBlocked(item)).length,
-    syncing: syncing.filter(item => !isBlocked(item)).length,
+    // not filtered: a SYNCING mutation cannot share a domain with a stuck one. `claimDueMutations`
+    // returns one head per domain and a conflicted or refused head is never claimable again, so
+    // nothing behind it can be in flight.
+    syncing: mutations.filter(item => item.status === MUTATION_STATUS.SYNCING).length,
     conflicts: conflicts.filter(item => item.status === "open").length,
     errors: mutations.filter(item => item.status === MUTATION_STATUS.VALIDATION_ERROR || item.status === MUTATION_STATUS.PERMANENT_ERROR).length,
     // queued behind a head that will never move, so reported with the stuck ones rather than as work
     // still travelling
-    blocked: pending.concat(syncing).filter(isBlocked).length,
+    blocked: pending.filter(isBlocked).length,
     lastSyncedAt: syncMeta && syncMeta.value || null,
   };
 }

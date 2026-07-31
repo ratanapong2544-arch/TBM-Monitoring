@@ -562,12 +562,16 @@ test("a write the queue cannot finish is said out loud", async () => {
   // to that ring afterwards waits behind it. Task 10 resolves them; until then the counts existed
   // and nothing read them, so the crew could not tell "queued" from "never going".
   const repository = makeRepository({
-    getSyncSummary: async () => ({ online: true, pending: 0, syncing: 0, conflicts: 1, errors: 2, lastSyncedAt: null }),
+    // `blocked` is the records queued behind a stuck head: never posted, so never "on their way".
+    // Counted separately by `getSyncCounts`, and the strip has to add it — three rings stranded
+    // behind one conflict is three, and reporting one is a straight untruth about how much work
+    // is not on the sheet.
+    getSyncSummary: async () => ({ online: true, pending: 0, syncing: 0, conflicts: 1, errors: 2, blocked: 4, lastSyncedAt: null }),
   });
   const app = renderApp(repository);
   await act(async () => {});
 
-  expect(app.text()).toContain("3 รายการติดค้าง");
+  expect(app.text()).toContain("7 รายการติดค้าง");
   app.unmount();
 });
 
@@ -577,7 +581,7 @@ test("the queue's state is said alongside the other notices, not instead of them
   // durable at all and outranks anything in it. And the quiet half, sitting last, could never appear
   // while the device was offline: the one situation it exists for.
   const repository = makeRepository({
-    getSyncSummary: async () => ({ online: false, pending: 2, syncing: 0, conflicts: 1, errors: 0, lastSyncedAt: null }),
+    getSyncSummary: async () => ({ online: false, pending: 2, syncing: 0, conflicts: 1, errors: 0, blocked: 0, lastSyncedAt: null }),
     refresh: async machine => ({ data: snapshot(machine), source: "server", fetchedAt: "2026-07-30T00:00:00.000Z", stale: false, cacheError: new Error("QuotaExceededError") }),
   });
   const app = renderApp(repository);
@@ -585,6 +589,52 @@ test("the queue's state is said alongside the other notices, not instead of them
 
   expect(app.text()).toContain("บันทึกลงเครื่องไม่ได้"); // still the headline
   expect(app.text()).toContain("1 รายการติดค้าง");       // and the queue is reported too
+  // stuck and waiting are different facts and both are true here: collapsing them understated how
+  // much work is not on the sheet
+  expect(app.text()).toContain("2 รายการรอซิงก์");
+  app.unmount();
+});
+
+test("an offline device is told what it is still holding", async () => {
+  // The branch this rule was written for. The quiet note used to sit last in the chain, after the
+  // stale-snapshot branch — so on the one screen where "saved" most needs qualifying, it never
+  // appeared. Offline is not an error state here: the crew is recording, and the queue is filling.
+  const repository = makeRepository({
+    getSyncSummary: async () => ({ online: false, pending: 3, syncing: 0, conflicts: 0, errors: 0, blocked: 0, lastSyncedAt: null }),
+    load: async machine => ({ data: cached(machine), source: "indexeddb", fetchedAt: "2026-07-30T02:15:00.000Z", stale: true }),
+    refresh: async () => { throw new Error("NETWORK"); },
+  });
+  const onLine = jest.spyOn(window.navigator, "onLine", "get").mockReturnValue(false);
+  const app = renderApp(repository);
+  await act(async () => {});
+
+  expect(app.text()).toContain("ออฟไลน์");
+  expect(app.text()).toContain("3 รายการรอซิงก์");
+  app.unmount();
+  onLine.mockRestore();
+});
+
+test("a machine still loading is told too", async () => {
+  // same rule on the branch a machine switch takes: the lists are empty because this machine's
+  // snapshot has not landed, and the queue is a separate fact that stays true throughout
+  const repository = makeRepository({
+    getSyncSummary: async () => ({ online: true, pending: 1, syncing: 0, conflicts: 0, errors: 0, blocked: 0, lastSyncedAt: null }),
+    load: async machine => (machine === "TBM2"
+      ? new Promise(() => {})
+      : { data: cached(machine), source: "indexeddb", fetchedAt: "x", stale: true }),
+    refresh: async machine => (machine === "TBM2"
+      ? new Promise(() => {})
+      : { data: snapshot(machine), source: "server", fetchedAt: "2026-07-30T00:00:00.000Z", stale: false }),
+  });
+  const app = renderApp(repository);
+  await act(async () => {});
+  await act(async () => {
+    [...app.container.querySelectorAll("button")].find(b => b.textContent.trim() === "TBM2")
+      .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  });
+
+  expect(app.text()).toContain("กำลังโหลดข้อมูลของเครื่องนี้");
+  expect(app.text()).toContain("1 รายการรอซิงก์");
   app.unmount();
 });
 

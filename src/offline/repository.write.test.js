@@ -189,6 +189,32 @@ test("a confirmation names the record that moved and the version it moved to", a
   }));
 });
 
+test("keeping the server's copy of a refused delete leaves the record, and the key, alive", async () => {
+  // `resolveConflict("server")` replays the confirm path with the SERVER's record, so the crew's
+  // original operation no longer describes the outcome. Reading "was this a delete?" off the
+  // operation there did two things: it removed from the screen the very row the crew chose to keep,
+  // and it marked the key as a tombstone at that version — so the NEXT record for that ring claimed
+  // the version, and GAS reads a create whose base matches as a post-conflict successor and applies
+  // it onto the live row. The collapse the create rule exists to prevent, through the back door.
+  const repository = makeRepository({ createRequestId: (() => { let n = 0; return () => `request-${++n}`; })() });
+  const queued = await repository.mutate({ ...segmentInput, operation: "delete" });
+  await repository.applyConflict(queued.requestId, {
+    requestId: queued.requestId, status: "conflict",
+    serverRecord: { id: "segment-1", ringNo: "P1", installType: "Permanent", status: "server" },
+    localRecord: segmentInput.payload, conflictingFields: ["status"], currentVersion: 7,
+  });
+  const conflictId = (await repository.getMutation(queued.requestId)).requestId;
+  const events = [];
+  repository.subscribe(event => events.push(event));
+
+  await repository.resolveConflict(conflictId, { strategy: "server" });
+
+  expect(events).toContainEqual(expect.objectContaining({ type: "sync", version: 7, deleted: false }));
+  await expect(repository.getEntity(queued.optimisticRecord.domainKey)).resolves.toMatchObject({
+    payload: expect.objectContaining({ status: "server" }),
+  });
+});
+
 test("a confirmation says whether it left the record deleted", async () => {
   // The next create on that key reads this to tell a tombstone from a live record — one claims the
   // version to lift it, the other claims 0 so the server can object. App's half is tested with a

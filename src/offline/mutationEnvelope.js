@@ -33,11 +33,13 @@ import { toSyncVersion } from "./syncVersion";
  * lifts it (see `createBaseVersion`), and the ring keeps one continuous history.
  *
  * Only ONE path can still reach this — the segment record form, where the ring is the field the crew
- * types into and a T/P prefix also flips the install type. The data logs show a record's identity
- * without offering to change it, and delete-and-re-record is a sequence they support. That matters:
- * the remedy has to exist wherever the refusal does, and it does not exist everywhere. A shift
- * report has no delete operation at all, and no view can create a Re-Grout or a secondary grout
- * under a chosen ring — which is exactly why those fields are not editable rather than refused.
+ * types into and a T/P prefix also flips the install type. It is also the one place where the
+ * remedy exists: segments can be deleted and recorded again. That is why the data logs show a
+ * record's identity without offering to change it rather than refusing the change afterwards — a
+ * refusal is only honest where the crew can act on it, and for a Re-Grout, which no view can create,
+ * they could not. A shift report is a third case: its date and shift inputs SELECT which report is
+ * loaded rather than rename the one in front of you, so no `identity` is passed and nothing here
+ * fires — which is just as well, since `shiftReport` has no delete operation to recover with.
  */
 export function buildMutationEnvelope({ entityType, operation, machine, recordId, payload, syncMeta, identity }) {
   const domainKey = makeDomainKey({ entityType, machine, recordId, payload });

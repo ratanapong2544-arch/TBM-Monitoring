@@ -993,6 +993,44 @@ describe("what may release an unknown outcome", () => {
     second.unmount();
   });
 
+  test("a check already in flight when the block arms does not release it", async () => {
+    // The two notices are mutually exclusive on screen, which says nothing about what happens ACROSS
+    // the await. A save can give up while a cold-launch check is in the air — that check was issued
+    // BEFORE the give-up, so it cannot say where the request ended up, and clearing the block would
+    // let the next time bar append a second row for the shift.
+    let releaseRefresh;
+    const onRefresh = () => new Promise(resolve => { releaseRefresh = () => resolve({ serverPayload: { status: "success", shiftReports: [] } }); });
+    const props = ready => ({ shiftReports: [], setShiftReports: () => {}, snapshotReady: ready, onRefresh });
+
+    // the snapshot had landed, so this save goes out — and then hangs
+    apiCall.mockImplementation(() => new Promise(() => {}));
+    const form = render(view(props(true)));
+    type(form.container, "Engineer", "3");
+    await act(async () => {
+      [...form.container.querySelectorAll("button")].find(b => /Save to Cloud/.test(b.textContent))
+        .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    const sentId = apiCall.mock.calls[0][1].id;
+
+    // a machine switch away and back leaves this machine's rows not yet re-fetched, so the
+    // cold-launch banner appears while that save is still travelling
+    form.rerender(view(props(false)));
+    await act(async () => {
+      [...form.container.querySelectorAll("button")].find(b => /ดึงข้อมูลจากเซิร์ฟเวอร์/.test(b.textContent))
+        .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    // only now does the save give up, arming the block — after the check was issued
+    await act(async () => { jest.advanceTimersByTime(SHIFT_SAVE_TIMEOUT_MS); });
+    await act(async () => { releaseRefresh(); });
+
+    // the check cannot speak to a give-up that happened after it was asked
+    expect(form.container.textContent).toContain("ไม่ทราบผลการบันทึกล่าสุด");
+    await saveAgain(form);
+    expect(apiCall.mock.calls.filter(c => c[1].id === sentId)).toHaveLength(1);
+    form.unmount();
+  });
+
   test("a snapshot arriving on its own does not release it, whatever it contains", async () => {
     // Any snapshot the app fetched by itself may have read the sheet BEFORE the timed-out request
     // reached it, so an absent row proves nothing — and one that arrives while the request is still

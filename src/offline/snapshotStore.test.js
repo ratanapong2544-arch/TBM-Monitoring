@@ -34,6 +34,12 @@ test("returns every field of the snapshot it was given, except the ones it delib
   const dropped = Object.keys(data).filter(key => !(key in returned));
   // `present` describes one response, not a stored snapshot; `repository.refresh` re-attaches it
   expect(dropped).toEqual(["present"]);
+
+  // Key presence alone is not enough: `committed` starts from `emptyServerData`, so a field added to
+  // BOTH the normalizer and the empty shape — but not to the copy list — comes back present and
+  // silently empty, carrying the default instead of the server's value. Compare the values.
+  const carried = Object.keys(data).filter(key => key !== "present" && key !== "machine");
+  carried.forEach(key => { expect({ [key]: returned[key] }).toEqual({ [key]: data[key] }); });
 });
 
 test("preserves a pending optimistic entity by domain key when server data arrives", async () => {

@@ -285,15 +285,17 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
   // The question is causal: was the sheet read after our request reached it? Only one fetch in the
   // app has a knowable answer — one the crew issues from here, after we gave up waiting. Every
   // ambient snapshot may have read the sheet long before, so an absent row in it proves nothing.
-  // Both notices call this, and only one of them can be on screen: the cold-launch banner renders
-  // behind `!saveUnresolved` (see below), which is the block itself. That mutual exclusion is what
-  // makes a single handler safe — a fetch issued from the cold-launch banner is issued BEFORE any
-  // give-up and could not speak to a write that timed out afterwards. If the two are ever allowed to
-  // coexist, that press must stop clearing `state.blocked`.
+  // Both notices call this. Only one can be ON SCREEN at a time — the cold-launch banner renders
+  // behind `!saveUnresolved`, which is the block itself — but that says nothing about what happens
+  // ACROSS the await: a save already travelling can give up while this fetch is in the air, arming
+  // the block after the press. This fetch was issued before that give-up, so it cannot speak to it,
+  // and clearing the block would let the next time bar append a second row for the shift. Hence the
+  // capture below: release only a block that was already armed when the question was asked.
   const checkWithServer = async () => {
     if (!onRefresh) return;
     const key = selectorKey;
     const state = shiftSaveStateFor(key);
+    const blockedAtCheck = state.blocked;
     const dateAtCheck = meta.date;
     const shiftAtCheck = meta.shift;
     setChecking(true);
@@ -317,7 +319,7 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
       const rows = Array.isArray(payload.shiftReports) ? payload.shiftReports : [];
       const landed = rows.find(r => formatDisplayDate(r.date) === dateAtCheck && String(r.shift) === String(shiftAtCheck));
       if (landed && landed.id) state.savedIds.add(landed.id);
-      state.blocked = false;
+      if (blockedAtCheck) state.blocked = false;
       bumpUnresolved(n => n + 1);
     } catch (error) {
       setCheckFailed(true);

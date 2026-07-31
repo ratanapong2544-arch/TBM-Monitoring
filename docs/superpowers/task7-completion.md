@@ -40,7 +40,8 @@ A systematic sweep of every effect in the view layer established that only `Shif
 | `a46fbc2` | fix: give the cold-launch gate a way out and a real test |
 | `0a5f56f` | fix: gate only what creates a report, on what the server actually sent |
 | `1c18cf9` | fix: carry the response's collection flags to the only thing that reads them |
-| _(pending)_ | fix: make the seam pin deterministic and close its untested corners |
+| `021ee9e` | fix: make the seam pin deterministic and close its untested corners |
+| _(pending)_ | fix: release a save block only if it was armed when the check was asked |
 
 The last row is always the commit that carries this file; `git log --oneline` on the branch is authoritative for its SHA.
 
@@ -139,7 +140,7 @@ The spec axis judged the read half done at this point: *"All twenty rounds of bl
 
 - **The Save button gated updates as well as appends**, contradicting the rule the save path states two hundred lines above it. On a marginal link the 463 KB snapshot times out while a kilobyte write would land, so a crew correcting manpower — the one field group with no auto-save — found Save dead and lost it on the next nav tap. The button now mirrors the runtime rule: it blocks only when this save would *create* a report.
 - **`source === "server"` says a response arrived, not that it carried shift reports.** The normalizer maps a missing key to `[]`, so an older GAS deployment, or a `doGet` whose Shift sheet read failed, opened the gate on a payload containing no reports at all — and the crew's first time bar appended a second row for a shift that already had one, with a healthy server and nothing on screen. `normalizeServerData` now records which collections the response actually carried (`present`), and the gate requires that flag. It is deliberately not persisted: a cached snapshot says nothing about what the server most recently sent.
-- **The cold-launch button could release a timeout block it cannot speak to.** Its fetch is issued *before* any give-up, so it carries no information about a write that timed out afterwards. Only the unresolved notice's own press releases now.
+- **The cold-launch button could release a timeout block it cannot speak to.** Its fetch is issued *before* any give-up, so it carries no information about a write that timed out afterwards. (First fixed with a per-caller flag; round 23 replaced that with the causal rule — a check releases only a block that was already armed **when the question was asked**, which also covers a block arming while the check is in the air.)
 
 Two fixes from the previous round turned out to be unpinned — the `source === "server"` predicate and the capture-at-prepare semantics — and one earlier assertion was still vacuous (clicking a disabled button, which React never dispatches). All three are pinned now; the capture test needed its first save to *fail*, or the queued one became an update and never reached the gate at all.
 
@@ -157,13 +158,23 @@ The quality axis returned **PASS**: no blocker, no major, and it would hand the 
 
 The spec axis failed it on the pin itself: the seam test waited a **fixed five macrotask flushes**, which was enough on a warm run and not on a cold or loaded one — it failed roughly a third of the time on the very command the plan uses as its gate. A count is not a wait. It now polls the observable condition with a bounded deadline; five consecutive runs of that file and three of the full suite are green.
 
-Also closed here, all from the two reviews: the seam fixture used today's date, so the report it returned would have matched the open form and made the assertions pass regardless of `present`; the `cacheError` branch's `present` had no test, so a tidy-up there would have reproduced the round-21 blocker for private-browsing and over-quota devices; `writeServerSnapshot` now has an invariant test asserting it returns every field it was given except the one it deliberately drops, which would have caught this two rounds earlier and will catch the next field someone adds; the cache fixtures no longer fabricate `present`, which the real cache read never returns; `useOfflineData.test.js` — the file whose whole subject is async flush ordering — was the last one running without React's escaped-update warning; and the `mayRelease` parameter, which could never change an outcome as wired, is gone in favour of stating the invariant that makes one handler safe.
+Also closed here, all from the two reviews: the seam fixture used today's date, so the report it returned would have matched the open form and made the assertions pass regardless of `present`; the `cacheError` branch's `present` had no test, so a tidy-up there would have reproduced the round-21 blocker for private-browsing and over-quota devices; `writeServerSnapshot` now has an invariant test asserting it returns every field it was given except the one it deliberately drops, which would have caught this two rounds earlier and will catch the next field someone adds; the cache fixtures no longer fabricate `present`, which the real cache read never returns; `useOfflineData.test.js` — the file whose whole subject is async flush ordering — was the last one running without React's escaped-update warning; and the `mayRelease` parameter was replaced — see round 23, which shows the reasoning behind removing it was wrong in a way worth recording.
 
 Task 8's delete-list now names every test the gate work added, because five of them assert a notice and a `disabled` button that Step 4 removes.
 
-## Test evidence (at the round-22 commit)
+## Round 23 — a MINOR taken at face value became a BLOCKER
 
-- `npm test -- --watchAll=false --runInBand` → 66 suites / 850 tests pass (run three times; the previously flaky seam test five more)
+The spec axis confirmed the flake gone the hard way — six full-suite runs, eight of the seam file, and six concurrent copies to simulate a loaded machine, all green — and then found that the previous commit had reopened round 20's defect.
+
+Round 22's quality review called the `mayRelease` parameter unobservable, because the two notices are mutually exclusive on screen. That is true at render time and says nothing about what happens **across the await**: a save already travelling can give up *while* a cold-launch check is in the air, arming the block after the press. That check was issued before the give-up, so it cannot speak to it — and releasing anyway let the next time bar append a second row for the shift, silently. I deleted the guard on the strength of the render-time argument without testing the interleaving.
+
+The replacement is not the per-caller flag (a reviewer was right that it was fragile) but the causal rule stated directly: **a check releases only a block that was already armed when the question was asked.** One capture before the await, one condition after it, and it covers both callers and the interleaving that defeated both earlier versions. Pinned by a test that arms the block during an in-flight check.
+
+The lesson is the same one this task keeps teaching in different costumes: *an argument about what is on screen is not an argument about what is in flight.*
+
+## Test evidence (at the round-23 commit)
+
+- `npm test -- --watchAll=false --runInBand` → 66 suites / 851 tests pass (run twice here; the spec reviewer ran the previous commit's suite six times plus six concurrent copies of the seam file)
 - `npm run test:gas-sync` → 92 pass / 0 fail
 - `npm run build` → Compiled successfully (build output restored with `git checkout -- build/`; the build artefact is not committed — Vercel builds from source)
 - `node --check ../gas-live/Code.js` → OK

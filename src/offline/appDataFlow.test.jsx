@@ -218,8 +218,8 @@ test("a machine switch shows a loading signal instead of the other machine's rin
   const pending = { resolve: null };
   const repository = makeRepository({
     load: async machine => {
-      if (machine === "TBM2") return new Promise(resolve => { pending.resolve = () => resolve({ data: snapshot("TBM2"), source: "indexeddb", fetchedAt: "x", stale: true }); });
-      return { data: snapshot(machine, { segments: [{ id: "s1", ringNo: "P643", machine: "TBM1" }] }), source: "indexeddb", fetchedAt: "x", stale: true };
+      if (machine === "TBM2") return new Promise(resolve => { pending.resolve = () => resolve({ data: cached("TBM2"), source: "indexeddb", fetchedAt: "x", stale: true }); });
+      return { data: cached(machine, { segments: [{ id: "s1", ringNo: "P643", machine: "TBM1" }] }), source: "indexeddb", fetchedAt: "x", stale: true };
     },
     refresh: async machine => {
       if (machine === "TBM2") return new Promise(() => {});
@@ -366,6 +366,10 @@ test("the real repository hands App everything the create-a-report gate needs", 
   await waitFor(() => Boolean(button(/Shift Report/i)), "the app to finish loading");
   await act(async () => { button(/Shift Report/i).dispatchEvent(new MouseEvent("click", { bubbles: true })); });
   await waitFor(() => !app.text().includes("กำลังอัปเดตข้อมูลจากเซิร์ฟเวอร์"), "the server snapshot to land");
+  // that predicate is also satisfied by the loading and error notices, so name the failure properly
+  // rather than reporting a cache or network fault as a gate fault
+  expect(app.text()).not.toContain("เชื่อมต่อเซิร์ฟเวอร์ไม่ได้");
+  expect(app.text()).not.toContain("กำลังโหลดข้อมูลของเครื่องนี้");
 
   expect(app.text()).not.toContain("ยังไม่ได้ข้อมูลรายงานกะของเครื่องนี้จากเซิร์ฟเวอร์");
   expect(button(/Save to Cloud/).disabled).toBe(false);
@@ -377,8 +381,13 @@ test("a cached snapshot does not satisfy the create-a-report gate", async () => 
   // The gate is against creating a second report for a shift that already has one, so only a SERVER
   // answer settles it. Yesterday's cache does not contain the report the other crew filed at 19:00,
   // and `source !== "empty"` — the first version of this predicate — accepted it.
+  //
+  // The cached data here deliberately CARRIES `present`, which a real cache read never does. That is
+  // the point: it isolates the `source === "server"` half of the predicate, which otherwise nothing
+  // can fail. Without it the two halves are indistinguishable — every cache read lacks `present`, so
+  // deleting the source check would leave the whole suite green while the gate rests on one clause.
   const repository = makeRepository({
-    load: async machine => ({ data: cached(machine), source: "indexeddb", fetchedAt: "2026-07-29T12:00:00.000Z", stale: true }),
+    load: async machine => ({ data: { ...cached(machine), present: { shiftReports: true } }, source: "indexeddb", fetchedAt: "2026-07-29T12:00:00.000Z", stale: true }),
     refresh: async () => { throw new Error("NETWORK"); },
   });
 

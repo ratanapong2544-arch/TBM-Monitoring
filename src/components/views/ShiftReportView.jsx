@@ -74,48 +74,59 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
   // a landing snapshot can change underneath them). Loading on the second is what destroyed typed
   // reports: a device with no cached copy starts on a blank form, the server answers mid-typing,
   // and the arriving row replaced everything.
-  const selectorKey = `${meta.date}|${meta.shift}`;
-  const reportId = existingReport ? existingReport.id : null;
+  const selectorKey = `${machine}|${meta.date}|${meta.shift}`;
+  // keyed on CONTENT, not just the row id: the cache pass and the server pass can carry the same id
+  // with different content, and keying on the id alone left the stale copy on screen and wrote it
+  // back on the next save
+  const reportKey = existingReport ? JSON.stringify([existingReport.id, existingReport.manpower, existingReport.result, existingReport.events]) : null;
   const autoResultRef = useRef(autoResult);
   autoResultRef.current = autoResult;
   const existingReportRef = useRef(existingReport);
   existingReportRef.current = existingReport;
   const dirtyRef = useRef(false);
   const [serverCopyPending, setServerCopyPending] = useState(false);
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
 
   const loadForm = React.useCallback(() => {
     const report = existingReportRef.current;
     if (report) {
       setEvents(report.events || {});
-      setManpower(report.manpower || defaultManpower);
+      // merge over the defaults: a row carrying a partial (or empty) manpower object would
+      // otherwise render only the roles it happens to contain, with no way to fill the rest
+      setManpower({ ...defaultManpower, ...(report.manpower || {}) });
       const savedRes = report.result || {};
-      setResult({ startSta: savedRes.startSta || autoResultRef.current.startSta || '', finishSta: savedRes.finishSta || autoResultRef.current.finishSta || '', numberRing: savedRes.numberRing || autoResultRef.current.numberRing || '', totalDistance: savedRes.totalDistance || autoResultRef.current.totalDistance || '', progressRate: savedRes.progressRate || autoResultRef.current.progressRate || '' });
-      // a value the crew already saved is theirs: the auto-derived figure must not replace it later
-      // (a corrected ring count or progress rate would otherwise be silently recomputed away)
-      const seeded = {};
-      Object.keys(savedRes).forEach((key) => { if (savedRes[key]) seeded[key] = true; });
-      touchedRef.current = seeded;
+      // the figure derived from the rings recorded this shift wins over a stored one, so a report
+      // always reflects what was actually excavated (confirmed as the intended behaviour)
+      setResult({ startSta: autoResultRef.current.startSta || savedRes.startSta || '', finishSta: autoResultRef.current.finishSta || savedRes.finishSta || '', numberRing: autoResultRef.current.numberRing || savedRes.numberRing || '', totalDistance: autoResultRef.current.totalDistance || savedRes.totalDistance || '', progressRate: autoResultRef.current.progressRate || savedRes.progressRate || '' });
+      if (report.location) setMeta((prev) => (prev.location === report.location ? prev : { ...prev, location: report.location }));
     } else {
       setEvents({});
       setManpower(defaultManpower);
       setResult(autoResultRef.current);
-      touchedRef.current = {};
     }
+    // only values typed in THIS session are protected from the auto-derived figure; a stored one is
+    // not, per the rule above
+    touchedRef.current = {};
     dirtyRef.current = false;
     setServerCopyPending(false);
+    setConfirmDiscard(false);
     // eslint-disable-next-line
   }, []);
 
-  // the crew picked a different date/shift — load that report
+  // the crew picked a different date/shift, or switched machine — load that machine's report.
+  // ShiftReportView has no other machine reset, so without `machine` here a report typed for one
+  // machine stayed on screen and was saved into the other machine's sheet.
   useEffect(() => { loadForm(); }, [selectorKey, loadForm]);
 
-  // a snapshot changed which row matches the current date/shift. Only take it over a form the crew
-  // has not started filling in; otherwise keep what they typed and tell them a copy arrived.
+  // a snapshot changed the stored copy of the report for the current date/shift. Only take it over a
+  // form the crew has not started filling in; otherwise keep what they typed and tell them.
   useEffect(() => {
     if (!dirtyRef.current) loadForm();
-    else setServerCopyPending(true);
+    else if (existingReportRef.current) setServerCopyPending(true);
+    // a row that DISAPPEARED from the snapshot is not a competing copy — offering to "load" it
+    // would just wipe the form, so leave the crew's content alone and say nothing
     // eslint-disable-next-line
-  }, [reportId]);
+  }, [reportKey]);
 
   // Keep the auto-derived result fields current as rings are recorded during the shift, but never
   // overwrite a field the crew typed into or already saved.
@@ -131,7 +142,10 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
     });
   }, [autoResult]);
 
-  const handleMetaChange = (e) => setMeta({ ...meta, [e.target.name]: e.target.value });
+  const handleMetaChange = (e) => {
+    dirtyRef.current = true;
+    setMeta({ ...meta, [e.target.name]: e.target.value });
+  };
 
   const handleSaveToCloud = async () => {
     setIsSaving(true);
@@ -139,6 +153,9 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
     try {
       await apiCall(existingReport ? "updateShiftReport" : "addShiftReport", { ...payload, machine });
       const savedRecord = { ...payload, events: events, manpower: manpower, result: result };
+      // what we just stored IS the crew's copy: the row coming back must not be announced as a
+      // competing server copy, and it is safe to load over the form
+      dirtyRef.current = false;
       if (existingReport) setShiftReports(prev => prev.map(r => r.id === payload.id ? savedRecord : r));
       else setShiftReports(prev => [...prev, savedRecord]);
       alert("บันทึก Shift Report สำเร็จ");
@@ -151,6 +168,7 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
     try {
       await apiCall(existingReport ? "updateShiftReport" : "addShiftReport", { ...payload, machine });
       const savedRecord = { ...payload, events: updatedEvents, manpower, result };
+      dirtyRef.current = false; // our own write, not a competing server copy
       if (existingReport) setShiftReports(prev => prev.map(r => r.id === payload.id ? savedRecord : r));
       else setShiftReports(prev => [...prev, savedRecord]);
     } catch (e) { console.error("Auto-save failed", e); }
@@ -348,7 +366,17 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
       {serverCopyPending && (
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2 bg-code-b/10 border border-code-b/30 text-code-b px-4 py-2 rounded-card text-[13px] no-print font-semibold">
           <span>มีรายงานกะนี้จากเซิร์ฟเวอร์ — ข้อมูลที่กรอกไว้ยังอยู่ ไม่ถูกทับ</span>
-          <button type="button" onClick={loadForm} className="underline underline-offset-2">โหลดข้อมูลจากเซิร์ฟเวอร์แทน</button>
+          {confirmDiscard ? (
+            <span className="flex items-center gap-3">
+              <span className="font-normal">ข้อมูลที่กรอกไว้จะหายทั้งหมด</span>
+              <button type="button" onClick={() => { setConfirmDiscard(false); loadForm(); }} className="underline underline-offset-2">ยืนยันทับ</button>
+              <button type="button" onClick={() => setConfirmDiscard(false)} className="underline underline-offset-2 text-ink-2">ยกเลิก</button>
+            </span>
+          ) : (
+            // discarding unsaved field data takes a second, explicit action — there is no undo and
+            // manpower/result have no auto-save behind them
+            <button type="button" onClick={() => setConfirmDiscard(true)} className="underline underline-offset-2">โหลดข้อมูลจากเซิร์ฟเวอร์แทน</button>
+          )}
         </div>
       )}
       <div id="shift-report-container" className={`bg-white border border-line shadow-modal print:shadow-none print:border-none rounded-modal overflow-hidden print:rounded-none ${readOnly ? "pointer-events-none" : ""}`}>

@@ -124,9 +124,92 @@ test("a report arriving on an untouched form is loaded normally", () => {
   form.unmount();
 });
 
-test("a saved result correction is not recomputed away by the auto-derived value", () => {
-  // the crew deliberately corrected the ring count (one ring was double-recorded); reopening the
-  // report must not silently restore the computed figure, which any later save would push back
+test("a machine switch clears the shift report", () => {
+  // ShiftReportView has no other machine reset, so without this a report typed for one machine
+  // stayed on screen and was saved into the other machine's sheet
+  const form = render(view());
+  type(form.container, "Engineer", "3");
+  type(form.container, "startSta", "8+010.20");
+
+  form.rerender(view({ machine: "TBM2", segmentRecords: [], shiftReports: [] }));
+
+  expect(form.value("Engineer")).toBe("");
+  expect(form.value("startSta")).toBe("");
+  form.unmount();
+});
+
+test("a report vanishing from the snapshot does not offer to load it", () => {
+  // the offered row would be nothing at all, so the button would just wipe the form
+  const saved = { id: "sr1", date: "2026-07-30", shift: "Day", tbmNo: "TBM1", manpower: { Engineer: "7" }, result: {}, events: {} };
+  const form = render(view({ shiftReports: [saved] }));
+  type(form.container, "Engineer", "9");
+
+  form.rerender(view({ shiftReports: [] }));
+
+  expect(form.value("Engineer")).toBe("9");
+  expect(form.container.textContent).not.toContain("มีรายงานกะนี้จากเซิร์ฟเวอร์");
+  form.unmount();
+});
+
+test("a changed server copy under the same id reaches an untouched form", () => {
+  // the cache pass and the server pass carry the same id with different content; keying on the id
+  // alone left the stale copy on screen and wrote it back on the next save
+  const cached = { id: "sr1", date: "2026-07-30", shift: "Day", tbmNo: "TBM1", manpower: { Engineer: "3" }, result: {}, events: {} };
+  const form = render(view({ shiftReports: [cached] }));
+  expect(form.value("Engineer")).toBe("3");
+
+  form.rerender(view({ shiftReports: [{ ...cached, manpower: { Engineer: "8" } }] }));
+
+  expect(form.value("Engineer")).toBe("8");
+  form.unmount();
+});
+
+test("discarding for the server copy takes a second confirmation", () => {
+  const form = render(view({ shiftReports: [] }));
+  type(form.container, "Engineer", "3");
+  const arriving = { id: "sr1", date: "2026-07-30", shift: "Day", tbmNo: "TBM1", manpower: { Engineer: "9" }, result: {}, events: {} };
+  form.rerender(view({ shiftReports: [arriving] }));
+
+  const click = label => act(() => {
+    const button = [...form.container.querySelectorAll("button")].find(b => b.textContent.trim() === label);
+    button.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  });
+
+  click("โหลดข้อมูลจากเซิร์ฟเวอร์แทน");
+  expect(form.value("Engineer")).toBe("3"); // still theirs until confirmed
+  expect(form.container.textContent).toContain("ข้อมูลที่กรอกไว้จะหายทั้งหมด");
+
+  click("ยกเลิก");
+  expect(form.value("Engineer")).toBe("3");
+
+  click("โหลดข้อมูลจากเซิร์ฟเวอร์แทน");
+  click("ยืนยันทับ");
+  expect(form.value("Engineer")).toBe("9");
+  form.unmount();
+});
+
+test("a partial manpower row still renders every role", () => {
+  const saved = { id: "sr1", date: "2026-07-30", shift: "Day", tbmNo: "TBM1", manpower: { Engineer: "2" }, result: {}, events: {} };
+  const form = render(view({ shiftReports: [saved] }));
+
+  expect(form.value("Engineer")).toBe("2");
+  expect(form.value("Worker")).toBe("");
+  expect(form.value("Surveyor")).toBe("");
+  form.unmount();
+});
+
+test("a saved location is restored rather than overwritten by the default", () => {
+  const saved = { id: "sr1", date: "2026-07-30", shift: "Day", tbmNo: "TBM1", location: "อุโมงค์ IS2-IS1 ช่วงพิเศษ", manpower: {}, result: {}, events: {} };
+  const form = render(view({ shiftReports: [saved] }));
+
+  expect(form.value("location")).toBe("อุโมงค์ IS2-IS1 ช่วงพิเศษ");
+  form.unmount();
+});
+
+test("a reopened report shows the figure derived from the rings, not the stored one", () => {
+  // confirmed behaviour: the Result reflects what was actually excavated this shift, so it
+  // self-corrects as rings are recorded. A value typed in the current session is still protected
+  // from being overwritten mid-edit (see the tests above); a stored one is not.
   const saved = {
     id: "sr1", date: "2026-07-30", shift: "Day", tbmNo: "TBM1",
     manpower: {}, events: {},
@@ -139,8 +222,8 @@ test("a saved result correction is not recomputed away by the auto-derived value
 
   const form = render(view({ shiftReports: [saved], segmentRecords: twoRings }));
 
-  expect(form.value("numberRing")).toBe("1");
-  expect(form.value("progressRate")).toBe("1.40");
+  expect(form.value("numberRing")).toBe("2");
+  expect(form.value("progressRate")).toBe("2.80");
   form.unmount();
 });
 

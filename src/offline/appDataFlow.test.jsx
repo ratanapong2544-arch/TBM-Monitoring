@@ -595,6 +595,33 @@ test("the queue's state is said alongside the other notices, not instead of them
   app.unmount();
 });
 
+test("a device mid-refresh, and one that cannot reach the server, are told too", async () => {
+  // the last two branches of the strip. Each was written to carry the queue note and each could
+  // drop it with the suite green, so both are driven here — one where the refresh is still in
+  // flight, one where it failed while the device was online.
+  const summary = { online: true, pending: 4, syncing: 0, conflicts: 0, errors: 0, blocked: 0, lastSyncedAt: null };
+  const refreshing = makeRepository({
+    getSyncSummary: async () => summary,
+    refresh: async () => new Promise(() => {}),
+  });
+  const app = renderApp(refreshing);
+  await act(async () => {});
+  expect(app.text()).toContain("กำลังอัปเดตข้อมูลจากเซิร์ฟเวอร์");
+  expect(app.text()).toContain("4 รายการรอซิงก์");
+  app.unmount();
+
+  const failed = makeRepository({
+    getSyncSummary: async () => summary,
+    load: async machine => ({ data: cached(machine), source: "indexeddb", fetchedAt: "2026-07-30T02:15:00.000Z", stale: true }),
+    refresh: async () => { throw Object.assign(new Error("permission page"), { code: "GAS_PERMISSION_HTML" }); },
+  });
+  const second = renderApp(failed);
+  await act(async () => {});
+  expect(second.text()).toContain("GAS_PERMISSION_HTML");
+  expect(second.text()).toContain("4 รายการรอซิงก์");
+  second.unmount();
+});
+
 test("an offline device is told what it is still holding", async () => {
   // The branch this rule was written for. The quiet note used to sit last in the chain, after the
   // stale-snapshot branch — so on the one screen where "saved" most needs qualifying, it never

@@ -231,8 +231,11 @@ export function createRepository(deps = {}) {
         const overtaken = Boolean(previousRequest) && Date.parse(previousRequest) > Date.parse(requestedAt);
         let stored;
         try {
-          // and never trust the overtaking write to have produced something: it can have failed on
-          // quota or private browsing and returned through the cacheError path without writing
+          // The `||` is belt and braces, and unreachable as written: `lastCompletedRequest` is only
+          // recorded once a write has actually landed, so an overtaking request that failed on quota
+          // never claims to have overtaken anything. It stays because the alternative — handing the
+          // caller a null it then reads `fetchedAt` off — turns a good server response into
+          // "เชื่อมต่อเซิร์ฟเวอร์ไม่ได้" and leaves the device with no cache at all.
           stored = (overtaken && await readServerSnapshot(await openDb(), machine))
             || await writeServerSnapshot(await openDb(), machine, data, fetchedAt, requestedAt);
           // recorded only once the cache actually holds this answer, so a request that failed to

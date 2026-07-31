@@ -48,26 +48,37 @@ export function buildMutationEnvelope({ entityType, operation, machine, recordId
   if (operation === "update" && identity && reidentifies({ entityType, machine, recordId, payload, identity })) {
     throw new ReidentifiedRecordError(makeDomainKey({ entityType, machine, recordId, payload: identity }), domainKey);
   }
-  // An UPDATE onto a key the server has tombstoned is refused outright — `applySyncMutation_`
-  // answers SYNC_RECORD_DELETED, which is terminal and parks at the head of the record's domain.
-  // That is reachable without anyone deleting the record being edited: GAS tombstones the whole
-  // ring KEY, and a ring can legitimately carry two rows, so deleting one makes every later edit of
-  // the OTHER unsendable for the rest of the drive. The server's own message says what to do
-  // instead — "recreate it instead of updating" — and a create claiming the tombstone's version
-  // lifts it and merges onto the row that is still there, which is what the legacy write did before
-  // this task. Same payload, same record id, same key; only the verb changes.
-  const revivesTombstone = operation === "update" && known && known.deleted;
-  const effectiveOperation = revivesTombstone ? "create" : operation;
   return {
     entityType,
-    operation: effectiveOperation,
+    operation,
     machine,
     recordId,
     payload: withoutQueuedPhotoMarker(payload),
     domainKey,
-    baseVersion: effectiveOperation === "create" ? createBaseVersion(known) : toSyncVersion(known && known.version),
+    baseVersion: operation === "create" ? createBaseVersion(known) : toSyncVersion(known && known.version),
   };
 }
+
+// KNOWN LIMITATION, deliberately not worked around here.
+//
+// GAS tombstones the whole ring KEY on a delete, not the row: `applySyncMutation_` then answers
+// SYNC_RECORD_DELETED to every later UPDATE on that key. A ring legitimately carries two rows, so
+// deleting one makes every later edit of the OTHER terminal — it parks at the head of the ring's
+// domain and blocks what is behind it. That worked before this task, because the legacy write
+// merged the row and cleared the flag.
+//
+// This file briefly rewrote such an update into a create, on the strength of the server's own
+// message ("recreate it instead of updating"). That was worse, and the review that caught it ran
+// the real `handleSyncMutation_`: a create merges onto an existing row only when the metadata is
+// ALIVE, and a tombstone is exactly what makes it not. So the create appended a second row carrying
+// the same record id and none of the fields the payload did not mention — the sheet kept the old
+// value, the photo link was blanked, and `readRowById_` thereafter matched whichever duplicate came
+// first. Silent duplication is worse than a visible refusal, and the refusal is at least counted in
+// the status strip.
+//
+// The fix belongs in `gas-live/Code.js` — tombstone the ROW, or revive on a create with a matching
+// base — which is a server change on a deployment this task is gated from making. Recorded in the
+// completion notes for whoever opens that gate.
 
 // `"Attached"` is a marker this app puts on a row whose photo has not synced yet — it means "there
 // is a photo, no link for it yet". It is not a value, and GAS merges every payload key onto the

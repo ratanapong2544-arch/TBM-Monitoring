@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from "react";
-import { FileText, Droplet, Activity, ChevronLeft, ChevronRight, Edit, Trash2, X, Camera, Calendar, Save, Loader2, Info } from "lucide-react";
+import { FileText, Droplet, Activity, ChevronLeft, ChevronRight, Edit, Trash2, X, Camera, Calendar, Save, Info } from "lucide-react";
 import { formatDisplayDate, formatCH } from "../../utils/formatters";
 import { getRingNumeric } from "../../utils/helpers";
 import { THEORETICAL_VOL, VOL_120, VOL_150 } from "../../utils/constants";

@@ -114,10 +114,11 @@ export function useOfflineData(machine, deps = {}) {
       // on its splash screen forever.
       applyIfCurrent(token, { data: fresh.data, source: fresh.source, fetchedAt: fresh.fetchedAt, stale: Boolean(fresh.stale), refreshing: false, loading: false, error: null, cacheError: fresh.cacheError || null });
       syncAfterRefresh();
-      // returned whole. Task 8 removed the last caller (the shift report's "did my write reach the
-      // sheet?" check, now the queue's job), and the plan keeps this contract for Task 10's manual
-      // sync — including its null-on-stale-machine answer below, which callers rely on to tell
-      // "the machine changed under me" from "the refresh failed".
+      // Returned whole. There is no caller today — Task 8 removed the last one, the shift report's
+      // "did my write reach the sheet?" check, which the queue now answers. The plan asks for the
+      // contract to survive the tidy-up for Task 10's manual sync, including the
+      // null-on-stale-machine answer below, which is how a caller tells "the machine changed under
+      // me" from "the refresh failed".
       return fresh;
     } catch (error) {
       applyIfCurrent(token, { refreshing: false, loading: false, stale: true, error });

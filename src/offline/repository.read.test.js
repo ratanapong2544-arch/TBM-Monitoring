@@ -3,6 +3,7 @@ if (!global.structuredClone) global.structuredClone = value => JSON.parse(JSON.s
 import { deleteOfflineDbForTests, openOfflineDb } from "./db";
 import { buildMutationEnvelope } from "./mutationEnvelope";
 import { createRepository } from "./repository";
+import { writeServerSnapshot as defaultWrite } from "./snapshotStore";
 import { ApiFailure } from "./apiTransport";
 
 beforeEach(async () => { await deleteOfflineDbForTests(); });
@@ -539,13 +540,16 @@ test("a confirmed version does not walk backwards, and does not leak to the othe
   expect((await repository.load("TBM2")).data.syncMeta["segment:TBM1:P643:Permanent"]).toBeUndefined();
 });
 
-test("deleting one row of a ring does not make the other one uneditable", async () => {
-  // GAS tombstones the whole ring KEY on any delete, and then refuses every later update on it with
-  // SYNC_RECORD_DELETED — terminal, parked at the head of the ring's domain. A ring can legitimately
-  // carry two rows, so deleting one made every later correction of the OTHER unsendable for the rest
-  // of the drive: the screen keeps showing the correction, the sheet keeps the old value, and there
-  // is no in-app way out before Task 10. The legacy write merged and revived the key; the queue has
-  // to do the same, which is what the server's own message asks for.
+test("an edit stays an edit, whatever this device believes about the key", async () => {
+  // An update onto a tombstoned key is refused by the server (SYNC_RECORD_DELETED, terminal). This
+  // file briefly rewrote such an update into a CREATE to get around that, and the create was worse:
+  // GAS merges a create onto an existing row only when the metadata is ALIVE, so against a tombstone
+  // it appended a second row with the same record id and none of the fields the payload did not
+  // carry. `operation` is also a row-identity input to the local merge, so the rewrite made an
+  // ordinary edit look like a create there and let it overwrite a neighbouring row.
+  //
+  // The refusal stays visible in the status strip; silent duplication would not be. The real fix is
+  // a server change, recorded in `mutationEnvelope.js`.
   const repository = createRepository({
     openDb: openOfflineDb,
     fetchServerSnapshot: async () => ({
@@ -555,29 +559,47 @@ test("deleting one row of a ring does not make the other one uneditable", async 
   });
   const { data } = await repository.refresh("TBM1");
 
-  const envelope = buildMutationEnvelope({
-    entityType: "segment", operation: "update", machine: "TBM1", recordId: "seg_b",
-    payload: { id: "seg_b", ringNo: "P643", installType: "Permanent", length: "9.99" }, syncMeta: data.syncMeta,
-  });
-
-  expect(envelope.operation).toBe("create"); // "recreate it instead of updating", in the server's words
-  expect(envelope.baseVersion).toBe(1);      // claiming the tombstone is what lifts it
-  expect(envelope.recordId).toBe("seg_b");   // same row, same key, only the verb changed
-  expect(envelope.domainKey).toBe("segment:TBM1:P643:Permanent");
-});
-
-test("an ordinary edit of a live record stays an update", async () => {
-  // the reviving branch must be narrow: a key that is not tombstoned is edited as an edit
-  const repository = createRepository({
-    openDb: openOfflineDb,
-    fetchServerSnapshot: async () => ({ segments: [], syncMeta: { "segment:TBM1:P643:Permanent": { version: 4, deleted: false } } }),
-  });
-  const { data } = await repository.refresh("TBM1");
-
   expect(buildMutationEnvelope({
     entityType: "segment", operation: "update", machine: "TBM1", recordId: "seg_b",
-    payload: { id: "seg_b", ringNo: "P643", installType: "Permanent" }, syncMeta: data.syncMeta,
-  })).toMatchObject({ operation: "update", baseVersion: 4 });
+    payload: { id: "seg_b", ringNo: "P643", installType: "Permanent", length: "9.99" }, syncMeta: data.syncMeta,
+  })).toMatchObject({ operation: "update", baseVersion: 1, recordId: "seg_b", domainKey: "segment:TBM1:P643:Permanent" });
+});
+
+test("a version confirmed for a machine never fetched still outlives the tab", async () => {
+  // TBM2 on a fresh install has no snapshot at all, and both the key patch and the confirmed-version
+  // write need a scope to write into. The key patch creates one when the record is queued, so by the
+  // time this confirmation lands there IS a scope — which means `patchSnapshotSyncMeta`'s own
+  // bootstrap is belt and braces here and cannot be pinned separately. It earns its place with Task
+  // 9's project-wide entities, which the key patch does not scope.
+  const repository = createRepository({ openDb: openOfflineDb, fetchServerSnapshot: async () => { throw new Error("offline"); } });
+  const queued = await repository.mutate({
+    entityType: "segment", operation: "create", machine: "TBM2", recordId: "s1",
+    payload: { id: "s1", ringNo: "P1" }, baseVersion: 0, domainKey: "segment:TBM2:P1:Permanent",
+  });
+  await repository.applySyncSuccess(queued.requestId, {
+    requestId: queued.requestId, status: "success",
+    record: { id: "s1", ringNo: "P1" }, version: 1, updatedAt: "2026-07-30T02:00:00.000Z",
+  });
+
+  const reloaded = createRepository({ openDb: openOfflineDb, fetchServerSnapshot: async () => { throw new Error("offline"); } });
+  expect((await reloaded.load("TBM2")).data.syncMeta["segment:TBM2:P1:Permanent"]).toMatchObject({ version: 1 });
+});
+
+test("a row this crew deleted is not put back by an edit of its neighbour", async () => {
+  // The crew deletes row A while another device has already taken it off the sheet, and edits row B.
+  // The response carries only B — so A has no incoming row, its local copy is preserved, and without
+  // the pending-delete check it would be re-injected onto the screen badged as queued work, after
+  // the crew asked for it to be gone.
+  const repository = createRepository({ openDb: openOfflineDb, fetchServerSnapshot: async () => ({ segments: twoRowsOnOneRing }) });
+  await repository.refresh("TBM1");
+  await repository.mutate({
+    entityType: "segment", operation: "delete", machine: "TBM1", recordId: "seg_a",
+    payload: { id: "seg_a", ringNo: "P643", installType: "Permanent" }, baseVersion: 0,
+    domainKey: "segment:TBM1:P643:Permanent",
+  });
+
+  const sheetWithoutA = createRepository({ openDb: openOfflineDb, fetchServerSnapshot: async () => ({ segments: [twoRowsOnOneRing[1]] }) });
+  expect((await sheetWithoutA.refresh("TBM1")).data.segments.map(row => row.id)).toEqual(["seg_b"]);
 });
 
 test("a ring another crew still holds is not quietly taken over by a second record", async () => {
@@ -638,22 +660,34 @@ test("a phone whose clock has never been set still builds its offline snapshot",
   expect((await repository.load("TBM1")).data.segments.map(row => row.ringNo)).toEqual(["P644"]);
 });
 
-test("an overtaking refresh that could not write its cache does not leave this one with nothing", async () => {
-  // the later request records itself as the newest and then fails on quota, so there is no newer
-  // snapshot to defer to — deferring anyway handed the caller a null and threw on it
-  let calls = 0;
+test("an overtaking refresh that could not write its cache does not leave the earlier one with nothing", async () => {
+  // `lastCompletedRequest` is per repository INSTANCE, so this has to happen inside one: the newer
+  // request has to record itself and then fail, and the older one has to arrive after it. Building a
+  // second repository — which is what this test did — makes the map empty and the whole rule moot.
+  const pending = [];
   const repository = createRepository({
     openDb: openOfflineDb,
-    writeServerSnapshot: async () => { throw new Error("QuotaExceededError"); },
-    fetchServerSnapshot: async () => ({ segments: [{ id: `s${++calls}`, ringNo: "P644" }] }),
+    // only the newer request's write fails, the way quota or private browsing would
+    writeServerSnapshot: async (db, machine, data, fetchedAt, requestedAt) => {
+      if (data.segments.length === 2) throw new Error("QuotaExceededError");
+      return defaultWrite(db, machine, data, fetchedAt, requestedAt);
+    },
+    fetchServerSnapshot: async () => new Promise(resolve => pending.push(resolve)),
   });
-  await repository.refresh("TBM1").catch(() => {});
 
-  const second = createRepository({
-    openDb: openOfflineDb,
-    fetchServerSnapshot: async () => ({ segments: [{ id: "s9", ringNo: "P645" }] }),
-  });
-  await expect(second.refresh("TBM1")).resolves.toMatchObject({ source: "server" });
+  const earlier = repository.refresh("TBM1");
+  const later = repository.refresh("TBM1");
+  pending[1]({ segments: [{ id: "s1", ringNo: "P644" }, { id: "s2", ringNo: "P645" }] }); // newer, fails to write
+  await later;
+  pending[0]({ segments: [{ id: "s1", ringNo: "P644" }] });                               // older, arrives after
+  const result = await earlier;
+
+  // The rule this pins: a request only counts as "the newest" once its answer is actually in the
+  // cache. Recorded before the write instead, the failed newer request would have made this one
+  // stand aside for a snapshot nobody ever produced — and the crew would be told the server is
+  // unreachable while it was answering fine.
+  expect(result.source).toBe("server");
+  expect((await repository.load("TBM1")).data.segments.map(row => row.ringNo)).toEqual(["P644"]);
 });
 
 test("a clock that steps backwards does not resurrect a deleted ring", async () => {

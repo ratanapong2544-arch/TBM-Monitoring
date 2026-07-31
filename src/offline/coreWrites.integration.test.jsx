@@ -10,6 +10,7 @@ import SegmentDashboardView from "../components/views/SegmentDashboardView";
 import GroutRecordView from "../components/views/GroutRecordView";
 import GroutDashboardView from "../components/views/GroutDashboardView";
 import ShiftReportView, { __resetShiftSaveStateForTests } from "../components/views/ShiftReportView";
+import { buildMutationEnvelope } from "./mutationEnvelope";
 import { apiCall } from "../utils/api";
 
 jest.mock("../utils/api", () => ({ apiCall: jest.fn(async () => ({ status: "success" })) }));
@@ -242,6 +243,28 @@ test("editing a record does not send the queued-photo marker as its photo URL", 
 
   expect("imageUrl" in onMutate.mock.calls[0][0].payload).toBe(false);
   view.unmount();
+});
+
+test("both photo markers are stripped, and only the markers", async () => {
+  // A segment carries two photos under separate field names, and the marker on either would
+  // overwrite that photo's real Drive URL on the server. Asserted on the builder directly: no view
+  // puts BOTH a marker and a real link into one payload, so driving this through a form would have
+  // proved nothing about the field the form happens not to send.
+  const envelope = buildMutationEnvelope({
+    entityType: "segment", operation: "update", machine: "TBM1", recordId: "seg_1",
+    payload: { id: "seg_1", ringNo: "P41", installType: "Permanent", imageUrl: "Attached", excavImageUrl: "Attached" },
+    syncMeta: { "segment:TBM1:P41:Permanent": { version: 3 } },
+  });
+  expect("imageUrl" in envelope.payload).toBe(false);
+  expect("excavImageUrl" in envelope.payload).toBe(false);
+
+  const withLinks = buildMutationEnvelope({
+    entityType: "segment", operation: "update", machine: "TBM1", recordId: "seg_1",
+    payload: { id: "seg_1", ringNo: "P41", installType: "Permanent", imageUrl: "https://drive.example/1", excavImageUrl: "https://drive.example/2" },
+    syncMeta: { "segment:TBM1:P41:Permanent": { version: 3 } },
+  });
+  expect(withLinks.payload.imageUrl).toBe("https://drive.example/1");
+  expect(withLinks.payload.excavImageUrl).toBe("https://drive.example/2");
 });
 
 test("editing grout sends the injection positions as an object, not a string", async () => {

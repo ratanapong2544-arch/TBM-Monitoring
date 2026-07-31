@@ -89,13 +89,12 @@ function patchSnapshotKeys(snapshots, entities, stored, mutation) {
     snapshots.put({ ...snapshot, entityKeys: { ...snapshot.entityKeys, [field]: next } });
   });
   if (!dropped.size) return;
-  // A key can be dropped from one scope and still be named by another — a project-wide entity
-  // appears in every machine's list — so this reads the lists AS PATCHED, not as they were.
+  // Read the lists AS PATCHED. A server key embeds the machine of the snapshot that produced it, and
+  // a project-wide mutation patches every scope, so in practice a dropped key survives in no other
+  // list — but a row deleted while something still names it is unrecoverable, and this costs one
+  // pass over lists that are already in hand.
   const stillNamed = new Set();
-  stored.forEach(snapshot => Object.entries(snapshot.entityKeys || {}).forEach(([listField, list]) => {
-    const patched = listField === field && survivingKeys.has(snapshot.scopeKey) ? survivingKeys.get(snapshot.scopeKey) : list;
-    patched.forEach(key => stillNamed.add(key));
-  }));
+  survivingKeys.forEach(list => list.forEach(key => stillNamed.add(key)));
   dropped.forEach(key => { if (!stillNamed.has(key)) entities.delete(key); });
 }
 

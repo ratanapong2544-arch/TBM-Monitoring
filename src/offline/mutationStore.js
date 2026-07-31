@@ -309,9 +309,13 @@ export async function confirmMutation(db, requestId, response, { owner, confirme
     // and that conflict would block the record's domain with nothing on screen to show it.
     patchSnapshotSyncMeta(snapshotStoreHandle, snapshots, mutation, confirmedVersion, leavesDeleted(mutation));
   }
+  // The newest write still queued FOR THIS RECORD. Asking per ring answered with a neighbouring
+  // row's mutation whenever two rows shared one — so the row that had just synced kept an optimistic
+  // copy describing a different record, badged unsent and carrying a stale version, while the row
+  // that actually had one queued was written under this one's key.
   const newestOutstanding = mutations
     .map(item => (item.requestId === requestId ? next : rebased.get(item.requestId) || item))
-    .filter(item => item.domainKey === mutation.domainKey && !isTerminal(item))
+    .filter(item => item.domainKey === mutation.domainKey && String(item.recordId) === String(mutation.recordId) && !isTerminal(item))
     .sort((left, right) => (right.queueSequence || 0) - (left.queueSequence || 0))[0];
   if (newestOutstanding) {
     entityStore.put(optimisticEntity(newestOutstanding));

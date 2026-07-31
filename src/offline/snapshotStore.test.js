@@ -324,25 +324,28 @@ test("returns no snapshot before one has been written", async () => {
 
 test.each(["syncing", "validation_error", "conflict"])("preserves a %s optimistic entity when server data refreshes", async status => {
   const db = await openOfflineDb();
-  const mutation = { requestId: `m-${status}`, entityType: "segment", operation: "update", machine: "TBM1", recordId: "segment-1", domainKey: "segment:TBM1:P1:Permanent", baseVersion: 1, deviceId: "device", createdAtLocal: "2026-07-29T00:00:00.000Z", payload: { ringNo: "P1", installType: "Permanent", status: "local" } };
+  // the payload carries the row's id, as every real one does — GAS returns an Id column, and both
+  // record forms set it. A fixture without it exercises the pre-sync legacy shape instead, where a
+  // row cannot be matched to a record at all.
+  const mutation = { requestId: `m-${status}`, entityType: "segment", operation: "update", machine: "TBM1", recordId: "segment-1", domainKey: "segment:TBM1:P1:Permanent", baseVersion: 1, deviceId: "device", createdAtLocal: "2026-07-29T00:00:00.000Z", payload: { id: "segment-1", ringNo: "P1", installType: "Permanent", status: "local" } };
   await putOptimisticMutation(db, mutation);
   await updateMutation(db, mutation.requestId, status === "syncing" ? { status, syncOwner: "runner", leaseExpiresAt: "2099-07-29T01:00:00.000Z" } : { status });
 
-  await writeServerSnapshot(db, "TBM1", normalizeServerData({ segments: [{ ringNo: "P1", status: "server" }] }, "TBM1"), "refresh");
+  await writeServerSnapshot(db, "TBM1", normalizeServerData({ segments: [{ id: "segment-1", ringNo: "P1", status: "server" }] }, "TBM1"), "refresh");
 
   await expect(readServerSnapshot(db, "TBM1")).resolves.toEqual(expect.objectContaining({ segments: [expect.objectContaining({ status: "local", syncStatus: status })] }));
 });
 
 test.each(["validation_error", "conflict"])("keeps newer %s local state after confirming an older mutation then refreshing", async status => {
   const db = await openOfflineDb();
-  const first = { requestId: "m-first", entityType: "segment", operation: "update", machine: "TBM1", recordId: "segment-1", domainKey: "segment:TBM1:P1:Permanent", baseVersion: 1, deviceId: "device", createdAtLocal: "2026-07-29T00:00:00.000Z", payload: { ringNo: "P1", installType: "Permanent", status: "first" } };
+  const first = { requestId: "m-first", entityType: "segment", operation: "update", machine: "TBM1", recordId: "segment-1", domainKey: "segment:TBM1:P1:Permanent", baseVersion: 1, deviceId: "device", createdAtLocal: "2026-07-29T00:00:00.000Z", payload: { id: "segment-1", ringNo: "P1", installType: "Permanent", status: "first" } };
   const second = { ...first, requestId: "m-second", payload: { ...first.payload, status: `newer-${status}` } };
   await putOptimisticMutation(db, first);
   await putOptimisticMutation(db, second);
   await updateMutation(db, second.requestId, { status });
-  await confirmMutation(db, first.requestId, { record: { status: "server" }, version: 2, updatedAt: "2026-07-29T00:01:00.000Z" });
+  await confirmMutation(db, first.requestId, { record: { id: "segment-1", status: "server" }, version: 2, updatedAt: "2026-07-29T00:01:00.000Z" });
 
-  await writeServerSnapshot(db, "TBM1", normalizeServerData({ segments: [{ ringNo: "P1", status: "server" }] }, "TBM1"), "refresh");
+  await writeServerSnapshot(db, "TBM1", normalizeServerData({ segments: [{ id: "segment-1", ringNo: "P1", status: "server" }] }, "TBM1"), "refresh");
 
   await expect(readServerSnapshot(db, "TBM1")).resolves.toEqual(expect.objectContaining({ segments: [expect.objectContaining({ status: `newer-${status}`, syncStatus: status })] }));
 });

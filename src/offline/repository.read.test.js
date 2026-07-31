@@ -234,6 +234,53 @@ test("recording a ring and then editing the row already there keeps both", async
   expect(rows.find(row => row.id === "s1").status).toBe("Edited");
 });
 
+test("a refresh keeps every queued edit of a ring, not just one of them", async () => {
+  // The store learned to key per record; the MERGE still answered per ring, so it kept one local
+  // copy for the whole ring and dropped the rest — their keys left the snapshot and
+  // `previousKeys.forEach(delete)` removed their queued rows while the mutations were still pending.
+  // A durably-queued write, destroyed by an ordinary refresh.
+  const repository = createRepository({ openDb: openOfflineDb, fetchServerSnapshot: async () => ({ segments: twoRowsOnOneRing }) });
+  await repository.refresh("TBM1");
+  for (const [recordId, length] of [["seg_a", "7.77"], ["seg_b", "9.99"]]) {
+    await repository.mutate({
+      entityType: "segment", operation: "update", machine: "TBM1", recordId,
+      payload: { id: recordId, ringNo: "P643", installType: "Permanent", length }, baseVersion: 0,
+      domainKey: "segment:TBM1:P643:Permanent",
+    });
+  }
+
+  const rows = (await repository.refresh("TBM1")).data.segments;
+
+  expect(rows.find(row => row.id === "seg_a").length).toBe("7.77");
+  expect(rows.find(row => row.id === "seg_b").length).toBe("9.99");
+  expect(rows.every(row => row.syncStatus === "pending")).toBe(true);
+});
+
+test("an edit of one row does not cancel the pending delete of another", async () => {
+  // The tombstone was looked up per ring in a map that keeps the NEWEST mutation, so any later write
+  // anywhere on that ring evicted the delete and the row came back — into the data log, the
+  // dashboards and the shift report's ring count, badged as ordinary data, until the queue drained
+  // and removed it again. The ordinary correction sequence reaches it: delete the duplicate row,
+  // then fix the one you kept.
+  const repository = createRepository({ openDb: openOfflineDb, fetchServerSnapshot: async () => ({ segments: twoRowsOnOneRing }) });
+  await repository.refresh("TBM1");
+  await repository.mutate({
+    entityType: "segment", operation: "delete", machine: "TBM1", recordId: "seg_a",
+    payload: { id: "seg_a", ringNo: "P643", installType: "Permanent" }, baseVersion: 0,
+    domainKey: "segment:TBM1:P643:Permanent",
+  });
+  expect((await repository.refresh("TBM1")).data.segments.map(row => row.id)).toEqual(["seg_b"]);
+
+  await repository.mutate({
+    entityType: "segment", operation: "update", machine: "TBM1", recordId: "seg_b",
+    payload: { id: "seg_b", ringNo: "P643", installType: "Permanent", length: "9.99" }, baseVersion: 0,
+    domainKey: "segment:TBM1:P643:Permanent",
+  });
+
+  expect((await repository.refresh("TBM1")).data.segments.map(row => row.id)).toEqual(["seg_b"]);
+  expect((await repository.load("TBM1")).data.segments.map(row => row.id)).toEqual(["seg_b"]);
+});
+
 test("an edit whose row another device removed does not displace a row that is still there", async () => {
   // Two rows share ring P643. The crew edits seg_b offline; meanwhile another device removes seg_b
   // from the sheet. The next answer carries only seg_a — and painting the crew's edit onto it would

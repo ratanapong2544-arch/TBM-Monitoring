@@ -31,6 +31,23 @@ test("a server payload still reaches the caller when the cache write fails", asy
   expect(result.cacheError).toBeInstanceOf(Error);
 });
 
+test("both refresh paths carry the server's own payload, untouched", async () => {
+  // The shift report's "did my write reach the sheet?" check reads this and nothing else: `data` is
+  // the merged snapshot, which re-injects unsynced local records, so a row in it can be this
+  // device's echo of the very write being asked about. It must also be the RAW response, key for
+  // key, so an absent collection can be told from an empty one. Both branches, because the answer
+  // cannot depend on whether IndexedDB happened to be writable.
+  const raw = { status: "success", segments: [{ id: "s1", ringNo: "P1", machine: "TBM1" }] };
+  const cached = await makeRepository({ fetchServerSnapshot: async () => raw }).refresh("TBM1");
+  expect(cached.serverPayload).toBe(raw);
+
+  const uncached = await makeRepository({
+    fetchServerSnapshot: async () => raw,
+    writeServerSnapshot: async () => { throw new Error("QuotaExceededError"); },
+  }).refresh("TBM1");
+  expect(uncached.serverPayload).toBe(raw);
+});
+
 test("a successful refresh is not flagged stale", async () => {
   const repository = makeRepository();
 

@@ -77,7 +77,9 @@ repository.load(machine)
 // -> Promise<{ data, source: "indexeddb"|"empty", fetchedAt, stale }>
 
 repository.refresh(machine, { signal })
-// -> Promise<{ data, source: "server", fetchedAt, stale: false }>
+// -> Promise<{ data, source: "server", fetchedAt, stale: false, cacheError?, serverPayload }>
+// `data` is the merged snapshot to render; `serverPayload` is the raw GAS response, for callers
+// asking "is this on the sheet?" (interim, added in Task 7 — Task 8 Step 4 removes it)
 
 repository.mutate({
   entityType, operation, machine, recordId, domainKey, baseVersion, payload
@@ -1100,7 +1102,9 @@ Deletes remain visible as pending tombstones to repository reads but disappear f
 
 Delete only the **tests of that bookkeeping** — in `shiftReportMidEdit.test.jsx` the `describe("what may release an unknown outcome")` block and the tests naming the deadline, the check and the unknown outcome; in `appDataFlow.test.jsx` the "blocked shift report can be unblocked" and "cold launch" tests and the `__resetShiftSaveStateForTests()` call in its `beforeEach`. **Keep everything else in both files**: they pin the mid-edit guards and App's mirror rules, which Task 7 needs and this task must not regress.
 
-**Keep these Task 7 guards** — they are not interim, and nothing in this step touches them: content-keyed report loading (`stableKey`/`reportKey`), `dirtyRef`, `formSerialRef`, `loadGenerationRef`, `ownWriteKeyRef` and the server-copy notice, the machine reset in all three record views, and the machine comparison at each save's resolve (`isCurrentMachine`). Every one of those exists only because the legacy write is not idempotent and cannot be cancelled. The queue's `requestId`, version and per-domain ordering replace all of them; keeping both would leave two sources of truth about whether a row reached the sheet. `__resetShiftSaveStateForTests` and the tests that call it go with it. `SegmentRecordView` and `GroutRecordView` have no equivalent protection today (recorded in `docs/superpowers/task7-completion.md`), so the queue is what closes them.
+Everything in the delete-list above exists only because the legacy write is neither idempotent nor cancellable. The queue's `requestId`, version and per-domain ordering replace all of it, and keeping both would leave two sources of truth about whether a row reached the sheet. `__resetShiftSaveStateForTests` goes with it. `SegmentRecordView` and `GroutRecordView` have no equivalent protection today (recorded in `docs/superpowers/task7-completion.md`), so the queue is what closes them.
+
+**Keep these Task 7 guards — do NOT delete them.** They are not interim: they protect a form being typed into while snapshots land, which the queue does not address. Content-keyed report loading (`stableKey`/`reportKey`), `dirtyRef`, `formSerialRef`, `loadGenerationRef`, `ownWriteKeyRef` and the server-copy notice, the machine reset in all three record views, and the machine comparison at each save's resolve (`isCurrentMachine`). Their regression tests stay too.
 
 - [ ] **Step 5: Verify no direct core writes remain**
 
@@ -1110,7 +1114,7 @@ Run:
 rg -n 'apiCall\(' src/components/views src/App.jsx
 ```
 
-Expected: only online-only reads/proxies (Drive images, Gemini). The narrower pattern below is not sufficient on its own — `ShiftReportView` selects its action with a ternary (`apiCall(existed ? "updateShiftReport" : "addShiftReport", …)`), so an action-name search reports a false "no matches" for the one file with the most intricate migration.
+Expected after Task 8: the core record writes are gone from `SegmentRecordView`, `GroutRecordView`, `ShiftReportView`, `SegmentDashboardView` and `GroutDashboardView`. **Matches that must still be there** — they are Task 9's, not this task's: `App.jsx`'s issue/daily/instrument writes, `PrepGanttView`, `RouteScheduleView`, `SegmentAnalysisView`, and any Drive-image or Gemini proxy call. The narrower pattern below is not sufficient on its own — `ShiftReportView` selects its action with a ternary (`apiCall(existed ? "updateShiftReport" : "addShiftReport", …)`), so an action-name search reports a false "no matches" for the one file with the most intricate migration.
 
 ```powershell
 rg -n 'apiCall\("(add|update|delete)(Segment|Grout|SecondaryGrout|ShiftReport)' src

@@ -318,6 +318,46 @@ test("a cold launch cannot append a second report for a shift that already has o
   app.unmount();
 });
 
+test("a launch whose fetch failed can still be recovered without losing the typed report", async () => {
+  // The gate needs a way out that is not a reload. Nothing re-fetches on its own: `hydrate` runs
+  // once per machine and the sync runner only drains the mutation queue, which shift reports do not
+  // use yet. Without a button in the notice, a crew that filled in a whole shift underground and
+  // then reached the shaft could only regain saving by reloading or switching machine — and both
+  // reload the form, destroying the report they were trying to save.
+  let online = false;
+  const repository = makeRepository({
+    load: async machine => ({ data: snapshot(machine), source: "empty", fetchedAt: null, stale: true }),
+    refresh: async machine => {
+      if (!online) throw new Error("NETWORK");
+      return { data: snapshot(machine), serverPayload: { status: "success", shiftReports: [] }, source: "server", fetchedAt: "2026-07-30T02:15:00.000Z", stale: false };
+    },
+  });
+
+  const app = renderApp(repository);
+  await act(async () => {});
+  await act(async () => {
+    [...app.container.querySelectorAll("button")].find(b => /Shift Report/i.test(b.textContent))
+      .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  });
+  const engineer = app.container.querySelector('[name="Engineer"]');
+  act(() => {
+    Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set.call(engineer, "4");
+    engineer.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  expect([...app.container.querySelectorAll("button")].find(b => /Save to Cloud/.test(b.textContent)).disabled).toBe(true);
+
+  // the link returns at the shaft; the crew presses the button in the notice
+  online = true;
+  await act(async () => {
+    [...app.container.querySelectorAll("button")].find(b => /ดึงข้อมูลจากเซิร์ฟเวอร์/.test(b.textContent))
+      .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  });
+
+  expect([...app.container.querySelectorAll("button")].find(b => /Save to Cloud/.test(b.textContent)).disabled).toBe(false);
+  expect(app.container.querySelector('[name="Engineer"]').value).toBe("4"); // and the report survived
+  app.unmount();
+});
+
 test("a launch with no snapshot at all still reports the failure", async () => {
   const repository = makeRepository({
     load: async () => { throw new Error("IDB blocked"); },

@@ -209,6 +209,7 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
     ownWriteKeyRef.current = null;
     setServerCopyPending(false);
     setConfirmDiscard(false);
+    setCheckFailed(false); // a different report; the last check's failure says nothing about it
     // eslint-disable-next-line
   }, []);
 
@@ -348,6 +349,7 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
     const loadAtSave = loadGenerationRef.current;
     const machineAtSave = machine;
     const keyAtSave = selectorKey;
+    const snapshotReadyAtSave = snapshotReadyRef.current;
     const id = reportIdForSave();
     const existedAtSave = Boolean(existingReportRef.current && existingReportRef.current.id === id);
     const payload = { id, date: meta.date, shift: meta.shift, tbmNo: meta.tbmNo, location: meta.location, events: JSON.stringify(eventsForSave), manpower: JSON.stringify(manpower), result: JSON.stringify(result) };
@@ -366,10 +368,23 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
       // a cold launch (fresh install, cleared storage, private mode, blocked IndexedDB) renders an
       // editable BLANK form for as long as the snapshot takes — up to the 90 s fetch ceiling — so a
       // crew filling in a shift that already has a row would append a second one. `existingReport`
-      // cannot be trusted until this machine's rows have actually arrived.
-      if (!snapshotReadyRef.current) throw new Error("SHIFT_SAVE_NO_SNAPSHOT");
+      // cannot be trusted until this machine's rows have arrived.
+      //
+      // Only APPENDS are gated, and only on what was true when the crew acted. An update carries an
+      // id already known to be on the sheet, so it cannot duplicate anything — refusing it would
+      // just discard a recorded time bar. And reading this at execution time broke the rule stated
+      // above: a machine switch while a save was queued flipped it to false and threw away a bar
+      // belonging to the OTHER machine's report, which the switch had already cleared from the form.
+      //
+      // "Ready" means a SERVER answer this session, not merely rows on screen. A cached snapshot can
+      // be hours old — yesterday's cache does not contain the report the other crew filed at 19:00,
+      // so `existingReport` is null and an append would duplicate it. Requiring the server costs
+      // nothing offline, where `apiCall` rejects immediately anyway; it costs the seconds between
+      // launch and the snapshot landing, and the notice offers a button to fetch it now.
+      const willAppend = !existedAtSave && !state.savedIds.has(id);
+      if (willAppend && !snapshotReadyAtSave) throw new Error("SHIFT_SAVE_NO_SNAPSHOT");
       try {
-        await withDeadline(apiCall(existedAtSave || state.savedIds.has(id) ? "updateShiftReport" : "addShiftReport", { ...payload, machine: machineAtSave }));
+        await withDeadline(apiCall(willAppend ? "addShiftReport" : "updateShiftReport", { ...payload, machine: machineAtSave }));
       } catch (error) {
         // A flag, deliberately not a timestamp. Nothing compares times any more, and storing one
         // advertises an ordering comparison that was wrong in three separate rounds.
@@ -636,10 +651,20 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
         </div>
       </div>
 
-      {!snapshotReady && !saveUnresolved && (
-        <div className="mb-3 flex items-center gap-2 bg-amber-500/10 border border-amber-500/40 text-amber-700 px-4 py-2 rounded-card text-[13px] no-print font-semibold">
-          <Loader2 className="w-4 h-4 animate-spin" />
-          <span>ยังไม่ได้ข้อมูลรายงานกะของเครื่องนี้จากเซิร์ฟเวอร์ — กรอกไว้ก่อนได้ แต่ยังบันทึกไม่ได้ เพื่อกันสร้างรายงานซ้ำกับที่มีอยู่แล้ว</span>
+      {!snapshotReady && !saveUnresolved && !readOnly && (
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2 bg-amber-500/10 border border-amber-500/40 text-amber-700 px-4 py-2 rounded-card text-[13px] no-print font-semibold">
+          {/* No spinner: nothing retries on its own, so an endlessly spinning icon would promise a
+              wait that never ends — the fetch may already have failed for good. The button is the
+              way forward, the same one the unknown-outcome notice uses. */}
+          <span>
+            ยังไม่ได้ข้อมูลรายงานกะของเครื่องนี้จากเซิร์ฟเวอร์ — กรอกไว้ก่อนได้ แต่ยังบันทึกไม่ได้ เพื่อกันสร้างรายงานซ้ำกับที่มีอยู่แล้ว
+            {checkFailed && <strong> · ดึงข้อมูลไม่สำเร็จ ลองใหม่อีกครั้ง</strong>}
+          </span>
+          {onRefresh && (
+            <button onClick={checkWithServer} disabled={checking} className="bg-amber-600 hover:bg-amber-700 disabled:opacity-60 text-white px-3 py-1.5 rounded-input font-semibold transition-colors">
+              {checking ? "กำลังโหลด…" : "ดึงข้อมูลจากเซิร์ฟเวอร์"}
+            </button>
+          )}
         </div>
       )}
 

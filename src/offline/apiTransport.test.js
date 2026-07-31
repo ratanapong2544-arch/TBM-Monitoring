@@ -139,6 +139,16 @@ test("a body that stalls after the headers is reported as a timeout, not a cance
   }
 });
 
+test("the snapshot request bypasses the HTTP cache", async () => {
+  // the shift report's server check depends on this fetch reading the sheet AFTER it is issued; a
+  // cached body would be a read from before the question was asked
+  global.fetch = jest.fn().mockResolvedValue({ ok: true, text: async () => JSON.stringify({ status: "success" }) });
+
+  await fetchServerSnapshot("TBM1");
+
+  expect(global.fetch).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ cache: "no-store" }));
+});
+
 test("a completed request clears its timer and its abort listener", async () => {
   // asserting only that *some* clearTimeout ran would pass with this request's timer still pending;
   // the timer count is what actually shows it is gone

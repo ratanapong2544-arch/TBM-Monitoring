@@ -780,6 +780,56 @@ test("a response that omits the shift reports entirely is not read as 'no row'",
   }
 });
 
+test("a time bar cannot create a report before this machine's rows have arrived", async () => {
+  // The disabled Save button hides this: React drops clicks on a disabled button, so a test that
+  // only clicks it passes with the guard deleted. The auto-save path has no button at all — a time
+  // bar creates the report by itself — and on a cold launch that would append a second row for a
+  // shift the sheet already has, because `existingReport` is null until the rows land.
+  let rows = [];
+  const setShiftReports = updater => { rows = typeof updater === "function" ? updater(rows) : updater; };
+  const form = render(view({ shiftReports: rows, setShiftReports, snapshotReady: false }));
+
+  act(() => { form.container.querySelector('[title="เพิ่มเวลาการทำงาน"]').dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+  const times = form.container.querySelectorAll('input[type="time"]');
+  [["08:00", 0], ["09:00", 1]].forEach(([v, i]) => act(() => {
+    Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set.call(times[i], v);
+    times[i].dispatchEvent(new Event("input", { bubbles: true }));
+  }));
+  await act(async () => {
+    [...form.container.querySelectorAll("button")].find(b => /เพิ่มช่วงเวลาลงกราฟ/.test(b.textContent))
+      .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  });
+
+  expect(apiCall).not.toHaveBeenCalled();
+  expect(rows).toEqual([]);
+  form.unmount();
+});
+
+test("an update is not refused while the snapshot is still loading", async () => {
+  // the gate is against APPENDING a duplicate. An update carries an id already known to be on the
+  // sheet, so refusing it would only discard a recorded time bar — which is what happened when the
+  // gate was read at execution time and a machine switch flipped it mid-flight.
+  const stored = { id: "sr1", date: "2026-07-30", shift: "Day", tbmNo: "TBM1", location: "อุโมงค์", manpower: {}, result: {}, events: {} };
+  let rows = [stored];
+  const setShiftReports = updater => { rows = typeof updater === "function" ? updater(rows) : updater; };
+  const form = render(view({ shiftReports: rows, setShiftReports, snapshotReady: false }));
+
+  act(() => { form.container.querySelector('[title="เพิ่มเวลาการทำงาน"]').dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+  const times = form.container.querySelectorAll('input[type="time"]');
+  [["08:00", 0], ["09:00", 1]].forEach(([v, i]) => act(() => {
+    Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set.call(times[i], v);
+    times[i].dispatchEvent(new Event("input", { bubbles: true }));
+  }));
+  await act(async () => {
+    [...form.container.querySelectorAll("button")].find(b => /เพิ่มช่วงเวลาลงกราฟ/.test(b.textContent))
+      .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  });
+
+  expect(apiCall).toHaveBeenCalledTimes(1);
+  expect(apiCall.mock.calls[0][0]).toBe("updateShiftReport");
+  form.unmount();
+});
+
 test("a check that cannot reach the server leaves the block in place", async () => {
   jest.useFakeTimers();
   const alertSpy = jest.spyOn(window, "alert").mockImplementation(() => {});

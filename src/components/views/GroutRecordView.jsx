@@ -4,10 +4,11 @@ import RingVisualizer from "../common/RingVisualizer";
 import { THEORETICAL_VOL } from "../../utils/constants";
 import { getRingByOffsetFromHistory, handleFileUpload } from "../../utils/helpers";
 import { apiCall } from "../../utils/api";
+import { buildMutationEnvelope } from "../../offline/mutationEnvelope";
 import { SegmentedToggle } from "../../ui-ux-pro-max";
 import StickyActionBar from "../../ui-ux-pro-max/components/StickyActionBar";
 
-const GroutRecordView = ({ projectInfo, handleProjectInfoChange, groutRecords, setGroutRecords, secondaryGroutRecords = [], setSecondaryGroutRecords, segmentRecords, setCurrentModule, setActiveTab, machine = "TBM1", isCurrentMachine }) => {
+const GroutRecordView = ({ projectInfo, handleProjectInfoChange, groutRecords, setGroutRecords, secondaryGroutRecords = [], setSecondaryGroutRecords, segmentRecords, setCurrentModule, setActiveTab, machine = "TBM1", isCurrentMachine, onMutate, syncMeta }) => {
   const [isSaving, setIsSaving] = useState(false);
   // App answers this, because a save can resolve after this view unmounts (any nav tap) and a local
   // ref would be frozen at the machine selected then. The local fallback is for standalone renders.
@@ -108,24 +109,27 @@ const GroutRecordView = ({ projectInfo, handleProjectInfoChange, groutRecords, s
     const base = { ...projectInfo, ...formData, ringNo: inputRing, key: formData.keyType, total: Number(currentTotal) };
 
     try {
-      if (isSecondary) {
-        const rec = { id: `sgrout_${Date.now()}`, ...base }; // ไม่มี ratio/groutPass
-        await apiCall("addSecondaryGrout", { ...rec, machine: machineAtSave });
-        const local = { ...rec };
-        if (local.imageBase64) local.imageUrl = "Attached";
-        delete local.imageBase64; delete local.imageName;
-        // a save resolves seconds later: if the crew switched machine meanwhile, writing the result
-        // back would put this machine's ring and volumes into the other machine's state
+      const entityType = isSecondary ? "secondaryGrout" : "grout";
+      const rec = isSecondary
+        ? { id: `sgrout_${Date.now()}`, ...base } // ไม่มี ratio/groutPass
+        : { id: `grout_${Date.now()}`, ...base, ratio: Number((Number(currentTotal) / THEORETICAL_VOL) * 100), groutPass: "1st Pass" };
+      const local = { ...rec };
+      if (local.imageBase64) local.imageUrl = "Attached";
+      delete local.imageBase64; delete local.imageName;
+
+      if (onMutate) {
+        await onMutate(buildMutationEnvelope({
+          entityType, operation: "create", machine: machineAtSave,
+          recordId: rec.id, payload: rec, syncMeta,
+        }));
+        // a save resolves seconds later: if the crew switched machine meanwhile, the form still holds
+        // the OTHER machine's ring and volumes, so the reset below must not run
         if (!stillOnMachine(machineAtSave)) { setIsSaving(false); return; }
-        setSecondaryGroutRecords((prev) => [...prev, local]);
       } else {
-        const rec = { id: `grout_${Date.now()}`, ...base, ratio: Number((Number(currentTotal) / THEORETICAL_VOL) * 100), groutPass: "1st Pass" };
-        await apiCall("addGrout", { ...rec, machine: machineAtSave });
-        const local = { ...rec };
-        if (local.imageBase64) local.imageUrl = "Attached";
-        delete local.imageBase64; delete local.imageName;
+        await apiCall(isSecondary ? "addSecondaryGrout" : "addGrout", { ...rec, machine: machineAtSave });
         if (!stillOnMachine(machineAtSave)) { setIsSaving(false); return; }
-        setGroutRecords((prev) => [...prev, local]);
+        // App applies the optimistic row when queued; writing it here too would duplicate the ring
+        (isSecondary ? setSecondaryGroutRecords : setGroutRecords)((prev) => [...prev, local]);
       }
       // the reset is inside the guard for the same reason: after a machine switch the form holds the
       // OTHER machine's ring and its measured Part A / Part B volumes, and clearing them here wiped

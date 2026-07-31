@@ -33,12 +33,14 @@ import { getMachineConfig } from "./utils/machineConfig";
 import { savePrepTasks } from "./utils/prepGantt";
 import { isViewerMode, VIEWER_TABS } from "./utils/viewerMode";
 import { useOfflineData } from "./offline/useOfflineData";
+import { useOffline } from "./offline/OfflineProvider";
 
 import { Shell, NAV_GROUPS } from "./ui-ux-pro-max";
 import "./styles/globals.css";
 
 // stable empty array so the machine-switch gate does not remount every consumer each render
 const EMPTY_ROWS = [];
+const EMPTY_SYNC_META = {};
 
 const PrimaryGroutApp = () => {
   const [currentModule, setCurrentModule] = useState("segment");
@@ -136,6 +138,7 @@ const PrimaryGroutApp = () => {
   // replaces it. The repository owns the fetch, the race guard and the stale flag, so this effect
   // only mirrors `data` into the existing state contracts (write migration lands in Tasks 8-9).
   const offlineData = useOfflineData(activeMachine);
+  const { repository, runner } = useOffline();
 
   useEffect(() => {
     const data = offlineData.data;
@@ -246,6 +249,38 @@ const PrimaryGroutApp = () => {
   const activeDailyReports = dailyReports.filter((r) => (r.machine || "TBM1") === activeMachine);
   const activeIssues = forMachine(issues, activeMachine);
   const dashFilter = useFilterState();
+
+  // The version this device last saw per domain key. Views read it to stamp `baseVersion`, which is
+  // what lets the server refuse an edit made against a row that has since moved on.
+  const syncMeta = (offlineData.data && offlineData.data.syncMeta) || EMPTY_SYNC_META;
+
+  // Every core engineering write goes through here: queue it durably first, show it immediately,
+  // then let the runner drain. The optimistic row is what the crew sees until the server confirms —
+  // so the success message must not claim it reached the sheet.
+  const applyOptimisticRecord = useCallback((entityType, operation, record) => {
+    const setter = {
+      segment: setSegmentRecords,
+      grout: setGroutRecords,
+      secondaryGrout: setSecondaryGroutRecords,
+      shiftReport: setShiftReports,
+    }[entityType];
+    if (!setter || !record) return;
+    setter(prev => {
+      if (operation === "delete") return prev.filter(row => row.id !== record.id);
+      return prev.some(row => row.id === record.id)
+        ? prev.map(row => (row.id === record.id ? record : row))
+        : [...prev, record];
+    });
+  }, []);
+
+  const mutateBusinessRecord = useCallback(async (input) => {
+    const { optimisticRecord } = await repository.mutate(input);
+    applyOptimisticRecord(input.entityType, input.operation, optimisticRecord);
+    // best-effort: draining is the runner's job and a failure here must not fail the crew's save,
+    // which is already durable in IndexedDB by this point
+    try { Promise.resolve(runner.runNow()).catch(() => {}); } catch (error) { /* queued regardless */ }
+    return optimisticRecord;
+  }, [applyOptimisticRecord, repository, runner]);
 
   const liveHeaderStatus = useMemo(() => {
     if (activeSegments.length === 0) return null;
@@ -359,8 +394,8 @@ const PrimaryGroutApp = () => {
         </div>
       )}
       {activeTab === "overview" && <OverviewView segmentRecords={activeSegments} groutRecords={activeGrouts} setCurrentModule={setCurrentModule} setActiveTab={setActiveTab} activeMachine={activeMachine} onMachineChange={setActiveMachine} />}
-      {activeTab === "record" && currentModule === "grout" && <GroutRecordView projectInfo={projectInfo} handleProjectInfoChange={handleProjectInfoChange} groutRecords={activeGrouts} setGroutRecords={setGroutRecords} secondaryGroutRecords={activeSecondaryGrouts} setSecondaryGroutRecords={setSecondaryGroutRecords} segmentRecords={activeSegments} setCurrentModule={setCurrentModule} setActiveTab={setActiveTab} machine={activeMachine} isCurrentMachine={isCurrentMachine} />}
-      {activeTab === "record" && currentModule === "segment" && <SegmentRecordView projectInfo={projectInfo} handleProjectInfoChange={handleProjectInfoChange} segmentRecords={activeSegments} setSegmentRecords={setSegmentRecords} setCurrentModule={setCurrentModule} setActiveTab={setActiveTab} machine={activeMachine} isCurrentMachine={isCurrentMachine} />}
+      {activeTab === "record" && currentModule === "grout" && <GroutRecordView projectInfo={projectInfo} handleProjectInfoChange={handleProjectInfoChange} groutRecords={activeGrouts} setGroutRecords={setGroutRecords} secondaryGroutRecords={activeSecondaryGrouts} setSecondaryGroutRecords={setSecondaryGroutRecords} segmentRecords={activeSegments} setCurrentModule={setCurrentModule} setActiveTab={setActiveTab} machine={activeMachine} isCurrentMachine={isCurrentMachine} onMutate={mutateBusinessRecord} syncMeta={syncMeta} />}
+      {activeTab === "record" && currentModule === "segment" && <SegmentRecordView projectInfo={projectInfo} handleProjectInfoChange={handleProjectInfoChange} segmentRecords={activeSegments} setSegmentRecords={setSegmentRecords} setCurrentModule={setCurrentModule} setActiveTab={setActiveTab} machine={activeMachine} isCurrentMachine={isCurrentMachine} onMutate={mutateBusinessRecord} syncMeta={syncMeta} />}
       {activeTab === "dashboard" && <ExecutiveDashboardView segmentRecords={activeSegments} groutRecords={activeGrouts} shiftReports={activeShiftReports} dailyReports={activeDailyReports} machine={activeMachine} onNavigate={handleNavigate} filterState={dashFilter.state} readOnly={isViewer} />}
       {activeTab === "analysis" && currentModule === "segment" && <SegmentAnalysisView segmentRecords={activeSegments} projectInfo={projectInfo} machine={activeMachine} filterState={dashFilter.state} readOnly={isViewer} />}
       {activeTab === "analysis" && currentModule === "grout" && <GroutAnalysisView groutRecords={activeGrouts} secondaryGroutRecords={activeSecondaryGrouts} readOnly={isViewer} />}
@@ -368,8 +403,8 @@ const PrimaryGroutApp = () => {
       {activeTab === "head_level" && <HeadLevelView segmentRecords={activeSegments} machine={activeMachine} readOnly={isViewer} />}
       {activeTab === "performance" && <PerformanceView segmentRecords={activeSegments} shiftReports={activeShiftReports} filterState={dashFilter.state} />}
       {activeTab === "prep_gantt" && <PrepGanttView machine={activeMachine} readOnly={isViewer} />}
-      {activeTab === "datalog" && currentModule === "grout" && <GroutDashboardView groutRecords={activeGrouts} setGroutRecords={setGroutRecords} secondaryGroutRecords={activeSecondaryGrouts} setSecondaryGroutRecords={setSecondaryGroutRecords} segmentRecords={activeSegments} machine={activeMachine} readOnly={isViewer} />}
-      {activeTab === "datalog" && currentModule === "segment" && <SegmentDashboardView segmentRecords={activeSegments} setSegmentRecords={setSegmentRecords} machine={activeMachine} />}
+      {activeTab === "datalog" && currentModule === "grout" && <GroutDashboardView groutRecords={activeGrouts} setGroutRecords={setGroutRecords} secondaryGroutRecords={activeSecondaryGrouts} setSecondaryGroutRecords={setSecondaryGroutRecords} segmentRecords={activeSegments} machine={activeMachine} onMutate={mutateBusinessRecord} syncMeta={syncMeta} readOnly={isViewer} />}
+      {activeTab === "datalog" && currentModule === "segment" && <SegmentDashboardView segmentRecords={activeSegments} setSegmentRecords={setSegmentRecords} machine={activeMachine} onMutate={mutateBusinessRecord} syncMeta={syncMeta} />}
       {activeTab === "report" && <ReportView segmentRecords={activeSegments} groutRecords={activeGrouts} projectInfo={projectInfo} shiftReports={activeShiftReports} onCreateDaily={(draft) => { setPendingRecordForm(draft); setActiveTab("record_daily"); }} />}
       {activeTab === "shift_report" && <ShiftReportView projectInfo={projectInfo} segmentRecords={activeSegments} shiftReports={activeShiftReports} setShiftReports={setShiftReports} machine={activeMachine} isCurrentMachine={isCurrentMachine} onRefresh={offlineData.refresh} snapshotReady={rowsReady && offlineData.source === "server" && Boolean(offlineData.data && offlineData.data.present && offlineData.data.present.shiftReports)} readOnly={isViewer} />}
       {activeTab === "record_daily" && <RecordDailyView dailyReports={activeDailyReports} onSave={(form) => { handleSaveDailyReport(form); setActiveTab("daily_report"); }} pendingForm={pendingRecordForm} onConsumePendingForm={() => setPendingRecordForm(null)} activeMachine={activeMachine} />}

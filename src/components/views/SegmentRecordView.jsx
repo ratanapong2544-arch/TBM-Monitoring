@@ -3,10 +3,11 @@ import { Layers, ChevronRight, Save, Loader2, Camera, Clock } from "lucide-react
 import { parseCH, formatCH } from "../../utils/formatters";
 import { offsetRingNo, calculateSoilVolume, handleFileUpload } from "../../utils/helpers";
 import { apiCall } from "../../utils/api";
+import { buildMutationEnvelope } from "../../offline/mutationEnvelope";
 import { SegmentedToggle } from "../../ui-ux-pro-max";
 import StickyActionBar from "../../ui-ux-pro-max/components/StickyActionBar";
 
-const SegmentRecordView = ({ projectInfo, handleProjectInfoChange, segmentRecords, setSegmentRecords, setCurrentModule, setActiveTab, machine = "TBM1", isCurrentMachine }) => {
+const SegmentRecordView = ({ projectInfo, handleProjectInfoChange, segmentRecords, setSegmentRecords, setCurrentModule, setActiveTab, machine = "TBM1", isCurrentMachine, onMutate, syncMeta }) => {
   const [isSaving, setIsSaving] = useState(false);
   // App answers this, because a save can resolve after this view unmounts (any nav tap) and a local
   // ref would be frozen at the machine selected then. The local fallback is for standalone renders.
@@ -108,12 +109,17 @@ const SegmentRecordView = ({ projectInfo, handleProjectInfoChange, segmentRecord
     const isUpdate = Boolean(formData.id);
 
     try {
-      if (isUpdate) {
-        recordData.id = formData.id;
-        await apiCall("updateSegment", { ...recordData, machine: machineAtSave });
+      recordData.id = isUpdate ? formData.id : `seg_${Date.now()}`;
+      // The queue owns durability and ordering now: the record is on this device before this
+      // resolves, and `baseVersion` lets the server refuse an edit made against a row that has
+      // since moved on. `onMutate` is optional so the view still renders in isolation.
+      if (onMutate) {
+        await onMutate(buildMutationEnvelope({
+          entityType: "segment", operation: isUpdate ? "update" : "create",
+          machine: machineAtSave, recordId: recordData.id, payload: recordData, syncMeta,
+        }));
       } else {
-        recordData.id = `seg_${Date.now()}`;
-        await apiCall("addSegment", { ...recordData, machine: machineAtSave });
+        await apiCall(isUpdate ? "updateSegment" : "addSegment", { ...recordData, machine: machineAtSave });
       }
       // A save resolves seconds later. If the crew switched machine meanwhile, NEITHER the rows nor
       // the form may be touched. The rows are obvious — this machine's ring and surveyed chainage
@@ -122,7 +128,9 @@ const SegmentRecordView = ({ projectInfo, handleProjectInfoChange, segmentRecord
       // `updateSegment` against a row that machine's sheet does not have. GAS finds no match and
       // no-ops, the local map matches nothing, and the ring is lost with no error shown.
       if (!stillOnMachine(machineAtSave)) { setIsSaving(false); return; }
-      setSegmentRecords((prev) => (isUpdate ? prev.map((r) => (r.id === recordData.id ? recordData : r)) : [...prev, recordData]));
+      // when queued, App has already applied the optimistic row — writing it here too would
+      // duplicate the ring in state
+      if (!onMutate) setSegmentRecords((prev) => (isUpdate ? prev.map((r) => (r.id === recordData.id ? recordData : r)) : [...prev, recordData]));
       setFormData((prev) => {
         const isCompleted = prev.status === "Completed";
         return {

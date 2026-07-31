@@ -324,7 +324,48 @@ test("a segment save resolving after a machine switch does not land in the other
   await act(async () => { release(); });
 
   expect(rows).toEqual([]);
+  // and the FORM must be untouched too: it now holds the other machine's next ring, so taking this
+  // save's row id would turn the next Save into an updateSegment against a row TBM2's sheet has
+  // never seen — GAS finds no match, the local map matches nothing, and the ring is lost silently
+  expect(view.value("ringNo")).toBe("");
+  expect(view.container.querySelector('[name="ringNo"]').closest("form")).toBeTruthy();
+  type(view.container, "ringNo", "P101");
+  type(view.container, "startCH", "9+499.50");
+  apiCall.mockImplementation(async () => ({ status: "success" }));
+  await act(async () => {
+    view.container.querySelector("form").dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+  });
+  const [action, payload] = apiCall.mock.calls[apiCall.mock.calls.length - 1];
+  expect(action).toBe("addSegment");
+  expect(payload.machine).toBe("TBM2");
   view.unmount();
+});
+
+test("a segment save resolving after the form unmounts does not land in the other machine", async () => {
+  // the machine switcher is in the TopBar, so it is reachable from every tab — the crew can submit,
+  // tap another nav item (this view unmounts), then switch machine. A ref inside the view freezes at
+  // unmount and would still answer "TBM1"; App's answer is the live one.
+  let release;
+  apiCall.mockImplementation(() => new Promise(resolve => { release = () => resolve({ status: "success" }); }));
+  let rows = [];
+  let currentMachine = "TBM1";
+  const view = render(
+    <SegmentRecordView projectInfo={projectInfo} handleProjectInfoChange={() => {}} segmentRecords={rows}
+      setSegmentRecords={updater => { rows = typeof updater === "function" ? updater(rows) : updater; }}
+      setCurrentModule={() => {}} setActiveTab={() => {}} machine="TBM1"
+      isCurrentMachine={m => m === currentMachine} />
+  );
+  type(view.container, "ringNo", "P644");
+  type(view.container, "startCH", "8+008.80");
+  await act(async () => {
+    view.container.querySelector("form").dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+  });
+
+  view.unmount();          // the crew navigated away
+  currentMachine = "TBM2"; // then switched machine
+  await act(async () => { release(); });
+
+  expect(rows).toEqual([]);
 });
 
 test("a grout save resolving after a machine switch does not land in the other machine", async () => {
@@ -345,9 +386,20 @@ test("a grout save resolving after a machine switch does not land in the other m
   });
 
   view.rerender(element("TBM2"));
+  // the crew is already filling in this machine's ring while the previous save is still travelling
+  type(view.container, "ringNo", "P100");
+  type(view.container, "partA", "11.0");
+  type(view.container, "partB", "5.5");
+  type(view.container, "pressure", "3.2");
   await act(async () => { release(); });
 
   expect(rows).toEqual([]);
+  // the post-save reset must be inside the guard too, or it clears measured volumes belonging to a
+  // record that was never saved
+  expect(view.value("ringNo")).toBe("P100");
+  expect(view.value("partA")).toBe("11.0");
+  expect(view.value("partB")).toBe("5.5");
+  expect(view.value("pressure")).toBe("3.2");
   view.unmount();
 });
 

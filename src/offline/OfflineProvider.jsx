@@ -90,12 +90,18 @@ export function OfflineProvider({ children, deps = {} }) {
             if (active) await repository.setSyncMetaValue("storagePersistence", { granted: Boolean(granted), checkedAt: new Date().toISOString() });
           } catch (error) { /* Safari variants reject or omit the API */ }
         }
-        if (!active) return;
-        await runner.start();
-        await refreshSummary();
       } catch (error) {
         /* the app must still render offline even if the database cannot open */
       }
+      // The runner starts even when the database could not be opened. Starting it is what attaches
+      // the online/focus/visibilitychange listeners, so skipping it left a session that lost the
+      // open race — a blocked upgrade from another tab, a WebKit stall — with no automatic sync for
+      // its whole life, long after the condition cleared.
+      if (!active) return;
+      try {
+        await runner.start();
+        await refreshSummary();
+      } catch (error) { /* best-effort: a runner that cannot start must not block rendering */ }
     })();
 
     const unsubscribe = repository.subscribe(() => { refreshSummary(); });

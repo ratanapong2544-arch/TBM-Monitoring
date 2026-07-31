@@ -26,6 +26,16 @@ const initialState = machine => ({
 export function useOfflineData(machine, deps = {}) {
   const context = useOffline({ optional: true });
   const repository = deps.repository || (context && context.repository);
+  const runner = deps.runner || (context && context.runner);
+  // A refresh that succeeds proves the network is reachable, which is one of the design's sync
+  // triggers and the only one React owns. The runner's own triggers are online/focus/visibility, and
+  // none of them fire when a tunnel link comes back while the tab is already open and focused.
+  const runnerRef = useRef(runner);
+  runnerRef.current = runner;
+  const syncAfterRefresh = useCallback(() => {
+    const current = runnerRef.current;
+    if (current && typeof current.runNow === "function") { try { current.runNow(); } catch (error) { /* sync is best-effort */ } }
+  }, []);
   const [state, setState] = useState(() => initialState(machine));
   // one token per machine selection: a settled request whose token is stale is dropped.
   // React 18 makes a setState after unmount a silent no-op, so the token is the only guard needed —
@@ -65,11 +75,12 @@ export function useOfflineData(machine, deps = {}) {
       .then(fresh => {
         serverSettled = true;
         applyIfCurrent(token, { data: fresh.data, source: fresh.source, fetchedAt: fresh.fetchedAt, stale: Boolean(fresh.stale), refreshing: false, loading: false, error: null, cacheError: fresh.cacheError || null });
+        syncAfterRefresh();
         return true;
       })
       .catch(error => { applyIfCurrent(token, { refreshing: false, loading: false, stale: true, error }); return false; });
     await Promise.all([cachePass, serverPass]);
-  }, [applyIfCurrent, machine, repository]);
+  }, [applyIfCurrent, machine, repository, syncAfterRefresh]);
 
   useEffect(() => {
     const token = ++requestRef.current;
@@ -97,12 +108,19 @@ export function useOfflineData(machine, deps = {}) {
       // hydrate, whose passes carried the only other `loading:false`, so omitting it left the app
       // on its splash screen forever.
       applyIfCurrent(token, { data: fresh.data, source: fresh.source, fetchedAt: fresh.fetchedAt, stale: Boolean(fresh.stale), refreshing: false, loading: false, error: null, cacheError: fresh.cacheError || null });
+      syncAfterRefresh();
       return fresh;
     } catch (error) {
       applyIfCurrent(token, { refreshing: false, loading: false, stale: true, error });
       return null;
     }
-  }, [applyIfCurrent, machine, repository]);
+  }, [applyIfCurrent, machine, repository, syncAfterRefresh]);
 
-  return { ...state, refresh };
+  // Which machine `data` actually belongs to. Between a machine switch and the new snapshot landing,
+  // the provenance fields are already reset for the machine being switched TO while `data` still
+  // holds the previous machine's records — deliberately, because blanking it would let the record
+  // forms read "this machine has no rings yet" and prefill ring 1 over a live heading. A consumer
+  // reading `source`/`stale` alone would therefore describe the wrong machine's data; compare this
+  // to the machine it asked for first. App does the equivalent check before mirroring.
+  return { ...state, dataMachine: state.data ? state.data.machine : null, refresh };
 }

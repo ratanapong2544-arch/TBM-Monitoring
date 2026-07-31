@@ -214,6 +214,52 @@ test("provenance does not carry across a machine switch", async () => {
   hook.unmount();
 });
 
+test("says which machine the data on screen belongs to", async () => {
+  // during a switch the provenance fields already describe the machine being switched TO while
+  // `data` still holds the previous machine's records (blanking it would let a record form read
+  // "no rings yet" and prefill ring 1 over a live heading). Anything reading source/stale alone
+  // would describe the wrong machine's data, so the pairing has to be stated.
+  const slowCache = deferred();
+  const slowServer = deferred();
+  const repository = makeRepository();
+  const hook = renderHook(props => useOfflineData(props.machine, { repository }), { machine: "TBM1" });
+  await act(async () => {});
+  expect(hook.last()).toMatchObject({ source: "server", dataMachine: "TBM1" });
+
+  repository.load = jest.fn(() => slowCache.promise);
+  repository.refresh = jest.fn(() => slowServer.promise);
+  hook.rerender({ machine: "TBM2" });
+  await act(async () => {});
+
+  expect(hook.last()).toMatchObject({ source: "empty", dataMachine: "TBM1" });
+  expect(hook.last().data.segments).toHaveLength(1); // still TBM1's rings, deliberately
+  hook.unmount();
+});
+
+test("a successful refresh triggers the sync runner", async () => {
+  // the runner's own triggers are online/focus/visibilitychange; none of them fire when a tunnel
+  // link comes back while the tab is open and focused, and a refresh succeeding proves it is back
+  const repository = makeRepository();
+  const runner = { runNow: jest.fn(() => Promise.resolve()) };
+  const hook = renderHook(props => useOfflineData(props.machine, { repository, runner }), { machine: "TBM1" });
+  await act(async () => {});
+  expect(runner.runNow).toHaveBeenCalledTimes(1);
+
+  await act(async () => { await hook.last().refresh(); });
+  expect(runner.runNow).toHaveBeenCalledTimes(2);
+  hook.unmount();
+});
+
+test("a failing refresh does not trigger the sync runner", async () => {
+  const repository = makeRepository({ refresh: jest.fn(async () => { throw new Error("NETWORK"); }) });
+  const runner = { runNow: jest.fn(() => Promise.resolve()) };
+  const hook = renderHook(props => useOfflineData(props.machine, { repository, runner }), { machine: "TBM1" });
+  await act(async () => {});
+
+  expect(runner.runNow).not.toHaveBeenCalled();
+  hook.unmount();
+});
+
 test("a manual refresh during hydration still clears loading", async () => {
   // refresh claims the request token, invalidating the in-flight hydrate that carried the only
   // other loading:false — omitting it here left the app on its splash screen forever

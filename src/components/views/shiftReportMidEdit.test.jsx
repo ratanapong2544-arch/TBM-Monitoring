@@ -224,6 +224,8 @@ test("a time-bar auto-save keeps input typed while it is in flight", async () =>
 });
 
 test("two saves overlapping on a new report write one row, not two", async () => {
+  // the sheet appends on `addShiftReport` without checking the id, so a shared id is not enough:
+  // the second save has to go out as an update, which means it must not start until the first lands
   const releases = [];
   apiCall.mockImplementation(() => new Promise(resolve => { releases.push(() => resolve({ status: "success" })); }));
   let rows = [];
@@ -249,10 +251,14 @@ test("two saves overlapping on a new report write one row, not two", async () =>
     add.dispatchEvent(new MouseEvent("click", { bubbles: true }));
   });
 
-  await act(async () => { releases.forEach(r => r()); });
+  // the queued save is still waiting on the first
+  expect(apiCall).toHaveBeenCalledTimes(1);
+  await act(async () => { releases[0](); });
+  await act(async () => { releases[1](); });
 
+  const actions = apiCall.mock.calls.map(([action]) => action);
   const ids = apiCall.mock.calls.map(([, payload]) => payload.id);
-  expect(ids).toHaveLength(2);
+  expect(actions).toEqual(["addShiftReport", "updateShiftReport"]);
   expect(ids[0]).toBe(ids[1]);
   expect(rows).toHaveLength(1);
   form.unmount();

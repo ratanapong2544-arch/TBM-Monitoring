@@ -15,7 +15,7 @@ const stableKey = (value) => {
   return JSON.stringify(value);
 };
 
-const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftReports, machine = "TBM1", readOnly = false }) => {
+const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftReports, machine = "TBM1", isCurrentMachine, readOnly = false }) => {
   const [isSaving, setIsSaving] = useState(false);
   const [isExportingImage, setIsExportingImage] = useState(false);
 
@@ -99,8 +99,11 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
   const markDirty = () => { dirtyRef.current = true; editSerialRef.current += 1; };
   // the key of the row this view last wrote, so its own save is never announced as a server copy
   const ownWriteKeyRef = useRef(null);
+  // App answers this, because a save can resolve after this view unmounts (any nav tap) and a local
+  // ref would be frozen at the machine selected then. The local fallback is for standalone renders.
   const machineRef = useRef(machine);
   machineRef.current = machine;
+  const stillOnMachine = (m) => (isCurrentMachine ? isCurrentMachine(m) : machineRef.current === m);
   const [serverCopyPending, setServerCopyPending] = useState(false);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
 
@@ -133,6 +136,7 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
     // of the last row written is no longer the one to compare arrivals against
     draftIdRef.current = null;
     ownWriteKeyRef.current = null;
+    savedIdsRef.current = new Set();
     setServerCopyPending(false);
     setConfirmDiscard(false);
     // eslint-disable-next-line
@@ -146,8 +150,10 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
   // a snapshot changed the stored copy of the report for the current date/shift. Only take it over a
   // form the crew has not started filling in; otherwise keep what they typed and tell them.
   useEffect(() => {
-    // the row this view just wrote is the crew's own, even if they kept typing during the request
-    if (reportKey && reportKey === ownWriteKeyRef.current) return;
+    // The row this view just wrote is the crew's own, even if they kept typing during the request.
+    // Clear any notice still up from an earlier arrival: that save has just overwritten the copy it
+    // was pointing at, so leaving the warning on screen offers a row that no longer exists.
+    if (reportKey && reportKey === ownWriteKeyRef.current) { setServerCopyPending(false); return; }
     if (!dirtyRef.current) loadForm();
     // a row that DISAPPEARED from the snapshot is not a competing copy — offering to "load" it
     // would just wipe the form. Clear any notice raised by an earlier arrival for the same reason:
@@ -180,54 +186,72 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
   // date and shift — after which only the first was ever updated and the dashboards double-counted.
   const draftIdRef = useRef(null);
   const reportIdForSave = () => {
-    if (existingReport) return existingReport.id;
+    if (existingReportRef.current) return existingReportRef.current.id;
     if (!draftIdRef.current) draftIdRef.current = `shift_${Date.now()}`;
     return draftIdRef.current;
   };
+
+  // Sharing the id was not enough on its own: `addShiftReport` appends to the sheet without checking
+  // the id, and two saves in flight together both saw a falsy `existingReport` and both sent `add` —
+  // two rows for the same date and shift. Every later update hits only the first (the sheet scan
+  // stops at the first match), so the second stays frozen with a partial event set and the shift and
+  // its delay minutes are counted twice on the next refresh. Saves therefore run one at a time, and
+  // each picks its action when it actually starts, from the ids known to be on the sheet by then.
+  const savedIdsRef = useRef(new Set());
+  const saveChainRef = useRef(Promise.resolve());
+  const queueSave = (run) => {
+    const next = saveChainRef.current.then(run, run);
+    saveChainRef.current = next.then(() => {}, () => {});
+    return next;
+  };
+  const saveAction = (id) => (savedIdsRef.current.has(id) || (existingReportRef.current && existingReportRef.current.id === id)
+    ? "updateShiftReport"
+    : "addShiftReport");
 
   // A save resolves seconds after it starts. If the crew switched machine meanwhile, writing the
   // result back would put one machine's crew counts and surveyed chainage into the other's state —
   // the async door into the contamination the machine reset closes on the synchronous side.
   const commitSaved = (machineAtSave, payloadId, savedRecord) => {
-    if (machineRef.current !== machineAtSave) return false;
+    if (!stillOnMachine(machineAtSave)) return false;
     setShiftReports(prev => (prev.some(r => r.id === payloadId)
       ? prev.map(r => (r.id === payloadId ? savedRecord : r))
       : [...prev, savedRecord]));
     return true;
   };
 
-  const handleSaveToCloud = async () => {
-    setIsSaving(true);
+  // `eventsForSave` lets the auto-save send the event set it just produced, which is not in state yet
+  const sendReport = async (eventsForSave) => {
     const serialAtSave = editSerialRef.current;
     const machineAtSave = machine;
-    const payload = { id: reportIdForSave(), date: meta.date, shift: meta.shift, tbmNo: meta.tbmNo, location: meta.location, events: JSON.stringify(events), manpower: JSON.stringify(manpower), result: JSON.stringify(result) };
-    try {
-      await apiCall(existingReport ? "updateShiftReport" : "addShiftReport", { ...payload, machine: machineAtSave });
-      const savedRecord = { ...payload, events: events, manpower: manpower, result: result };
-      // What we just stored IS the crew's copy, so the row coming back is not a competing one and
-      // may load over the form — but ONLY if nothing was typed while the request was in flight. A
-      // GAS round trip takes seconds on a tunnel link, and the payload was built before it started,
-      // so clearing this unconditionally threw away anything typed meanwhile.
-      if (editSerialRef.current === serialAtSave) dirtyRef.current = false;
-      ownWriteKeyRef.current = stableKey([savedRecord.id, savedRecord.location, savedRecord.manpower, savedRecord.result, savedRecord.events]);
-      if (commitSaved(machineAtSave, payload.id, savedRecord)) alert("บันทึก Shift Report สำเร็จ");
-    } catch (e) { alert("บันทึกไม่สำเร็จ: " + e.message); }
-    setIsSaving(false);
+    const id = reportIdForSave();
+    const payload = { id, date: meta.date, shift: meta.shift, tbmNo: meta.tbmNo, location: meta.location, events: JSON.stringify(eventsForSave), manpower: JSON.stringify(manpower), result: JSON.stringify(result) };
+    await apiCall(saveAction(id), { ...payload, machine: machineAtSave });
+    savedIdsRef.current.add(id);
+    const savedRecord = { ...payload, events: eventsForSave, manpower, result };
+    // The row that comes back carries this write, so the effect watching for a server copy
+    // recognises it by key and leaves the form alone. The dirty flag still matters for the NEXT
+    // arrival: a GAS round trip takes seconds on a tunnel link and the payload was built before it
+    // started, so anything typed meanwhile is not in the sheet yet and the form must stay dirty or
+    // a later snapshot loads over it.
+    if (editSerialRef.current === serialAtSave) dirtyRef.current = false;
+    ownWriteKeyRef.current = stableKey([savedRecord.id, savedRecord.location, savedRecord.manpower, savedRecord.result, savedRecord.events]);
+    return commitSaved(machineAtSave, id, savedRecord);
   };
 
-  const triggerAutoSaveEvents = async (updatedEvents) => {
-    const serialAtSave = editSerialRef.current;
-    const machineAtSave = machine;
-    const payload = { id: reportIdForSave(), date: meta.date, shift: meta.shift, tbmNo: meta.tbmNo, location: meta.location, events: JSON.stringify(updatedEvents), manpower: JSON.stringify(manpower), result: JSON.stringify(result) };
-    try {
-      await apiCall(existingReport ? "updateShiftReport" : "addShiftReport", { ...payload, machine: machineAtSave });
-      const savedRecord = { ...payload, events: updatedEvents, manpower, result };
-      // our own write, not a competing copy — unless the crew typed during the round trip
-      if (editSerialRef.current === serialAtSave) dirtyRef.current = false;
-      ownWriteKeyRef.current = stableKey([savedRecord.id, savedRecord.location, savedRecord.manpower, savedRecord.result, savedRecord.events]);
-      commitSaved(machineAtSave, payload.id, savedRecord);
-    } catch (e) { console.error("Auto-save failed", e); }
+  const handleSaveToCloud = () => {
+    setIsSaving(true);
+    return queueSave(async () => {
+      try {
+        if (await sendReport(events)) alert("บันทึก Shift Report สำเร็จ");
+      } catch (e) { alert("บันทึกไม่สำเร็จ: " + e.message); }
+      setIsSaving(false);
+    });
   };
+
+  const triggerAutoSaveEvents = (updatedEvents) => queueSave(async () => {
+    try { await sendReport(updatedEvents); }
+    catch (e) { console.error("Auto-save failed", e); }
+  });
 
   const displayEvents = useMemo(() => {
     const merged = { ...events };

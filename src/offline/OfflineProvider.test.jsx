@@ -120,14 +120,38 @@ test("exposes the summary the repository reports", async () => {
 test("reports the platform's online state before any summary arrives", async () => {
   // a database that never opens must not leave the indicator claiming the app is online
   const onLine = jest.spyOn(window.navigator, "onLine", "get").mockReturnValue(false);
-  const { deps } = makeDeps({ openDb: jest.fn(async () => { throw new Error("blocked"); }) });
+  const { deps } = makeDeps({
+    openDb: jest.fn(async () => { throw new Error("blocked"); }),
+    // the real getSyncSummary counts rows through openDb, so it fails with the database — a mock
+    // that answers anyway would assert against a summary the app could never actually have
+    createRepository: jest.fn(() => ({
+      getSyncSummary: jest.fn(async () => { throw new Error("blocked"); }),
+      setSyncMetaValue: jest.fn(async () => {}),
+      subscribe: jest.fn(() => () => {}),
+    })),
+  });
   const provider = renderProvider(deps);
+  expect(provider.last().syncSummary.online).toBe(false);
 
   await act(async () => {});
 
   expect(provider.last().syncSummary.online).toBe(false);
   provider.unmount();
   onLine.mockRestore();
+});
+
+test("still starts the runner when the database cannot be opened", async () => {
+  // starting the runner is what attaches the online/focus/visibilitychange listeners. Skipping it
+  // because the open failed left a session that lost the open race — a blocked upgrade from another
+  // tab, a WebKit stall — with no automatic sync for its whole life, long after the cause cleared.
+  const { deps, calls } = makeDeps({ openDb: jest.fn(async () => { throw new Error("blocked"); }) });
+  const provider = renderProvider(deps);
+
+  await act(async () => {});
+
+  expect(calls.starts).toBe(1);
+  provider.unmount();
+  expect(calls.stops).toBe(1);
 });
 
 test("survives StrictMode double-invocation with a single started runner", async () => {

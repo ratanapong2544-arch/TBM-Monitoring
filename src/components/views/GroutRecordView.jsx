@@ -7,10 +7,13 @@ import { apiCall } from "../../utils/api";
 import { SegmentedToggle } from "../../ui-ux-pro-max";
 import StickyActionBar from "../../ui-ux-pro-max/components/StickyActionBar";
 
-const GroutRecordView = ({ projectInfo, handleProjectInfoChange, groutRecords, setGroutRecords, secondaryGroutRecords = [], setSecondaryGroutRecords, segmentRecords, setCurrentModule, setActiveTab, machine = "TBM1" }) => {
+const GroutRecordView = ({ projectInfo, handleProjectInfoChange, groutRecords, setGroutRecords, secondaryGroutRecords = [], setSecondaryGroutRecords, segmentRecords, setCurrentModule, setActiveTab, machine = "TBM1", isCurrentMachine }) => {
   const [isSaving, setIsSaving] = useState(false);
+  // App answers this, because a save can resolve after this view unmounts (any nav tap) and a local
+  // ref would be frozen at the machine selected then. The local fallback is for standalone renders.
   const machineRef = useRef(machine);
   machineRef.current = machine;
+  const stillOnMachine = (m) => (isCurrentMachine ? isCurrentMachine(m) : machineRef.current === m);
   const [groutType, setGroutType] = useState("primary"); // primary | secondary
   const isSecondary = groutType === "secondary";
   const [formData, setFormData] = useState({ ringNo: "", excavRing: "", pressure: "", partA: "", partB: "", keyType: "16", positions: { A: false, B1: false, B2: false, C1: false, C2: false, K: false }, remark: "", imageBase64: "", imageName: "" });
@@ -113,15 +116,20 @@ const GroutRecordView = ({ projectInfo, handleProjectInfoChange, groutRecords, s
         delete local.imageBase64; delete local.imageName;
         // a save resolves seconds later: if the crew switched machine meanwhile, writing the result
         // back would put this machine's ring and volumes into the other machine's state
-        if (machineRef.current === machineAtSave) setSecondaryGroutRecords((prev) => [...prev, local]);
+        if (!stillOnMachine(machineAtSave)) { setIsSaving(false); return; }
+        setSecondaryGroutRecords((prev) => [...prev, local]);
       } else {
         const rec = { id: `grout_${Date.now()}`, ...base, ratio: Number((Number(currentTotal) / THEORETICAL_VOL) * 100), groutPass: "1st Pass" };
         await apiCall("addGrout", { ...rec, machine: machineAtSave });
         const local = { ...rec };
         if (local.imageBase64) local.imageUrl = "Attached";
         delete local.imageBase64; delete local.imageName;
-        if (machineRef.current === machineAtSave) setGroutRecords((prev) => [...prev, local]);
+        if (!stillOnMachine(machineAtSave)) { setIsSaving(false); return; }
+        setGroutRecords((prev) => [...prev, local]);
       }
+      // the reset is inside the guard for the same reason: after a machine switch the form holds the
+      // OTHER machine's ring and its measured Part A / Part B volumes, and clearing them here wiped
+      // readings the crew had typed but not yet saved
       resetFormAfterSave();
     } catch (err) { alert("บันทึกข้อมูลไม่สำเร็จ: " + err.message); }
     setIsSaving(false);

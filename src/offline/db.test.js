@@ -2,7 +2,7 @@ import "fake-indexeddb/auto";
 
 if (!global.structuredClone) global.structuredClone = value => JSON.parse(JSON.stringify(value));
 
-import { closeOfflineDb, deleteOfflineDbForTests, openOfflineDb, recanonicalizeDomainKeys } from "./db";
+import { closeOfflineDb, deleteOfflineDbForTests, openOfflineDb, OPEN_DB_TIMEOUT_MS, recanonicalizeDomainKeys } from "./db";
 import { getOrCreateDeviceId } from "./device";
 import { makeDomainKey, syncDateKey } from "./domainKey";
 
@@ -20,6 +20,59 @@ test("creates all durable stores", async () => {
   expect([...db.objectStoreNames]).toEqual(expect.arrayContaining([
     "entities", "snapshots", "mutations", "conflicts", "syncMeta", "deviceMeta"
   ]));
+});
+
+test("an open that never settles rejects instead of hanging", async () => {
+  // Two real causes: another tab still on an older DB_VERSION after a service-worker update (the
+  // upgrade waits for it and fires `blocked`), and the WebKit stall on iOS, which fires nothing at
+  // all. Every caller awaits this promise, and the only place `loading` is cleared is inside those
+  // callers — so an open that never settles leaves the crew on the splash screen with no message
+  // and no way out but a reload, while the server payload sits in memory unused.
+  jest.useFakeTimers();
+  const realOpen = indexedDB.open;
+  indexedDB.open = () => ({ result: null, error: null }); // fires nothing, ever
+  try {
+    const pending = openOfflineDb();
+    const settled = jest.fn();
+    pending.then(settled, settled);
+    await Promise.resolve();
+    expect(settled).not.toHaveBeenCalled();
+
+    jest.advanceTimersByTime(OPEN_DB_TIMEOUT_MS);
+    await expect(pending).rejects.toThrow(/timed out/i);
+  } finally {
+    indexedDB.open = realOpen;
+    jest.useRealTimers();
+  }
+});
+
+test("an upgrade blocked by another tab rejects instead of hanging", async () => {
+  const realOpen = indexedDB.open;
+  indexedDB.open = () => {
+    const request = { result: null, error: null, onblocked: null, onsuccess: null, onerror: null, onupgradeneeded: null };
+    setTimeout(() => { if (request.onblocked) request.onblocked(); }, 0);
+    return request;
+  };
+  try {
+    await expect(openOfflineDb()).rejects.toThrow(/blocked/i);
+  } finally {
+    indexedDB.open = realOpen;
+  }
+});
+
+test("a rejected open does not poison the next attempt", async () => {
+  // the blocking tab closes, or the stall clears — the next open must be allowed to succeed
+  const realOpen = indexedDB.open;
+  indexedDB.open = () => {
+    const request = { result: null, error: null, onblocked: null, onsuccess: null, onerror: null, onupgradeneeded: null };
+    setTimeout(() => { if (request.onblocked) request.onblocked(); }, 0);
+    return request;
+  };
+  try { await openOfflineDb(); } catch (error) { /* expected */ }
+  indexedDB.open = realOpen;
+
+  const db = await openOfflineDb();
+  expect([...db.objectStoreNames]).toEqual(expect.arrayContaining(["entities"]));
 });
 
 test("device id is stable for one installation", async () => {

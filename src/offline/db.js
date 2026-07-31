@@ -70,11 +70,28 @@ export function recanonicalizeDomainKeys(transaction) {
   };
 }
 
+// An open that never settles is worse than one that fails: every caller awaits it, and the app sits
+// on its splash with no message and no way out but a reload. Two real causes — another tab still
+// holding an older DB_VERSION after a service-worker update (fires `blocked`, and the upgrade waits
+// for that tab forever), and the WebKit stall on iOS, which fires nothing at all. Both end as a
+// rejection here so the caller's catch runs and the app carries on server-only.
+export const OPEN_DB_TIMEOUT_MS = 8000;
+
 export function openOfflineDb() {
   if (openDbPromise) return openDbPromise;
 
   openDbPromise = new Promise((resolve, reject) => {
+    let settled = false;
+    const fail = message => {
+      if (settled) return;
+      settled = true;
+      openDbPromise = undefined;
+      clearTimeout(timer);
+      reject(new Error(message));
+    };
+    const timer = setTimeout(() => fail("IndexedDB open timed out"), OPEN_DB_TIMEOUT_MS);
     const request = indexedDB.open(DB_NAME, DB_VERSION);
+    request.onblocked = () => fail("IndexedDB upgrade blocked by another tab");
     request.onupgradeneeded = event => {
       const db = request.result;
       if (!db.objectStoreNames.contains(STORES.entities)) {
@@ -92,12 +109,18 @@ export function openOfflineDb() {
       if (event.oldVersion >= 1 && event.oldVersion < 2) recanonicalizeDomainKeys(request.transaction);
     };
     request.onsuccess = () => {
+      if (settled) { request.result.close(); return; } // the timeout already gave up on this open
+      settled = true;
+      clearTimeout(timer);
       openDb = request.result;
       openDb.onversionchange = () => closeOfflineDb();
       resolve(openDb);
     };
     request.onerror = () => {
+      if (settled) return;
+      settled = true;
       openDbPromise = undefined;
+      clearTimeout(timer);
       reject(request.error);
     };
   });

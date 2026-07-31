@@ -6,10 +6,13 @@ import { apiCall } from "../../utils/api";
 import { SegmentedToggle } from "../../ui-ux-pro-max";
 import StickyActionBar from "../../ui-ux-pro-max/components/StickyActionBar";
 
-const SegmentRecordView = ({ projectInfo, handleProjectInfoChange, segmentRecords, setSegmentRecords, setCurrentModule, setActiveTab, machine = "TBM1" }) => {
+const SegmentRecordView = ({ projectInfo, handleProjectInfoChange, segmentRecords, setSegmentRecords, setCurrentModule, setActiveTab, machine = "TBM1", isCurrentMachine }) => {
   const [isSaving, setIsSaving] = useState(false);
+  // App answers this, because a save can resolve after this view unmounts (any nav tap) and a local
+  // ref would be frozen at the machine selected then. The local fallback is for standalone renders.
   const machineRef = useRef(machine);
   machineRef.current = machine;
+  const stillOnMachine = (m) => (isCurrentMachine ? isCurrentMachine(m) : machineRef.current === m);
   const [formData, setFormData] = useState({
     id: null, ringNo: "", typeRing: "C1", keyPos: "16", startCH: "", finishCH: "", length: "1.40", remark: "",
     excavStartTime: "", excavEndTime: "", soilType: "", excavImageBase64: "", excavImageName: "", excavShift: projectInfo.shift,
@@ -102,18 +105,24 @@ const SegmentRecordView = ({ projectInfo, handleProjectInfoChange, segmentRecord
     const cleanRingNo = String(formData.ringNo).trim().toUpperCase();
     const recordData = { ...projectInfo, ...formData, ringNo: cleanRingNo, soilVolume: calculateSoilVolume(formData.length) };
 
+    const isUpdate = Boolean(formData.id);
+
     try {
-      if (formData.id) {
+      if (isUpdate) {
         recordData.id = formData.id;
         await apiCall("updateSegment", { ...recordData, machine: machineAtSave });
-        // a save resolves seconds later; if the crew switched machine meanwhile, writing the result
-        // back would put this machine's ring and surveyed chainage into the other machine's state
-        if (machineRef.current === machineAtSave) setSegmentRecords((prev) => prev.map((r) => (r.id === recordData.id ? recordData : r)));
       } else {
         recordData.id = `seg_${Date.now()}`;
         await apiCall("addSegment", { ...recordData, machine: machineAtSave });
-        if (machineRef.current === machineAtSave) setSegmentRecords((prev) => [...prev, recordData]);
       }
+      // A save resolves seconds later. If the crew switched machine meanwhile, NEITHER the rows nor
+      // the form may be touched. The rows are obvious — this machine's ring and surveyed chainage
+      // would land in the other machine's state. The form matters just as much: it now holds the
+      // other machine's next ring, so writing this save's row id into it would make the next Save an
+      // `updateSegment` against a row that machine's sheet does not have. GAS finds no match and
+      // no-ops, the local map matches nothing, and the ring is lost with no error shown.
+      if (!stillOnMachine(machineAtSave)) { setIsSaving(false); return; }
+      setSegmentRecords((prev) => (isUpdate ? prev.map((r) => (r.id === recordData.id ? recordData : r)) : [...prev, recordData]));
       setFormData((prev) => {
         const isCompleted = prev.status === "Completed";
         return {

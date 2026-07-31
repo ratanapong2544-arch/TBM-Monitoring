@@ -41,7 +41,8 @@ A systematic sweep of every effect in the view layer established that only `Shif
 | `0a5f56f` | fix: gate only what creates a report, on what the server actually sent |
 | `1c18cf9` | fix: carry the response's collection flags to the only thing that reads them |
 | `021ee9e` | fix: make the seam pin deterministic and close its untested corners |
-| _(pending)_ | fix: release a save block only if it was armed when the check was asked |
+| `dee4876` | fix: release a save block only if it was armed when the check was asked |
+| _(pending)_ | fix: give the save block an identity, not a boolean |
 
 The last row is always the commit that carries this file; `git log --oneline` on the branch is authoritative for its SHA.
 
@@ -168,13 +169,28 @@ The spec axis confirmed the flake gone the hard way — six full-suite runs, eig
 
 Round 22's quality review called the `mayRelease` parameter unobservable, because the two notices are mutually exclusive on screen. That is true at render time and says nothing about what happens **across the await**: a save already travelling can give up *while* a cold-launch check is in the air, arming the block after the press. That check was issued before the give-up, so it cannot speak to it — and releasing anyway let the next time bar append a second row for the shift, silently. I deleted the guard on the strength of the render-time argument without testing the interleaving.
 
-The replacement is not the per-caller flag (a reviewer was right that it was fragile) but the causal rule stated directly: **a check releases only a block that was already armed when the question was asked.** One capture before the await, one condition after it, and it covers both callers and the interleaving that defeated both earlier versions. Pinned by a test that arms the block during an in-flight check.
+The replacement is not the per-caller flag (a reviewer was right that it was fragile) but the causal rule stated directly: **a check releases only a block that was already armed when the question was asked.** One capture before the await, one condition after it. Round 24 then found that a boolean states that rule without implementing it — see below.
 
 The lesson is the same one this task keeps teaching in different costumes: *an argument about what is on screen is not an argument about what is in flight.*
 
-## Test evidence (at the round-23 commit)
+## Round 24 — a rule stated is not a rule implemented
 
-- `npm test -- --watchAll=false --runInBand` → 66 suites / 851 tests pass (run twice here; the spec reviewer ran the previous commit's suite six times plus six concurrent copies of the seam file)
+Both axes found the same defect independently, and the quality axis reproduced it with a probe driving the real component: **three `addShiftReport` calls for one shift**, against two for the same sequence with a single check.
+
+Round 23's capture was a boolean. It records *that* a block existed, not *which* — and two checks can be in flight at once, because the only thing preventing a second press is `checking`, which is **per-mount state guarding module-scope state**. Press the check, tap another tab, come back to an idle-looking button, press again: the older check then releases a block armed after it asked, and the next time bar appends while two saves are still travelling.
+
+The block now carries an epoch, incremented whenever it is armed and captured beside it; a check releases only the block it actually saw. The precedent was already in this repo — `db.js`'s `openGeneration`, for the same shape of problem ("an abandoned open must not clear a promise belonging to a later attempt").
+
+Two of my own tests were also weaker than they read:
+
+- the round-23 test's harm assertion clicked a **disabled** button, which React never dispatches — the same vacuity a sibling file already documents. It restores the snapshot first, so the refusal it proves is the block and not the button.
+- the `writeServerSnapshot` value invariant populated two fields out of eighteen, so every other field normalized to the same default the empty shape supplies and compared equal whether or not it was dropped. It was blind to `shiftReports` — the collection this whole task is about. Every field now carries a distinguishing value, verified by silently emptying `shiftReports` on the way out.
+
+The recurring shape, stated once more because it has now cost five rounds in three costumes: **an argument about what is on screen, or about what is true at render, is not an argument about what is in flight.**
+
+## Test evidence (at the round-24 commit)
+
+- `npm test -- --watchAll=false --runInBand` → 66 suites / 852 tests pass (run twice)
 - `npm run test:gas-sync` → 92 pass / 0 fail
 - `npm run build` → Compiled successfully (build output restored with `git checkout -- build/`; the build artefact is not committed — Vercel builds from source)
 - `node --check ../gas-live/Code.js` → OK

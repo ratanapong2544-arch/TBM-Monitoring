@@ -28,7 +28,30 @@ test("returns every field of the snapshot it was given, except the ones it delib
   // reach App and shut the create-a-report gate on every healthy device. The next field someone adds
   // should fail here rather than in the field.
   const db = await openOfflineDb();
-  const data = normalizeServerData({ segments: [{ ringNo: "P1" }], shiftReports: [], planConfig: { rings: 1 } }, "TBM1");
+  // EVERY field carries a distinguishing value. With only two populated, every other field
+  // normalized to the same default `emptyServerData` supplies, so dropping it from the copy list
+  // compared equal and passed — the invariant was blind to sixteen of eighteen fields, including
+  // `shiftReports`, the one this whole task is about.
+  const data = normalizeServerData({
+    segments: [{ ringNo: "P1" }],
+    grouts: [{ id: "g1", ringNo: "P1" }],
+    secondaryGrouts: [{ id: "sg1", ringNo: "P1" }],
+    shiftReports: [{ id: "sr1", date: "2026-07-29", shift: "Day" }],
+    issues: [{ id: "iss1" }],
+    dailyReports: [{ id: "dr1", machine: "TBM1", date: "2026-07-29" }],
+    prepTasks: [{ id: "pt1", machine: "TBM1" }],
+    instLocations: [{ id: "loc1" }],
+    instInstruments: [{ id: "in1" }],
+    instThresholds: [{ id: "th1" }],
+    instReadings: [{ id: "rd1" }],
+    instSchedules: [{ id: "sc1" }],
+    planConfig: { rings: 1 },
+    distPlanConfig: { metres: 2 },
+    routeConfigs: { TBM1: { route: "A" } },
+    routeProjectTotal: 3,
+    machineProgress: { TBM1: 4 },
+    syncMeta: { "segment:TBM1:P1:Permanent": { version: 5 } },
+  }, "TBM1");
   const returned = await writeServerSnapshot(db, "TBM1", data, "2026-07-29T00:00:00.000Z");
 
   const dropped = Object.keys(data).filter(key => !(key in returned));

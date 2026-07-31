@@ -1026,8 +1026,49 @@ describe("what may release an unknown outcome", () => {
 
     // the check cannot speak to a give-up that happened after it was asked
     expect(form.container.textContent).toContain("ไม่ทราบผลการบันทึกล่าสุด");
+    // and the refusal must be the BLOCK, not the disabled button: put the snapshot back first, or
+    // React never dispatches the click and the assertion below proves nothing
+    form.rerender(view(props(true)));
     await saveAgain(form);
     expect(apiCall.mock.calls.filter(c => c[1].id === sentId)).toHaveLength(1);
+    form.unmount();
+  });
+
+  test("an older check does not release a block armed after it was asked", async () => {
+    // Two checks can be in flight at once: press, nav tap (the remount re-enables the button), press
+    // again. A capture that only records THAT a block existed lets the older check clear a different,
+    // later block — and the next time bar then appends a second row while two saves are still
+    // travelling. The block needs an identity, not a boolean.
+    const refreshes = [];
+    const onRefresh = () => new Promise(resolve => { refreshes.push(() => resolve({ serverPayload: { status: "success", shiftReports: [] } })); });
+    const props = { shiftReports: [], setShiftReports: () => {}, onRefresh };
+    const pressCheck = async form => {
+      await act(async () => {
+        [...form.container.querySelectorAll("button")].find(b => /ตรวจสอบกับเซิร์ฟเวอร์/.test(b.textContent))
+          .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      });
+    };
+
+    let form = render(view(props));
+    await armTimeout(form);                 // block B1
+    await pressCheck(form);                 // check C1, still travelling
+
+    form.unmount();                         // a nav tap …
+    form = render(view(props));             // … and back: the button is idle again
+    await pressCheck(form);                 // check C2
+
+    await act(async () => { refreshes[1](); });   // C2 answers and releases B1 — legitimately
+    expect(form.container.textContent).not.toContain("ไม่ทราบผลการบันทึกล่าสุด");
+
+    await armTimeout(form);                 // the crew saves again; that save times out → block B2
+    await act(async () => { refreshes[0](); });   // only now does C1 answer
+
+    // C1 was issued before B2 existed; it cannot speak to it. Both saves carry the same draft id, so
+    // count the sends rather than filtering by id — a third `addShiftReport` is the harm.
+    expect(form.container.textContent).toContain("ไม่ทราบผลการบันทึกล่าสุด");
+    const sendsBefore = apiCall.mock.calls.length;
+    await saveAgain(form);
+    expect(apiCall.mock.calls).toHaveLength(sendsBefore);
     form.unmount();
   });
 

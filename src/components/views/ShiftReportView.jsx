@@ -295,7 +295,10 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
     if (!onRefresh) return;
     const key = selectorKey;
     const state = shiftSaveStateFor(key);
-    const blockedAtCheck = state.blocked;
+    // WHICH block, not merely whether one existed. Two checks can be in flight at once — press, nav
+    // tap (which remounts and re-enables the button), press again — and a boolean lets the older one
+    // release a block armed after it asked. The epoch only ever increases, so it cannot be recycled.
+    const blockEpochAtCheck = state.blocked ? (state.blockSerial || 0) : null;
     const dateAtCheck = meta.date;
     const shiftAtCheck = meta.shift;
     setChecking(true);
@@ -319,7 +322,7 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
       const rows = Array.isArray(payload.shiftReports) ? payload.shiftReports : [];
       const landed = rows.find(r => formatDisplayDate(r.date) === dateAtCheck && String(r.shift) === String(shiftAtCheck));
       if (landed && landed.id) state.savedIds.add(landed.id);
-      if (blockedAtCheck) state.blocked = false;
+      if (blockEpochAtCheck !== null && state.blocked && (state.blockSerial || 0) === blockEpochAtCheck) state.blocked = false;
       bumpUnresolved(n => n + 1);
     } catch (error) {
       setCheckFailed(true);
@@ -397,10 +400,14 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
       try {
         await withDeadline(apiCall(willAppend ? "addShiftReport" : "updateShiftReport", { ...payload, machine: machineAtSave }));
       } catch (error) {
-        // A flag, deliberately not a timestamp. Nothing compares times any more, and storing one
-        // advertises an ordering comparison that was wrong in three separate rounds.
+        // Deliberately a counter, not a timestamp: nothing compares times any more (that comparison
+        // was wrong in three separate rounds), but a block needs an IDENTITY. Two checks can be in
+        // flight at once — a press, a nav tap that remounts and re-enables the button, a second
+        // press — and a boolean cannot tell an older check that the block it is about to release is
+        // a different one, armed after it asked.
         if (error.message === "SHIFT_SAVE_TIMEOUT") {
           state.blocked = true;
+          state.blockSerial = (state.blockSerial || 0) + 1;
           bumpUnresolved(n => n + 1);
         }
         throw error;

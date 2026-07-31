@@ -1,0 +1,297 @@
+import React from "react";
+import { createRoot } from "react-dom/client";
+import { act } from "react-dom/test-utils";
+
+// so React warns when an update escapes an act scope; every case here turns on an async submit
+globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+
+import SegmentRecordView from "../components/views/SegmentRecordView";
+import SegmentDashboardView from "../components/views/SegmentDashboardView";
+import GroutRecordView from "../components/views/GroutRecordView";
+import GroutDashboardView from "../components/views/GroutDashboardView";
+import ShiftReportView, { __resetShiftSaveStateForTests } from "../components/views/ShiftReportView";
+import { apiCall } from "../utils/api";
+
+jest.mock("../utils/api", () => ({ apiCall: jest.fn(async () => ({ status: "success" })) }));
+
+// Task 8 routes every core engineering write through the queue instead of `apiCall`. These assert
+// the ENVELOPE each view hands to `onMutate` — entityType, operation, machine, recordId, domainKey
+// and baseVersion — because that envelope is what GAS keys idempotency and versioning on, and a
+// wrong `domainKey` silently splits one record's history into two version streams.
+//
+// They assert what was SENT, never a notice or a disabled control: Task 7's review proved a notice
+// assertion can pass against a source broken in exactly the way the test exists to catch.
+const projectInfo = { date: "2026-07-30", shift: "Day", location: "อุโมงค์", tbmNo: "TBM1" };
+
+function render(element) {
+  let container;
+  let root;
+  act(() => {
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    root.render(element);
+  });
+  return {
+    container,
+    rerender: next => act(() => { root.render(next); }),
+    unmount: () => act(() => { root.unmount(); container.remove(); }),
+  };
+}
+
+function type(container, name, value) {
+  act(() => {
+    const field = container.querySelector(`[name="${name}"]`);
+    if (!field) throw new Error(`no field named ${name}`);
+    const proto = field.tagName === "TEXTAREA" ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
+    Object.getOwnPropertyDescriptor(proto, "value").set.call(field, value);
+    field.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+}
+
+const click = async (element) => {
+  if (!element) throw new Error("no such control");
+  await act(async () => { element.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+};
+
+const button = (container, pattern) => [...container.querySelectorAll("button")].find(b => pattern.test(b.textContent));
+const byTitle = (container, title) => container.querySelector(`[title="${title}"]`);
+const submit = async (container) => {
+  await act(async () => {
+    container.querySelector("form").dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+  });
+};
+
+let onMutate;
+beforeEach(() => {
+  onMutate = jest.fn(async () => ({ optimisticRecord: {} }));
+  apiCall.mockImplementation(async () => ({ status: "success" }));
+  __resetShiftSaveStateForTests();
+});
+
+const noop = () => {};
+
+test("recording a segment queues a create with the ring's domain key", async () => {
+  const view = render(
+    <SegmentRecordView projectInfo={projectInfo} handleProjectInfoChange={noop} segmentRecords={[]}
+      setSegmentRecords={noop} setCurrentModule={noop} setActiveTab={noop} machine="TBM1" onMutate={onMutate} />
+  );
+  type(view.container, "ringNo", "P41");
+  type(view.container, "startCH", "8+010.20");
+  type(view.container, "finishCH", "8+008.80");
+  await submit(view.container);
+
+  expect(onMutate).toHaveBeenCalledWith(expect.objectContaining({
+    entityType: "segment",
+    operation: "create",
+    machine: "TBM1",
+    domainKey: "segment:TBM1:P41:Permanent",
+    baseVersion: 0,
+  }));
+  expect(apiCall).not.toHaveBeenCalled();
+  view.unmount();
+});
+
+test("saving an in-progress segment queues an update at the version it was read at", async () => {
+  const inProgress = [{ id: "seg_1", ringNo: "P41", typeRing: "C1", keyPos: "16", startCH: "8+010.20", finishCH: "8+008.80", length: "1.40", status: "In Progress", installType: "Permanent" }];
+  const syncMeta = { "segment:TBM1:P41:Permanent": { version: 3 } };
+  const view = render(
+    <SegmentRecordView projectInfo={projectInfo} handleProjectInfoChange={noop} segmentRecords={inProgress}
+      setSegmentRecords={noop} setCurrentModule={noop} setActiveTab={noop} machine="TBM1"
+      syncMeta={syncMeta} onMutate={onMutate} />
+  );
+  await submit(view.container);
+
+  expect(onMutate).toHaveBeenCalledWith(expect.objectContaining({
+    entityType: "segment",
+    operation: "update",
+    machine: "TBM1",
+    recordId: "seg_1",
+    domainKey: "segment:TBM1:P41:Permanent",
+    baseVersion: 3,
+  }));
+  expect(apiCall).not.toHaveBeenCalled();
+  view.unmount();
+});
+
+test("deleting a segment from the data log queues a delete", async () => {
+  const records = [{ id: "seg_1", ringNo: "P41", typeRing: "C1", keyPos: "16", startCH: "8+010.20", finishCH: "8+008.80", length: "1.40", status: "Completed", installType: "Permanent", date: "2026-07-30" }];
+  const view = render(
+    <SegmentDashboardView segmentRecords={records} setSegmentRecords={noop} machine="TBM1"
+      syncMeta={{ "segment:TBM1:P41:Permanent": { version: 2 } }} onMutate={onMutate} />
+  );
+  await click(view.container.querySelector("tbody tr"));
+  await click(byTitle(view.container, "Delete"));
+  await click(button(view.container, /^ลบ$/));
+
+  expect(onMutate).toHaveBeenCalledWith(expect.objectContaining({
+    entityType: "segment",
+    operation: "delete",
+    machine: "TBM1",
+    recordId: "seg_1",
+    domainKey: "segment:TBM1:P41:Permanent",
+    baseVersion: 2,
+  }));
+  expect(apiCall).not.toHaveBeenCalled();
+  view.unmount();
+});
+
+test("editing a segment from the data log queues an update", async () => {
+  const records = [{ id: "seg_1", ringNo: "P41", typeRing: "C1", keyPos: "16", startCH: "8+010.20", finishCH: "8+008.80", length: "1.40", status: "Completed", installType: "Permanent", date: "2026-07-30" }];
+  const view = render(
+    <SegmentDashboardView segmentRecords={records} setSegmentRecords={noop} machine="TBM1"
+      syncMeta={{ "segment:TBM1:P41:Permanent": { version: 2 } }} onMutate={onMutate} />
+  );
+  await click(view.container.querySelector("tbody tr"));
+  await click(byTitle(view.container, "Edit"));
+  await click(button(view.container, /Save Changes/));
+
+  expect(onMutate).toHaveBeenCalledWith(expect.objectContaining({
+    entityType: "segment",
+    operation: "update",
+    machine: "TBM1",
+    recordId: "seg_1",
+    domainKey: "segment:TBM1:P41:Permanent",
+    baseVersion: 2,
+  }));
+  expect(apiCall).not.toHaveBeenCalled();
+  view.unmount();
+});
+
+test("recording primary grout queues a create keyed by ring and pass", async () => {
+  const segments = [{ id: "s1", ringNo: "P41", keyPos: "4", startCH: "8+010.20", finishCH: "8+008.80", length: "1.40", status: "Completed", installType: "Permanent" }];
+  const view = render(
+    <GroutRecordView projectInfo={projectInfo} handleProjectInfoChange={noop} groutRecords={[]}
+      setGroutRecords={noop} secondaryGroutRecords={[]} setSecondaryGroutRecords={noop}
+      segmentRecords={segments} setCurrentModule={noop} setActiveTab={noop} machine="TBM1" onMutate={onMutate} />
+  );
+  type(view.container, "ringNo", "P41");
+  type(view.container, "partA", "12.5");
+  type(view.container, "partB", "6.25");
+  await submit(view.container);
+
+  expect(onMutate).toHaveBeenCalledWith(expect.objectContaining({
+    entityType: "grout",
+    operation: "create",
+    machine: "TBM1",
+    domainKey: "grout:TBM1:P41:1st Pass",
+    baseVersion: 0,
+  }));
+  expect(apiCall).not.toHaveBeenCalled();
+  view.unmount();
+});
+
+test("recording secondary grout queues a create keyed by its own record id", async () => {
+  const view = render(
+    <GroutRecordView projectInfo={projectInfo} handleProjectInfoChange={noop} groutRecords={[]}
+      setGroutRecords={noop} secondaryGroutRecords={[]} setSecondaryGroutRecords={noop}
+      segmentRecords={[]} setCurrentModule={noop} setActiveTab={noop} machine="TBM1" onMutate={onMutate} />
+  );
+  await click(button(view.container, /Secondary/i));
+  type(view.container, "ringNo", "P41");
+  type(view.container, "partA", "3.0");
+  type(view.container, "partB", "1.5");
+  await submit(view.container);
+
+  expect(onMutate).toHaveBeenCalledTimes(1);
+  const envelope = onMutate.mock.calls[0][0];
+  expect(envelope).toMatchObject({
+    entityType: "secondaryGrout",
+    operation: "create",
+    machine: "TBM1",
+    baseVersion: 0,
+  });
+  // its key carries the record id, so a second injection on the same ring is its own record
+  expect(envelope.domainKey).toBe(`secondaryGrout:TBM1:P41:${envelope.recordId}`);
+  expect(apiCall).not.toHaveBeenCalled();
+  view.unmount();
+});
+
+test("editing primary grout from the data log queues an update", async () => {
+  const grouts = [{ id: "g1", ringNo: "P41", partA: "12.5", partB: "6.25", pressure: "3.2", total: 18.75, groutPass: "1st Pass", date: "2026-07-30", positions: {} }];
+  const view = render(
+    <GroutDashboardView groutRecords={grouts} setGroutRecords={noop} secondaryGroutRecords={[]}
+      setSecondaryGroutRecords={noop} segmentRecords={[]} machine="TBM1"
+      syncMeta={{ "grout:TBM1:P41:1st Pass": { version: 5 } }} onMutate={onMutate} />
+  );
+  await click(view.container.querySelector("tbody tr"));
+  await click(byTitle(view.container, "Edit"));
+  await click(button(view.container, /Save Changes/));
+
+  expect(onMutate).toHaveBeenCalledWith(expect.objectContaining({
+    entityType: "grout",
+    operation: "update",
+    machine: "TBM1",
+    recordId: "g1",
+    domainKey: "grout:TBM1:P41:1st Pass",
+    baseVersion: 5,
+  }));
+  expect(apiCall).not.toHaveBeenCalled();
+  view.unmount();
+});
+
+test("deleting primary grout from the data log queues a delete", async () => {
+  const grouts = [{ id: "g1", ringNo: "P41", partA: "12.5", partB: "6.25", pressure: "3.2", total: 18.75, groutPass: "1st Pass", date: "2026-07-30", positions: {} }];
+  const view = render(
+    <GroutDashboardView groutRecords={grouts} setGroutRecords={noop} secondaryGroutRecords={[]}
+      setSecondaryGroutRecords={noop} segmentRecords={[]} machine="TBM1"
+      syncMeta={{ "grout:TBM1:P41:1st Pass": { version: 5 } }} onMutate={onMutate} />
+  );
+  await click(view.container.querySelector("tbody tr"));
+  await click(byTitle(view.container, "Delete"));
+  await click(button(view.container, /^ลบ$/));
+
+  expect(onMutate).toHaveBeenCalledWith(expect.objectContaining({
+    entityType: "grout",
+    operation: "delete",
+    machine: "TBM1",
+    recordId: "g1",
+    domainKey: "grout:TBM1:P41:1st Pass",
+    baseVersion: 5,
+  }));
+  expect(apiCall).not.toHaveBeenCalled();
+  view.unmount();
+});
+
+test("saving a shift report queues a create keyed by its Bangkok date and shift", async () => {
+  const view = render(
+    <ShiftReportView projectInfo={projectInfo} segmentRecords={[]} shiftReports={[]}
+      setShiftReports={noop} machine="TBM1" onMutate={onMutate} />
+  );
+  type(view.container, "Engineer", "3");
+  await click(button(view.container, /Save to Cloud/));
+
+  expect(onMutate).toHaveBeenCalledWith(expect.objectContaining({
+    entityType: "shiftReport",
+    operation: "create",
+    machine: "TBM1",
+    domainKey: "shiftReport:TBM1:2026-07-30:Day",
+    baseVersion: 0,
+  }));
+  expect(apiCall).not.toHaveBeenCalled();
+  view.unmount();
+});
+
+test("saving a shift report that already exists queues an update at its version", async () => {
+  // the row's date arrives from GAS as a UTC ISO string; the key must reduce it to the Bangkok
+  // calendar date, or an edit of a loaded report keys differently from the report itself
+  const stored = [{ id: "sr1", date: "2026-07-29T17:00:00.000Z", shift: "Day", tbmNo: "TBM1", location: "อุโมงค์", manpower: {}, result: {}, events: {} }];
+  const view = render(
+    <ShiftReportView projectInfo={projectInfo} segmentRecords={[]} shiftReports={stored}
+      setShiftReports={noop} machine="TBM1"
+      syncMeta={{ "shiftReport:TBM1:2026-07-30:Day": { version: 7 } }} onMutate={onMutate} />
+  );
+  type(view.container, "Engineer", "4");
+  await click(button(view.container, /Save to Cloud/));
+
+  expect(onMutate).toHaveBeenCalledWith(expect.objectContaining({
+    entityType: "shiftReport",
+    operation: "update",
+    machine: "TBM1",
+    recordId: "sr1",
+    domainKey: "shiftReport:TBM1:2026-07-30:Day",
+    baseVersion: 7,
+  }));
+  expect(apiCall).not.toHaveBeenCalled();
+  view.unmount();
+});

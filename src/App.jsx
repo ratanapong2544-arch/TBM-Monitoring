@@ -35,7 +35,7 @@ import { isViewerMode, VIEWER_TABS } from "./utils/viewerMode";
 import { useOfflineData } from "./offline/useOfflineData";
 import { useOffline } from "./offline/OfflineProvider";
 import { toSyncVersion } from "./offline/mutationEnvelope";
-import { applyOptimisticRow } from "./offline/displayRecord";
+import { applyOptimisticRow, stripQueuedPhotos } from "./offline/displayRecord";
 
 import { Shell, NAV_GROUPS } from "./ui-ux-pro-max";
 import "./styles/globals.css";
@@ -140,15 +140,19 @@ const PrimaryGroutApp = () => {
   // replaces it. The repository owns the fetch, the race guard and the stale flag, so this effect
   // only mirrors `data` into the existing state contracts (write migration lands in Tasks 8-9).
   const offlineData = useOfflineData(activeMachine);
-  const { repository, runner } = useOffline();
+  const { repository, runner, syncSummary } = useOffline();
 
   useEffect(() => {
     const data = offlineData.data;
     if (!data || data.machine !== activeMachine) return;
-    setSegmentRecords(data.segments);
-    setGroutRecords(data.grouts);
+    // Photo bytes are stripped here as well as on the queued write. A record whose photo has not
+    // synced yet is stored WITH its base64 — the queue still has to send it — and `readServerSnapshot`
+    // hands that payload straight back, so a relaunch put the bytes into React state through this
+    // mirror even though the write path was careful not to.
+    setSegmentRecords(data.segments.map(stripQueuedPhotos));
+    setGroutRecords(data.grouts.map(stripQueuedPhotos));
     // F1: secondary grout (dataset แยก) — normalizer parse positions เหมือน primary, ไม่มี ratio
-    setSecondaryGroutRecords(data.secondaryGrouts);
+    setSecondaryGroutRecords(data.secondaryGrouts.map(stripQueuedPhotos));
     setShiftReports(data.shiftReports);
     // the rows on screen now belong to this machine (see rowsReady below)
     setRowsMachine(activeMachine);
@@ -365,6 +369,12 @@ const PrimaryGroutApp = () => {
   // Non-blocking snapshot state (design §7: keep the local snapshot visible and warn that it is
   // stale rather than blocking). Task 10 replaces this strip with the full Sync Center.
   const offlineNotice = useMemo(() => {
+    // A queued write that cannot proceed is the one thing worth interrupting for. Its row stays on
+    // screen looking recorded while the sheet has never seen it, and the queue orders per record, so
+    // everything the crew does to that ring afterwards waits behind it. Task 10's Sync Center is
+    // where it gets resolved; until then the crew at least learns it happened, and how many.
+    const stuck = (syncSummary.conflicts || 0) + (syncSummary.errors || 0);
+    if (stuck > 0) return { text: `${stuck} รายการติดค้าง ยังไม่ขึ้นเซิร์ฟเวอร์ — แจ้งผู้ดูแลระบบ`, spinning: false };
     // The rows for this machine are not on screen yet (first launch, or a machine switch whose
     // snapshot is still loading). Step 4 requires a `refreshing` signal here: the lists are empty
     // because we refuse to show another machine's rings, so say so rather than look like no data.
@@ -387,8 +397,13 @@ const PrimaryGroutApp = () => {
       const code = offlineData.error && offlineData.error.code ? ` (${offlineData.error.code})` : "";
       return { text: `เชื่อมต่อเซิร์ฟเวอร์ไม่ได้${code} — ${saved}`, spinning: false };
     }
+    // nothing wrong, but work is still on its way out: worth saying quietly, because "saved" here
+    // means saved on this device and the crew otherwise has no way to tell the difference
+    if (syncSummary.pending > 0 || syncSummary.syncing > 0) {
+      return { text: `${syncSummary.pending + syncSummary.syncing} รายการรอซิงก์ขึ้นเซิร์ฟเวอร์`, spinning: false };
+    }
     return null;
-  }, [rowsReady, offlineData.refreshing, offlineData.stale, offlineData.source, offlineData.fetchedAt, offlineData.cacheError, offlineData.error]);
+  }, [rowsReady, offlineData.refreshing, offlineData.stale, offlineData.source, offlineData.fetchedAt, offlineData.cacheError, offlineData.error, syncSummary]);
 
   if (isLoadingMain) return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-surface-page font-sans">

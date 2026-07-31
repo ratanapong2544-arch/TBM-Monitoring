@@ -87,7 +87,10 @@ function patchSnapshotSyncMeta(snapshots, stored, mutation, version) {
     const current = (snapshot.syncMeta && snapshot.syncMeta[mutation.domainKey]) || null;
     // a snapshot fetched after this write already knows a later version; never walk it backwards
     if (current && toSyncVersion(current.version) >= version) return;
-    snapshots.put({ ...snapshot, syncMeta: { ...snapshot.syncMeta, [mutation.domainKey]: { ...current, version } } });
+    // `deleted` travels with the version because the next create on this key reads it: a tombstone
+    // is not inert on the server, and a create that does not claim its version is refused.
+    const entry = { ...current, version, deleted: mutation.operation === "delete" };
+    snapshots.put({ ...snapshot, syncMeta: { ...snapshot.syncMeta, [mutation.domainKey]: entry } });
   });
 }
 

@@ -410,7 +410,12 @@ const SegmentDashboardView = ({ segmentRecords, machine = "TBM1", onMutate, sync
                   <div>
                     <div className="flex items-center gap-2">
                       <div className={`text-2xl font-semibold font-mono ${selectedRecord.installType === "Temporary" ? "text-code-b" : "text-ink"}`}>
-                        {isEditing ? <input type="text" name="ringNo" value={editFormData?.ringNo || ''} onChange={handleEditChange} className="w-32 bg-surface border border-line rounded-input px-2 outline-none uppercase focus:border-navy focus:ring-1 focus:ring-cyan-tint" /> : String(selectedRecord.ringNo)}
+                        {/* not editable: the ring and its install type identify the record to the
+                            server, and the sync protocol cannot move a record between keys — the
+                            save refuses it, and a field that can only be refused is worse than no
+                            field. Correcting a ring means deleting the record and recording it
+                            again, which the queue handles. */}
+                        {String(selectedRecord.ringNo)}
                       </div>
                       {isEditing ? (
                         <select name="typeRing" value={editFormData?.typeRing || ''} onChange={handleEditChange} className="bg-surface border border-line rounded-input px-2 py-1 text-sm font-semibold text-ink-2 outline-none cursor-pointer focus:border-navy">
@@ -428,10 +433,8 @@ const SegmentDashboardView = ({ segmentRecords, machine = "TBM1", onMutate, sync
                     <div className="flex items-center gap-2 mt-1.5">
                       {isEditing ? (
                         <div className="flex gap-2">
-                          <select name="installType" value={editFormData?.installType || ''} onChange={handleEditChange} className="bg-surface border rounded-input text-[10px] font-semibold px-1 outline-none text-ink-2 focus:border-navy">
-                            <option value="Permanent">Permanent</option>
-                            <option value="Temporary">Temporary</option>
-                          </select>
+                          {/* install type is part of the key, like the ring — see above */}
+                          <span className="text-[10px] font-semibold text-ink-2 px-1">{selectedRecord.installType}</span>
                           <select name="status" value={editFormData?.status || ''} onChange={handleEditChange} className="bg-surface border rounded-input text-[10px] font-semibold px-1 outline-none text-ink-2 focus:border-navy">
                             <option value="Completed">Completed</option>
                             <option value="In Progress">In Progress</option>

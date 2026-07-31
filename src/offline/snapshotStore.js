@@ -113,15 +113,28 @@ export async function writeServerSnapshot(db, machine, data, fetchedAt, requeste
     if (mutation.status !== MUTATION_STATUS.PENDING && mutation.status !== MUTATION_STATUS.SYNCING) return null;
     return mutation;
   };
+  // a delete names one row; a row the sheet returned without an id cannot be matched to it
+  const matchesDeletedRow = (mutation, recordId) => {
+    if (mutation.recordId == null || mutation.recordId === "") return true;
+    if (recordId == null || recordId === "") return false;
+    return String(recordId) === String(mutation.recordId);
+  };
   const deletePending = (domainKey, recordId) => {
+    // A delete CONFIRMED after the request went out is in the same position as one still in flight:
+    // the answer in hand was composed before it, so the row it removed is still in that answer. The
+    // optimistic copy is gone by then — a confirmed delete has no row left to describe — so nothing
+    // else in this merge would notice, and the deleted ring came back onto the screen and into the
+    // stored snapshot, surviving the relaunch. On screen it is then counted by the data logs, the
+    // dashboards and the shift report's derived ring count and distance, and the record form offers
+    // the ring after it — a skipped ring number, which this domain does not allow.
+    const confirmed = confirmedAfterRequest.get(domainKey);
+    if (confirmed && confirmed.operation === "delete" && matchesDeletedRow(confirmed, recordId)) return true;
     const mutation = pendingDelete(domainKey);
     if (!mutation) return false;
     // A delete names the row it is deleting. If it names one and the incoming row carries no id,
     // they cannot be matched — and hiding it anyway takes a row off screen that nobody asked to
     // delete, on the refresh only, so it flickers away and comes back on the next relaunch.
-    if (mutation.recordId == null || mutation.recordId === "") return true;
-    if (recordId == null || recordId === "") return false;
-    return String(recordId) === String(mutation.recordId);
+    return matchesDeletedRow(mutation, recordId);
   };
   const terminalStatus = domainKey => terminalByDomain.get(domainKey);
   const preserveLocal = record => Boolean(unresolvedStatus(record.domainKey))

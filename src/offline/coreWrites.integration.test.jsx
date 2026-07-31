@@ -337,45 +337,48 @@ test("saving a shift report queues a create keyed by its Bangkok date and shift"
 
 const segmentRow = { id: "seg_1", ringNo: "P41", typeRing: "C1", keyPos: "16", startCH: "8+010.20", finishCH: "8+008.80", length: "1.40", status: "Completed", installType: "Permanent", date: "2026-07-30" };
 
-test("correcting a ring number in place is refused, whoever else knows the ring", async () => {
-  // The key travels with the payload — it has no choice, `repository.mutate` and GAS both recompute
-  // it and refuse a mismatch — so a corrected ring writes under the NEW key and GAS mints metadata
-  // for it, while the OLD key's metadata stays behind, alive, describing a ring no row carries.
-  // Ring numbers are sequential and never skipped, so the mistyped ring is one the machine will
-  // actually reach: recording it weeks later returns SYNC_META_ORPHAN, which is terminal, and a
-  // replay returns the same. One correction poisons that ring number for the rest of the drive, and
-  // nothing on screen would ever say so. Refuse it here, where the crew can still act.
+test("the data log does not offer a record's identity as something to edit", async () => {
+  // The key travels with the payload — `repository.mutate` and GAS both recompute it and refuse a
+  // mismatch — so a corrected ring would write under the NEW key while the OLD key's metadata stayed
+  // behind, alive, describing a ring no row carries. Ring numbers are sequential and never skipped,
+  // so that ring is one the machine actually reaches, and recording it then is refused for good.
+  // The save refuses the edit (pinned in `repository.write.test.js`), and a field that can only ever
+  // be refused is worse than no field: the crew fills it in and is told no. Correcting a ring means
+  // deleting the record and recording it again, which the queue handles.
   const view = render(
     <SegmentDashboardView segmentRecords={[segmentRow]} machine="TBM1"
       syncMeta={{ "segment:TBM1:P41:Permanent": { version: 2 } }} onMutate={onMutate} />
   );
   await click(view.container.querySelector("tbody tr"));
   await click(byTitle(view.container, "Edit"));
-  type(view.container, "ringNo", "P42");
-  await click(button(view.container, /Save Changes/));
 
-  expect(onMutate).not.toHaveBeenCalled();
+  expect(view.container.querySelector('[name="ringNo"]')).toBeNull();
+  expect(view.container.querySelector('[name="installType"]')).toBeNull();
+  expect(view.container.textContent).toContain("P41"); // shown, just not editable
+  // and what is NOT part of the key stays editable
+  expect(view.container.querySelector('[name="startCH"]')).not.toBeNull();
+  expect(view.container.querySelector('[name="status"]')).not.toBeNull();
   view.unmount();
 });
 
-test("the install type is part of a segment's identity, so changing it is refused too", async () => {
-  // a T-prefixed ring is Temporary and a P-prefixed one Permanent — both record forms flip the field
-  // from the prefix — and the install type is in the key, so this is the same re-identification
-  const view = render(
-    <SegmentDashboardView segmentRecords={[segmentRow]} machine="TBM1"
-      syncMeta={{ "segment:TBM1:P41:Permanent": { version: 2 } }} onMutate={onMutate} />
-  );
-  await click(view.container.querySelector("tbody tr"));
-  await click(byTitle(view.container, "Edit"));
-  await act(async () => {
-    const select = view.container.querySelector('[name="installType"]');
-    Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, "value").set.call(select, "Temporary");
-    select.dispatchEvent(new Event("change", { bubbles: true }));
-  });
-  await click(button(view.container, /Save Changes/));
+test("the grout data log does not offer the ring either, Re-Grout included", async () => {
+  // Re-Grout is the case that makes it plain: no view can create one, so a refused correction there
+  // would leave the crew with instructions the app cannot carry out.
+  for (const row of [
+    { id: "g1", ringNo: "P41", partA: "12.5", partB: "6.25", pressure: "3.2", total: 18.75, groutPass: "1st Pass", date: "2026-07-30", positions: {} },
+    { id: "g2", ringNo: "P41", partA: "12.5", partB: "6.25", pressure: "3.2", total: 18.75, groutPass: "Re-Grout", date: "2026-07-30", positions: {} },
+  ]) {
+    const view = render(
+      <GroutDashboardView groutRecords={[row]} secondaryGroutRecords={[]} segmentRecords={[]} machine="TBM1"
+        syncMeta={{ "grout:TBM1:P41:1st Pass": { version: 5 } }} onMutate={onMutate} />
+    );
+    await click(view.container.querySelector("tbody tr"));
+    await click(byTitle(view.container, "Edit"));
 
-  expect(onMutate).not.toHaveBeenCalled();
-  view.unmount();
+    expect([row.groutPass, view.container.querySelector('[name="ringNo"]')]).toEqual([row.groutPass, null]);
+    expect([row.groutPass, view.container.querySelector('[name="date"]')]).not.toEqual([row.groutPass, null]);
+    view.unmount();
+  }
 });
 
 test("an ordinary edit of a record is not read as a re-identification", async () => {
@@ -413,28 +416,10 @@ test("re-saving the open ring under a different number is refused", async () => 
   view.unmount();
 });
 
-test("changing a grout record's ring is refused, primary and secondary alike", async () => {
-  // both branches of the data log's save build their own envelope, and each needs the pre-edit
-  // record to know the ring moved — the grout pass and the ring are both in the key
-  const rows = [
-    ["grout", { id: "g1", ringNo: "P41", partA: "12.5", partB: "6.25", pressure: "3.2", total: 18.75, groutPass: "1st Pass", date: "2026-07-30", positions: {} }, "grout:TBM1:P41:1st Pass"],
-    ["secondaryGrout", { id: "sg1", ringNo: "P41", partA: "3.0", partB: "1.5", pressure: "2.0", total: 4.5, date: "2026-07-30", positions: {} }, "secondaryGrout:TBM1:P41:sg1"],
-  ];
-  for (const [kind, row, key] of rows) {
-    onMutate.mockClear();
-    const view = render(
-      <GroutDashboardView groutRecords={kind === "grout" ? [row] : []} secondaryGroutRecords={kind === "grout" ? [] : [row]}
-        segmentRecords={[]} machine="TBM1" syncMeta={{ [key]: { version: 5 } }} onMutate={onMutate} />
-    );
-    await click(view.container.querySelector("tbody tr"));
-    await click(byTitle(view.container, "Edit"));
-    type(view.container, "ringNo", "P42");
-    await click(button(view.container, /Save Changes/));
-
-    expect([kind, onMutate.mock.calls.length]).toEqual([kind, 0]);
-    view.unmount();
-  }
-});
+// A test stood here driving the grout data log's ring field to prove the save refused a changed
+// ring. The field is gone — a control that can only ever be refused is worse than no control — so
+// the rule is pinned where it still applies: the field's absence, above, and the envelope builder's
+// refusal in `repository.write.test.js`, which is what protects the paths that still pass `identity`.
 
 test("a ring recorded twice claims nothing, so the server can say so", async () => {
   // A create must never carry a version. Taking the key's known one told GAS this was a
@@ -460,44 +445,24 @@ test("a ring recorded twice claims nothing, so the server can say so", async () 
   view.unmount();
 });
 
-test("the segment data log normalises the ring it sends", async () => {
-  // the field's `uppercase` is CSS — it changes what the crew sees, not what they typed. Sending
-  // " p41 " verbatim would write a ring number the sheet has never used, under a key nothing else
-  // matches: a rename nobody asked for, with everything that follows from one.
-  const view = render(
-    <SegmentDashboardView segmentRecords={[segmentRow]} machine="TBM1"
-      syncMeta={{ "segment:TBM1:P41:Permanent": { version: 2 } }} onMutate={onMutate} />
-  );
-  await click(view.container.querySelector("tbody tr"));
-  await click(byTitle(view.container, "Edit"));
-  type(view.container, "ringNo", " p41 ");
-  await click(button(view.container, /Save Changes/));
-
-  expect(onMutate).toHaveBeenCalledWith(expect.objectContaining({
-    domainKey: "segment:TBM1:P41:Permanent",
-    baseVersion: 2,
-  }));
-  expect(onMutate.mock.calls[0][0].payload.ringNo).toBe("P41");
-  view.unmount();
-});
-
-test("tidying a stored ring's spacing is not read as a different ring", async () => {
-  // the views trim and upper-case on the way into the payload while the sheet still holds whatever
-  // it holds. Reading that as a re-identified record would refuse an edit that changed nothing but
-  // whitespace — and this fires on edits that never touch the ring at all.
+test("a ring the sheet stored untidily still edits under its own key", async () => {
+  // the sheet holds whatever it holds — " p41 " — while the view normalises on the way into the
+  // payload. Reading that difference as a re-identified record would refuse an edit that changed
+  // nothing but whitespace, and it would fire on edits that never touch the ring at all.
   const view = render(
     <SegmentDashboardView segmentRecords={[{ ...segmentRow, ringNo: " p41 " }]} machine="TBM1"
       syncMeta={{ "segment:TBM1:P41:Permanent": { version: 2 } }} onMutate={onMutate} />
   );
   await click(view.container.querySelector("tbody tr"));
   await click(byTitle(view.container, "Edit"));
-  type(view.container, "ringNo", "P41");
+  type(view.container, "startCH", "8+011.60");
   await click(button(view.container, /Save Changes/));
 
   expect(onMutate).toHaveBeenCalledWith(expect.objectContaining({
     domainKey: "segment:TBM1:P41:Permanent",
     baseVersion: 2, // its own history, kept
   }));
+  expect(onMutate.mock.calls[0][0].payload.ringNo).toBe("P41"); // and it travels tidied
   view.unmount();
 });
 

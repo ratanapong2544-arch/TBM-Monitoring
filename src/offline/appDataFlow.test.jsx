@@ -556,6 +556,40 @@ test("a version another device moved past wins over the one this device remember
   app.unmount();
 });
 
+test("a write the queue cannot finish is said out loud", async () => {
+  // The one thing worth interrupting for. A stuck mutation keeps its row on screen looking recorded
+  // while the sheet has never seen it, and the queue orders per record, so everything the crew does
+  // to that ring afterwards waits behind it. Task 10 resolves them; until then the counts existed
+  // and nothing read them, so the crew could not tell "queued" from "never going".
+  const repository = makeRepository({
+    getSyncSummary: async () => ({ online: true, pending: 0, syncing: 0, conflicts: 1, errors: 2, lastSyncedAt: null }),
+  });
+  const app = renderApp(repository);
+  await act(async () => {});
+
+  expect(app.text()).toContain("3 รายการติดค้าง");
+  app.unmount();
+});
+
+test("work still on its way out is said quietly", async () => {
+  // "saved" here means saved on this device, and nothing else on screen distinguishes the two
+  const repository = makeRepository({
+    getSyncSummary: async () => ({ online: true, pending: 2, syncing: 1, conflicts: 0, errors: 0, lastSyncedAt: null }),
+  });
+  const app = renderApp(repository);
+  await act(async () => {});
+
+  expect(app.text()).toContain("3 รายการรอซิงก์");
+  app.unmount();
+});
+
+// App's mirror also strips queued photo bytes (a stored record keeps them — the queue still has to
+// send them — and `readServerSnapshot` hands that payload straight back). There is deliberately no
+// test for it HERE: carrying the bytes or dropping them renders identically, because neither state
+// puts a photo link on screen, so any DOM assertion would pass whatever the mirror did. The rule is
+// about what the list holds and is tested where that is visible, in `displayRecord.test.js`. This
+// note exists because the same vacuous test was written twice before this was understood.
+
 test("a queued write starts the drain instead of waiting for the next app event", async () => {
   // without this the record is durable but idle: it goes out on the next online/focus/
   // visibilitychange, which on a phone left face-up at the site office may be a long time

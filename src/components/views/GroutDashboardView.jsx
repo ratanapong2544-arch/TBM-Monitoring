@@ -295,7 +295,15 @@ const GroutDashboardView = ({ groutRecords, segmentRecords, secondaryGroutRecord
                   <div className="text-xs font-semibold text-ink-3 uppercase tracking-widest mb-1">Grouting Ring</div>
                   <div className="flex items-center gap-2">
                     <div className={`text-2xl font-semibold font-mono ${selectedRecord.groutPass === 'Re-Grout' ? 'text-code-c' : 'text-ink'}`}>
-                      {isEditing ? <input type="text" name="ringNo" value={editFormData?.ringNo || ''} onChange={handleEditChange} className="w-32 bg-surface border border-line rounded-input px-2 outline-none uppercase focus:border-navy focus:ring-1 focus:ring-cyan-tint" /> : String(selectedRecord.ringNo)}
+                      {/* The ring identifies the record to the server: it is in the domain key, and
+                          the sync protocol cannot move a record from one key to another — the old
+                          key's metadata would stay behind describing a ring no row carries, and the
+                          real ring, when the machine reaches it, would be refused. So the save
+                          refuses it, and offering a field that can only be refused is worse than
+                          not offering it. Correcting a ring means deleting the record and recording
+                          it again, which the queue now handles. Re-Grout makes that plainer still:
+                          no view can create one, so there would be no way back at all. */}
+                      {String(selectedRecord.ringNo)}
                     </div>
                     {selectedRecord.groutPass === "Re-Grout" && <Badge code="c">Re-Grout</Badge>}
                   </div>

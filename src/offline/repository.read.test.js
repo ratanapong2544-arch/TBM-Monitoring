@@ -1,6 +1,7 @@
 import "fake-indexeddb/auto";
 if (!global.structuredClone) global.structuredClone = value => JSON.parse(JSON.stringify(value));
 import { deleteOfflineDbForTests, openOfflineDb } from "./db";
+import { buildMutationEnvelope } from "./mutationEnvelope";
 import { createRepository } from "./repository";
 import { ApiFailure } from "./apiTransport";
 
@@ -239,6 +240,99 @@ test("a ring confirmed while the launch fetch was in flight is not wiped by it",
   // and the version it confirmed is not replaced by the older map that answer carried
   expect(refreshed.data.syncMeta["segment:TBM1:P500:Permanent"]).toMatchObject({ version: 1 });
   expect((await repository.load("TBM1")).data.segments.map(row => row.ringNo).sort()).toEqual(["P499", "P500"]);
+});
+
+test("a ring deleted while the launch fetch was in flight does not come back", async () => {
+  // The mirror of the create case above, and the one that was missed. A confirmed delete has no
+  // optimistic row left to describe, so nothing in the merge objected to the answer — composed
+  // before the delete — putting the ring back, into the stored snapshot, surviving the relaunch.
+  // On screen it is then counted by the data logs, the dashboards and the shift report's derived
+  // ring count and distance, and the record form offers the ring after it: a skipped ring number.
+  let releaseFetch;
+  const repository = createRepository({
+    openDb: openOfflineDb,
+    fetchServerSnapshot: async () => new Promise(resolve => { releaseFetch = () => resolve({ segments: [{ id: "s0", ringNo: "P499" }, { id: "s1", ringNo: "P500" }], syncMeta: {} }); }),
+  });
+  await repository.mutate({
+    entityType: "segment", operation: "delete", machine: "TBM1", recordId: "s1",
+    payload: { id: "s1", ringNo: "P500" }, baseVersion: 0,
+    domainKey: "segment:TBM1:P500:Permanent",
+  });
+  const queued = (await repository.getDueMutations(Date.now()))[0];
+
+  const refreshing = repository.refresh("TBM1");
+  await repository.applySyncSuccess(queued.requestId, {
+    requestId: queued.requestId, status: "success",
+    record: { id: "s1", deleted: true }, version: 2, updatedAt: "2026-07-30T02:00:00.000Z",
+  });
+  releaseFetch();
+  const refreshed = await refreshing;
+
+  expect(refreshed.data.segments.map(row => row.ringNo)).toEqual(["P499"]);
+  expect((await repository.load("TBM1")).data.segments.map(row => row.ringNo)).toEqual(["P499"]);
+});
+
+test("recording a ring again after deleting it is accepted, not refused", async () => {
+  // A tombstone is not inert: GAS compares a create's base against it like any other version, so a
+  // create at 0 is refused for a ring whose only record was deleted. That is the ordinary "delete
+  // the bad row and record it again" correction — and it is the remedy the app prescribes when it
+  // refuses to re-identify a record in place, so it has to work. Claiming the tombstone's own
+  // version is what lifts it.
+  const repository = createRepository({
+    openDb: openOfflineDb,
+    fetchServerSnapshot: async () => ({ segments: [], syncMeta: { "segment:TBM1:P500:Permanent": { version: 2, deleted: true } } }),
+  });
+  const { data } = await repository.refresh("TBM1");
+
+  const envelope = buildMutationEnvelope({
+    entityType: "segment", operation: "create", machine: "TBM1", recordId: "seg_new",
+    payload: { id: "seg_new", ringNo: "P500", installType: "Permanent" }, syncMeta: data.syncMeta,
+  });
+
+  expect(envelope.baseVersion).toBe(2); // matches the tombstone, so the server revives the key
+  await expect(repository.mutate(envelope)).resolves.toMatchObject({ status: "pending" });
+});
+
+test("re-recording a ring this device just deleted works without waiting for a refresh", async () => {
+  // The same correction, done the way a crew underground actually does it: delete, then record it
+  // again, with no link in between. The tombstone this device produced has to be remembered as a
+  // tombstone — remembering only its version would make the create claim it as if the key were
+  // live, and remembering nothing would send 0 and be refused.
+  const repository = createRepository({
+    openDb: openOfflineDb,
+    fetchServerSnapshot: async () => ({ segments: [{ id: "s1", ringNo: "P500" }], syncMeta: { "segment:TBM1:P500:Permanent": { version: 1 } } }),
+  });
+  await repository.refresh("TBM1");
+  const queued = await repository.mutate({
+    entityType: "segment", operation: "delete", machine: "TBM1", recordId: "s1",
+    payload: { id: "s1", ringNo: "P500" }, baseVersion: 1,
+    domainKey: "segment:TBM1:P500:Permanent",
+  });
+  await repository.applySyncSuccess(queued.requestId, {
+    requestId: queued.requestId, status: "success",
+    record: { id: "s1", deleted: true }, version: 2, updatedAt: "2026-07-30T02:00:00.000Z",
+  });
+
+  const { data } = await repository.load("TBM1"); // no refresh: still underground
+  expect(buildMutationEnvelope({
+    entityType: "segment", operation: "create", machine: "TBM1", recordId: "seg_new",
+    payload: { id: "seg_new", ringNo: "P500", installType: "Permanent" }, syncMeta: data.syncMeta,
+  }).baseVersion).toBe(2);
+});
+
+test("a ring another crew still holds is not quietly taken over by a second record", async () => {
+  // the same lookup, the other answer: a LIVE key means someone else's row is there, and claiming
+  // its version would tell GAS to merge this record onto theirs
+  const repository = createRepository({
+    openDb: openOfflineDb,
+    fetchServerSnapshot: async () => ({ segments: [], syncMeta: { "segment:TBM1:P500:Permanent": { version: 2, deleted: false } } }),
+  });
+  const { data } = await repository.refresh("TBM1");
+
+  expect(buildMutationEnvelope({
+    entityType: "segment", operation: "create", machine: "TBM1", recordId: "seg_new",
+    payload: { id: "seg_new", ringNo: "P500", installType: "Permanent" }, syncMeta: data.syncMeta,
+  }).baseVersion).toBe(0);
 });
 
 test("a delete the server refused stops hiding the row", async () => {

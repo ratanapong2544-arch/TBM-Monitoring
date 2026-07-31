@@ -48,14 +48,25 @@ export function buildMutationEnvelope({ entityType, operation, machine, recordId
     recordId,
     payload,
     domainKey,
-    // A create claims nothing. Taking the key's known version instead told GAS this was a
-    // post-conflict successor: `checkSyncVersion_` matched, and the create was MERGED onto the row
-    // already holding that ring (gas-live/Code.js:1323) — the other shift's record overwritten, and
-    // the response a success. Two rows on one ring is a state this app supports and its data logs
-    // dedupe; silently collapsing them is not. At 0 the server answers `conflict` instead, which is
-    // the truth: two crews recorded the same ring.
-    baseVersion: operation === "create" ? 0 : toSyncVersion(known && known.version),
+    baseVersion: operation === "create" ? createBaseVersion(known) : toSyncVersion(known && known.version),
   };
+}
+
+// What a create claims depends on whether that identity is free, taken, or vacated.
+//
+//   - never seen: 0. The server has no metadata for it and mints version 1.
+//   - taken by a live record: 0, so the server answers `conflict`. Claiming the version it knows
+//     would tell GAS this is a post-conflict successor and MERGE the record onto the row already
+//     holding that ring — the other shift's record overwritten, and the response a success. Two rows
+//     on one ring is a state this app supports, and its data logs dedupe for it; collapsing them
+//     silently is not the app's call.
+//   - vacated by a delete: the tombstone's own version, which lifts it. A tombstone is not inert —
+//     `checkSyncVersion_` compares against it like any other version, so a create at 0 is refused
+//     for a ring whose only record was deleted. That is the ordinary "delete the bad row and record
+//     it again" correction, and it is also the remedy this file prescribes for a mistyped ring, so
+//     it has to work.
+function createBaseVersion(known) {
+  return known && known.deleted ? toSyncVersion(known.version) : 0;
 }
 
 // A refusal, not a failure: nothing was attempted and nothing is queued, so the views must not

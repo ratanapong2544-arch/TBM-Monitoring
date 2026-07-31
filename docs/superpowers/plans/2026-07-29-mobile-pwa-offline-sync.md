@@ -25,6 +25,7 @@
 - ArcGIS tile URL ปัจจุบันไม่ถูก cache offline จนกว่าจะมีสิทธิ์ cache ที่ยืนยันแล้ว; หน้าแผนที่ยังเปิด route/marker จาก local data โดยพื้นหลังอาจว่าง.
 - Baseline ณ 2026-07-29: `npm test -- --watchAll=false --runInBand` ผ่าน 50 suites / 600 tests.
 - ทุก task ต้องจบด้วย test เฉพาะ task และ full regression ที่เกี่ยวข้องก่อน commit.
+- **Promotion gate (เพิ่มหลัง review ของ Task 7): Task 7, 8 และ 9 ต้อง deploy พร้อมกัน — ห้าม deploy Task 7 เดี่ยวๆ.** Task 2 + 7 ทำให้แอพเปิดและใช้งาน offline ได้ ซึ่งเปิดทางให้ hole เดิมเกิดจริงเป็นครั้งแรก: server response ที่ไม่ว่างยังเขียนทับ localStorage-primary collections ทั้งชุด (`App.jsx`, สาขา `serverAuthoritative`) ดังนั้น record ที่สร้างตอน offline แล้ว `apiCall` ไม่เคยสำเร็จ จะถูกลบทิ้งทันทีที่ server ตอบครั้งแรก. offline **read** เป็นของใหม่ แต่ offline **write** ที่ทนทานมากับ mutation queue (Task 8) และ legacy reconciliation (Task 9). ดู `docs/superpowers/task7-completion.md` และ Task 12 Step 5.
 
 ---
 
@@ -1456,6 +1457,7 @@ Matrix rows:
 - iPhone Safari Add to Home Screen/standalone/offline/reconnect/update;
 - Android and iPhone queue persistence after app close/reopen;
 - slow network and network loss during POST;
+- **GET latency on a real underground link, timed** (added after Task 7's review). Three deadlines now guard the wire and only one of them has been measured against anything: `SNAPSHOT_FETCH_TIMEOUT_MS` (90 s, `src/offline/apiTransport.js`), `SHIFT_SAVE_TIMEOUT_MS` (45 s, `src/components/views/ShiftReportView.jsx`) and the 15 s sync POST. The snapshot figure was reasoned from a 463 KB `getData` payload and an assumed ~100 kbps floor; the save figure from GAS's 10 s `LockService` wait plus cold start. Time an actual `getData` and an actual shift-report write from the tunnel and adjust both. A false "dead" verdict on the GET costs a stale snapshot; on the save it costs a report whose outcome is unknown until the next refresh;
 - storage warning and recovery export;
 - all tabs, mobile nav, charts, map, 3D, reports, print;
 - safe-area and buttons not hidden by BottomNav;

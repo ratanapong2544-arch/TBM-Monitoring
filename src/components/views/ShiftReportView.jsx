@@ -35,6 +35,13 @@ export const __resetShiftSaveStateForTests = () => { shiftSaveState.clear(); };
 // disabled reading "Saving…", every later auto-save queues behind it and is silently swallowed, and
 // because the bookkeeping deliberately outlives the mount, navigating away and back does not clear
 // it — only a page reload does, which throws away everything the crew has typed.
+// 45 s, and the reasoning matters because a false positive here is expensive: the request is not
+// cancelled (apiCall has no abort path), so giving up early on a request that later lands leaves the
+// report in the "outcome unknown" state below until the server answers again. The write itself is
+// small — a shift report is kilobytes, not the 463 KB snapshot — but it queues behind
+// `LockService` (10 s of tryLock in GAS) on top of an Apps Script cold start, so a healthy save can
+// legitimately take tens of seconds on the same slow link the 90 s snapshot ceiling is sized for.
+// Like that one, this number is reasoned rather than measured; Task 12's matrix should time it.
 export const SHIFT_SAVE_TIMEOUT_MS = 45000;
 const withDeadline = (promise) => new Promise((resolve, reject) => {
   const timer = setTimeout(() => reject(new Error("SHIFT_SAVE_TIMEOUT")), SHIFT_SAVE_TIMEOUT_MS);
@@ -45,7 +52,9 @@ const withDeadline = (promise) => new Promise((resolve, reject) => {
 });
 
 const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftReports, machine = "TBM1", isCurrentMachine, readOnly = false }) => {
-  const [isSaving, setIsSaving] = useState(false);
+  // which report is being saved, not merely "a save is running": a save stalled on the 30th used to
+  // leave the button disabled for the 31st too, for as long as the deadline lasts
+  const [savingKey, setSavingKey] = useState(null);
   const [isExportingImage, setIsExportingImage] = useState(false);
 
   const defaultManpower = { Engineer: '', Operator: '', Surveyor: '', Machanic: '', Electrician: '', Foreman: '', Worker: '', CraneOp: '' };
@@ -122,6 +131,17 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
   // started from is still the one being edited
   const selectorKeyRef = useRef(selectorKey);
   selectorKeyRef.current = selectorKey;
+  // counts snapshots landing from App, so a save whose outcome is unknown can wait for the server to
+  // settle the question instead of guessing
+  const snapshotSerialRef = useRef(0);
+  // set when a save timed out with its outcome unknown; cleared once the server has answered again,
+  // because that answer is what says whether the row landed
+  const [saveUnresolved, setSaveUnresolved] = useState(false);
+  useEffect(() => {
+    snapshotSerialRef.current += 1;
+    setSaveUnresolved(false);
+    // eslint-disable-next-line
+  }, [shiftReports]);
   const autoResultRef = useRef(autoResult);
   autoResultRef.current = autoResult;
   const existingReportRef = useRef(existingReport);
@@ -129,10 +149,16 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
   const dirtyRef = useRef(false);
   // counts edits, so a save can tell whether anything was typed while its request was in flight
   const editSerialRef = useRef(0);
+  // counts every change to what the form DISPLAYS, whether the crew made it or the ring records did.
+  // The dirty flag is about the crew's own edits; this is about whether the form still holds what an
+  // in-flight save sent. A ring recorded mid-save rewrites the derived Result without any typing, so
+  // an own-write claim based on the edit serial alone would make the view skip loading the row it
+  // just wrote — screen and sheet then disagree on a printed report.
+  const formSerialRef = useRef(0);
   // counts form loads, so a save can tell whether the form was reloaded from the stored copy while
   // its request was in flight — after which the form no longer holds what that save sent
   const loadGenerationRef = useRef(0);
-  const markDirty = () => { dirtyRef.current = true; editSerialRef.current += 1; };
+  const markDirty = () => { dirtyRef.current = true; editSerialRef.current += 1; formSerialRef.current += 1; };
   // the key of the row this view last wrote, so its own save is never announced as a server copy
   const ownWriteKeyRef = useRef(null);
   // App answers this, because a save can resolve after this view unmounts (any nav tap) and a local
@@ -204,10 +230,13 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
     setResult((prev) => {
       const next = { ...prev };
       let changed = false;
+      // this rewrites the form without the crew touching it, so it counts as the form no longer
+      // holding what an in-flight save sent — see formSerialRef
       Object.keys(autoResult).forEach((key) => {
         if (touchedRef.current[key]) return;
         if (autoResult[key] && autoResult[key] !== prev[key]) { next[key] = autoResult[key]; changed = true; }
       });
+      if (changed) formSerialRef.current += 1;
       return changed ? next : prev;
     });
   }, [autoResult]);
@@ -263,6 +292,7 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
   // `eventsForSave` lets the auto-save send the event set it just produced, which is not in state yet
   const prepareSave = (eventsForSave) => {
     const serialAtSave = editSerialRef.current;
+    const formAtSave = formSerialRef.current;
     const loadAtSave = loadGenerationRef.current;
     const machineAtSave = machine;
     const keyAtSave = selectorKey;
@@ -274,7 +304,23 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
 
     return async () => {
       const state = shiftSaveStateFor(keyAtSave);
-      await withDeadline(apiCall(existedAtSave || state.savedIds.has(id) ? "updateShiftReport" : "addShiftReport", { ...payload, machine: machineAtSave }));
+      // A timed-out request was NOT cancelled — `apiCall` has no abort path, so it is still
+      // travelling and may yet append the row. Sending again before that is resolved would append a
+      // SECOND row for the same date and shift, which is the defect the whole queue exists to
+      // prevent, and the auto-save path would do it on the crew's behalf with nothing on screen.
+      // The server itself settles the question: once a fresh snapshot has been seen, either the row
+      // is there (so this becomes an update) or it never landed (so an append is correct again).
+      if (state.unresolvedAtSnapshot !== undefined) {
+        if (state.unresolvedAtSnapshot === snapshotSerialRef.current) throw new Error("SHIFT_SAVE_UNRESOLVED");
+        state.unresolvedAtSnapshot = undefined;
+        if (existingReportRef.current && existingReportRef.current.id === id) state.savedIds.add(id);
+      }
+      try {
+        await withDeadline(apiCall(existedAtSave || state.savedIds.has(id) ? "updateShiftReport" : "addShiftReport", { ...payload, machine: machineAtSave }));
+      } catch (error) {
+        if (error.message === "SHIFT_SAVE_TIMEOUT") state.unresolvedAtSnapshot = snapshotSerialRef.current;
+        throw error;
+      }
       state.savedIds.add(id);
       // Only speak for the form if it is still showing this report AND still holding what was sent.
       // Both conditions matter. The crew may have moved to another date, shift or machine, where
@@ -285,7 +331,8 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
       // payload from the stale form and erased the event that had just been recorded.
       const formStillHoldsThisWrite = selectorKeyRef.current === keyAtSave
         && loadGenerationRef.current === loadAtSave
-        && editSerialRef.current === serialAtSave;
+        && editSerialRef.current === serialAtSave
+        && formSerialRef.current === formAtSave;
       if (formStillHoldsThisWrite) {
         // The row that comes back carries this write, so the effect watching for a server copy
         // recognises it by key and leaves the form alone. Anything typed or reloaded since the
@@ -299,9 +346,11 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
     };
   };
 
+  const isSaving = savingKey === selectorKey;
+
   const handleSaveToCloud = () => {
-    setIsSaving(true);
     const keyAtSave = selectorKey;
+    setSavingKey(keyAtSave);
     const machineAtSave = machine;
     const send = prepareSave(events);
     return queueSave(keyAtSave, async () => {
@@ -314,11 +363,12 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
         // A timed-out request may still be travelling, so its outcome is genuinely unknown: saving
         // again could append a second row for the shift, because the legacy write is not idempotent
         // (Task 8's queue is what makes a retry safe).
-        alert(e.message === "SHIFT_SAVE_TIMEOUT"
-          ? "หมดเวลารอเซิร์ฟเวอร์ — ไม่ทราบว่าบันทึกสำเร็จหรือไม่ กรุณาตรวจสอบรายงานกะนี้ก่อนบันทึกซ้ำ"
+        if (e.message === "SHIFT_SAVE_TIMEOUT" || e.message === "SHIFT_SAVE_UNRESOLVED") setSaveUnresolved(true);
+        alert(e.message === "SHIFT_SAVE_TIMEOUT" ? "หมดเวลารอเซิร์ฟเวอร์ — ไม่ทราบว่าบันทึกสำเร็จหรือไม่ กรุณาตรวจสอบรายงานกะนี้ก่อนบันทึกซ้ำ"
+          : e.message === "SHIFT_SAVE_UNRESOLVED" ? "ยังไม่ทราบผลการบันทึกครั้งก่อน — รอข้อมูลจากเซิร์ฟเวอร์ก่อนบันทึกซ้ำ"
           : "บันทึกไม่สำเร็จ: " + e.message);
       }
-      setIsSaving(false);
+      setSavingKey(current => (current === keyAtSave ? null : current));
     });
   };
 
@@ -327,7 +377,13 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
     const send = prepareSave(updatedEvents);
     return queueSave(keyAtSave, async () => {
       try { await send(); }
-      catch (e) { console.error("Auto-save failed", e); }
+      catch (e) {
+        // This path had nothing on screen at all, which is how a timed-out auto-save could leave the
+        // crew adding time bars that were never stored — and, before the guard above, re-appending
+        // the report. A time bar is data the crew has already recorded; it may not fail in silence.
+        if (e.message === "SHIFT_SAVE_TIMEOUT" || e.message === "SHIFT_SAVE_UNRESOLVED") setSaveUnresolved(true);
+        console.error("Auto-save failed", e);
+      }
     });
   };
 
@@ -519,6 +575,12 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
           <button onClick={handlePrint} className="flex-1 sm:flex-none bg-navy hover:bg-navy-dark text-white px-5 py-2.5 rounded-input flex items-center justify-center gap-2 transition-colors shadow-card font-semibold"><Printer size={18} /> Print PDF</button>
         </div>
       </div>
+
+      {saveUnresolved && (
+        <div className="mb-3 flex items-center gap-2 bg-amber-500/10 border border-amber-500/40 text-amber-700 px-4 py-2 rounded-card text-[13px] no-print font-semibold">
+          <span>ยังไม่ทราบผลการบันทึกล่าสุด (เซิร์ฟเวอร์ไม่ตอบ) — ข้อมูลในหน้านี้ยังอยู่ครบ ระบบจะบันทึกต่อเมื่อได้รับข้อมูลจากเซิร์ฟเวอร์อีกครั้ง</span>
+        </div>
+      )}
 
       {serverCopyPending && (
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2 bg-code-b/10 border border-code-b/30 text-code-b px-4 py-2 rounded-card text-[13px] no-print font-semibold">

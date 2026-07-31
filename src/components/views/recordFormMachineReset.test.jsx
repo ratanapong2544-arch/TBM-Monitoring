@@ -431,17 +431,23 @@ test("a grout save resolving after a machine switch does not land in the other m
   view.unmount();
 });
 
-test("a segment form keeps its prefill across an unrelated re-render", () => {
+test("a segment form keeps what the crew typed across an unrelated re-render", () => {
+  // asserting the PREFILLED ring here proved nothing: if the reset fired on every render, the
+  // prefill (guarded on an empty ringNo) would immediately recompute the same P644. A hand-typed
+  // ring is the value that can tell the two apart, because nothing restores it.
   const element = machineProps => (
     <SegmentRecordView projectInfo={projectInfo} handleProjectInfoChange={() => {}} segmentRecords={tbm1Segments}
       setSegmentRecords={() => {}} setCurrentModule={() => {}} setActiveTab={() => {}} {...machineProps} />
   );
   const view = render(element({ machine: "TBM1" }));
   expect(view.value("ringNo")).toBe("P644");
+  type(view.container, "ringNo", "P700");
+  type(view.container, "soilType", "ดินเหนียวปนทราย");
 
   view.rerender(element({ machine: "TBM1" }));
 
-  expect(view.value("ringNo")).toBe("P644");
+  expect(view.value("ringNo")).toBe("P700");
+  expect(view.value("soilType")).toBe("ดินเหนียวปนทราย");
   view.unmount();
 });
 

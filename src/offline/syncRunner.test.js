@@ -106,6 +106,33 @@ test("reclaims a durable in-flight mutation after reopening and retries its orig
   await originalRunner.runNow();
 });
 
+test("an event trigger whose run rejects does not raise an unhandled rejection", async () => {
+  // the runner reaches IndexedDB to claim due mutations, so it rejects outright in a session whose
+  // database could not be opened — and that is exactly the session the provider starts it in anyway.
+  // Every online/focus/visibility event would otherwise surface a page error on a working screen.
+  const windowEvents = new EventTarget();
+  const rejections = [];
+  const onRejection = event => { rejections.push(event); event.preventDefault && event.preventDefault(); };
+  process.on("unhandledRejection", onRejection);
+  try {
+    const repository = {
+      claimDueMutations: jest.fn(async () => { throw new Error("IndexedDB open timed out"); }),
+      subscribe: jest.fn(() => () => {}),
+    };
+    const runner = createSyncRunner({ repository, transport: { postSyncMutation: jest.fn() }, clock: { now: () => 0 }, online: () => true, windowEvents });
+    await runner.start().catch(() => {});
+
+    windowEvents.dispatchEvent(new Event("online"));
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    expect(repository.claimDueMutations).toHaveBeenCalled();
+    expect(rejections).toHaveLength(0);
+    runner.stop();
+  } finally {
+    process.off("unhandledRejection", onRejection);
+  }
+});
+
 test("uses window for online/focus and document for visibility, then removes both listener sets", async () => {
   const windowEvents = new EventTarget();
   const documentEvents = new EventTarget();

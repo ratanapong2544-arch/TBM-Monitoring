@@ -140,16 +140,22 @@ test("a body that stalls after the headers is reported as a timeout, not a cance
 });
 
 test("a completed request clears its timer and its abort listener", async () => {
-  // the timer would otherwise keep the page alive and fire against a finished request
-  const caller = new AbortController();
-  const removeSpy = jest.spyOn(caller.signal, "removeEventListener");
-  const clearSpy = jest.spyOn(global, "clearTimeout");
-  global.fetch = jest.fn().mockResolvedValue({ ok: true, text: async () => JSON.stringify({ status: "success" }) });
+  // asserting only that *some* clearTimeout ran would pass with this request's timer still pending;
+  // the timer count is what actually shows it is gone
+  jest.useFakeTimers();
+  try {
+    const caller = new AbortController();
+    const removeSpy = jest.spyOn(caller.signal, "removeEventListener");
+    global.fetch = jest.fn().mockResolvedValue({ ok: true, text: async () => JSON.stringify({ status: "success" }) });
+    const before = jest.getTimerCount();
 
-  await fetchServerSnapshot("TBM1", { signal: caller.signal });
+    await fetchServerSnapshot("TBM1", { signal: caller.signal });
 
-  expect(clearSpy).toHaveBeenCalled();
-  expect(removeSpy).toHaveBeenCalledWith("abort", expect.any(Function));
+    expect(jest.getTimerCount()).toBe(before);
+    expect(removeSpy).toHaveBeenCalledWith("abort", expect.any(Function));
+  } finally {
+    jest.useRealTimers();
+  }
 });
 
 test("a signal already aborted before the call never leaves the device", async () => {

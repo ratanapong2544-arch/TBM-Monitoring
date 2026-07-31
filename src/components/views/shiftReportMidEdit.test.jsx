@@ -395,10 +395,19 @@ test("a time bar recorded while the form was reloaded is not erased by the next 
   await act(async () => { release(); });
   form.rerender(view({ shiftReports: rows, setShiftReports }));
 
-  // the form must now be showing the row the save produced, so a later save cannot drop the bar
-  const saved = rows.find(r => r.id === "sr1");
-  expect(Object.values(saved.events).flat()).toHaveLength(1);
-  expect(form.container.textContent).toContain("08:00");
+  // The form must now be showing the row the save produced. Asserting the stored row alone would
+  // pass either way (commitSaved runs regardless); what matters is that the NEXT save carries the
+  // bar, because that is the write that erased it.
+  apiCall.mockImplementation(async () => ({ status: "success" }));
+  type(form.container, "Engineer", "4");
+  await act(async () => {
+    [...form.container.querySelectorAll("button")].find(b => /Save to Cloud/.test(b.textContent))
+      .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  });
+
+  const lastPayload = apiCall.mock.calls[apiCall.mock.calls.length - 1][1];
+  expect(Object.values(JSON.parse(lastPayload.events)).flat()).toHaveLength(1);
+  expect(lastPayload.events).toContain("08:00");
   form.unmount();
 });
 
@@ -546,6 +555,88 @@ test("a save that never answers gives up and says the outcome is unknown", async
 
     expect(alerts.join(" ")).toContain("ไม่ทราบว่าบันทึกสำเร็จหรือไม่");
     expect(saveButton().disabled).toBe(false);
+    form.unmount();
+  } finally {
+    alertSpy.mockRestore();
+    jest.useRealTimers();
+  }
+});
+
+test("a timed-out save does not let the next one append a second row", async () => {
+  // The deadline rejects the wrapper; it cannot cancel the request, which is still travelling and
+  // may yet append the row. Sending again before the server has settled the question would put two
+  // rows on the sheet for one date and shift — and the auto-save path would do it with nothing on
+  // screen. The crew's own time bars are the trigger, so this needs no mistake by anyone.
+  jest.useFakeTimers();
+  const alertSpy = jest.spyOn(window, "alert").mockImplementation(() => {});
+  try {
+    apiCall.mockImplementation(() => new Promise(() => {})); // never answers
+    let rows = [];
+    const setShiftReports = updater => { rows = typeof updater === "function" ? updater(rows) : updater; };
+    const form = render(view({ shiftReports: rows, setShiftReports }));
+
+    const addTimeBar = async (start, end) => {
+      act(() => { form.container.querySelector('[title="เพิ่มเวลาการทำงาน"]').dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+      const times = form.container.querySelectorAll('input[type="time"]');
+      [[start, 0], [end, 1]].forEach(([v, i]) => act(() => {
+        Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set.call(times[i], v);
+        times[i].dispatchEvent(new Event("input", { bubbles: true }));
+      }));
+      await act(async () => {
+        [...form.container.querySelectorAll("button")].find(b => /เพิ่มช่วงเวลาลงกราฟ/.test(b.textContent))
+          .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      });
+    };
+
+    await addTimeBar("08:00", "09:00");        // auto-save 1 goes out and never answers
+    await act(async () => { jest.advanceTimersByTime(SHIFT_SAVE_TIMEOUT_MS); });
+    expect(apiCall.mock.calls[0][0]).toBe("addShiftReport");
+    // the crew is told, rather than the failure being swallowed
+    expect(form.container.textContent).toContain("ยังไม่ทราบผลการบันทึกล่าสุด");
+
+    await addTimeBar("09:00", "10:00");        // routine next bar, same report
+
+    expect(apiCall).toHaveBeenCalledTimes(1);  // nothing new sent while the outcome is unknown
+    form.unmount();
+  } finally {
+    alertSpy.mockRestore();
+    jest.useRealTimers();
+  }
+});
+
+test("a report with an unknown outcome saves again once the server has answered", async () => {
+  // blocking must not be permanent: the snapshot settles whether the row landed, and the next save
+  // then updates it (or appends, if it never arrived) instead of guessing
+  jest.useFakeTimers();
+  const alertSpy = jest.spyOn(window, "alert").mockImplementation(() => {});
+  try {
+    apiCall.mockImplementation(() => new Promise(() => {}));
+    let rows = [];
+    const setShiftReports = updater => { rows = typeof updater === "function" ? updater(rows) : updater; };
+    const form = render(view({ shiftReports: rows, setShiftReports }));
+    type(form.container, "Engineer", "3");
+    await act(async () => {
+      [...form.container.querySelectorAll("button")].find(b => /Save to Cloud/.test(b.textContent))
+        .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await act(async () => { jest.advanceTimersByTime(SHIFT_SAVE_TIMEOUT_MS); });
+    const sentId = apiCall.mock.calls[0][1].id;
+
+    // the server answers: the row DID land after all
+    const landed = { id: sentId, date: "2026-07-30", shift: "Day", tbmNo: "TBM1", location: "อุโมงค์", manpower: { Engineer: "3" }, result: {}, events: {} };
+    apiCall.mockImplementation(async () => ({ status: "success" }));
+    form.rerender(view({ shiftReports: [landed], setShiftReports }));
+    expect(form.container.textContent).not.toContain("ยังไม่ทราบผลการบันทึกล่าสุด");
+
+    type(form.container, "Surveyor", "2");
+    await act(async () => {
+      [...form.container.querySelectorAll("button")].find(b => /Save to Cloud/.test(b.textContent))
+        .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(apiCall).toHaveBeenCalledTimes(2);
+    expect(apiCall.mock.calls[1][0]).toBe("updateShiftReport"); // the row exists, so update it
+    expect(apiCall.mock.calls[1][1].id).toBe(sentId);
     form.unmount();
   } finally {
     alertSpy.mockRestore();

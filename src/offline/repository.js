@@ -33,7 +33,25 @@ export function createRepository(deps = {}) {
   const readServerSnapshot = deps.readServerSnapshot || defaultReadServerSnapshot;
   const writeServerSnapshot = deps.writeServerSnapshot || defaultWriteServerSnapshot;
   const getDeviceId = deps.getDeviceId || defaultGetDeviceId;
-  const now = deps.now || (() => new Date().toISOString());
+  const wallClock = deps.now || (() => new Date().toISOString());
+  // Monotonic, because two of this module's rules are ORDERINGS between a request going out and a
+  // write being confirmed, and both stamps come from here. A device clock can step backwards — an
+  // NTP correction on a phone waking after an eight-hour shift is the ordinary case — and a
+  // confirmation stamped before the request that preceded it makes a refresh discard rows it should
+  // have kept, or keep a ring the crew deleted. Never going backwards costs a millisecond of drift
+  // and removes the whole class.
+  let lastStamp = 0;
+  const now = () => {
+    const parsed = Date.parse(wallClock());
+    const stamp = Number.isNaN(parsed) ? lastStamp + 1 : Math.max(parsed, lastStamp + (parsed <= lastStamp ? 1 : 0));
+    lastStamp = stamp;
+    return new Date(stamp).toISOString();
+  };
+  // What the last COMPLETED refresh for a machine was asked at. A slower earlier request must not
+  // overwrite the cache a later one already wrote: `useOfflineData` drops the stale answer from
+  // React state, but the snapshot write happens underneath it, so a relaunch in between showed the
+  // older sheet — with rows another device added in the meantime missing.
+  const lastCompletedRequest = new Map();
   const createRequestId = deps.createRequestId || (() => globalThis.crypto && globalThis.crypto.randomUUID ? globalThis.crypto.randomUUID() : `request-${Date.now()}-${Math.random().toString(16).slice(2)}`);
   const online = deps.online || (() => typeof navigator === "undefined" || navigator.onLine !== false);
   const subscribers = new Set();
@@ -179,9 +197,17 @@ export function createRepository(deps = {}) {
         const raw = await fetchServerSnapshot(machine, { signal });
         const data = normalizeServerData(raw, machine);
         const fetchedAt = now();
+        // A later request may already have finished while this one was still out — a quick machine
+        // switch back and forth is enough. Its answer is the newer description of the sheet, and
+        // writing this one over it would put the older one in the cache, where a relaunch would find
+        // it. The caller still gets what it fetched; only the cache is left alone.
+        const overtaken = Date.parse(lastCompletedRequest.get(machine) || 0) > Date.parse(requestedAt);
+        if (!overtaken) lastCompletedRequest.set(machine, requestedAt);
         let stored;
         try {
-          stored = await writeServerSnapshot(await openDb(), machine, data, fetchedAt, requestedAt);
+          stored = overtaken
+            ? await readServerSnapshot(await openDb(), machine)
+            : await writeServerSnapshot(await openDb(), machine, data, fetchedAt, requestedAt);
         } catch (writeError) {
           // The server data is already in hand. Throwing here would show an empty app to a crew
           // whose payload arrived fine, just because the cache could not be written (quota, private

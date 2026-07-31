@@ -449,6 +449,58 @@ test("a ring another crew still holds is not quietly taken over by a second reco
   }).baseVersion).toBe(0);
 });
 
+test("a slower earlier refresh does not overwrite the cache a later one already wrote", async () => {
+  // A quick machine switch back and forth is enough to have two out at once. `useOfflineData` drops
+  // the stale answer from React state, but the snapshot write happens underneath it — so a relaunch
+  // in between found the older sheet, with the rows another device added since missing.
+  const answers = { first: null, second: null };
+  const repository = createRepository({
+    openDb: openOfflineDb,
+    fetchServerSnapshot: async () => new Promise(resolve => {
+      if (!answers.first) { answers.first = () => resolve({ segments: [{ id: "s1", ringNo: "P100" }] }); return; }
+      answers.second = () => resolve({ segments: [{ id: "s1", ringNo: "P100" }, { id: "s2", ringNo: "P101" }] });
+    }),
+  });
+
+  const earlier = repository.refresh("TBM1");
+  const later = repository.refresh("TBM1");
+  answers.second();          // the newer request finishes first
+  await later;
+  answers.first();           // and the older one lands afterwards
+  await earlier;
+
+  expect((await repository.load("TBM1")).data.segments.map(row => row.ringNo)).toEqual(["P100", "P101"]);
+});
+
+test("a clock that steps backwards does not resurrect a deleted ring", async () => {
+  // A phone waking after an eight-hour shift can have its clock corrected backwards, and two of this
+  // module's rules are orderings between a request going out and a write being confirmed. A
+  // confirmation stamped before the request that preceded it made the refresh keep a ring the crew
+  // had deleted — it comes back to the data log, the dashboards and the shift report's ring count.
+  const steps = ["2026-07-30T02:00:10.000Z", "2026-07-30T02:00:05.000Z", "2026-07-30T02:00:04.000Z"];
+  let tick = 0;
+  let releaseFetch;
+  const repository = createRepository({
+    openDb: openOfflineDb,
+    now: () => steps[Math.min(tick++, steps.length - 1)],
+    fetchServerSnapshot: async () => new Promise(resolve => { releaseFetch = () => resolve({ segments: [{ id: "s1", ringNo: "P200" }] }); }),
+  });
+  await repository.mutate({
+    entityType: "segment", operation: "delete", machine: "TBM1", recordId: "s1",
+    payload: { id: "s1", ringNo: "P200" }, baseVersion: 0, domainKey: "segment:TBM1:P200:Permanent",
+  });
+  const queued = (await repository.getDueMutations(Date.now()))[0];
+
+  const refreshing = repository.refresh("TBM1");
+  await repository.applySyncSuccess(queued.requestId, {
+    requestId: queued.requestId, status: "success",
+    record: { id: "s1", deleted: true }, version: 2, updatedAt: "2026-07-30T02:00:00.000Z",
+  });
+  releaseFetch();
+
+  expect((await refreshing).data.segments).toEqual([]);
+});
+
 test("a delete the server refused stops hiding the row", async () => {
   // the tombstone must last exactly as long as the delete is still on its way. A delete GAS refused
   // is not on its way to anything: leaving the row hidden takes it off this device's every screen

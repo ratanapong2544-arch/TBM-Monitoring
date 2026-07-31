@@ -588,6 +588,39 @@ test("the queue's state is said alongside the other notices, not instead of them
   app.unmount();
 });
 
+test("a ring deleted and recorded again in one session reaches the sheet", async () => {
+  // The whole correction the app prescribes when it refuses to re-identify a record, done the way a
+  // crew does it, in one sitting with no relaunch. A tombstone is not inert on the server: a create
+  // that does not claim its version is refused, and the refusal then parks at the head of that
+  // ring's domain, where every later record for the ring queues behind it and is never sent at all.
+  //
+  // Tested through App's `syncMeta` — the map the views actually read. The repository-level pin for
+  // this rule reads `repository.load`, which the app calls only when it hydrates; between hydrations
+  // the flag has to survive App's own merge, and it did not.
+  const sent = [];
+  const listeners = new Set();
+  const notify = event => listeners.forEach(listener => listener(event));
+  const repository = makeRepository({
+    subscribe: listener => { listeners.add(listener); return () => listeners.delete(listener); },
+    load: async machine => ({ data: cached(machine, { syncMeta: { "segment:TBM1:P644:Permanent": { version: 1 } } }), source: "indexeddb", fetchedAt: "x", stale: true }),
+    refresh: async machine => ({ data: snapshot(machine, { syncMeta: { "segment:TBM1:P644:Permanent": { version: 1 } } }), source: "server", fetchedAt: "2026-07-30T00:00:00.000Z", stale: false }),
+    mutate: async input => { sent.push(input); return { optimisticRecord: { ...input.payload, id: input.recordId } }; },
+  });
+  const app = renderApp(repository);
+  await act(async () => {});
+
+  // the crew deletes the ring, and the drain confirms it at version 2
+  await act(async () => { notify({ type: "sync", requestId: "r1", status: "synced", domainKey: "segment:TBM1:P644:Permanent", version: 2, deleted: true }); });
+
+  // and records it again straight away
+  await saveRingOnSegmentForm(app, "P644");
+
+  const create = sent[sent.length - 1];
+  expect(create.operation).toBe("create");
+  expect(create.baseVersion).toBe(2); // claims the tombstone, which is what lifts it
+  app.unmount();
+});
+
 test("a write that dies terminally stops being counted as on its way", async () => {
   // `updateMutation` is the only path to a validation or permanent error, and the summary is
   // recomputed on repository events. With no event, the mutation's own queueing event was the last
@@ -607,6 +640,41 @@ test("a write that dies terminally stops being counted as on its way", async () 
   expect(seen).toContain("validation_error");
   await expect(repository.getSyncSummary()).resolves.toMatchObject({ pending: 0, errors: 1 });
   await deleteOfflineDbForTests();
+});
+
+test("records stranded behind a stuck one are counted as stuck, not as travelling", async () => {
+  // The queue orders per record and a conflicted head is never claimable again, so everything after
+  // it on that ring is never posted at all. Reported as pending it reads as work in progress; the
+  // truth is that none of it can move until Task 10 can resolve the head.
+  await deleteOfflineDbForTests();
+  const repository = createRepository({ openDb: openOfflineDb, fetchServerSnapshot: async () => ({ segments: [] }) });
+  const queue = async (recordId, ring) => repository.mutate({
+    entityType: "segment", operation: "create", machine: "TBM1", recordId,
+    payload: { id: recordId, ringNo: ring }, baseVersion: 0, domainKey: `segment:TBM1:${ring}:Permanent`,
+  });
+  const head = await queue("s1", "P644");
+  await queue("s2", "P644");            // same ring: queued behind
+  await queue("s3", "P645");            // a different ring: genuinely on its way
+  await repository.updateMutation(head.requestId, { status: "validation_error", lastError: { code: "SYNC_FIELD_TOO_LARGE" } });
+
+  await expect(repository.getSyncSummary()).resolves.toMatchObject({ errors: 1, blocked: 1, pending: 1 });
+  await deleteOfflineDbForTests();
+});
+
+test("the queue is reported even when the app could not load anything", async () => {
+  // a fresh install on site with no signal: the launch banner is up, the app still records, and this
+  // is exactly when nobody has told the crew there is a queue at all
+  const repository = makeRepository({
+    load: async machine => ({ data: cached(machine), source: "empty", fetchedAt: null, stale: true }),
+    refresh: async () => { throw Object.assign(new Error("Failed to fetch"), { code: "NETWORK" }); },
+    getSyncSummary: async () => ({ online: false, pending: 2, syncing: 0, conflicts: 0, errors: 0, blocked: 0, lastSyncedAt: null }),
+  });
+  const app = renderApp(repository);
+  await act(async () => {});
+
+  expect(app.text()).toContain("ไม่สามารถดึงข้อมูลได้"); // the launch banner, still there
+  expect(app.text()).toContain("2 รายการรอซิงก์");        // and the queue, no longer hidden by it
+  app.unmount();
 });
 
 test("work still on its way out is said quietly", async () => {

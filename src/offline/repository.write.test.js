@@ -185,7 +185,27 @@ test("a confirmation names the record that moved and the version it moved to", a
     requestId: queued.requestId,
     domainKey: "segment:TBM1:P1:Permanent",
     version: 3,
+    deleted: false,
   }));
+});
+
+test("a confirmation says whether it left the record deleted", async () => {
+  // The next create on that key reads this to tell a tombstone from a live record — one claims the
+  // version to lift it, the other claims 0 so the server can object. App's half is tested with a
+  // hand-built event, and a hand-built event agrees with itself: drop the flag HERE and the whole
+  // App suite still passes, while a ring deleted and re-recorded in one session is refused for the
+  // rest of the session and takes its domain down with it.
+  const repository = makeRepository();
+  const queued = await repository.mutate({ ...segmentInput, operation: "delete" });
+  const events = [];
+  repository.subscribe(event => events.push(event));
+
+  await repository.applySyncSuccess(queued.requestId, {
+    requestId: queued.requestId, status: "success",
+    record: { id: "segment-1", deleted: true }, version: 4, updatedAt: "2026-07-29T01:00:00.000Z",
+  });
+
+  expect(events).toContainEqual(expect.objectContaining({ type: "sync", version: 4, deleted: true }));
 });
 
 test("a stored conflict keeps the server time and device holding that version", async () => {

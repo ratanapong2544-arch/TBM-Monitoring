@@ -97,6 +97,12 @@ export function createRepository(deps = {}) {
       type: "sync", requestId, status: mutation.status,
       domainKey: mutation.domainKey,
       version: response.version ?? null,
+      // `deleted` rides with the version because the NEXT create on this key reads it. A tombstone
+      // is not inert on the server — a create that does not claim its version is refused — and a
+      // create built from a version WITHOUT the flag claims 0 and is refused. Dropping it here left
+      // exactly one window open: from a delete confirming until the next full getData, which since
+      // Task 8 removed the last refresh caller is normally the rest of the session.
+      deleted: mutation.operation === "delete",
     });
     return mutation;
   }

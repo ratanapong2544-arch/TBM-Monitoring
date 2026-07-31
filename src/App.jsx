@@ -268,9 +268,16 @@ const PrimaryGroutApp = () => {
   useEffect(() => repository.subscribe(event => {
     if (event.type !== "sync" || !event.domainKey || event.version == null) return;
     const version = toSyncVersion(event.version);
-    setConfirmedVersions(prev => (prev[event.domainKey] && prev[event.domainKey].version === version
-      ? prev
-      : { ...prev, [event.domainKey]: { version } }));
+    // `deleted` travels with it. The next create on this key reads the flag to decide whether it is
+    // claiming a tombstone or colliding with a live record, and an entry carrying only a version
+    // reads as live — so a ring deleted and re-recorded in one session was refused, and the refusal
+    // then parked at the head of that ring's domain where nothing behind it could be sent either.
+    const entry = { version, deleted: Boolean(event.deleted) };
+    setConfirmedVersions(prev => {
+      const held = prev[event.domainKey];
+      if (held && held.version === version && Boolean(held.deleted) === entry.deleted) return prev;
+      return { ...prev, [event.domainKey]: entry };
+    });
   }), [repository]);
   const snapshotSyncMeta = (offlineData.data && offlineData.data.syncMeta) || EMPTY_SYNC_META;
   // The NEWER of the two per key, not simply the local one. A confirmed version is newer than the
@@ -376,14 +383,18 @@ const PrimaryGroutApp = () => {
     // Task 10 exists, it would have held that place for good. The quiet half had the mirror-image
     // fault: sitting last, it could never appear while the device was offline, which is the one
     // situation it was written for.
-    const stuck = (syncSummary.conflicts || 0) + (syncSummary.errors || 0);
+    // `blocked` counts what is queued behind a stuck head: never posted, so never "on its way"
+    const stuck = (syncSummary.conflicts || 0) + (syncSummary.errors || 0) + (syncSummary.blocked || 0);
     const waiting = (syncSummary.pending || 0) + (syncSummary.syncing || 0);
     // Task 10's Sync Center is where a stuck write gets resolved; until then the crew at least
     // learns it happened. Its row stays on screen looking recorded while the sheet has never seen
     // it, and the queue orders per record, so everything they do to that ring waits behind it.
-    const queueNote = stuck > 0
-      ? `${stuck} รายการติดค้าง ยังไม่ขึ้นเซิร์ฟเวอร์ — แจ้งผู้ดูแลระบบ`
-      : waiting > 0 ? `${waiting} รายการรอซิงก์ขึ้นเซิร์ฟเวอร์` : null;
+    // both, when both are true: they are different facts, and collapsing them understated how much
+    // work is unsendable while a stuck head sits in front of it
+    const queueNote = [
+      stuck > 0 ? `${stuck} รายการติดค้าง ยังไม่ขึ้นเซิร์ฟเวอร์ — แจ้งผู้ดูแลระบบ` : null,
+      waiting > 0 ? `${waiting} รายการรอซิงก์ขึ้นเซิร์ฟเวอร์` : null,
+    ].filter(Boolean).join(" · ") || null;
     const withQueue = notice => (queueNote ? { ...notice, text: `${notice.text} · ${queueNote}` } : notice);
     // The rows for this machine are not on screen yet (first launch, or a machine switch whose
     // snapshot is still loading). Step 4 requires a `refreshing` signal here: the lists are empty
@@ -444,7 +455,10 @@ const PrimaryGroutApp = () => {
       isViewer={isViewer}
     >
       {loadError && <div className="mb-6 bg-code-d/10 border border-code-d/30 text-code-d p-4 rounded-card text-center no-print font-semibold">{loadError}</div>}
-      {!loadError && offlineNotice && (
+      {/* the queue's own state is shown even under `loadError` — that banner means the app could not
+          load anything from the server, which is a fresh install on site with no signal, and it is
+          precisely then that the crew is recording into a queue nobody has told them about */}
+      {offlineNotice && (
         <div className="mb-4 flex items-center justify-center gap-2 bg-code-b/10 border border-code-b/30 text-code-b px-4 py-2 rounded-card text-[13px] no-print font-semibold">
           {offlineNotice.spinning ? <Loader2 className="w-4 h-4 animate-spin" /> : <AlertCircle className="w-4 h-4" />}
           <span>{offlineNotice.text}</span>

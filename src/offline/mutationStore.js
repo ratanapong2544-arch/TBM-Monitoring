@@ -452,11 +452,25 @@ export async function getSyncCounts(db) {
     requestResult(transaction.objectStore(STORES.syncMeta).get("lastSyncedAt")),
   ]);
   await complete(transaction);
+  // A record queued behind a stuck one is stuck too. The queue orders per domain and a conflicted or
+  // refused mutation is never claimable again, so everything after it on that record is never even
+  // posted — it sits on screen marked pending, forever, and counting it as "on its way" is a
+  // straight untruth. Until Task 10 can resolve the head, the honest number is how many records
+  // cannot move: three rings stranded behind one conflict is three, not one.
+  const blockedDomains = new Set(mutations
+    .filter(item => item.status === MUTATION_STATUS.CONFLICT || item.status === MUTATION_STATUS.VALIDATION_ERROR || item.status === MUTATION_STATUS.PERMANENT_ERROR)
+    .map(item => item.domainKey));
+  const isBlocked = item => blockedDomains.has(item.domainKey);
+  const pending = mutations.filter(item => item.status === MUTATION_STATUS.PENDING);
+  const syncing = mutations.filter(item => item.status === MUTATION_STATUS.SYNCING);
   return {
-    pending: mutations.filter(item => item.status === MUTATION_STATUS.PENDING).length,
-    syncing: mutations.filter(item => item.status === MUTATION_STATUS.SYNCING).length,
+    pending: pending.filter(item => !isBlocked(item)).length,
+    syncing: syncing.filter(item => !isBlocked(item)).length,
     conflicts: conflicts.filter(item => item.status === "open").length,
     errors: mutations.filter(item => item.status === MUTATION_STATUS.VALIDATION_ERROR || item.status === MUTATION_STATUS.PERMANENT_ERROR).length,
+    // queued behind a head that will never move, so reported with the stuck ones rather than as work
+    // still travelling
+    blocked: pending.concat(syncing).filter(isBlocked).length,
     lastSyncedAt: syncMeta && syncMeta.value || null,
   };
 }

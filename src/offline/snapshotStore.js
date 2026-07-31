@@ -189,26 +189,24 @@ export async function writeServerSnapshot(db, machine, data, fetchedAt, requeste
       if (record.payload && record.payload.id != null) ids.add(String(record.payload.id));
       incomingIdsByDomain.set(record.domainKey, ids);
     });
+    // A local copy speaks for the ROW it names, and for no other. It used to be allowed to take a
+    // stranger's place when the response did not carry its own row, on the reasoning that one ring
+    // should read as one ring until the server settled which record owned it. The server settles it
+    // by REFUSING the second record — and until then, letting the local copy stand where a confirmed
+    // row used to be deleted that row from the cache and put an unsynced, already-refused record in
+    // its place, on screen, in the data logs and in every figure derived from them. Two rows on one
+    // ring is a state this app supports and its logs dedupe for; a confirmed record disappearing
+    // behind a refused one is not.
     const overlaysThisRow = (local, record) => {
       const localId = local.payload && local.payload.id;
       const rowId = record.payload && record.payload.id;
       if (localId == null) return true; // the local copy names no row, so it speaks for the domain
-      if (String(localId) === String(rowId)) return true;
-      // It names a row that is NOT this one. A CREATE may still take this slot: it has no row on the
-      // sheet yet, and putting it here is what keeps one ring reading as one ring until the server
-      // settles which record owns it. An edit or a delete may not — the row it names either arrived
-      // in this response, in which case that is where it belongs, or it did not, in which case
-      // painting it onto a neighbour shows the crew's change on a record they never touched and
-      // hides a row that really is on the sheet. Unmatched edits are appended below instead.
-      const queued = unresolvedByDomain.get(record.domainKey);
-      if (queued && queued.operation !== "create") return false;
-      const ids = incomingIdsByDomain.get(record.domainKey);
-      return !(ids && ids.has(String(localId)));
+      return String(localId) === String(rowId);
     };
-    // An edit or delete whose row this response does not carry keeps its own place in the list
-    // rather than displacing a stranger: the sheet no longer shows the row it is about (another
-    // device removed it, or it has not landed yet), and dropping it would take the crew's own
-    // unsynced work off screen.
+    // A local copy whose row this response does not carry keeps its own place in the list rather
+    // than displacing a stranger: the sheet may not show it yet (a record made offline), or not any
+    // more (another device removed it), and dropping it would take the crew's own unsynced work off
+    // screen.
     const unmatchedById = new Map();
     existing.filter(record => inScope(record, entityType) && preserveLocal(record))
       .filter(record => incomingDomains.has(record.domainKey) && !retainedDomains.has(record.domainKey))
@@ -218,7 +216,7 @@ export async function writeServerSnapshot(db, machine, data, fetchedAt, requeste
         const ids = incomingIdsByDomain.get(record.domainKey);
         if (ids && ids.has(String(localId))) return false;
         const queued = unresolvedByDomain.get(record.domainKey);
-        if (!queued || queued.operation === "create") return false;
+        if (!queued) return false;
         // and it has to be the row that mutation is ABOUT. Two rows can share a ring, and the
         // entities store keeps a row after its key leaves a snapshot — so without this, a pending
         // edit of one row re-injected its long-deleted neighbour: back in the data log badged as the

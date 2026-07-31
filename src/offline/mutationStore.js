@@ -69,17 +69,13 @@ function patchSnapshotKeys(snapshots, entities, stored, mutation) {
       // Replacing rather than appending is the only way an update becomes visible at all — its
       // optimistic copy lives under a different key from the server row it supersedes.
       //
-      // An update names its row, so it matches on the record id and takes no other. A CREATE has no
-      // row to name: it takes the domain's slot, because `writeServerSnapshot` overlays an
-      // optimistic record onto one incoming row per domain and the two have to agree — and that is
-      // what stops a ring the sheet already holds from reading as two rings until the server settles
-      // which record owns it. An update used to fall back to a row the sheet returned WITHOUT an id,
-      // which `overlaysThisRow` refuses on the other side: one record then showed as one row on a
-      // relaunch and two after a refresh, the flicker both rules exist to prevent.
-      let slot = keys.findIndex(mine);
-      if (slot === -1 && mutation.operation === "create") {
-        slot = keys.findIndex(key => entityKeyBelongsToDomain(key, mutation.domainKey));
-      }
+      // A mutation names its row and takes no other's place. A create used to take the domain's
+      // slot, so that a ring the sheet already held would read as one ring rather than two — but the
+      // record it displaced was a CONFIRMED one, and the record replacing it was one the server goes
+      // on to refuse. It was deleted from the store along with its key, so the confirmed row was
+      // gone from the cache for good while an unsynced copy stood in its place. Two rows on one ring
+      // is a supported state; a confirmed record vanishing behind a refused one is not.
+      const slot = keys.findIndex(mine);
       next = slot === -1 ? keys.concat(optimisticKey) : keys.map((key, index) => (index === slot ? optimisticKey : key));
     }
     keys.forEach(key => { if (key !== optimisticKey && !next.includes(key)) dropped.add(key); });

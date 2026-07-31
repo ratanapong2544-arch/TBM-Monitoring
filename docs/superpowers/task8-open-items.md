@@ -51,6 +51,26 @@ Closing it means keying the optimistic entity per record id, which touches `getE
 `confirmMutation`, the snapshot merge and a DB migration — a change that deserves its own review
 round rather than a corner of this one.
 
+## 3b. A delete queued behind a stuck head still takes its row off screen
+
+`unresolvedByDomain` holds the NEWEST unresolved mutation per domain, not the queue head. So when a
+domain already has a terminal head, a delete queued behind it — which `claimDueMutations` will never
+post — still hides its row from the refreshed list. The ring is off every screen on this device and
+still on the sheet, and the crew has affirmative feedback for a destructive action that did not
+happen.
+
+It is counted (`errors` plus `blocked`), so the strip is not lying about the total, and it needs a
+stuck head to reach — which today means item 1. Fixing it properly means the tombstone asking whether
+its mutation is actually the claimable head, which is a queue question the snapshot merge currently
+cannot ask. Task 10 owns both the head and the resolution UI.
+
+## 3c. Deletes are not "visible as pending tombstones to repository reads"
+
+Step 4's wording. `deletePending` filters the row out of the merge instead of marking it, so a reader
+cannot tell a deleted-pending row from an absent one without joining the mutations store itself.
+Task 10 can reconstruct it; nothing in Task 8 needs it. Recorded because it is a deviation from the
+written contract, not an oversight.
+
 ## 4. Deliberate deviations from the plan
 
 - **"บันทึกในเครื่องแล้ว" is only in the shift report.** Step 3 asks for it on every core write. The

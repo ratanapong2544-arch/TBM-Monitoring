@@ -115,10 +115,15 @@ test("a ring created offline on a machine never fetched survives a relaunch", as
   expect((await reloaded.load("TBM2")).data.segments.map(row => row.ringNo)).toEqual(["P1"]);
 });
 
-test("a ring created offline over a row the server already has does not appear twice", async () => {
-  // the crew records a ring the sheet turns out to already hold — a second device got there first,
-  // or the row predates sync. One ring, one line: a duplicate here reads as two rings erected.
-  const repository = createRepository({ openDb: openOfflineDb, fetchServerSnapshot: async () => ({ segments: [{ id: "s1", ringNo: "P643" }] }) });
+test("a ring recorded over one the server already has does not swallow the confirmed row", async () => {
+  // The crew records a ring the sheet turns out to already hold — a second device got there first,
+  // or the row predates sync. This used to collapse to one line, on the reasoning that one ring
+  // should read as one ring until the server settled which record owned it. The server settles it by
+  // REFUSING the second record, so the line that survived was the unsynced, already-refused one, and
+  // the confirmed row was deleted from the cache with its key: gone from the data logs, the
+  // dashboards and every figure derived from them, on a screen whose only message was a routine
+  // "waiting to sync". Both rows stand now, which is what the sheet and the crew actually have.
+  const repository = createRepository({ openDb: openOfflineDb, fetchServerSnapshot: async () => ({ segments: [{ id: "s1", ringNo: "P643", status: "Completed" }] }) });
   await repository.refresh("TBM1");
   await repository.mutate({
     entityType: "segment", operation: "create", machine: "TBM1", recordId: "s2",
@@ -127,7 +132,33 @@ test("a ring created offline over a row the server already has does not appear t
   });
 
   const reloaded = createRepository({ openDb: openOfflineDb, fetchServerSnapshot: async () => { throw new Error("offline"); } });
-  expect((await reloaded.load("TBM1")).data.segments.filter(row => row.ringNo === "P643")).toHaveLength(1);
+  const rows = (await reloaded.load("TBM1")).data.segments;
+  expect(rows.map(row => row.id).sort()).toEqual(["s1", "s2"]);
+  expect(rows.find(row => row.id === "s1").status).toBe("Completed"); // the confirmed record, intact
+});
+
+test("a report started before the launch fetch lands does not erase the one already filed", async () => {
+  // The worst instance of the same rule, and the hole the deleted cold-launch gate used to cover.
+  // On a cleared cache the crew opens the shift report and records a delay bar before the first
+  // getData arrives, so the form has no existing report and files a CREATE at version 0. The
+  // response then carries the shift's real report — nine engineers, the day's metres, the recorded
+  // bars — and the local draft stood in its place: the filed report gone from the cache, the screen
+  // showing a three-line draft, and the queue answering `conflict` where nobody would see it.
+  const filed = { id: "sr_real", date: "2026-07-30", shift: "Day", tbmNo: "TBM1", manpower: { Engineer: "9" }, result: { totalDistance: "18.20" }, events: {} };
+  const repository = createRepository({
+    openDb: openOfflineDb,
+    fetchServerSnapshot: async () => ({ shiftReports: [filed], syncMeta: { "shiftReport:TBM1:2026-07-30:Day": { version: 6 } } }),
+  });
+  await repository.mutate({
+    entityType: "shiftReport", operation: "create", machine: "TBM1", recordId: "shift_draft",
+    payload: { id: "shift_draft", date: "2026-07-30", shift: "Day", manpower: { Engineer: "3" }, result: {}, events: {} },
+    baseVersion: 0, domainKey: "shiftReport:TBM1:2026-07-30:Day",
+  });
+
+  const ids = (await repository.refresh("TBM1")).data.shiftReports.map(row => row.id).sort();
+
+  expect(ids).toEqual(["shift_draft", "sr_real"]);
+  expect((await repository.load("TBM1")).data.shiftReports.map(row => row.id).sort()).toEqual(["shift_draft", "sr_real"]);
 });
 
 // Two sheet rows can share a ring identity. That is a supported state, not corruption — it is why

@@ -19,6 +19,8 @@ export function emptyServerData(machine) {
   return { machine, segments: [], grouts: [], secondaryGrouts: [], shiftReports: [], issues: [], dailyReports: [], prepTasks: [], planConfig: null, distPlanConfig: null, routeConfigs: {}, routeProjectTotal: null, machineProgress: null, instLocations: [], instInstruments: [], instThresholds: [], instReadings: [], instSchedules: [], syncMeta: {} };
 }
 
+const COLLECTION_KEYS = ["segments", "grouts", "secondaryGrouts", "shiftReports", "issues", "dailyReports", "prepTasks", "instLocations", "instInstruments", "instThresholds", "instReadings", "instSchedules"];
+
 export function normalizeServerData(result = {}, machine) {
   const normalized = emptyServerData(machine);
   normalized.segments = (result.segments || []).map(segment => segmentTimes.reduce((record, key) => ({ ...record, [key]: formatDisplayTime(segment[key]) }), { ...segment }));
@@ -36,5 +38,10 @@ export function normalizeServerData(result = {}, machine) {
   normalized.routeProjectTotal = typeof result.routeProjectTotal === "number" ? result.routeProjectTotal : null;
   normalized.machineProgress = result.machineProgress || null;
   normalized.syncMeta = result.syncMeta && typeof result.syncMeta === "object" ? result.syncMeta : {};
+  // Which collections the response actually CARRIED. Everything above maps an absent key to [], so
+  // by this line "the server has none" and "this response did not include them" are indistinguishable
+  // — and they are not the same fact: an older GAS deployment, or a `doGet` whose Shift sheet read
+  // failed, would otherwise let a caller conclude a shift has no report and create a second one.
+  normalized.present = COLLECTION_KEYS.reduce((flags, key) => ({ ...flags, [key]: Object.prototype.hasOwnProperty.call(result, key) }), {});
   return normalized;
 }

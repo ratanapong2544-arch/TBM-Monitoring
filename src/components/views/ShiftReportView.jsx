@@ -148,7 +148,9 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
   const [, bumpUnresolved] = useState(0);
   const [checking, setChecking] = useState(false);
   const [checkFailed, setCheckFailed] = useState(false);
-  // read at execution time, not capture time: a queued save should use whatever is true when it runs
+  // Captured per save in `prepareSave`, never read at execution time: this prop describes the
+  // machine currently selected, and a queued save belongs to whichever machine it was started on.
+  // Reading it late discarded a time bar belonging to the other machine's report.
   const snapshotReadyRef = useRef(snapshotReady);
   snapshotReadyRef.current = snapshotReady;
   const autoResultRef = useRef(autoResult);
@@ -283,7 +285,10 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
   // The question is causal: was the sheet read after our request reached it? Only one fetch in the
   // app has a knowable answer — one the crew issues from here, after we gave up waiting. Every
   // ambient snapshot may have read the sheet long before, so an absent row in it proves nothing.
-  const checkWithServer = async () => {
+  // `mayRelease` is false for the cold-launch banner: its fetch is issued BEFORE any give-up, so it
+  // cannot speak to a write that timed out afterwards. Only the unresolved notice's own press can,
+  // and that is the whole basis of the causal claim.
+  const checkWithServer = async ({ mayRelease = true } = {}) => {
     if (!onRefresh) return;
     const key = selectorKey;
     const state = shiftSaveStateFor(key);
@@ -310,7 +315,7 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
       const rows = Array.isArray(payload.shiftReports) ? payload.shiftReports : [];
       const landed = rows.find(r => formatDisplayDate(r.date) === dateAtCheck && String(r.shift) === String(shiftAtCheck));
       if (landed && landed.id) state.savedIds.add(landed.id);
-      state.blocked = false;
+      if (mayRelease) state.blocked = false;
       bumpUnresolved(n => n + 1);
     } catch (error) {
       setCheckFailed(true);
@@ -422,7 +427,17 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
   // Derived from the module-scope map, not from component state: the block belongs to the report and
   // outlives this mount, so a notice held in state showed nothing after a nav tap while writes were
   // still being refused, and cleared on a different report's successful save.
-  const saveUnresolved = Boolean((shiftSaveState.get(selectorKey) || {}).blocked);
+  const reportSaveState = shiftSaveState.get(selectorKey) || {};
+  const saveUnresolved = Boolean(reportSaveState.blocked);
+  // The gate is against CREATING a second report for a shift that already has one, so it applies
+  // only when this save would append. Disabling the button whenever a snapshot is missing gated
+  // updates too, which is the opposite of the rule the save path states: on a marginal link the
+  // 463 KB snapshot can time out while a kilobyte write would land, and a crew correcting manpower
+  // — the one field group with no auto-save — would have found Save dead and lost it on the next
+  // nav tap.
+  const wouldAppend = !existingReport
+    && !(reportSaveState.draftId && reportSaveState.savedIds && reportSaveState.savedIds.has(reportSaveState.draftId));
+  const appendBlocked = wouldAppend && !snapshotReady;
 
   const handleSaveToCloud = () => {
     const keyAtSave = selectorKey;
@@ -646,12 +661,12 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
         <h1 className="text-xl font-semibold text-ink flex items-center gap-3"><FileText className="text-navy" size={24} />ระบบบันทึก TBM Shift Report</h1>
         <div className="flex w-full sm:w-auto gap-3">
           <button onClick={handleDownloadImage} disabled={isExportingImage} className="flex-1 sm:flex-none bg-navy hover:bg-navy-deepest text-white px-5 py-2.5 rounded-input flex items-center justify-center gap-2 transition-colors shadow-card font-semibold">{isExportingImage ? <Loader2 size={18} className="animate-spin" /> : <Download size={18} />} {isExportingImage ? "Saving..." : "เซฟรูปภาพ"}</button>
-          {!readOnly && (<button onClick={handleSaveToCloud} disabled={isSaving || !snapshotReady} className="flex-1 sm:flex-none bg-sgreen-dark hover:bg-sgreen-dark/90 disabled:opacity-60 text-white px-5 py-2.5 rounded-input flex items-center justify-center gap-2 transition-colors shadow-card font-semibold">{isSaving ? <Loader2 size={18} className="animate-spin" /> : <CloudUpload size={18} />} {isSaving ? "Saving..." : "Save to Cloud"}</button>)}
+          {!readOnly && (<button onClick={handleSaveToCloud} disabled={isSaving || appendBlocked} className="flex-1 sm:flex-none bg-sgreen-dark hover:bg-sgreen-dark/90 disabled:opacity-60 text-white px-5 py-2.5 rounded-input flex items-center justify-center gap-2 transition-colors shadow-card font-semibold">{isSaving ? <Loader2 size={18} className="animate-spin" /> : <CloudUpload size={18} />} {isSaving ? "Saving..." : "Save to Cloud"}</button>)}
           <button onClick={handlePrint} className="flex-1 sm:flex-none bg-navy hover:bg-navy-dark text-white px-5 py-2.5 rounded-input flex items-center justify-center gap-2 transition-colors shadow-card font-semibold"><Printer size={18} /> Print PDF</button>
         </div>
       </div>
 
-      {!snapshotReady && !saveUnresolved && !readOnly && (
+      {appendBlocked && !saveUnresolved && !readOnly && (
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2 bg-amber-500/10 border border-amber-500/40 text-amber-700 px-4 py-2 rounded-card text-[13px] no-print font-semibold">
           {/* No spinner: nothing retries on its own, so an endlessly spinning icon would promise a
               wait that never ends — the fetch may already have failed for good. The button is the
@@ -661,7 +676,7 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
             {checkFailed && <strong> · ดึงข้อมูลไม่สำเร็จ ลองใหม่อีกครั้ง</strong>}
           </span>
           {onRefresh && (
-            <button onClick={checkWithServer} disabled={checking} className="bg-amber-600 hover:bg-amber-700 disabled:opacity-60 text-white px-3 py-1.5 rounded-input font-semibold transition-colors">
+            <button onClick={() => checkWithServer({ mayRelease: false })} disabled={checking} className="bg-amber-600 hover:bg-amber-700 disabled:opacity-60 text-white px-3 py-1.5 rounded-input font-semibold transition-colors">
               {checking ? "กำลังโหลด…" : "ดึงข้อมูลจากเซิร์ฟเวอร์"}
             </button>
           )}
@@ -680,7 +695,7 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
             {checkFailed && <strong> · ตรวจสอบไม่สำเร็จ (ยังติดต่อเซิร์ฟเวอร์ไม่ได้) ลองใหม่อีกครั้ง</strong>}
           </span>
           {onRefresh && (
-            <button onClick={checkWithServer} disabled={checking} className="bg-amber-600 hover:bg-amber-700 disabled:opacity-60 text-white px-3 py-1.5 rounded-input font-semibold transition-colors">
+            <button onClick={() => checkWithServer({ mayRelease: true })} disabled={checking} className="bg-amber-600 hover:bg-amber-700 disabled:opacity-60 text-white px-3 py-1.5 rounded-input font-semibold transition-colors">
               {checking ? "กำลังตรวจสอบ…" : "ตรวจสอบกับเซิร์ฟเวอร์"}
             </button>
           )}

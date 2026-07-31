@@ -37,7 +37,8 @@ A systematic sweep of every effect in the view layer established that only `Shif
 | `9b5cc10` | fix: release an unknown save outcome only on a real server answer |
 | `ca7c30d` | fix: make the release causal and delete the machinery that inferred it |
 | `0c6bf3a` | fix: gate a cold launch and read the server's own answer |
-| _(pending)_ | fix: give the cold-launch gate a way out and a real test |
+| `a46fbc2` | fix: give the cold-launch gate a way out and a real test |
+| _(pending)_ | fix: gate only what creates a report, on what the server actually sent |
 
 The last row is always the commit that carries this file; `git log --oneline` on the branch is authoritative for its SHA.
 
@@ -122,7 +123,7 @@ Smaller: the block is a boolean rather than a dead timestamp (a stored time invi
 
 Round 18's cold-launch gate was right in intent and wrong in three ways, all found this round.
 
-- **BLOCKER: it had no way out.** Nothing in the app re-fetches on its own — `hydrate` runs once per machine, and the sync runner only drains the mutation queue, which shift reports do not use yet. So a tablet that launched underground with no cache and a failed fetch stayed ungated for the whole session. The crew fills in a shift the notice explicitly invites them to fill in, reaches the shaft, gets a link — and Save is still disabled. The only two ways to clear it, a reload and a machine switch, both reload the form. **They would have had to destroy the report to regain the ability to save it.** The notice now carries a button that fetches the snapshot, and the report survives it.
+- **BLOCKER: it had no way out.** Nothing in the app re-fetches on its own — `hydrate` runs once per machine, and the sync runner only drains the mutation queue, which shift reports do not use yet. So a tablet that launched underground with no cache and a failed fetch stayed **gated** for the whole session. The crew fills in a shift the notice explicitly invites them to fill in, reaches the shaft, gets a link — and Save is still disabled. The only two ways to clear it, a reload and a machine switch, both reload the form. **They would have had to destroy the report to regain the ability to save it.** The notice now carries a button that fetches the snapshot, and the report survives it.
 - **It accepted any rows at all, including a cached snapshot** — which leaves the hazard exactly as it was, since yesterday's cache does not contain the report the other crew filed at 19:00. It now requires a server answer for this machine this session. That costs nothing offline (`apiCall` rejects immediately without a connection) and costs seconds online.
 - **It was read at execution time**, breaking the rule the same file states 26 lines above it. A machine switch while a time-bar save sat queued flipped it false and threw that bar away — a bar belonging to the *other* machine's report, which the switch had already cleared from the form. It is captured when the crew acts, like everything else, and only **appends** are gated: an update carries an id already on the sheet, so it cannot duplicate anything.
 
@@ -130,9 +131,19 @@ Its test was also a false pin: the cold-launch test clicked a `disabled` button,
 
 Also fixed here: a documentation edit of mine in the previous round had merged the delete-list's tail into Task 8's **keep**-list, so a worker following it literally would have deleted the mid-edit guards that took rounds 12–17 to get right.
 
-## Test evidence (at the round-19 commit)
+## Round 20 — the gate said "a response arrived", not "it carried this"
 
-- `npm test -- --watchAll=false --runInBand` → 66 suites / 843 tests pass
+The spec axis judged the read half done at this point: *"All twenty rounds of blockers since round 12 have been in the write path, not the read path."* Both axes still failed on the gate itself.
+
+- **The Save button gated updates as well as appends**, contradicting the rule the save path states two hundred lines above it. On a marginal link the 463 KB snapshot times out while a kilobyte write would land, so a crew correcting manpower — the one field group with no auto-save — found Save dead and lost it on the next nav tap. The button now mirrors the runtime rule: it blocks only when this save would *create* a report.
+- **`source === "server"` says a response arrived, not that it carried shift reports.** The normalizer maps a missing key to `[]`, so an older GAS deployment, or a `doGet` whose Shift sheet read failed, opened the gate on a payload containing no reports at all — and the crew's first time bar appended a second row for a shift that already had one, with a healthy server and nothing on screen. `normalizeServerData` now records which collections the response actually carried (`present`), and the gate requires that flag. It is deliberately not persisted: a cached snapshot says nothing about what the server most recently sent.
+- **The cold-launch button could release a timeout block it cannot speak to.** Its fetch is issued *before* any give-up, so it carries no information about a write that timed out afterwards. Only the unresolved notice's own press releases now.
+
+Two fixes from the previous round turned out to be unpinned — the `source === "server"` predicate and the capture-at-prepare semantics — and one earlier assertion was still vacuous (clicking a disabled button, which React never dispatches). All three are pinned now; the capture test needed its first save to *fail*, or the queued one became an update and never reached the gate at all.
+
+## Test evidence (at the round-20 commit)
+
+- `npm test -- --watchAll=false --runInBand` → 66 suites / 847 tests pass
 - `npm run test:gas-sync` → 92 pass / 0 fail
 - `npm run build` → Compiled successfully (build output restored with `git checkout -- build/`; the build artefact is not committed — Vercel builds from source)
 - `node --check ../gas-live/Code.js` → OK

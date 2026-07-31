@@ -12,7 +12,11 @@ test("persists and reconstructs a normalized snapshot with metadata", async () =
   const db = await openOfflineDb();
   const data = normalizeServerData({ segments: [{ ringNo: "P1" }], planConfig: { rings: 1 }, routeConfigs: { TBM1: { route: "A" } } }, "TBM1");
   await writeServerSnapshot(db, "TBM1", data, "2026-07-29T00:00:00.000Z");
-  await expect(readServerSnapshot(db, "TBM1")).resolves.toEqual(expect.objectContaining({ ...data, fetchedAt: "2026-07-29T00:00:00.000Z" }));
+  // `present` describes one response, not the cache: a snapshot read back from IndexedDB says
+  // nothing about which collections the server most recently carried, so it is not persisted
+  const { present, ...persisted } = data;
+  await expect(readServerSnapshot(db, "TBM1")).resolves.toEqual(expect.objectContaining({ ...persisted, fetchedAt: "2026-07-29T00:00:00.000Z" }));
+  await expect(readServerSnapshot(db, "TBM1")).resolves.not.toHaveProperty("present");
   const snapshot = await new Promise((resolve, reject) => { const request = db.transaction("snapshots").objectStore("snapshots").get("getData:TBM1"); request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error); });
   expect(snapshot.entityKeys.segments).toHaveLength(1);
   expect(snapshot.planConfig).toEqual({ rings: 1 });

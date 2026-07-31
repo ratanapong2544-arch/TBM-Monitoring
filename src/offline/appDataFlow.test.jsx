@@ -10,7 +10,7 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
 import App from "../App";
 import { OfflineProvider } from "./OfflineProvider";
-import { emptyServerData } from "./normalizeServerData";
+import { emptyServerData, normalizeServerData } from "./normalizeServerData";
 import { apiCall } from "../utils/api";
 import { __resetShiftSaveStateForTests, SHIFT_SAVE_TIMEOUT_MS } from "../components/views/ShiftReportView";
 
@@ -22,7 +22,9 @@ jest.mock("../utils/api", () => ({ apiCall: jest.fn(async () => ({ status: "succ
 // this file, which is why two data-loss defects survived two review rounds — every rule below is a
 // reproduction of one of them.
 function snapshot(machine, overrides = {}) {
-  return { ...emptyServerData(machine), ...overrides };
+  // `present` marks which collections the response actually carried; a fixture stands for a complete
+  // GAS response unless a test overrides it
+  return { ...emptyServerData(machine), present: { shiftReports: true, segments: true, grouts: true }, ...overrides };
 }
 
 function renderApp(repository) {
@@ -306,15 +308,63 @@ test("a cold launch cannot append a second report for a shift that already has o
   });
 
   expect(app.text()).toContain("ยังไม่ได้ข้อมูลรายงานกะของเครื่องนี้จากเซิร์ฟเวอร์");
-  const save = [...app.container.querySelectorAll("button")].find(b => /Save to Cloud/.test(b.textContent));
-  expect(save.disabled).toBe(true);
-  await act(async () => { save.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
-  expect(apiCall).not.toHaveBeenCalled();
+  // asserting a click on a disabled button proves nothing — React never dispatches it. The runtime
+  // guard is pinned through the auto-save path in shiftReportMidEdit.test.jsx; here the disabled
+  // state IS the assertion.
+  expect([...app.container.querySelectorAll("button")].find(b => /Save to Cloud/.test(b.textContent)).disabled).toBe(true);
 
   // once the machine's rows arrive, saving is available again
   await act(async () => { release(); });
   expect(app.text()).not.toContain("ยังไม่ได้ข้อมูลรายงานกะของเครื่องนี้จากเซิร์ฟเวอร์");
   expect([...app.container.querySelectorAll("button")].find(b => /Save to Cloud/.test(b.textContent)).disabled).toBe(false);
+  app.unmount();
+});
+
+test("a cached snapshot does not satisfy the create-a-report gate", async () => {
+  // The gate is against creating a second report for a shift that already has one, so only a SERVER
+  // answer settles it. Yesterday's cache does not contain the report the other crew filed at 19:00,
+  // and `source !== "empty"` — the first version of this predicate — accepted it.
+  const repository = makeRepository({
+    load: async machine => ({ data: snapshot(machine), source: "indexeddb", fetchedAt: "2026-07-29T12:00:00.000Z", stale: true }),
+    refresh: async () => { throw new Error("NETWORK"); },
+  });
+
+  const app = renderApp(repository);
+  await act(async () => {});
+  await act(async () => {
+    [...app.container.querySelectorAll("button")].find(b => /Shift Report/i.test(b.textContent))
+      .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  });
+
+  expect(app.text()).toContain("ยังไม่ได้ข้อมูลรายงานกะของเครื่องนี้จากเซิร์ฟเวอร์");
+  expect([...app.container.querySelectorAll("button")].find(b => /Save to Cloud/.test(b.textContent)).disabled).toBe(true);
+  app.unmount();
+});
+
+test("a response that omits the shift reports does not open the create gate", async () => {
+  // `source === "server"` says a RESPONSE arrived, not that it carried this collection. The
+  // normalizer maps an absent key to [], so an older GAS deployment — or a doGet whose Shift sheet
+  // read failed — would otherwise look like "this shift has no report" and let the crew create a
+  // second one, with a healthy server and nothing on screen.
+  const repository = makeRepository({
+    load: async machine => ({ data: snapshot(machine), source: "empty", fetchedAt: null, stale: true }),
+    refresh: async machine => ({
+      // normalizeServerData is what App sees; run the real one over a payload with no shiftReports
+      data: normalizeServerData({ status: "success", segments: [] }, machine),
+      serverPayload: { status: "success", segments: [] },
+      source: "server", fetchedAt: "2026-07-30T02:15:00.000Z", stale: false,
+    }),
+  });
+
+  const app = renderApp(repository);
+  await act(async () => {});
+  await act(async () => {
+    [...app.container.querySelectorAll("button")].find(b => /Shift Report/i.test(b.textContent))
+      .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  });
+
+  expect(app.text()).toContain("ยังไม่ได้ข้อมูลรายงานกะของเครื่องนี้จากเซิร์ฟเวอร์");
+  expect([...app.container.querySelectorAll("button")].find(b => /Save to Cloud/.test(b.textContent)).disabled).toBe(true);
   app.unmount();
 });
 

@@ -830,6 +830,65 @@ test("an update is not refused while the snapshot is still loading", async () =>
   form.unmount();
 });
 
+test("a queued save is judged on the snapshot state when the crew acted", async () => {
+  // `snapshotReady` describes the machine currently selected; a queued save belongs to whichever
+  // machine it was started on. Reading it when the request finally runs threw away a time bar that
+  // belonged to the OTHER machine's report — which the switch had already cleared from the form, so
+  // it was gone from screen and sheet alike.
+  const releases = [];
+  // the first save FAILS, so the queued one is still an append when it runs — the only case the
+  // gate looks at, and the case where reading it late judges the wrong machine
+  apiCall.mockImplementation(() => new Promise((resolve, reject) => { releases.push(() => reject(new Error("NETWORK"))); }));
+  let rows = [];
+  const setShiftReports = updater => { rows = typeof updater === "function" ? updater(rows) : updater; };
+  const form = render(view({ shiftReports: rows, setShiftReports, snapshotReady: true }));
+
+  const addBar = async (start, end) => {
+    act(() => { form.container.querySelector('[title="เพิ่มเวลาการทำงาน"]').dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+    const times = form.container.querySelectorAll('input[type="time"]');
+    [[start, 0], [end, 1]].forEach(([v, i]) => act(() => {
+      Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set.call(times[i], v);
+      times[i].dispatchEvent(new Event("input", { bubbles: true }));
+    }));
+    await act(async () => {
+      [...form.container.querySelectorAll("button")].find(b => /เพิ่มช่วงเวลาลงกราฟ/.test(b.textContent))
+        .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+  };
+
+  await addBar("08:00", "09:00");   // save 1 goes out and stalls
+  await addBar("09:00", "10:00");   // save 2 queues behind it, judged as of NOW
+
+  // the crew switches machine while both are in flight: the new machine's rows have not landed
+  form.rerender(view({ shiftReports: rows, setShiftReports, snapshotReady: false }));
+  await act(async () => { releases[0](); });
+  await act(async () => { if (releases[1]) releases[1](); });
+
+  expect(apiCall).toHaveBeenCalledTimes(2); // the queued bar was still sent
+  form.unmount();
+});
+
+test("Save stays available for a report the sheet already has, with no snapshot", async () => {
+  // The button gated updates as well as appends, which is the opposite of the save path's rule. On a
+  // marginal link the 463 KB snapshot can time out while a kilobyte write lands fine, and manpower —
+  // the one field group with no auto-save — would have been lost on the next nav tap with Save dead.
+  const stored = { id: "sr1", date: "2026-07-30", shift: "Day", tbmNo: "TBM1", location: "อุโมงค์", manpower: {}, result: {}, events: {} };
+  let rows = [stored];
+  const setShiftReports = updater => { rows = typeof updater === "function" ? updater(rows) : updater; };
+  const form = render(view({ shiftReports: rows, setShiftReports, snapshotReady: false }));
+
+  const save = [...form.container.querySelectorAll("button")].find(b => /Save to Cloud/.test(b.textContent));
+  expect(save.disabled).toBe(false);
+  expect(form.container.textContent).not.toContain("ยังไม่ได้ข้อมูลรายงานกะของเครื่องนี้");
+
+  type(form.container, "Engineer", "4");
+  await act(async () => { save.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+
+  expect(apiCall).toHaveBeenCalledTimes(1);
+  expect(apiCall.mock.calls[0][0]).toBe("updateShiftReport");
+  form.unmount();
+});
+
 test("a check that cannot reach the server leaves the block in place", async () => {
   jest.useFakeTimers();
   const alertSpy = jest.spyOn(window, "alert").mockImplementation(() => {});

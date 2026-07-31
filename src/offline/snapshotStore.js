@@ -1,5 +1,5 @@
 import { makeDomainKey } from "./domainKey";
-import { optimisticEntityKey, serverEntityKey } from "./entityKeys";
+import { isOptimisticKey, serverEntityKey } from "./entityKeys";
 import { toSyncVersion } from "./syncVersion";
 import { emptyServerData } from "./normalizeServerData";
 import { MUTATION_STATUS, STORES } from "./schema";
@@ -148,7 +148,14 @@ export async function writeServerSnapshot(db, machine, data, fetchedAt, requeste
   const preserveLocal = record => Boolean(unresolvedStatus(record.domainKey))
     || Boolean(confirmedAfterRequest.get(record.domainKey))
     || (!terminalStatus(record.domainKey) && UNRESOLVED_STATUSES.has(record.payload && record.payload.syncStatus));
-  const localForDomain = (domainKey, entityType) => existing.find(record => record.domainKey === domainKey && record.entityType === entityType && record.key === optimisticEntityKey(domainKey)) || existing.find(record => record.domainKey === domainKey && record.entityType === entityType);
+  // The local copy that speaks for a domain. The optimistic rows come first — a queued write is
+  // newer than whatever the last refresh cached — and among those the LAST queued one, because a
+  // record edited twice offline is described by its latest edit.
+  const localForDomain = (domainKey, entityType) => {
+    const mine = existing.filter(record => record.domainKey === domainKey && record.entityType === entityType);
+    const queued = mine.filter(record => isOptimisticKey(record.key));
+    return queued[queued.length - 1] || mine[0];
+  };
   const preserve = (record, status) => ({ ...record, payload: { ...record.payload, syncStatus: status } });
   // An optimistic record is stamped with its mutation's machine ("GLOBAL" for a project-wide
   // entity, or another machine's id), while a server-derived record is stamped with the active
@@ -225,12 +232,11 @@ export async function writeServerSnapshot(db, machine, data, fetchedAt, requeste
         if (String(localId) !== String(queued.recordId)) return false;
         return !deletePending(record.domainKey, localId);
       })
-      // the store holds two rows for a record mid-edit — the server copy from the last refresh and
-      // the optimistic one — and the crew's own copy is the one to keep
+      // one entry per row, and the crew's own queued copy wins over a cached server one
       .forEach(record => {
         const id = String(record.payload.id);
         const held = unmatchedById.get(id);
-        if (!held || record.key === optimisticEntityKey(record.domainKey)) unmatchedById.set(id, record);
+        if (!held || isOptimisticKey(record.key)) unmatchedById.set(id, record);
       });
     const unmatchedLocal = [...unmatchedById.values()];
     const overlaidDomains = new Set();

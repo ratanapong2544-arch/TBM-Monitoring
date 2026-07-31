@@ -40,16 +40,34 @@ and shift select which report is loaded rather than rename it, and the segment r
 `identity` so the envelope refuses first. But the client guard is the only defence, and it is opt-in
 per call site. Task 9 adds call sites to the same API.
 
-## 3. Two rows of one ring cannot both hold a queued edit
+## 3. Two rows of one ring cannot both hold a queued edit — CLOSED
 
-The optimistic entity is keyed per DOMAIN (`entity:optimistic:<domainKey>`), so editing row A and
-then row B of the same ring leaves one optimistic copy: `load` returns one ring twice and the other
-row's edit is gone from the durable cache. Reachable from the grout data log, which does not dedupe;
-the segment data log dedupes by ring and hides it.
+The optimistic entity was keyed per DOMAIN, so two records sharing a ring shared one local copy: the
+second queued write overwrote the first, and the snapshot's key list ended up naming that single key
+twice — the same record rendered twice while the other was deleted. It is keyed per record now
+(`entity:optimistic:<domainKey>:id:<recordId>`), with a DB_VERSION 3 migration that re-keys existing
+rows from the record id their payload already carries and drops the snapshot cache, which named the
+old keys.
 
-Closing it means keying the optimistic entity per record id, which touches `getEntity`,
-`confirmMutation`, the snapshot merge and a DB migration — a change that deserves its own review
-round rather than a corner of this one.
+Left open here for two rounds, and both of the patches attempted in the meantime made it worse — the
+lesson being that a key that cannot express the domain's real shape produces a new defect for every
+rule written on top of it.
+
+## 3a. Which views deduplicate, and which do not
+
+The reasoning "two rows on one ring is a state the data logs dedupe for" is true of SEGMENTS only.
+`deduplicateRecords` runs in `ExecutiveDashboardView`, `RouteScheduleView`, `SegmentAnalysisView` and
+`SegmentDashboardView`, and all four key on `ringNo`.
+
+- **shiftReport** — nothing dedupes. Two rows for one (date, shift) make `PerformanceView` count the
+  shift twice, halving availability and double-counting any delay bar present in both.
+- **grout / secondaryGrout** — nothing dedupes; `GroutDashboardView`'s average volume and ratio are
+  `sum / length`, so a second row shifts both.
+- **segment** — the dedupe fires and prefers the Completed sheet row over an In Progress local one,
+  so a newly recorded ring can be invisible in the data log while the strip says it is queued.
+
+None of this is new to Task 8 — the queue does not create the duplicate rows, the sheet does — but
+Task 8 is what makes both rows visible at once, so it is what makes the gap matter.
 
 ## 3b. A delete queued behind a stuck head still takes its row off screen
 

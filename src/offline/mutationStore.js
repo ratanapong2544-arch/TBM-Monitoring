@@ -1,5 +1,5 @@
 import { MUTATION_STATUS, STORES } from "./schema";
-import { entityKeyBelongsToDomain, entityKeyForRecord, entityKeyHasRecordId, optimisticEntityKey } from "./entityKeys";
+import { entityKeyForRecord, isOptimisticKey, optimisticEntityKey } from "./entityKeys";
 import { toSyncVersion } from "./syncVersion";
 import { FIELD_FOR_ENTITY_TYPE, isMachineScopedEntityType, snapshotScopeKey } from "./snapshotStore";
 
@@ -47,14 +47,12 @@ function patchSnapshotKeys(snapshots, entities, stored, mutation) {
   const dropped = new Set();
   const survivingKeys = new Map();
   const scoped = scopesFor(stored, mutation);
-  const optimisticKey = optimisticEntityKey(mutation.domainKey);
-  // A mutation is about ONE row. A live sheet legitimately holds two rows sharing a ring identity —
-  // that is why the store key is per row and why five views run `deduplicateRecords` — so matching
-  // by domain alone picks whichever of them happens to come first. Doing that on an update replaced
-  // the wrong row's key (one ring vanished, the edited one appeared twice, and the crew's own edit
-  // was the copy the dedupe then discarded); doing it on a delete emptied both. The record id is
-  // what identifies the row, and a server key carries it.
-  const mine = key => entityKeyForRecord(key, mutation.recordId) || key === optimisticKey;
+  const optimisticKey = optimisticEntityKey(mutation.domainKey, mutation.recordId);
+  // A mutation is about ONE row, and every key here names one: a server key ends `:id:<rowId>` and
+  // an optimistic key now does too. So "mine" is a single question with a single answer, and both
+  // branches below can ask it without any per-operation special case — which is what the last three
+  // defects in this function all came from.
+  const mine = key => entityKeyForRecord(key, mutation.recordId);
   scoped.forEach(snapshot => {
     const keys = (snapshot.entityKeys && snapshot.entityKeys[field]) || [];
     let next;
@@ -65,17 +63,10 @@ function patchSnapshotKeys(snapshots, entities, stored, mutation) {
       // one rule disagreeing is how a row flickers off on refresh and back on relaunch.
       next = keys.filter(key => !mine(key));
     } else {
-      // Put the optimistic copy where this row already sits, or append it if it has no place yet.
-      // Replacing rather than appending is the only way an update becomes visible at all — its
-      // optimistic copy lives under a different key from the server row it supersedes.
-      //
-      // A mutation names its row and takes no other's place. A create used to take the domain's
-      // slot, so that a ring the sheet already held would read as one ring rather than two — but the
-      // record it displaced was a CONFIRMED one, and the record replacing it was one the server goes
-      // on to refuse. It was deleted from the store along with its key, so the confirmed row was
-      // gone from the cache for good while an unsynced copy stood in its place. Two rows on one ring
-      // is a supported state; a confirmed record vanishing behind a refused one is not.
-      const slot = keys.findIndex(mine);
+      // The optimistic copy takes THIS row's place, or joins the list if the row has none yet — a
+      // record made offline. It never takes another row's place: the record it would displace is a
+      // confirmed one, and the record replacing it is one the server may well refuse.
+      const slot = keys.findIndex(key => mine(key) || key === optimisticKey);
       next = slot === -1 ? keys.concat(optimisticKey) : keys.map((key, index) => (index === slot ? optimisticKey : key));
     }
     keys.forEach(key => { if (key !== optimisticKey && !next.includes(key)) dropped.add(key); });
@@ -111,7 +102,7 @@ function patchSnapshotSyncMeta(snapshots, stored, mutation, version, deleted) {
 
 function optimisticEntity(mutation, status = mutation.status) {
   return {
-    key: optimisticEntityKey(mutation.domainKey),
+    key: optimisticEntityKey(mutation.domainKey, mutation.recordId),
     entityType: mutation.entityType,
     machine: mutation.machine || "GLOBAL",
     domainKey: mutation.domainKey,
@@ -166,9 +157,16 @@ export async function getMutation(db, requestId) {
   return result || null;
 }
 
-export async function getEntity(db, domainKey) {
+// `recordId` is optional so a caller that only knows the domain still gets an answer: two records
+// can share one, and then the newest queued copy is the one that speaks for it.
+export async function getEntity(db, domainKey, recordId) {
   const transaction = db.transaction(STORES.entities, "readonly");
-  const result = await requestResult(transaction.objectStore(STORES.entities).get(optimisticEntityKey(domainKey)));
+  const store = transaction.objectStore(STORES.entities);
+  const result = recordId != null
+    ? await requestResult(store.get(optimisticEntityKey(domainKey, recordId)))
+    : (await requestResult(store.getAll()))
+      .filter(record => record.domainKey === domainKey && isOptimisticKey(record.key))
+      .pop();
   await complete(transaction);
   return result || null;
 }
@@ -324,11 +322,11 @@ export async function confirmMutation(db, requestId, response, { owner, confirme
     // there. `leavesDeleted`, not the operation: a delete the server refused and the crew resolved
     // by keeping the server's copy ends with the row still there, and dropping it here would remove
     // from the screen the very record they chose to keep.
-    entityStore.delete(optimisticEntityKey(mutation.domainKey));
+    entityStore.delete(optimisticEntityKey(mutation.domainKey, mutation.recordId));
   } else {
     const record = response.record || {};
     entityStore.put({
-      key: optimisticEntityKey(mutation.domainKey),
+      key: optimisticEntityKey(mutation.domainKey, mutation.recordId),
       entityType: record.entityType || mutation.entityType,
       machine: record.machine || mutation.machine || "GLOBAL",
       domainKey: record.domainKey || mutation.domainKey,

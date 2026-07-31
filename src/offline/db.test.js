@@ -182,7 +182,9 @@ test("upgrading re-keys records written under the earlier domain-key format", as
   });
 
   expect(await read("mutations", "old-1")).toMatchObject({ status: "pending", domainKey: canonical });
-  expect(await read("entities", `entity:optimistic:${canonical}`)).toMatchObject({ domainKey: canonical });
+  // re-keyed straight into the v3 shape (domain AND record), because this pass rewrites every
+  // optimistic row anyway and two passes over one store inside one upgrade would interleave
+  expect(await read("entities", `entity:optimistic:${canonical}:id:sr1`)).toMatchObject({ domainKey: canonical });
   expect(await read("entities", `entity:optimistic:${stale}`)).toBeUndefined();
   expect(await read("conflicts", "c1")).toMatchObject({ domainKey: canonical });
 });
@@ -303,12 +305,14 @@ test("upgrading survives two records re-keying onto one canonical key", async ()
   // one optimistic entity survives under the canonical key; the database is usable
   const entities = await readAllStore(db, "entities");
   expect(entities).toHaveLength(1);
-  expect(entities[0].key).toBe("entity:optimistic:issue:GLOBAL:i1");
+  expect(entities[0].key).toBe("entity:optimistic:issue:GLOBAL:i1:id:i1");
 });
 
-test("upgrading a database with no stale keys preserves the cache", async () => {
-  // the snapshot clear must stay inside the empty-remap guard: an install whose keys are already
-  // canonical has nothing to migrate, and wiping its cache on every v1->v2 open would be wrong
+test("upgrading re-keys an already-canonical install, and drops the cache that named the old keys", async () => {
+  // Its domain keys need no remap, but its optimistic rows are still v2-shaped — one per domain,
+  // which is what let two records sharing a ring overwrite each other. Re-keying them invalidates
+  // the snapshot's key list, so the cache goes with them and rebuilds on the first refresh; leaving
+  // it would make `load` resolve keys that no longer exist and return a gapped list.
   const canonical = "issue:GLOBAL:i1";
   await seedV1({
     mutations: [{ requestId: "m1", status: "pending", entityType: "issue", machine: null, recordId: "i1", domainKey: canonical, payload: { id: "i1" } }],
@@ -328,8 +332,8 @@ test("upgrading a database with no stale keys preserves the cache", async () => 
   });
 
   const db = await openOfflineDb();
-  expect(await readAllStore(db, "snapshots")).toHaveLength(1);
-  expect((await readAllStore(db, "entities"))[0].key).toBe(`entity:optimistic:${canonical}`);
+  expect(await readAllStore(db, "snapshots")).toHaveLength(0);
+  expect((await readAllStore(db, "entities"))[0].key).toBe(`entity:optimistic:${canonical}:id:i1`);
 });
 
 test("upgrading discards the stale cache instead of leaving load() a gapped list", async () => {
@@ -363,7 +367,7 @@ test("upgrading discards the stale cache instead of leaving load() a gapped list
   // durable: the mutation and its optimistic row are re-keyed and survive
   expect((await readAllStore(db, "mutations"))[0].domainKey).toBe(canonical);
   const entities = await readAllStore(db, "entities");
-  expect(entities.map(row => row.key)).toEqual([`entity:optimistic:${canonical}`]);
+  expect(entities.map(row => row.key)).toEqual([`entity:optimistic:${canonical}:id:i1`]);
   // cache: discarded, so load() reads a clean empty state rather than a broken key list
   expect(await readAllStore(db, "snapshots")).toEqual([]);
 });

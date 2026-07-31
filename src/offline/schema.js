@@ -1,6 +1,9 @@
 export const DB_NAME = "tbm-monitoring";
 // 2: re-key records written under the earlier domain-key format (see recanonicalizeDomainKeys)
-export const DB_VERSION = 2;
+// 3: the optimistic entity key gained the record id. Two records sharing a domain — two rows for
+// one ring, which the sheet allows — shared one optimistic row before that, so the second queued
+// write overwrote the first.
+export const DB_VERSION = 3;
 
 export const STORES = Object.freeze({
   entities: "entities",

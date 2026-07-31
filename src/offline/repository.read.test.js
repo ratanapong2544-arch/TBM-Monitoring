@@ -188,6 +188,52 @@ test("an offline edit of one of two rows sharing a ring does not displace the ot
   expect(rows.find(row => row.id === "seg_a").length).toBe("1.40");
 });
 
+test("both rows of one ring can hold a queued edit at once", async () => {
+  // The optimistic copy used to be keyed by DOMAIN, so a ring carrying two rows had one slot for
+  // both: the second queued write overwrote the first, and the snapshot list ended up naming that
+  // single key twice — the same record rendered twice while the other one was gone. Two rows on one
+  // ring is a state the sheet allows and this app supports, so the local copy has to represent it.
+  const repository = createRepository({ openDb: openOfflineDb, fetchServerSnapshot: async () => ({ segments: twoRowsOnOneRing }) });
+  await repository.refresh("TBM1");
+  for (const [recordId, length] of [["seg_a", "7.77"], ["seg_b", "9.99"]]) {
+    await repository.mutate({
+      entityType: "segment", operation: "update", machine: "TBM1", recordId,
+      payload: { id: recordId, ringNo: "P643", installType: "Permanent", length }, baseVersion: 0,
+      domainKey: "segment:TBM1:P643:Permanent",
+    });
+  }
+
+  const reloaded = createRepository({ openDb: openOfflineDb, fetchServerSnapshot: async () => { throw new Error("offline"); } });
+  const rows = (await reloaded.load("TBM1")).data.segments;
+
+  expect(rows.map(row => row.id).sort()).toEqual(["seg_a", "seg_b"]);
+  expect(rows.find(row => row.id === "seg_a").length).toBe("7.77");
+  expect(rows.find(row => row.id === "seg_b").length).toBe("9.99");
+});
+
+test("recording a ring and then editing the row already there keeps both", async () => {
+  // the sequence that reached the duplicate: a create appends its own key, and the edit that follows
+  // must take the row it names rather than the create's slot
+  const repository = createRepository({ openDb: openOfflineDb, fetchServerSnapshot: async () => ({ segments: [{ id: "s1", ringNo: "P643", status: "Completed" }] }) });
+  await repository.refresh("TBM1");
+  await repository.mutate({
+    entityType: "segment", operation: "create", machine: "TBM1", recordId: "s2",
+    payload: { id: "s2", ringNo: "P643", status: "In Progress" }, baseVersion: 0,
+    domainKey: "segment:TBM1:P643:Permanent",
+  });
+  await repository.mutate({
+    entityType: "segment", operation: "update", machine: "TBM1", recordId: "s1",
+    payload: { id: "s1", ringNo: "P643", status: "Edited" }, baseVersion: 0,
+    domainKey: "segment:TBM1:P643:Permanent",
+  });
+
+  const reloaded = createRepository({ openDb: openOfflineDb, fetchServerSnapshot: async () => { throw new Error("offline"); } });
+  const rows = (await reloaded.load("TBM1")).data.segments;
+
+  expect(rows.map(row => row.id).sort()).toEqual(["s1", "s2"]);
+  expect(rows.find(row => row.id === "s1").status).toBe("Edited");
+});
+
 test("an edit whose row another device removed does not displace a row that is still there", async () => {
   // Two rows share ring P643. The crew edits seg_b offline; meanwhile another device removes seg_b
   // from the sheet. The next answer carries only seg_a — and painting the crew's edit onto it would

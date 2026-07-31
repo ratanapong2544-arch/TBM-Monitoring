@@ -295,23 +295,31 @@ test("the real repository hands App the versions a queued write stamps itself wi
   expect(app.text()).not.toContain("เชื่อมต่อเซิร์ฟเวอร์ไม่ได้");
   expect(app.text()).not.toContain("กำลังโหลดข้อมูลของเครื่องนี้");
 
-  // saving that report stamps the version the seam delivered — 0 would mean the snapshot's
-  // `syncMeta` never arrived
+  // Saving that report stamps the version the seam delivered — 0 would mean the snapshot's
+  // `syncMeta` never arrived. The save goes through the REAL repository: replacing `mutate` with a
+  // spy here, which is what this test used to do, switched off the only seam it exists to cross,
+  // and that is precisely where an envelope the repository refuses outright once hid.
   const mutations = [];
-  repository.mutate = async input => { mutations.push(input); return { optimisticRecord: input.payload }; };
+  const unsubscribe = repository.subscribe(event => { if (event.type === "mutation") mutations.push(event); });
   await act(async () => {
     const date = app.container.querySelector('[name="date"]');
     Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set.call(date, "1999-01-01");
     date.dispatchEvent(new Event("input", { bubbles: true }));
   });
   await act(async () => { button(/Save to Cloud/).dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+  // the real `mutate` finishes on an IndexedDB transaction, which completes on a macrotask — the
+  // click's own act scope drains microtasks and returns before the write has landed
+  await waitFor(() => mutations.length > 0, "the queued mutation to be written");
 
   expect(mutations).toHaveLength(1);
-  expect(mutations[0]).toMatchObject({
+  expect(mutations[0].domainKey).toBe("shiftReport:TBM1:1999-01-01:Day");
+  // and the queue kept what it was stamped with, read back out of IndexedDB
+  await expect(repository.getMutation(mutations[0].requestId)).resolves.toMatchObject({
     entityType: "shiftReport",
     domainKey: "shiftReport:TBM1:1999-01-01:Day",
     baseVersion: 4,
   });
+  unsubscribe();
   app.unmount();
   await deleteOfflineDbForTests();
 });
@@ -352,7 +360,10 @@ test("a second save of one record stamps the version the first one confirmed", a
   await act(async () => {
     app.container.querySelector("form").dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
   });
-  expect(mutations[0].baseVersion).toBe(1);
+  // the first save is a create, and a create claims nothing whatever the snapshot says: taking the
+  // key's version would tell GAS this is a post-conflict successor and merge it onto whatever row
+  // already holds that ring
+  expect(mutations[0]).toMatchObject({ operation: "create", baseVersion: 0 });
 
   // the runner drains it; GAS confirms at version 2
   await act(async () => { notify({ type: "sync", requestId: "r1", status: "synced", domainKey: "segment:TBM1:P41:Permanent", version: 2 }); });
@@ -459,6 +470,91 @@ test("a save resolving after the crew navigates away and switches machine does n
 // produces the same DOM, because both leave the photo link hidden — there is no URL to open until
 // GAS answers. The rule is about what the list HOLDS, so it is tested where that is visible:
 // `displayRecord.test.js`, over the reducer App now applies.
+
+test("every view App hands a write to is also handed the versions to stamp it with", async () => {
+  // `syncMeta` is a prop, and a prop that stops being passed fails silently: the envelope builder
+  // reads `undefined`, sends `baseVersion: 0`, and GAS compares 0 against the row's real version
+  // and answers `conflict` — for a row nobody else touched, on the exact path `baseVersion` exists
+  // to protect, with the conflict then blocking that record's domain and no UI until Task 10. The
+  // view-level tests cannot see this: they pass `syncMeta` themselves.
+  const sent = [];
+  const rows = {
+    segments: [{ id: "s1", ringNo: "P643", machine: "TBM1", date: "2026-07-30", installType: "Permanent", status: "Completed" }],
+    grouts: [{ id: "g1", ringNo: "P643", machine: "TBM1", date: "2026-07-30", partA: "12.5", partB: "6.25", pressure: "3.2", total: 18.75, groutPass: "1st Pass", positions: {} }],
+    syncMeta: {
+      "segment:TBM1:P643:Permanent": { version: 3 },
+      "grout:TBM1:P643:1st Pass": { version: 5 },
+    },
+  };
+  const repository = makeRepository({
+    load: async machine => ({ data: cached(machine, rows), source: "indexeddb", fetchedAt: "x", stale: true }),
+    refresh: async machine => ({ data: snapshot(machine, rows), source: "server", fetchedAt: "2026-07-30T00:00:00.000Z", stale: false }),
+    mutate: async input => { sent.push(input); return { optimisticRecord: { ...input.payload, id: input.recordId } }; },
+  });
+  const app = renderApp(repository);
+  await act(async () => {});
+  const nav = pattern => [...app.container.querySelectorAll("button")].find(b => pattern.test(b.textContent));
+  const click = async el => act(async () => { el.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+
+  for (const [tab, expected] of [[/Data Log · Segment/i, 3], [/Data Log · Grout/i, 5]]) {
+    sent.length = 0;
+    await click(nav(tab));
+    await click(app.container.querySelector("tbody tr"));
+    await click(app.container.querySelector('[title="Delete"]'));
+    await click([...app.container.querySelectorAll("button")].find(b => /^ลบ$/.test(b.textContent)));
+    expect(sent).toHaveLength(1);
+    expect(sent[0].baseVersion).toBe(expected);
+  }
+  app.unmount();
+});
+
+test("a version another device moved past wins over the one this device remembers", async () => {
+  // `confirmedVersions` is newer than the snapshot only until a second phone writes. Once another
+  // device takes the ring to 9 and a refresh carries 9, preferring this device's memory of 2 stamps
+  // 2 for the rest of the session: the server answers `conflict` for a row this device merely read
+  // stale, and that conflict blocks the ring's domain — the failure this map exists to prevent,
+  // arriving from the other side.
+  let notify = () => {};
+  const listeners = new Set();
+  const sent = [];
+  const segments = [{ id: "s1", ringNo: "P643", machine: "TBM1", date: "2026-07-30", installType: "Permanent", status: "Completed" }];
+  let serverVersion = 2;
+  const repository = makeRepository({
+    subscribe: listener => { listeners.add(listener); return () => listeners.delete(listener); },
+    load: async machine => ({ data: cached(machine, { segments }), source: "indexeddb", fetchedAt: "x", stale: true }),
+    refresh: async machine => ({
+      data: snapshot(machine, { segments, syncMeta: { "segment:TBM1:P643:Permanent": { version: serverVersion } } }),
+      source: "server", fetchedAt: "2026-07-30T00:00:00.000Z", stale: false,
+    }),
+    mutate: async input => { sent.push(input); return { optimisticRecord: { ...input.payload, id: input.recordId } }; },
+  });
+  notify = event => listeners.forEach(listener => listener(event));
+
+  const app = renderApp(repository);
+  await act(async () => {});
+  // this device's own write confirms at 2...
+  await act(async () => { notify({ type: "sync", requestId: "r1", status: "synced", domainKey: "segment:TBM1:P643:Permanent", version: 2 }); });
+  // ...then another device takes the ring to 9 and a refresh brings that back
+  serverVersion = 9;
+  await act(async () => {
+    [...app.container.querySelectorAll("button")].find(b => b.textContent.trim() === "TBM2")
+      .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  });
+  await act(async () => {
+    [...app.container.querySelectorAll("button")].find(b => b.textContent.trim() === "TBM1")
+      .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  });
+
+  const nav = pattern => [...app.container.querySelectorAll("button")].find(b => pattern.test(b.textContent));
+  const click = async el => act(async () => { el.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+  await click(nav(/Data Log · Segment/i));
+  await click(app.container.querySelector("tbody tr"));
+  await click(app.container.querySelector('[title="Delete"]'));
+  await click([...app.container.querySelectorAll("button")].find(b => /^ลบ$/.test(b.textContent)));
+
+  expect(sent[sent.length - 1].baseVersion).toBe(9);
+  app.unmount();
+});
 
 test("a queued write starts the drain instead of waiting for the next app event", async () => {
   // without this the record is durable but idle: it goes out on the next online/focus/

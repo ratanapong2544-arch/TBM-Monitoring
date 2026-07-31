@@ -138,7 +138,7 @@ const SegmentRecordView = ({ projectInfo, handleProjectInfoChange, segmentRecord
           excavShift: projectInfo.shift, installShift: projectInfo.shift
         };
       });
-    } catch (err) { alert("บันทึกข้อมูลไม่สำเร็จ: " + err.message); }
+    } catch (err) { alert(err.code === "SYNC_REIDENTIFIED_RECORD" ? err.message : "บันทึกข้อมูลไม่สำเร็จ: " + err.message); }
     setIsSaving(false);
   };
 

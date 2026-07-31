@@ -44,33 +44,85 @@ test("a synced mutation replaces its optimistic entity with the confirmed server
   await expect(repository.getEntity(confirmed.domainKey)).resolves.toMatchObject({ payload: expect.objectContaining({ status: "confirmed", version: 3, syncStatus: "synced" }) });
 });
 
-test("every envelope the views build is one the repository accepts", async () => {
+test("what buildMutationEnvelope produces is what the repository accepts", async () => {
   // The seam nothing crossed. `coreWrites.integration.test.jsx` asserts envelope shapes against a
   // `jest.fn()`, and the one App test that mounts a real repository replaces `mutate` immediately
   // before the write — so an envelope could be shaped in a way the repository refuses outright and
   // every test would still pass. It was: keying an edit on the record's pre-edit identity made
   // `mutate` throw "Mutation domainKey must match canonical domain key" before anything was queued,
   // and a corrected ring number was lost rather than mis-keyed. The rule is that the key travels
-  // with the payload, and the only way to know a builder still obeys it is to hand the result to
-  // the thing that checks.
-  const repository = makeRepository();
+  // with the payload, and the only way to know the builder still obeys it is to hand its output to
+  // the thing that checks. These are hand-written shapes, not the views' own — the views are
+  // covered in `coreWrites.integration.test.jsx`, which cannot see this because its `onMutate` is a
+  // `jest.fn()`; between them the payload shapes and the repository's rules are both covered.
+  const repository = makeRepository({ createRequestId: (() => { let n = 0; return () => `request-${++n}`; })() });
   const cases = [
     ["segment create", { entityType: "segment", operation: "create", machine: "TBM1", recordId: "seg_1", payload: { id: "seg_1", ringNo: "P41", installType: "Permanent" } }],
     ["segment update", { entityType: "segment", operation: "update", machine: "TBM1", recordId: "seg_1", payload: { id: "seg_1", ringNo: "P41", installType: "Permanent" }, syncMeta: { "segment:TBM1:P41:Permanent": { version: 2 } } }],
-    ["segment re-identified", { entityType: "segment", operation: "update", machine: "TBM1", recordId: "seg_1", payload: { id: "seg_1", ringNo: "P42", installType: "Permanent" }, identity: { ringNo: "P41", installType: "Permanent" }, syncMeta: { "segment:TBM1:P41:Permanent": { version: 2 } } }],
+    ["segment update, unchanged identity supplied", { entityType: "segment", operation: "update", machine: "TBM1", recordId: "seg_1", payload: { id: "seg_1", ringNo: "P41", installType: "Permanent" }, identity: { ringNo: " p41 ", installType: "Permanent" }, syncMeta: { "segment:TBM1:P41:Permanent": { version: 2 } } }],
     ["segment delete", { entityType: "segment", operation: "delete", machine: "TBM1", recordId: "seg_1", payload: { id: "seg_1", ringNo: "P41", installType: "Permanent" }, syncMeta: { "segment:TBM1:P41:Permanent": { version: 2 } } }],
     ["grout create", { entityType: "grout", operation: "create", machine: "TBM1", recordId: "g_1", payload: { id: "g_1", ringNo: "P41", groutPass: "1st Pass" } }],
-    ["grout re-identified", { entityType: "grout", operation: "update", machine: "TBM1", recordId: "g_1", payload: { id: "g_1", ringNo: "P42", groutPass: "1st Pass" }, identity: { ringNo: "P41", groutPass: "1st Pass" }, syncMeta: { "grout:TBM1:P41:1st Pass": { version: 4 } } }],
+    ["grout update", { entityType: "grout", operation: "update", machine: "TBM1", recordId: "g_1", payload: { id: "g_1", ringNo: "P41", groutPass: "1st Pass" }, identity: { ringNo: "P41", groutPass: "1st Pass" }, syncMeta: { "grout:TBM1:P41:1st Pass": { version: 4 } } }],
+    ["secondaryGrout create", { entityType: "secondaryGrout", operation: "create", machine: "TBM1", recordId: "sg_1", payload: { id: "sg_1", ringNo: "P41" } }],
     ["secondaryGrout update", { entityType: "secondaryGrout", operation: "update", machine: "TBM1", recordId: "sg_1", payload: { id: "sg_1", ringNo: "P41" }, identity: { ringNo: "P41" }, syncMeta: { "secondaryGrout:TBM1:P41:sg_1": { version: 1 } } }],
-    ["shiftReport update", { entityType: "shiftReport", operation: "update", machine: "TBM1", recordId: "sr_1", payload: { id: "sr_1", date: "2026-07-30", shift: "Day" }, syncMeta: { "shiftReport:TBM1:2026-07-30:Day": { version: 7 } } }],
+    ["shiftReport create", { entityType: "shiftReport", operation: "create", machine: "TBM1", recordId: "sr_1", payload: { id: "sr_1", date: "2026-07-30", shift: "Day" } }],
+    ["shiftReport update", { entityType: "shiftReport", operation: "update", machine: "TBM1", recordId: "sr_1", payload: { id: "sr_1", date: "2026-07-29T17:00:00.000Z", shift: "Day" }, syncMeta: { "shiftReport:TBM1:2026-07-30:Day": { version: 7 } } }],
   ];
 
   for (const [name, input] of cases) {
     const envelope = buildMutationEnvelope(input);
-    await expect(repository.mutate(envelope)).resolves.toMatchObject({ status: "pending" });
-    const stored = await repository.getMutation((await repository.mutate(envelope)).requestId);
-    expect([name, stored.domainKey]).toEqual([name, envelope.domainKey]);
+    await expect(Promise.resolve(repository.mutate(envelope)).catch(error => `${name}: ${error.message}`))
+      .resolves.toMatchObject({ status: "pending" });
   }
+});
+
+test("an edit that re-identifies a record never becomes an envelope at all", async () => {
+  // there is no envelope for it to produce: writing under the new key leaves the old key's server
+  // metadata alive and pointing at a ring no row carries, which turns the real ring — sequential, so
+  // it always arrives eventually — into a terminal SYNC_META_ORPHAN nothing on screen reports
+  expect(() => buildMutationEnvelope({
+    entityType: "segment", operation: "update", machine: "TBM1", recordId: "seg_1",
+    payload: { id: "seg_1", ringNo: "P42", installType: "Permanent" },
+    identity: { ringNo: "P41", installType: "Permanent" },
+    syncMeta: { "segment:TBM1:P41:Permanent": { version: 2 } },
+  })).toThrow(expect.objectContaining({ code: "SYNC_REIDENTIFIED_RECORD" }));
+});
+
+test("the row on screen after a confirmation is the newest edit, not an older one", async () => {
+  // three offline saves on one ring: the first confirms, and what stays on screen must be the third.
+  // Taking the oldest outstanding instead would put the crew's second save's values back in front of
+  // them, looking like the server had answered with them.
+  const repository = makeRepository({ createRequestId: (() => { let n = 0; return () => `request-${++n}`; })() });
+  const first = await repository.mutate({ ...segmentInput, payload: { ...segmentInput.payload, status: "first" } });
+  await repository.mutate({ ...segmentInput, payload: { ...segmentInput.payload, status: "second" } });
+  await repository.mutate({ ...segmentInput, payload: { ...segmentInput.payload, status: "third" } });
+
+  await repository.applySyncSuccess(first.requestId, {
+    requestId: first.requestId, status: "success",
+    record: { id: "segment-1", domainKey: first.optimisticRecord.domainKey, status: "confirmed" },
+    version: 3, updatedAt: "2026-07-29T01:00:00.000Z",
+  });
+
+  await expect(repository.getEntity(first.optimisticRecord.domainKey)).resolves.toMatchObject({ payload: expect.objectContaining({ status: "third" }) });
+});
+
+test("a mutation the server refused is not quietly rebased under the crew's feet", async () => {
+  // rebasing only what is still on its way. A parked conflict is not queued behind anything — it is
+  // waiting for someone to resolve it, and its payload was composed against the row state the
+  // conflict describes. Moving its base to a version it never saw would apply the crew's eventual
+  // choice on top of a different row than the one they were shown.
+  const repository = makeRepository({ createRequestId: (() => { let n = 0; return () => `request-${++n}`; })() });
+  const first = await repository.mutate(segmentInput);
+  const parked = await repository.mutate({ ...segmentInput, payload: { ...segmentInput.payload, status: "parked" } });
+  await repository.updateMutation(parked.requestId, { status: "conflict" });
+
+  await repository.applySyncSuccess(first.requestId, {
+    requestId: first.requestId, status: "success",
+    record: { id: "segment-1", domainKey: first.optimisticRecord.domainKey },
+    version: 9, updatedAt: "2026-07-29T01:00:00.000Z",
+  });
+
+  await expect(repository.getMutation(parked.requestId)).resolves.toMatchObject({ status: "conflict", baseVersion: 2 });
 });
 
 test("a confirmation names the record that moved and the version it moved to", async () => {

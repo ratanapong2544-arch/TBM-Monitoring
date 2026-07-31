@@ -337,12 +337,14 @@ test("saving a shift report queues a create keyed by its Bangkok date and shift"
 
 const segmentRow = { id: "seg_1", ringNo: "P41", typeRing: "C1", keyPos: "16", startCH: "8+010.20", finishCH: "8+008.80", length: "1.40", status: "Completed", installType: "Permanent", date: "2026-07-30" };
 
-test("correcting a mistyped ring starts that ring's version stream instead of inheriting one", async () => {
-  // The domain key is built from business fields, and the data log lets them be corrected. The key
-  // follows the payload — it has no choice, because `repository.mutate` recomputes it from the
-  // payload and refuses a mismatch, and GAS does the same. So a corrected ring writes under the NEW
-  // key, and the only question is what version it claims: a record that has never existed under
-  // that key has no history there, and claiming 0 is what makes the server mint one.
+test("correcting a ring number in place is refused, whoever else knows the ring", async () => {
+  // The key travels with the payload — it has no choice, `repository.mutate` and GAS both recompute
+  // it and refuse a mismatch — so a corrected ring writes under the NEW key and GAS mints metadata
+  // for it, while the OLD key's metadata stays behind, alive, describing a ring no row carries.
+  // Ring numbers are sequential and never skipped, so the mistyped ring is one the machine will
+  // actually reach: recording it weeks later returns SYNC_META_ORPHAN, which is terminal, and a
+  // replay returns the same. One correction poisons that ring number for the rest of the drive, and
+  // nothing on screen would ever say so. Refuse it here, where the crew can still act.
   const view = render(
     <SegmentDashboardView segmentRecords={[segmentRow]} machine="TBM1"
       syncMeta={{ "segment:TBM1:P41:Permanent": { version: 2 } }} onMutate={onMutate} />
@@ -352,29 +354,130 @@ test("correcting a mistyped ring starts that ring's version stream instead of in
   type(view.container, "ringNo", "P42");
   await click(button(view.container, /Save Changes/));
 
-  const envelope = onMutate.mock.calls[0][0];
-  expect(envelope.domainKey).toBe("segment:TBM1:P42:Permanent"); // canonical: derived from the payload
-  expect(envelope.baseVersion).toBe(0);                          // not P41's 2, which belongs to the old identity
-  expect(envelope.payload.ringNo).toBe("P42");
+  expect(onMutate).not.toHaveBeenCalled();
   view.unmount();
 });
 
-test("a correction onto a ring that already has a record is refused, not merged", async () => {
-  // The other outcome, and the dangerous one: this device knows a version for the new key, so some
-  // other record already holds that identity. Sending its version would put two sheet rows on one
-  // version stream, where every edit of either silently invalidates the other. Nothing is queued and
-  // the crew is told — the alternative is a conflict no screen shows until Task 10.
+test("the install type is part of a segment's identity, so changing it is refused too", async () => {
+  // a T-prefixed ring is Temporary and a P-prefixed one Permanent — both record forms flip the field
+  // from the prefix — and the install type is in the key, so this is the same re-identification
   const view = render(
     <SegmentDashboardView segmentRecords={[segmentRow]} machine="TBM1"
-      syncMeta={{ "segment:TBM1:P41:Permanent": { version: 2 }, "segment:TBM1:P42:Permanent": { version: 88 } }}
-      onMutate={onMutate} />
+      syncMeta={{ "segment:TBM1:P41:Permanent": { version: 2 } }} onMutate={onMutate} />
   );
   await click(view.container.querySelector("tbody tr"));
   await click(byTitle(view.container, "Edit"));
-  type(view.container, "ringNo", "P42");
+  await act(async () => {
+    const select = view.container.querySelector('[name="installType"]');
+    Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, "value").set.call(select, "Temporary");
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+  });
   await click(button(view.container, /Save Changes/));
 
   expect(onMutate).not.toHaveBeenCalled();
+  view.unmount();
+});
+
+test("an ordinary edit of a record is not read as a re-identification", async () => {
+  // the refusal has to be narrow: everything that is NOT part of the key must stay editable
+  const view = render(
+    <SegmentDashboardView segmentRecords={[segmentRow]} machine="TBM1"
+      syncMeta={{ "segment:TBM1:P41:Permanent": { version: 2 } }} onMutate={onMutate} />
+  );
+  await click(view.container.querySelector("tbody tr"));
+  await click(byTitle(view.container, "Edit"));
+  type(view.container, "startCH", "8+011.60");
+  await click(button(view.container, /Save Changes/));
+
+  expect(onMutate).toHaveBeenCalledWith(expect.objectContaining({
+    domainKey: "segment:TBM1:P41:Permanent",
+    baseVersion: 2,
+  }));
+  view.unmount();
+});
+
+test("re-saving the open ring under a different number is refused", async () => {
+  // the record form's own re-identification path: the ring is prefilled from the row still In
+  // Progress, and the crew can type over it before saving. `handleInputChange` also flips
+  // installType from a T/P prefix, so this is two key fields moving at once.
+  const inProgress = [{ id: "seg_1", ringNo: "P41", typeRing: "C1", keyPos: "16", startCH: "8+010.20", finishCH: "8+008.80", length: "1.40", status: "In Progress", installType: "Permanent" }];
+  const view = render(
+    <SegmentRecordView projectInfo={projectInfo} handleProjectInfoChange={noop} segmentRecords={inProgress}
+      setCurrentModule={noop} setActiveTab={noop} machine="TBM1"
+      syncMeta={{ "segment:TBM1:P41:Permanent": { version: 3 } }} onMutate={onMutate} />
+  );
+  type(view.container, "ringNo", "P42");
+  await submit(view.container);
+
+  expect(onMutate).not.toHaveBeenCalled();
+  view.unmount();
+});
+
+test("changing a grout record's ring is refused, primary and secondary alike", async () => {
+  // both branches of the data log's save build their own envelope, and each needs the pre-edit
+  // record to know the ring moved — the grout pass and the ring are both in the key
+  const rows = [
+    ["grout", { id: "g1", ringNo: "P41", partA: "12.5", partB: "6.25", pressure: "3.2", total: 18.75, groutPass: "1st Pass", date: "2026-07-30", positions: {} }, "grout:TBM1:P41:1st Pass"],
+    ["secondaryGrout", { id: "sg1", ringNo: "P41", partA: "3.0", partB: "1.5", pressure: "2.0", total: 4.5, date: "2026-07-30", positions: {} }, "secondaryGrout:TBM1:P41:sg1"],
+  ];
+  for (const [kind, row, key] of rows) {
+    onMutate.mockClear();
+    const view = render(
+      <GroutDashboardView groutRecords={kind === "grout" ? [row] : []} secondaryGroutRecords={kind === "grout" ? [] : [row]}
+        segmentRecords={[]} machine="TBM1" syncMeta={{ [key]: { version: 5 } }} onMutate={onMutate} />
+    );
+    await click(view.container.querySelector("tbody tr"));
+    await click(byTitle(view.container, "Edit"));
+    type(view.container, "ringNo", "P42");
+    await click(button(view.container, /Save Changes/));
+
+    expect([kind, onMutate.mock.calls.length]).toEqual([kind, 0]);
+    view.unmount();
+  }
+});
+
+test("a ring recorded twice claims nothing, so the server can say so", async () => {
+  // A create must never carry a version. Taking the key's known one told GAS this was a
+  // post-conflict successor: the version matched, and the create was MERGED onto the row already
+  // holding that ring — the other shift's record overwritten, and the response a success. At 0 the
+  // server answers `conflict`, which is the truth about two crews recording one ring.
+  const segments = [{ id: "s1", ringNo: "P41", keyPos: "4", startCH: "8+010.20", finishCH: "8+008.80", length: "1.40", status: "Completed", installType: "Permanent" }];
+  const view = render(
+    <GroutRecordView projectInfo={projectInfo} handleProjectInfoChange={noop} groutRecords={[]} secondaryGroutRecords={[]}
+      segmentRecords={segments} setCurrentModule={noop} setActiveTab={noop} machine="TBM1"
+      syncMeta={{ "grout:TBM1:P41:1st Pass": { version: 12 } }} onMutate={onMutate} />
+  );
+  type(view.container, "ringNo", "P41");
+  type(view.container, "partA", "12.5");
+  type(view.container, "partB", "6.25");
+  await submit(view.container);
+
+  expect(onMutate).toHaveBeenCalledWith(expect.objectContaining({
+    operation: "create",
+    domainKey: "grout:TBM1:P41:1st Pass",
+    baseVersion: 0, // not 12
+  }));
+  view.unmount();
+});
+
+test("the segment data log normalises the ring it sends", async () => {
+  // the field's `uppercase` is CSS — it changes what the crew sees, not what they typed. Sending
+  // " p41 " verbatim would write a ring number the sheet has never used, under a key nothing else
+  // matches: a rename nobody asked for, with everything that follows from one.
+  const view = render(
+    <SegmentDashboardView segmentRecords={[segmentRow]} machine="TBM1"
+      syncMeta={{ "segment:TBM1:P41:Permanent": { version: 2 } }} onMutate={onMutate} />
+  );
+  await click(view.container.querySelector("tbody tr"));
+  await click(byTitle(view.container, "Edit"));
+  type(view.container, "ringNo", " p41 ");
+  await click(button(view.container, /Save Changes/));
+
+  expect(onMutate).toHaveBeenCalledWith(expect.objectContaining({
+    domainKey: "segment:TBM1:P41:Permanent",
+    baseVersion: 2,
+  }));
+  expect(onMutate.mock.calls[0][0].payload.ringNo).toBe("P41");
   view.unmount();
 });
 

@@ -1,6 +1,6 @@
 import { MUTATION_STATUS, STORES } from "./schema";
 import { entityKeyBelongsToDomain, entityKeyForRecord, entityKeyHasRecordId, optimisticEntityKey } from "./entityKeys";
-import { toSyncVersion } from "./mutationEnvelope";
+import { toSyncVersion } from "./syncVersion";
 import { FIELD_FOR_ENTITY_TYPE, isMachineScopedEntityType, snapshotScopeKey } from "./snapshotStore";
 
 function complete(transaction) {
@@ -49,10 +49,11 @@ function patchSnapshotKeys(snapshots, stored, mutation) {
     const keys = (snapshot.entityKeys && snapshot.entityKeys[field]) || [];
     let next;
     if (mutation.operation === "delete") {
+      // Only the named row. A row the sheet returned without an id cannot be matched to a delete
+      // that names one, and removing it anyway would take a record off screen that nobody asked to
+      // delete — `deletePending` in the snapshot merge makes the same choice, and the two halves of
+      // one rule disagreeing is how a row flickers off on refresh and back on relaunch.
       next = keys.filter(key => !mine(key));
-      // a row whose key carries no id (a legacy row the sheet returned without one) can only be
-      // matched by domain, and it is still the row being deleted
-      if (next.length === keys.length) next = keys.filter(key => !entityKeyBelongsToDomain(key, mutation.domainKey));
     } else {
       // Put the optimistic copy where this row already sits, or append it if it has no place yet.
       // Replacing rather than appending is the only way an update becomes visible at all — its
@@ -68,11 +69,10 @@ function patchSnapshotKeys(snapshots, stored, mutation) {
           ? keys.findIndex(key => entityKeyBelongsToDomain(key, mutation.domainKey))
           : keys.findIndex(key => entityKeyBelongsToDomain(key, mutation.domainKey) && !entityKeyHasRecordId(key));
       }
-      if (slot === -1) next = keys.concat(optimisticKey);
-      else if (keys[slot] === optimisticKey) next = keys;
-      else next = keys.map((key, index) => (index === slot ? optimisticKey : key));
+      next = slot === -1 ? keys.concat(optimisticKey) : keys.map((key, index) => (index === slot ? optimisticKey : key));
     }
-    if (next === keys || (next.length === keys.length && next.every((key, index) => key === keys[index]))) return;
+    // an unchanged list is not worth a write, and the second save of one record produces exactly that
+    if (next.length === keys.length && next.every((key, index) => key === keys[index])) return;
     snapshots.put({ ...snapshot, entityKeys: { ...snapshot.entityKeys, [field]: next } });
   });
 }
@@ -225,7 +225,7 @@ export async function updateMutation(db, requestId, update, { owner } = {}) {
   return next;
 }
 
-export async function confirmMutation(db, requestId, response, { owner } = {}) {
+export async function confirmMutation(db, requestId, response, { owner, confirmedAtLocal } = {}) {
   const transaction = db.transaction([STORES.entities, STORES.mutations, STORES.snapshots], "readwrite");
   const mutationStore = transaction.objectStore(STORES.mutations);
   const entityStore = transaction.objectStore(STORES.entities);
@@ -240,7 +240,10 @@ export async function confirmMutation(db, requestId, response, { owner } = {}) {
     await complete(transaction);
     return null;
   }
-  const next = { ...mutation, status: MUTATION_STATUS.SYNCED, syncedAt: response.updatedAt || null, lastError: null, syncOwner: null, leaseExpiresAt: null };
+  // `syncedAt` is the SERVER's clock, which is the right thing to show a crew and the wrong thing to
+  // compare against anything local. `confirmedAtLocal` is this device's own reading of when the
+  // confirmation landed, and it is what tells a snapshot write whether a response predates it.
+  const next = { ...mutation, status: MUTATION_STATUS.SYNCED, syncedAt: response.updatedAt || null, confirmedAtLocal: confirmedAtLocal || null, lastError: null, syncOwner: null, leaseExpiresAt: null };
   mutationStore.put(next);
   // Rebase what is still queued behind this one on the same record. Offline, a whole chain of edits
   // is stamped with the only version the device knows — the one the last full snapshot carried, or 0

@@ -1,5 +1,6 @@
 import { makeDomainKey } from "./domainKey";
 import { optimisticEntityKey, serverEntityKey } from "./entityKeys";
+import { toSyncVersion } from "./syncVersion";
 import { emptyServerData } from "./normalizeServerData";
 import { MUTATION_STATUS, STORES } from "./schema";
 
@@ -63,7 +64,10 @@ function configValue(payload, entityType) {
   return body;
 }
 
-export async function writeServerSnapshot(db, machine, data, fetchedAt) {
+// `requestedAt` is when the getData request went OUT, not when it came back. The difference is the
+// whole window this function has to reason about: the queue drains in parallel with the fetch, so a
+// response can be older than a write this device has since had confirmed.
+export async function writeServerSnapshot(db, machine, data, fetchedAt, requestedAt = fetchedAt) {
   const transaction = db.transaction([STORES.entities, STORES.snapshots, STORES.mutations], "readwrite");
   const entities = transaction.objectStore(STORES.entities);
   const snapshots = transaction.objectStore(STORES.snapshots);
@@ -79,6 +83,20 @@ export async function writeServerSnapshot(db, machine, data, fetchedAt) {
     .sort((left, right) => (left.queueSequence || 0) - (right.queueSequence || 0))
     .map(mutation => [mutation.domainKey, mutation.status]));
   const unresolvedStatus = domainKey => unresolvedByDomain.get(domainKey) && unresolvedByDomain.get(domainKey).status;
+  // A getData answer is composed on the server BEFORE it arrives here, and the queue drains in
+  // parallel — the cold launch starts both at once. So a response can be older than a write this
+  // device has since had confirmed, and writing it wholesale threw those rows away: the rings a crew
+  // recorded through an offline shift reached the sheet and then vanished from the data log, the
+  // dashboards, the reports and the "Last:" indicator until some later refresh, which underground
+  // may be the next shift. Anything confirmed after the request went out is newer than the answer,
+  // so it is kept exactly as a pending write would be.
+  const confirmedAfterRequest = new Map(pendingMutations
+    .filter(mutation => (mutation.status === MUTATION_STATUS.SYNCED || mutation.status === MUTATION_STATUS.RESOLVED)
+      // this device's own reading of both instants; `syncedAt` is the server's clock and comparing
+      // the two would turn ordinary clock skew into either lost rows or stale ones
+      && requestedAt && mutation.confirmedAtLocal && Date.parse(mutation.confirmedAtLocal) >= Date.parse(requestedAt))
+    .sort((left, right) => (left.queueSequence || 0) - (right.queueSequence || 0))
+    .map(mutation => [mutation.domainKey, mutation]));
   // a delete still in the queue is a tombstone: the server has not seen it yet, so it keeps
   // returning the row, and overlaying the optimistic copy would put the deleted ring back on screen
   // at the next refresh. Hide it until the mutation leaves the queue one way or the other.
@@ -98,12 +116,17 @@ export async function writeServerSnapshot(db, machine, data, fetchedAt) {
   const deletePending = (domainKey, recordId) => {
     const mutation = pendingDelete(domainKey);
     if (!mutation) return false;
-    // a row the sheet returned without an id can only be matched by its domain, and it is the row
-    if (mutation.recordId == null || mutation.recordId === "" || recordId == null || recordId === "") return true;
+    // A delete names the row it is deleting. If it names one and the incoming row carries no id,
+    // they cannot be matched — and hiding it anyway takes a row off screen that nobody asked to
+    // delete, on the refresh only, so it flickers away and comes back on the next relaunch.
+    if (mutation.recordId == null || mutation.recordId === "") return true;
+    if (recordId == null || recordId === "") return false;
     return String(recordId) === String(mutation.recordId);
   };
   const terminalStatus = domainKey => terminalByDomain.get(domainKey);
-  const preserveLocal = record => Boolean(unresolvedStatus(record.domainKey)) || (!terminalStatus(record.domainKey) && UNRESOLVED_STATUSES.has(record.payload && record.payload.syncStatus));
+  const preserveLocal = record => Boolean(unresolvedStatus(record.domainKey))
+    || Boolean(confirmedAfterRequest.get(record.domainKey))
+    || (!terminalStatus(record.domainKey) && UNRESOLVED_STATUSES.has(record.payload && record.payload.syncStatus));
   const localForDomain = (domainKey, entityType) => existing.find(record => record.domainKey === domainKey && record.entityType === entityType && record.key === optimisticEntityKey(domainKey)) || existing.find(record => record.domainKey === domainKey && record.entityType === entityType);
   const preserve = (record, status) => ({ ...record, payload: { ...record.payload, syncStatus: status } });
   // An optimistic record is stamped with its mutation's machine ("GLOBAL" for a project-wide
@@ -148,8 +171,11 @@ export async function writeServerSnapshot(db, machine, data, fetchedAt) {
     const overlaysThisRow = (local, record) => {
       const localId = local.payload && local.payload.id;
       const rowId = record.payload && record.payload.id;
-      if (localId == null || rowId == null) return true;
+      if (localId == null) return true; // the local copy names no row, so it speaks for the domain
       if (String(localId) === String(rowId)) return true;
+      // it names a row that is NOT this one. Only fall back to this row if the response does not
+      // carry the row it names — otherwise a queued edit of one record is painted over its
+      // neighbour, including a row the sheet returned with no id of its own to defend it.
       const ids = incomingIdsByDomain.get(record.domainKey);
       return !(ids && ids.has(String(localId)));
     };
@@ -170,6 +196,20 @@ export async function writeServerSnapshot(db, machine, data, fetchedAt) {
 
   const snapshot = { scopeKey: scopeKey(machine), machine, fetchedAt, entityKeys };
   singletonKeys.forEach(key => { snapshot[key] = data[key]; committed[key] = data[key]; });
+  // `syncMeta` is the one singleton this device also writes: `confirmMutation` records what the
+  // server confirmed so the next edit can stamp it. A getData answer composed before that
+  // confirmation would otherwise replace it with the version from before this device's own write,
+  // and the next edit of that record would be refused as a conflict nobody caused. Take the higher
+  // of the two per key — a version only ever moves forward.
+  const previousSyncMeta = (previous && previous.syncMeta) || {};
+  const mergedSyncMeta = { ...(data.syncMeta || {}) };
+  Object.keys(previousSyncMeta).forEach(key => {
+    const mine = previousSyncMeta[key];
+    const theirs = mergedSyncMeta[key];
+    if (!theirs || toSyncVersion(mine && mine.version) > toSyncVersion(theirs.version)) mergedSyncMeta[key] = mine;
+  });
+  snapshot.syncMeta = mergedSyncMeta;
+  committed.syncMeta = mergedSyncMeta;
   // A pending config edit must not be erased by server data either. These arrive as singletons
   // rather than collection rows, so they need the same optimistic overlay: without it an offline
   // plan edit disappeared on the next refresh and was re-entered, conflicting with itself.

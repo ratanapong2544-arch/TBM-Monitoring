@@ -31,18 +31,34 @@ export function createSyncRunner({ repository, transport, clock = Date, jitter =
     // on screen saying so. Keep passing while a pass actually SYNCED something — progress is the
     // loop's only exit condition, so a conflicted or erroring domain (which stays at its head until
     // Task 10 resolves it) ends the drain instead of spinning on it.
+    // The cap is a tripwire, not a policy. Termination rests on one thing — a pass that syncs
+    // nothing ends the drain — and if that ever stops being true the loop does not fail, it HANGS:
+    // `runNow` holds its promise for the life of the call, so every later trigger joins the same
+    // stuck promise, the queue stops draining for the rest of the session and the tab pegs a core.
+    // A phone underground is the worst place for that, and a hang is also the worst thing to leave
+    // a test suite to discover. A backlog is at most as deep as one record's edit history; a
+    // thousand passes is far past any real one and reaches this only if the exit condition broke.
+    let passes = 0;
     let pass = await drainOnce(result);
-    while (pass > 0) pass = await drainOnce(result);
+    while (pass > 0) {
+      if (++passes > 1000) throw new Error("Sync drain did not converge");
+      pass = await drainOnce(result);
+    }
     return result;
   }
 
   async function drainOnce(result) {
     const before = result.synced;
-    const blockedDomains = new Set();
+    // One exit condition, not two. There was also an early return for an empty claim, which is
+    // exactly what falling through already does — and having both meant neither could be tested:
+    // remove either and the suite stays green, remove both and it never terminates.
+    //
+    // There was a `blockedDomains` set here too, skipping later mutations of a domain that had just
+    // conflicted. It could never fire: `claimDueMutations` returns the HEAD of each domain, so a
+    // domain appears at most once per pass — and if it ever had fired it would have left a claimed
+    // mutation stuck in `syncing` until its lease expired.
     const mutations = await repository.claimDueMutations({ owner, now: currentTime(clock), leaseMs });
-    if (!mutations.length) return 0;
     for (const mutation of mutations) {
-      if (blockedDomains.has(mutation.domainKey)) continue;
       result.attempted += 1;
       try {
         const response = assertSyncResponse(mutation, await transport.postSyncMutation(mutation));
@@ -52,11 +68,9 @@ export function createSyncRunner({ repository, transport, clock = Date, jitter =
         }
         if (response.status === "conflict") {
           if (await repository.applyConflict(mutation.requestId, response, { owner })) result.conflicts += 1;
-          blockedDomains.add(mutation.domainKey);
           continue;
         }
         if (await repository.updateMutation(mutation.requestId, { status: MUTATION_STATUS.VALIDATION_ERROR, attemptCount: mutation.attemptCount + 1, lastError: { code: "VALIDATION", fields: response.fields || [], message: response.message || "Validation failed" }, nextAttemptAt: null }, { owner })) result.errors += 1;
-        blockedDomains.add(mutation.domainKey);
       } catch (error) {
         const failure = toApiFailure(error);
         const attemptCount = mutation.attemptCount + 1;
@@ -66,7 +80,6 @@ export function createSyncRunner({ repository, transport, clock = Date, jitter =
           const status = failure.kind === "validation" ? MUTATION_STATUS.VALIDATION_ERROR : MUTATION_STATUS.PERMANENT_ERROR;
           if (await repository.updateMutation(mutation.requestId, { status, attemptCount, nextAttemptAt: null, lastError: { kind: failure.kind, code: failure.code, message: failure.message } }, { owner })) result.errors += 1;
         }
-        blockedDomains.add(mutation.domainKey);
       }
     }
     return result.synced - before;

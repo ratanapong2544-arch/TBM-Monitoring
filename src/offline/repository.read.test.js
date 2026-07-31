@@ -163,6 +163,26 @@ test("deleting one of two rows sharing a ring keeps the other", async () => {
   expect((await reloaded.refresh("TBM1")).data.segments.map(row => row.id)).toEqual(["seg_b"]);
 });
 
+test("a delete does not take away a row the sheet returned without an id", async () => {
+  // The sheet can hand back a row with no id — the cache keys those by position for exactly that
+  // reason — and a delete that names a record cannot be matched to one. Removing it anyway takes a
+  // record off screen nobody asked to delete, and the two halves of the rule disagreed about it:
+  // the relaunch kept the row and the refresh dropped it, so it flickered away and came back.
+  const sheet = [{ id: "seg_a", ringNo: "P643" }, { ringNo: "P643", length: "9.9" }];
+  const repository = createRepository({ openDb: openOfflineDb, fetchServerSnapshot: async () => ({ segments: sheet }) });
+  await repository.refresh("TBM1");
+  await repository.mutate({
+    entityType: "segment", operation: "delete", machine: "TBM1", recordId: "seg_a",
+    payload: { id: "seg_a", ringNo: "P643" }, baseVersion: 0,
+    domainKey: "segment:TBM1:P643:Permanent",
+  });
+
+  const onRefresh = (await repository.refresh("TBM1")).data.segments;
+  const onRelaunch = (await createRepository({ openDb: openOfflineDb, fetchServerSnapshot: async () => { throw new Error("offline"); } }).load("TBM1")).data.segments;
+  expect(onRefresh.map(row => row.length || null)).toEqual(["9.9"]);
+  expect(onRelaunch.map(row => row.length || null)).toEqual(["9.9"]);
+});
+
 test("a version the server confirmed outlives the tab that heard it", async () => {
   // `confirmedVersions` in App is React state. A backgrounded PWA that gets killed — an eight hour
   // shift on a phone — comes back knowing only what the last full getData carried, so the next edit
@@ -184,6 +204,41 @@ test("a version the server confirmed outlives the tab that heard it", async () =
   const reloaded = createRepository({ openDb: openOfflineDb, fetchServerSnapshot: async () => { throw new Error("offline"); } });
   const { syncMeta } = (await reloaded.load("TBM1")).data;
   expect(syncMeta["segment:TBM1:P643:Permanent"]).toMatchObject({ version: 1 });
+});
+
+test("a ring confirmed while the launch fetch was in flight is not wiped by it", async () => {
+  // The cold launch starts both at once: the provider starts the runner and `useOfflineData` starts
+  // the refresh. The getData answer is composed on the server BEFORE the drain lands and written
+  // AFTER it, so writing it wholesale threw away the rings the crew recorded through an offline
+  // shift — they reached the sheet and then vanished from the data log, the dashboards, the reports
+  // and the "Last:" indicator, until some later refresh that underground may be the next shift.
+  // Worse than the disappearance: with the ring off the list the record form re-offers it, and
+  // re-recording it is a create against live metadata, which the server refuses as a conflict.
+  let releaseFetch;
+  const repository = createRepository({
+    openDb: openOfflineDb,
+    // the answer describes the sheet as it was BEFORE the queued ring reached it
+    fetchServerSnapshot: async () => new Promise(resolve => { releaseFetch = () => resolve({ segments: [{ id: "s0", ringNo: "P499" }], syncMeta: {} }); }),
+  });
+  const queued = await repository.mutate({
+    entityType: "segment", operation: "create", machine: "TBM1", recordId: "s1",
+    payload: { id: "s1", ringNo: "P500" }, baseVersion: 0,
+    domainKey: "segment:TBM1:P500:Permanent",
+  });
+
+  const refreshing = repository.refresh("TBM1");
+  // the drain lands while the fetch is still out
+  await repository.applySyncSuccess(queued.requestId, {
+    requestId: queued.requestId, status: "success",
+    record: { id: "s1", ringNo: "P500" }, version: 1, updatedAt: "2026-07-30T02:00:00.000Z",
+  });
+  releaseFetch();
+  const refreshed = await refreshing;
+
+  expect(refreshed.data.segments.map(row => row.ringNo).sort()).toEqual(["P499", "P500"]);
+  // and the version it confirmed is not replaced by the older map that answer carried
+  expect(refreshed.data.syncMeta["segment:TBM1:P500:Permanent"]).toMatchObject({ version: 1 });
+  expect((await repository.load("TBM1")).data.segments.map(row => row.ringNo).sort()).toEqual(["P499", "P500"]);
 });
 
 test("a delete the server refused stops hiding the row", async () => {

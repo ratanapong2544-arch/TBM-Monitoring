@@ -117,7 +117,11 @@ export function openOfflineDb() {
       if (event.oldVersion >= 1 && event.oldVersion < 2) recanonicalizeDomainKeys(request.transaction);
     };
     request.onsuccess = () => {
-      if (settled) { request.result.close(); return; } // the timeout already gave up on this open
+      // `settled` covers the timeout; the generation covers `closeOfflineDb` running while this open
+      // was still in flight. Without the second check the abandoned request still assigned `openDb`
+      // when it eventually succeeded — a connection to a database the caller had already closed,
+      // held by nobody, blocking the next upgrade or delete.
+      if (settled || generation !== openGeneration) { request.result.close(); return; }
       settled = true;
       clearTimeout(timer);
       openDb = request.result;
@@ -140,6 +144,9 @@ export function closeOfflineDb() {
   if (openDb) openDb.close();
   openDb = undefined;
   openDbPromise = undefined;
+  // any open still in flight belongs to a caller that has gone away: bump the generation so its
+  // success handler closes the connection instead of installing it behind everyone's back
+  openGeneration += 1;
 }
 
 export function deleteOfflineDbForTests() {

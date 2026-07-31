@@ -85,7 +85,7 @@ export function createRepository(deps = {}) {
   }
 
   async function applySyncSuccess(requestId, response, options) {
-    const mutation = await confirmMutation(await openDb(), requestId, response, options);
+    const mutation = await confirmMutation(await openDb(), requestId, response, { ...options, confirmedAtLocal: now() });
     if (!mutation) return null;
     await setLastSyncedAt(await openDb(), response.updatedAt || now());
     // The confirmed version has to reach whoever stamps the NEXT mutation's `baseVersion`. Without
@@ -166,12 +166,16 @@ export function createRepository(deps = {}) {
     },
     async refresh(machine, { signal } = {}) {
       try {
+        // stamped BEFORE the request goes out: the queue drains in parallel with it, so anything
+        // confirmed after this instant is newer than the answer that comes back, and the snapshot
+        // write has to know which is which or it discards the crew's own confirmed rings
+        const requestedAt = now();
         const raw = await fetchServerSnapshot(machine, { signal });
         const data = normalizeServerData(raw, machine);
         const fetchedAt = now();
         let stored;
         try {
-          stored = await writeServerSnapshot(await openDb(), machine, data, fetchedAt);
+          stored = await writeServerSnapshot(await openDb(), machine, data, fetchedAt, requestedAt);
         } catch (writeError) {
           // The server data is already in hand. Throwing here would show an empty app to a crew
           // whose payload arrived fine, just because the cache could not be written (quota, private

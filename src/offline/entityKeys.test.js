@@ -30,5 +30,13 @@ test("a row the sheet returned without an id is recognisable as such", () => {
   const row = serverEntityKey("TBM1", "segments", "segment:TBM1:P643:Permanent", "row:3");
   expect(entityKeyHasRecordId(row)).toBe(false);
   expect(entityKeyForRecord(row, "seg_a")).toBe(false);
-  expect(entityKeyForRecord(row, "")).toBe(false); // an absent id must not match everything
+});
+
+test("an absent record id names no row rather than every row", () => {
+  // the fixture has to be a key that WOULD match a bare `:id:` suffix, or the guard is never
+  // exercised: a row whose id came back empty is exactly the case
+  const empty = serverEntityKey("TBM1", "segments", "segment:TBM1:P643:Permanent", "id:");
+  expect(entityKeyForRecord(empty, "")).toBe(false);
+  expect(entityKeyForRecord(empty, null)).toBe(false);
+  expect(entityKeyForRecord(empty, undefined)).toBe(false);
 });

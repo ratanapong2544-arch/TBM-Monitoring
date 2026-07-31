@@ -30,6 +30,8 @@ export function entityKeyHasRecordId(key) {
 }
 
 export function entityKeyForRecord(key, recordId) {
+  // an absent id names no row, so it must not name every row: `endsWith(":id:")` would be true of a
+  // key whose id is empty, and callers pass a record id straight through
   if (recordId == null || recordId === "") return false;
   return String(key).endsWith(`:id:${recordId}`);
 }

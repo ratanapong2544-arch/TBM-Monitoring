@@ -96,7 +96,7 @@ const GroutDashboardView = ({ groutRecords, segmentRecords, secondaryGroutRecord
           recordId: updated.id, payload: updated, identity: selectedRecord, syncMeta,
         }));
         setSelectedRecord(updated); setIsEditing(false);
-      } catch (e) { alert("อัปเดตข้อมูลล้มเหลว: " + e.message); }
+      } catch (e) { alert(e.code === "SYNC_REIDENTIFIED_RECORD" ? e.message : "อัปเดตข้อมูลล้มเหลว: " + e.message); }
       return;
     }
     const isReGrout = editFormData.groutPass === "Re-Grout";
@@ -118,9 +118,8 @@ const GroutDashboardView = ({ groutRecords, segmentRecords, secondaryGroutRecord
       }));
       setSelectedRecord(updatedRecord);
       setIsEditing(false);
-      // the reason matters: a refused edit names the ring that already holds a record, and without
-      // it the crew is told only that something failed
-    } catch (e) { alert("อัปเดตข้อมูลล้มเหลว: " + e.message); }
+      // the reason matters: without it a refused edit reads as an unexplained failure
+    } catch (e) { alert(e.code === "SYNC_REIDENTIFIED_RECORD" ? e.message : "อัปเดตข้อมูลล้มเหลว: " + e.message); }
   };
 
   const handleDeleteRecord = async () => {

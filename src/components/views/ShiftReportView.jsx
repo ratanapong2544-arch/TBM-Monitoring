@@ -224,12 +224,6 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, machine = 
 
   const reportIdForSave = () => (existingReportRef.current ? existingReportRef.current.id : draftIdFor(selectorKey));
 
-  // A save resolves seconds after it starts, and by then the crew may have switched machine. App
-  // applies the optimistic row (behind the same machine check), so this only reports whether the
-  // save spoke for the machine it was started on — writing the row here as well left two writers
-  // disagreeing about its shape.
-  const savedForThisMachine = (machineAtSave) => stillOnMachine(machineAtSave);
-
   // Everything about WHICH row this save is and WHAT it carries is decided here, when the crew acts.
   // That rule predates the queue and still holds: a queued save whose payload held the 30th must not
   // pick up an id minted for the 31st after the crew changed the date.
@@ -282,7 +276,9 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, machine = 
         dirtyRef.current = false;
         ownWriteKeyRef.current = ownKey;
       }
-      return savedForThisMachine(machineAtSave);
+      // a save resolves seconds after it starts, and by then the crew may have switched machine.
+      // App applies the row behind the same check; what this answers is only which message to show.
+      return stillOnMachine(machineAtSave);
     };
   };
 

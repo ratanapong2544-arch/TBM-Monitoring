@@ -229,13 +229,15 @@ export function createRepository(deps = {}) {
         // no `|| 0` sentinel: `Date.parse(0)` is `Date.parse("0")`, which is the year 2000, so on a
         // phone whose clock has not been set yet EVERY first refresh would look overtaken
         const overtaken = Boolean(previousRequest) && Date.parse(previousRequest) > Date.parse(requestedAt);
-        if (!overtaken) lastCompletedRequest.set(machine, requestedAt);
         let stored;
         try {
           // and never trust the overtaking write to have produced something: it can have failed on
           // quota or private browsing and returned through the cacheError path without writing
           stored = (overtaken && await readServerSnapshot(await openDb(), machine))
             || await writeServerSnapshot(await openDb(), machine, data, fetchedAt, requestedAt);
+          // recorded only once the cache actually holds this answer, so a request that failed to
+          // write does not make a later, slower one defer to a snapshot that was never produced
+          if (!overtaken) lastCompletedRequest.set(machine, requestedAt);
         } catch (writeError) {
           // The server data is already in hand. Throwing here would show an empty app to a crew
           // whose payload arrived fine, just because the cache could not be written (quota, private

@@ -23,20 +23,30 @@ function requestResult(request) {
 // and a ring deleted offline came back. Patch the list in the SAME transaction as the mutation —
 // split across two, a crash in between leaves the queue and the snapshot disagreeing about what the
 // crew recorded, which is the one state neither side can detect afterwards.
-function patchSnapshotKeys(snapshots, stored, mutation) {
+// Which stored snapshots a mutation touches. A machine-scoped entity belongs to its own machine's
+// snapshot; everything else comes back from getData for every machine, so every scope has to agree.
+// A machine whose first refresh has not happened — TBM2 on a fresh install — has no snapshot at
+// all, and without one the write has nothing to hang off: the ring the crew just recorded is simply
+// gone on the next launch, and the version the server confirmed for it is forgotten too. Start the
+// scope here rather than lose either. `fetchedAt: null` is the truth about it: nothing has come from
+// the server for this machine yet.
+function scopesFor(stored, mutation) {
+  const machineScoped = isMachineScopedEntityType(mutation.entityType);
+  const scoped = machineScoped ? stored.filter(snapshot => snapshot.machine === mutation.machine) : stored;
+  if (scoped.length || !machineScoped || !mutation.machine) return scoped;
+  return [{ scopeKey: snapshotScopeKey(mutation.machine), machine: mutation.machine, fetchedAt: null, entityKeys: {} }];
+}
+
+function patchSnapshotKeys(snapshots, entities, stored, mutation) {
   const field = FIELD_FOR_ENTITY_TYPE.get(mutation.entityType);
   if (!field) return;
-  // a machine-scoped entity belongs to its own machine's snapshot; everything else comes back from
-  // getData for every machine, so every scope has to agree
-  const machineScoped = isMachineScopedEntityType(mutation.entityType);
-  let scoped = machineScoped ? stored.filter(snapshot => snapshot.machine === mutation.machine) : stored;
-  // A machine whose first refresh has not happened — TBM2 on a fresh install — has no snapshot to
-  // patch, and without one the optimistic row has nothing to hang off: the ring the crew just
-  // recorded is simply gone on the next launch. Start the scope here rather than lose the record.
-  // `fetchedAt: null` is the truth about it: nothing has come from the server for this machine yet.
-  if (machineScoped && !scoped.length && mutation.machine) {
-    scoped = [{ scopeKey: snapshotScopeKey(mutation.machine), machine: mutation.machine, fetchedAt: null, entityKeys: {} }];
-  }
+  // Keys this patch takes OUT of a list, so their rows can be taken out of the entities store too.
+  // `writeServerSnapshot` only deletes what the previous snapshot named, so a key removed here was
+  // never deleted afterwards — and an orphan row is not inert: the merge can still find it and put
+  // it back on screen as if it were the crew's own queued work.
+  const dropped = new Set();
+  const survivingKeys = new Map();
+  const scoped = scopesFor(stored, mutation);
   const optimisticKey = optimisticEntityKey(mutation.domainKey);
   // A mutation is about ONE row. A live sheet legitimately holds two rows sharing a ring identity —
   // that is why the store key is per row and why five views run `deduplicateRecords` — so matching
@@ -72,18 +82,27 @@ function patchSnapshotKeys(snapshots, stored, mutation) {
       }
       next = slot === -1 ? keys.concat(optimisticKey) : keys.map((key, index) => (index === slot ? optimisticKey : key));
     }
+    keys.forEach(key => { if (key !== optimisticKey && !next.includes(key)) dropped.add(key); });
+    survivingKeys.set(snapshot.scopeKey, next);
     // an unchanged list is not worth a write, and the second save of one record produces exactly that
     if (next.length === keys.length && next.every((key, index) => key === keys[index])) return;
     snapshots.put({ ...snapshot, entityKeys: { ...snapshot.entityKeys, [field]: next } });
   });
+  if (!dropped.size) return;
+  // A key can be dropped from one scope and still be named by another — a project-wide entity
+  // appears in every machine's list — so this reads the lists AS PATCHED, not as they were.
+  const stillNamed = new Set();
+  stored.forEach(snapshot => Object.entries(snapshot.entityKeys || {}).forEach(([listField, list]) => {
+    const patched = listField === field && survivingKeys.has(snapshot.scopeKey) ? survivingKeys.get(snapshot.scopeKey) : list;
+    patched.forEach(key => stillNamed.add(key));
+  }));
+  dropped.forEach(key => { if (!stillNamed.has(key)) entities.delete(key); });
 }
 
 // The stored snapshot carries `syncMeta` as a singleton, and `readServerSnapshot` hands it straight
 // back — so writing a confirmed version here is what makes it outlive the tab.
 function patchSnapshotSyncMeta(snapshots, stored, mutation, version, deleted) {
-  const scoped = isMachineScopedEntityType(mutation.entityType)
-    ? stored.filter(snapshot => snapshot.machine === mutation.machine)
-    : stored;
+  const scoped = scopesFor(stored, mutation);
   scoped.forEach(snapshot => {
     const current = (snapshot.syncMeta && snapshot.syncMeta[mutation.domainKey]) || null;
     // a snapshot fetched after this write already knows a later version; never walk it backwards
@@ -140,7 +159,7 @@ export async function putOptimisticMutation(db, input) {
   transaction.objectStore(STORES.entities).put(entity);
   transaction.objectStore(STORES.mutations).put(mutation);
   sequenceStore.put({ key: "mutationSequence", value: mutation.queueSequence });
-  patchSnapshotKeys(snapshotStoreHandle, snapshots, mutation);
+  patchSnapshotKeys(snapshotStoreHandle, transaction.objectStore(STORES.entities), snapshots, mutation);
   await complete(transaction);
   return { mutation, entity };
 }
@@ -281,7 +300,10 @@ export async function confirmMutation(db, requestId, response, { owner, confirme
         // that door on the way in, and rebasing indiscriminately reopened it for this device's own
         // second create. A create behind a confirmed DELETE is the opposite case: the key really was
         // vacated, and the version it must claim is the one the delete just wrote.
-        && (item.operation !== "create" || mutation.operation === "delete"))
+        // `leavesDeleted`, not the operation: a delete the server refused and the crew resolved by
+        // keeping the server's copy leaves the record ALIVE, and rebasing a queued create onto that
+        // version would tell GAS it is a post-conflict successor for a row that still exists
+        && (item.operation !== "create" || leavesDeleted(mutation)))
       .forEach(item => {
         const patched = { ...item, baseVersion: confirmedVersion };
         rebased.set(item.requestId, patched);

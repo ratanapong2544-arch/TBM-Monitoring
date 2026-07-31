@@ -48,15 +48,40 @@ export function buildMutationEnvelope({ entityType, operation, machine, recordId
   if (operation === "update" && identity && reidentifies({ entityType, machine, recordId, payload, identity })) {
     throw new ReidentifiedRecordError(makeDomainKey({ entityType, machine, recordId, payload: identity }), domainKey);
   }
+  // An UPDATE onto a key the server has tombstoned is refused outright — `applySyncMutation_`
+  // answers SYNC_RECORD_DELETED, which is terminal and parks at the head of the record's domain.
+  // That is reachable without anyone deleting the record being edited: GAS tombstones the whole
+  // ring KEY, and a ring can legitimately carry two rows, so deleting one makes every later edit of
+  // the OTHER unsendable for the rest of the drive. The server's own message says what to do
+  // instead — "recreate it instead of updating" — and a create claiming the tombstone's version
+  // lifts it and merges onto the row that is still there, which is what the legacy write did before
+  // this task. Same payload, same record id, same key; only the verb changes.
+  const revivesTombstone = operation === "update" && known && known.deleted;
+  const effectiveOperation = revivesTombstone ? "create" : operation;
   return {
     entityType,
-    operation,
+    operation: effectiveOperation,
     machine,
     recordId,
-    payload,
+    payload: withoutQueuedPhotoMarker(payload),
     domainKey,
-    baseVersion: operation === "create" ? createBaseVersion(known) : toSyncVersion(known && known.version),
+    baseVersion: effectiveOperation === "create" ? createBaseVersion(known) : toSyncVersion(known && known.version),
   };
+}
+
+// `"Attached"` is a marker this app puts on a row whose photo has not synced yet — it means "there
+// is a photo, no link for it yet". It is not a value, and GAS merges every payload key onto the
+// stored record, so sending it overwrote a real Drive URL the server had already minted: the file
+// is orphaned and both data logs then show no photo at all. The window used to be seconds; with the
+// queue it is a whole shift, because an edit rides behind the create that uploads the file.
+const QUEUED_PHOTO_MARKER = "Attached";
+const PHOTO_URL_KEYS = ["imageUrl", "excavImageUrl"];
+
+function withoutQueuedPhotoMarker(payload) {
+  if (!payload || !PHOTO_URL_KEYS.some(key => payload[key] === QUEUED_PHOTO_MARKER)) return payload;
+  const clean = { ...payload };
+  PHOTO_URL_KEYS.forEach(key => { if (clean[key] === QUEUED_PHOTO_MARKER) delete clean[key]; });
+  return clean;
 }
 
 // What a create claims depends on whether that identity is free, taken, or vacated.

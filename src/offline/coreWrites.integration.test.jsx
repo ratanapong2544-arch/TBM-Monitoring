@@ -225,6 +225,25 @@ test("editing primary grout from the data log queues an update", async () => {
   view.unmount();
 });
 
+test("editing a record does not send the queued-photo marker as its photo URL", async () => {
+  // "Attached" is this app's marker for a photo that has not synced yet — there is a photo, no link
+  // for it. GAS merges every payload key onto the stored record, so sending it overwrote a real
+  // Drive URL the server had already minted: the file is orphaned and both data logs then show no
+  // photo at all. With the queue the window is a whole shift, because an edit rides behind the
+  // create that uploads the file.
+  const grouts = [{ id: "g1", ringNo: "P41", partA: "12.5", partB: "6.25", pressure: "3.2", total: 18.75, groutPass: "1st Pass", date: "2026-07-30", positions: {}, imageUrl: "Attached" }];
+  const view = render(
+    <GroutDashboardView groutRecords={grouts} secondaryGroutRecords={[]} segmentRecords={[]} machine="TBM1"
+      syncMeta={{ "grout:TBM1:P41:1st Pass": { version: 5 } }} onMutate={onMutate} />
+  );
+  await click(view.container.querySelector("tbody tr"));
+  await click(byTitle(view.container, "Edit"));
+  await click(button(view.container, /Save Changes/));
+
+  expect("imageUrl" in onMutate.mock.calls[0][0].payload).toBe(false);
+  view.unmount();
+});
+
 test("editing grout sends the injection positions as an object, not a string", async () => {
   // the one-shot write stringified these because GAS wanted text; the queue serializes the payload
   // itself on the way out (`serializeSyncRowValues_` encodes each cell once), and the SAME payload

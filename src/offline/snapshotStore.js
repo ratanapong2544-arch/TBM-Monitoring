@@ -218,7 +218,14 @@ export async function writeServerSnapshot(db, machine, data, fetchedAt, requeste
         const ids = incomingIdsByDomain.get(record.domainKey);
         if (ids && ids.has(String(localId))) return false;
         const queued = unresolvedByDomain.get(record.domainKey);
-        return Boolean(queued) && queued.operation !== "create" && !deletePending(record.domainKey, localId);
+        if (!queued || queued.operation === "create") return false;
+        // and it has to be the row that mutation is ABOUT. Two rows can share a ring, and the
+        // entities store keeps a row after its key leaves a snapshot — so without this, a pending
+        // edit of one row re-injected its long-deleted neighbour: back in the data log badged as the
+        // crew's own queued work, counted by the dashboards and the shift report's ring total, and
+        // last in the list, where the record form can adopt it as the open ring.
+        if (String(localId) !== String(queued.recordId)) return false;
+        return !deletePending(record.domainKey, localId);
       })
       // the store holds two rows for a record mid-edit — the server copy from the last refresh and
       // the optimistic one — and the crew's own copy is the one to keep

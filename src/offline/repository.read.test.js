@@ -198,6 +198,62 @@ test("an edit of a row the sheet returned without an id reads the same before an
   expect(onRefresh.map(row => row.length).sort()).toEqual(["1.40", "9.99"]);
 });
 
+test("a pending edit of one row does not bring back its long-deleted neighbour", async () => {
+  // A row's entity survives its key leaving the snapshot, and the merge re-injects local rows whose
+  // sheet row is missing — so an ordinary pending edit of the SURVIVOR dragged the deleted row back
+  // with it. Back in the data log badged as the crew's own queued work, counted by the dashboards
+  // and the shift report's ring total, and last in the list, where the record form can adopt it as
+  // the open ring and stamp the next save with a row id the sheet no longer has.
+  const repository = createRepository({ openDb: openOfflineDb, fetchServerSnapshot: async () => ({ segments: twoRowsOnOneRing }) });
+  await repository.refresh("TBM1");
+  const removal = await repository.mutate({
+    entityType: "segment", operation: "delete", machine: "TBM1", recordId: "seg_a",
+    payload: { id: "seg_a", ringNo: "P643", installType: "Permanent" }, baseVersion: 0,
+    domainKey: "segment:TBM1:P643:Permanent",
+  });
+  await repository.applySyncSuccess(removal.requestId, {
+    requestId: removal.requestId, status: "success",
+    record: { id: "seg_a", deleted: true }, version: 2, updatedAt: "2026-07-30T02:00:00.000Z",
+  });
+  // and now an ordinary offline edit of the row that is still there
+  await repository.mutate({
+    entityType: "segment", operation: "update", machine: "TBM1", recordId: "seg_b",
+    payload: { id: "seg_b", ringNo: "P643", installType: "Permanent", length: "9.99" }, baseVersion: 2,
+    domainKey: "segment:TBM1:P643:Permanent",
+  });
+
+  const sheetWithoutA = createRepository({ openDb: openOfflineDb, fetchServerSnapshot: async () => ({ segments: [twoRowsOnOneRing[1]] }) });
+  expect((await sheetWithoutA.refresh("TBM1")).data.segments.map(row => row.id)).toEqual(["seg_b"]);
+  expect((await sheetWithoutA.load("TBM1")).data.segments.map(row => row.id)).toEqual(["seg_b"]);
+  // and its row is gone from the store, not merely unlisted: a key removed from a snapshot list was
+  // never deleted afterwards, because a refresh only deletes what the PREVIOUS snapshot named
+  const db = await openOfflineDb();
+  const keys = await new Promise((resolve, reject) => {
+    const request = db.transaction("entities").objectStore("entities").getAllKeys();
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+  expect(keys.filter(key => String(key).includes("seg_a"))).toEqual([]);
+});
+
+test("another device's deletion does not come back through this device's pending edit", async () => {
+  // The same re-injection without any local delete at all, so no orphan cleanup is involved: the
+  // other row's entity is a perfectly ordinary cached server row. A pending edit of the survivor
+  // must speak only for the row it names — the merge is not entitled to bring its neighbour along.
+  const repository = createRepository({ openDb: openOfflineDb, fetchServerSnapshot: async () => ({ segments: twoRowsOnOneRing }) });
+  await repository.refresh("TBM1");
+  await repository.mutate({
+    entityType: "segment", operation: "update", machine: "TBM1", recordId: "seg_b",
+    payload: { id: "seg_b", ringNo: "P643", installType: "Permanent", length: "9.99" }, baseVersion: 0,
+    domainKey: "segment:TBM1:P643:Permanent",
+  });
+
+  // another device removes seg_a; this device never queued anything about it
+  const sheetWithoutA = createRepository({ openDb: openOfflineDb, fetchServerSnapshot: async () => ({ segments: [twoRowsOnOneRing[1]] }) });
+
+  expect((await sheetWithoutA.refresh("TBM1")).data.segments.map(row => row.id)).toEqual(["seg_b"]);
+});
+
 test("a confirmed delete of one row does not hide its neighbour", async () => {
   // the confirmed half of the tombstone names a row exactly as the pending half does; ignoring which
   // row it named took both off screen, on a device whose crew asked for neither
@@ -481,6 +537,47 @@ test("a confirmed version does not walk backwards, and does not leak to the othe
 
   expect((await repository.load("TBM1")).data.syncMeta["segment:TBM1:P643:Permanent"]).toMatchObject({ version: 9 });
   expect((await repository.load("TBM2")).data.syncMeta["segment:TBM1:P643:Permanent"]).toBeUndefined();
+});
+
+test("deleting one row of a ring does not make the other one uneditable", async () => {
+  // GAS tombstones the whole ring KEY on any delete, and then refuses every later update on it with
+  // SYNC_RECORD_DELETED — terminal, parked at the head of the ring's domain. A ring can legitimately
+  // carry two rows, so deleting one made every later correction of the OTHER unsendable for the rest
+  // of the drive: the screen keeps showing the correction, the sheet keeps the old value, and there
+  // is no in-app way out before Task 10. The legacy write merged and revived the key; the queue has
+  // to do the same, which is what the server's own message asks for.
+  const repository = createRepository({
+    openDb: openOfflineDb,
+    fetchServerSnapshot: async () => ({
+      segments: twoRowsOnOneRing,
+      syncMeta: { "segment:TBM1:P643:Permanent": { version: 1, deleted: true } },
+    }),
+  });
+  const { data } = await repository.refresh("TBM1");
+
+  const envelope = buildMutationEnvelope({
+    entityType: "segment", operation: "update", machine: "TBM1", recordId: "seg_b",
+    payload: { id: "seg_b", ringNo: "P643", installType: "Permanent", length: "9.99" }, syncMeta: data.syncMeta,
+  });
+
+  expect(envelope.operation).toBe("create"); // "recreate it instead of updating", in the server's words
+  expect(envelope.baseVersion).toBe(1);      // claiming the tombstone is what lifts it
+  expect(envelope.recordId).toBe("seg_b");   // same row, same key, only the verb changed
+  expect(envelope.domainKey).toBe("segment:TBM1:P643:Permanent");
+});
+
+test("an ordinary edit of a live record stays an update", async () => {
+  // the reviving branch must be narrow: a key that is not tombstoned is edited as an edit
+  const repository = createRepository({
+    openDb: openOfflineDb,
+    fetchServerSnapshot: async () => ({ segments: [], syncMeta: { "segment:TBM1:P643:Permanent": { version: 4, deleted: false } } }),
+  });
+  const { data } = await repository.refresh("TBM1");
+
+  expect(buildMutationEnvelope({
+    entityType: "segment", operation: "update", machine: "TBM1", recordId: "seg_b",
+    payload: { id: "seg_b", ringNo: "P643", installType: "Permanent" }, syncMeta: data.syncMeta,
+  })).toMatchObject({ operation: "update", baseVersion: 4 });
 });
 
 test("a ring another crew still holds is not quietly taken over by a second record", async () => {

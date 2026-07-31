@@ -86,9 +86,14 @@ export async function writeServerSnapshot(db, machine, data, fetchedAt) {
   // a delete still in the queue is a tombstone: the server has not seen it yet, so it keeps
   // returning the row, and overlaying the optimistic copy would put the deleted ring back on screen
   // at the next refresh. Hide it until the mutation leaves the queue one way or the other.
+  // The tombstone lasts exactly as long as the delete is still on its way. A delete the server
+  // refused or flagged as a conflict is not on its way to anything: keeping the row hidden takes it
+  // off this device's every screen while it sits on the sheet, permanently, with nothing to see and
+  // nothing to press — there is no conflict UI until Task 10. In flight it hides; stuck it shows.
   const deletePending = domainKey => {
     const mutation = unresolvedByDomain.get(domainKey);
-    return Boolean(mutation && mutation.operation === "delete");
+    if (!mutation || mutation.operation !== "delete") return false;
+    return mutation.status === MUTATION_STATUS.PENDING || mutation.status === MUTATION_STATUS.SYNCING;
   };
   const terminalStatus = domainKey => terminalByDomain.get(domainKey);
   const preserveLocal = record => Boolean(unresolvedStatus(record.domainKey)) || (!terminalStatus(record.domainKey) && UNRESOLVED_STATUSES.has(record.payload && record.payload.syncStatus));

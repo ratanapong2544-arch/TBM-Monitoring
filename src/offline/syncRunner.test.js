@@ -66,6 +66,88 @@ test("records server conflicts and continues with an unrelated domain", async ()
   await expect(repository.getMutation(second.requestId)).resolves.toMatchObject({ status: "synced" });
 });
 
+// A server that enforces the version rule GAS enforces (`checkSyncVersion_`: base must equal
+// current, or it is a conflict), because that rule is what an offline chain of edits runs into. The
+// fakes above answer "success" no matter what `baseVersion` says, so they cannot see this at all.
+function versionedServer() {
+  const versions = new Map();
+  const post = jest.fn(async mutation => {
+    const current = versions.get(mutation.domainKey) || 0;
+    if ((mutation.baseVersion || 0) !== current) {
+      return {
+        status: "conflict", requestId: mutation.requestId,
+        serverRecord: { id: mutation.recordId }, localRecord: mutation.payload,
+        conflictingFields: ["status"], currentVersion: current,
+      };
+    }
+    versions.set(mutation.domainKey, current + 1);
+    return {
+      status: "success", requestId: mutation.requestId,
+      record: { ...mutation.payload, id: mutation.recordId },
+      version: current + 1, updatedAt: "2026-07-29T00:01:00.000Z",
+    };
+  });
+  return { post, versions };
+}
+
+const ring = (operation, payload, baseVersion = 0) => ({
+  entityType: "segment", operation, machine: "TBM1", recordId: "seg_644", baseVersion,
+  payload: { ringNo: "P644", installType: "Permanent", ...payload },
+});
+
+test("every edit made offline on one ring reaches the sheet when the link returns", async () => {
+  // The core TBM flow, done underground with no link: the ring is saved In Progress when it is
+  // excavated and saved again Completed when it is erected. Both are queued before anything can
+  // confirm, so both are stamped with the only version this device knows — 0. The first lands and
+  // takes the record to version 1; the second still claims 0, and the server answers `conflict` for
+  // a row nobody else has touched. That conflict then sits at the head of the domain and blocks
+  // every later edit of the ring, with no conflict UI until Task 10 to show any of it: the app says
+  // Completed, the sheet says In Progress with no install times, and nothing on screen disagrees.
+  const server = versionedServer();
+  const { repository, runner } = setup(server.post);
+  const created = await repository.mutate(ring("create", { status: "In Progress" }));
+  const completed = await repository.mutate(ring("update", { status: "Completed", installEndTime: "18:30" }));
+
+  await runner.runNow();
+  await runner.runNow(); // one trigger per drain here; the backlog rule is the next test's job
+
+  await expect(repository.getMutation(created.requestId)).resolves.toMatchObject({ status: "synced" });
+  await expect(repository.getMutation(completed.requestId)).resolves.toMatchObject({ status: "synced" });
+  // and the second edit went out rebased on what the first one confirmed, not on the stale 0
+  expect(server.post.mock.calls.map(([m]) => m.baseVersion)).toEqual([0, 1]);
+});
+
+test("one trigger drains a backlog queued on a single record", async () => {
+  // `claimDueMutations` returns one mutation per domain — the head — so a shift report with three
+  // time bars added offline needs three separate triggers to drain. The triggers are online/focus/
+  // visibilitychange and each new write, so a PWA left open at the site office can sit for hours
+  // with recorded work still in the queue and nothing on screen saying so.
+  const server = versionedServer();
+  const { repository, runner } = setup(server.post);
+  await repository.mutate(ring("create", { status: "In Progress" }));
+  await repository.mutate(ring("update", { status: "In Progress", excavEndTime: "12:00" }));
+  const last = await repository.mutate(ring("update", { status: "Completed", installEndTime: "18:30" }));
+
+  await expect(runner.runNow()).resolves.toMatchObject({ attempted: 3, synced: 3 });
+  await expect(repository.getMutation(last.requestId)).resolves.toMatchObject({ status: "synced" });
+});
+
+test("a domain that conflicts stops draining instead of spinning", async () => {
+  // the drain loop must not turn a blocked domain into an endless retry: the conflict is the head
+  // of its domain and stays claimable-looking until Task 10 resolves it
+  const post = jest.fn(async mutation => ({
+    status: "conflict", requestId: mutation.requestId,
+    serverRecord: { id: mutation.recordId }, localRecord: mutation.payload,
+    conflictingFields: ["status"], currentVersion: 9,
+  }));
+  const { repository, runner } = setup(post);
+  await repository.mutate(ring("create", { status: "In Progress" }));
+  await repository.mutate(ring("update", { status: "Completed" }));
+
+  await expect(runner.runNow()).resolves.toMatchObject({ attempted: 1, conflicts: 1 });
+  expect(post).toHaveBeenCalledTimes(1);
+});
+
 test("runNow is single-flight and start only triggers while visible and online", async () => {
   let resolvePost;
   let markStarted;

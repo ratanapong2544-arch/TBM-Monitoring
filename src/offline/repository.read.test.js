@@ -53,6 +53,74 @@ test("a ring created offline is still there after a relaunch with no server", as
   expect(rings).toContain("P644");
 });
 
+test("a ring edited offline still shows the edit after a relaunch with no server", async () => {
+  // An update writes its optimistic copy under its own key, which is NOT the key the server row
+  // occupies, so the stored key list still points at the pre-edit payload. The crew reopens the app
+  // underground and the ring reads In Progress with no install times — work they recorded hours ago.
+  // What they do then is re-enter it, which queues a second edit on the same record.
+  const repository = createRepository({ openDb: openOfflineDb, fetchServerSnapshot: async () => ({ segments: [{ id: "s1", ringNo: "P643", status: "In Progress", installEndTime: "" }] }) });
+  await repository.refresh("TBM1");
+  await repository.mutate({
+    entityType: "segment", operation: "update", machine: "TBM1", recordId: "s1",
+    payload: { id: "s1", ringNo: "P643", status: "Completed", installEndTime: "18:30" }, baseVersion: 0,
+    domainKey: "segment:TBM1:P643:Permanent",
+  });
+
+  const reloaded = createRepository({ openDb: openOfflineDb, fetchServerSnapshot: async () => { throw new Error("offline"); } });
+  const rows = (await reloaded.load("TBM1")).data.segments;
+  expect(rows).toHaveLength(1); // the edit replaces the row, it does not add a second one
+  expect(rows[0]).toMatchObject({ ringNo: "P643", status: "Completed", installEndTime: "18:30" });
+});
+
+test("a ring created offline on a machine never fetched survives a relaunch", async () => {
+  // TBM2 on a fresh install, or any machine whose first refresh has not happened: there is no stored
+  // snapshot to patch, so the optimistic row had nothing to attach to and the ring was simply gone.
+  const repository = createRepository({ openDb: openOfflineDb, fetchServerSnapshot: async () => { throw new Error("offline"); } });
+  await repository.mutate({
+    entityType: "segment", operation: "create", machine: "TBM2", recordId: "seg_new",
+    payload: { id: "seg_new", ringNo: "P1" }, baseVersion: 0,
+    domainKey: "segment:TBM2:P1:Permanent",
+  });
+
+  const reloaded = createRepository({ openDb: openOfflineDb, fetchServerSnapshot: async () => { throw new Error("offline"); } });
+  expect((await reloaded.load("TBM2")).data.segments.map(row => row.ringNo)).toEqual(["P1"]);
+});
+
+test("a ring created offline over a row the server already has does not appear twice", async () => {
+  // the crew records a ring the sheet turns out to already hold — a second device got there first,
+  // or the row predates sync. One ring, one line: a duplicate here reads as two rings erected.
+  const repository = createRepository({ openDb: openOfflineDb, fetchServerSnapshot: async () => ({ segments: [{ id: "s1", ringNo: "P643" }] }) });
+  await repository.refresh("TBM1");
+  await repository.mutate({
+    entityType: "segment", operation: "create", machine: "TBM1", recordId: "s2",
+    payload: { id: "s2", ringNo: "P643", status: "In Progress" }, baseVersion: 0,
+    domainKey: "segment:TBM1:P643:Permanent",
+  });
+
+  const reloaded = createRepository({ openDb: openOfflineDb, fetchServerSnapshot: async () => { throw new Error("offline"); } });
+  expect((await reloaded.load("TBM1")).data.segments.filter(row => row.ringNo === "P643")).toHaveLength(1);
+});
+
+test("a delete the server refused stops hiding the row", async () => {
+  // the tombstone must last exactly as long as the delete is still on its way. A delete GAS refused
+  // is not on its way to anything: leaving the row hidden takes it off this device's every screen
+  // while it sits on the sheet, permanently, with nothing to see and nothing to press.
+  const repository = createRepository({ openDb: openOfflineDb, fetchServerSnapshot: async () => ({ segments: [{ id: "s1", ringNo: "P643" }] }) });
+  await repository.refresh("TBM1");
+  const queued = await repository.mutate({
+    entityType: "segment", operation: "delete", machine: "TBM1", recordId: "s1",
+    payload: { id: "s1", ringNo: "P643" }, baseVersion: 0,
+    domainKey: "segment:TBM1:P643:Permanent",
+  });
+  await repository.updateMutation(queued.requestId, {
+    status: "validation_error",
+    lastError: { code: "VALIDATION", fields: ["recordId"], message: "refused" },
+  });
+
+  const refreshed = await repository.refresh("TBM1");
+  expect(refreshed.data.segments.map(row => row.ringNo)).toContain("P643");
+});
+
 test("a ring deleted offline stays deleted after a relaunch with no server", async () => {
   const repository = createRepository({ openDb: openOfflineDb, fetchServerSnapshot: async () => ({ segments: [{ id: "s1", ringNo: "P643" }] }) });
   await repository.refresh("TBM1");

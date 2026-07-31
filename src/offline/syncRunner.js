@@ -24,8 +24,23 @@ export function createSyncRunner({ repository, transport, clock = Date, jitter =
   async function execute() {
     const result = { attempted: 0, synced: 0, conflicts: 0, errors: 0 };
     if (!canRun()) return result;
+    // `claimDueMutations` hands back one mutation per domain — the head — so a single pass drains at
+    // most one edit per record. A shift report with three time bars added offline would need three
+    // separate triggers, and the triggers are online/focus/visibilitychange and each new write: a
+    // PWA left open at the site office can sit for hours with recorded work still queued and nothing
+    // on screen saying so. Keep passing while a pass actually SYNCED something — progress is the
+    // loop's only exit condition, so a conflicted or erroring domain (which stays at its head until
+    // Task 10 resolves it) ends the drain instead of spinning on it.
+    let pass = await drainOnce(result);
+    while (pass > 0) pass = await drainOnce(result);
+    return result;
+  }
+
+  async function drainOnce(result) {
+    const before = result.synced;
     const blockedDomains = new Set();
     const mutations = await repository.claimDueMutations({ owner, now: currentTime(clock), leaseMs });
+    if (!mutations.length) return 0;
     for (const mutation of mutations) {
       if (blockedDomains.has(mutation.domainKey)) continue;
       result.attempted += 1;
@@ -54,7 +69,7 @@ export function createSyncRunner({ repository, transport, clock = Date, jitter =
         blockedDomains.add(mutation.domainKey);
       }
     }
-    return result;
+    return result.synced - before;
   }
 
   function runNow() {

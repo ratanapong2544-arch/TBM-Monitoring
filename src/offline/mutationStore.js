@@ -1,5 +1,5 @@
 import { MUTATION_STATUS, STORES } from "./schema";
-import { entityKeyBelongsToDomain, FIELD_FOR_ENTITY_TYPE, isMachineScopedEntityType, optimisticEntityKey } from "./snapshotStore";
+import { entityKeyBelongsToDomain, FIELD_FOR_ENTITY_TYPE, isMachineScopedEntityType, optimisticEntityKey, snapshotScopeKey } from "./snapshotStore";
 
 function complete(transaction) {
   return new Promise((resolve, reject) => {
@@ -23,20 +23,40 @@ function requestResult(request) {
 // crew recorded, which is the one state neither side can detect afterwards.
 async function patchSnapshotKeys(transaction, mutation) {
   const field = FIELD_FOR_ENTITY_TYPE.get(mutation.entityType);
-  if (!field || (mutation.operation !== "create" && mutation.operation !== "delete")) return;
+  if (!field) return;
   const snapshots = transaction.objectStore(STORES.snapshots);
   const stored = await requestResult(snapshots.getAll());
   // a machine-scoped entity belongs to its own machine's snapshot; everything else comes back from
   // getData for every machine, so every scope has to agree
-  const scoped = isMachineScopedEntityType(mutation.entityType)
-    ? stored.filter(snapshot => snapshot.machine === mutation.machine)
-    : stored;
+  const machineScoped = isMachineScopedEntityType(mutation.entityType);
+  let scoped = machineScoped ? stored.filter(snapshot => snapshot.machine === mutation.machine) : stored;
+  // A machine whose first refresh has not happened — TBM2 on a fresh install — has no snapshot to
+  // patch, and without one the optimistic row has nothing to hang off: the ring the crew just
+  // recorded is simply gone on the next launch. Start the scope here rather than lose the record.
+  // `fetchedAt: null` is the truth about it: nothing has come from the server for this machine yet.
+  if (machineScoped && !scoped.length && mutation.machine) {
+    scoped = [{ scopeKey: snapshotScopeKey(mutation.machine), machine: mutation.machine, fetchedAt: null, entityKeys: {} }];
+  }
+  const optimisticKey = optimisticEntityKey(mutation.domainKey);
   scoped.forEach(snapshot => {
     const keys = (snapshot.entityKeys && snapshot.entityKeys[field]) || [];
-    const next = mutation.operation === "delete"
-      ? keys.filter(key => !entityKeyBelongsToDomain(key, mutation.domainKey))
-      : keys.concat(keys.includes(optimisticEntityKey(mutation.domainKey)) ? [] : [optimisticEntityKey(mutation.domainKey)]);
-    if (next.length === keys.length && mutation.operation === "delete") return;
+    let next;
+    if (mutation.operation === "delete") {
+      next = keys.filter(key => !entityKeyBelongsToDomain(key, mutation.domainKey));
+    } else {
+      // Create and update are the same operation as far as this list is concerned: put the
+      // optimistic copy where the domain's row already sits, or append it if the domain has none.
+      // Replacing rather than appending is what stops a create over a row the sheet already holds
+      // from reading as two rings, and it is the only way an update becomes visible at all — its
+      // optimistic copy lives under a different key from the server row it supersedes.
+      // Only the FIRST matching key is replaced: a live sheet legitimately holds two rows sharing a
+      // ring identity, and `writeServerSnapshot` overlays at most one of them for the same reason.
+      const slot = keys.findIndex(key => entityKeyBelongsToDomain(key, mutation.domainKey));
+      if (slot === -1) next = keys.concat(optimisticKey);
+      else if (keys[slot] === optimisticKey) next = keys;
+      else next = keys.map((key, index) => (index === slot ? optimisticKey : key));
+    }
+    if (next === keys) return;
     snapshots.put({ ...snapshot, entityKeys: { ...snapshot.entityKeys, [field]: next } });
   });
 }
@@ -176,8 +196,33 @@ export async function confirmMutation(db, requestId, response, { owner } = {}) {
   }
   const next = { ...mutation, status: MUTATION_STATUS.SYNCED, syncedAt: response.updatedAt || null, lastError: null, syncOwner: null, leaseExpiresAt: null };
   mutationStore.put(next);
+  // Rebase what is still queued behind this one on the same record. Offline, a whole chain of edits
+  // is stamped with the only version the device knows — the one the last full snapshot carried, or 0
+  // for a record it created itself — because nothing confirms while there is no link. The first
+  // mutation then lands and moves the record on, and every one behind it still claims the old
+  // version: the server compares base against current exactly and answers `conflict` for a row
+  // nobody else has touched. That conflict becomes the head of its domain and blocks every later
+  // edit of the record for good, with no conflict UI until Task 10 to show any of it. The core TBM
+  // flow walks straight into it — a ring saved In Progress at excavation and Completed at install —
+  // and so does every time bar after the first on an offline shift report.
+  //
+  // Rebasing on the CONFIRMED version is what makes the chain linear: each queued edit was composed
+  // against the local state the previous one produced, not against anything the server has. The
+  // confirmed version is also always the freshest the device has seen, since the server hands back
+  // the version it just wrote.
+  const rebased = new Map();
+  const confirmedVersion = Number.isInteger(response.version) ? response.version : null;
+  if (confirmedVersion !== null) {
+    mutations
+      .filter(item => item.domainKey === mutation.domainKey && item.requestId !== requestId && !isTerminal(item))
+      .forEach(item => {
+        const patched = { ...item, baseVersion: confirmedVersion };
+        rebased.set(item.requestId, patched);
+        mutationStore.put(patched);
+      });
+  }
   const newestOutstanding = mutations
-    .map(item => item.requestId === requestId ? next : item)
+    .map(item => (item.requestId === requestId ? next : rebased.get(item.requestId) || item))
     .filter(item => item.domainKey === mutation.domainKey && !isTerminal(item))
     .sort((left, right) => (right.queueSequence || 0) - (left.queueSequence || 0))[0];
   if (newestOutstanding) {

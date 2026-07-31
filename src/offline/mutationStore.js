@@ -22,11 +22,9 @@ function requestResult(request) {
 // and a ring deleted offline came back. Patch the list in the SAME transaction as the mutation —
 // split across two, a crash in between leaves the queue and the snapshot disagreeing about what the
 // crew recorded, which is the one state neither side can detect afterwards.
-async function patchSnapshotKeys(transaction, mutation) {
+function patchSnapshotKeys(snapshots, stored, mutation) {
   const field = FIELD_FOR_ENTITY_TYPE.get(mutation.entityType);
   if (!field) return;
-  const snapshots = transaction.objectStore(STORES.snapshots);
-  const stored = await requestResult(snapshots.getAll());
   // a machine-scoped entity belongs to its own machine's snapshot; everything else comes back from
   // getData for every machine, so every scope has to agree
   const machineScoped = isMachineScopedEntityType(mutation.entityType);
@@ -83,7 +81,18 @@ function optimisticEntity(mutation, status = mutation.status) {
 export async function putOptimisticMutation(db, input) {
   const transaction = db.transaction([STORES.entities, STORES.mutations, STORES.syncMeta, STORES.snapshots], "readwrite");
   const sequenceStore = transaction.objectStore(STORES.syncMeta);
-  const sequence = await requestResult(sequenceStore.get("mutationSequence"));
+  const snapshotStoreHandle = transaction.objectStore(STORES.snapshots);
+  // Both reads are issued together and awaited before anything is written. A transaction stays
+  // alive while its own requests are outstanding, so interleaving reads after writes would leave
+  // the queue's durability resting on how promptly a microtask happens to run — and a
+  // TransactionInactiveError here surfaces to the crew as a save that failed, for a save that had
+  // already been composed. All four stores are written below, in one atomic step: split the
+  // snapshot patch into a second transaction and a crash between them leaves the queue and the
+  // snapshot disagreeing about what was recorded, which is the one state neither side can detect.
+  const [sequence, snapshots] = await Promise.all([
+    requestResult(sequenceStore.get("mutationSequence")),
+    requestResult(snapshotStoreHandle.getAll()),
+  ]);
   const mutation = {
     ...input,
     status: MUTATION_STATUS.PENDING,
@@ -96,7 +105,7 @@ export async function putOptimisticMutation(db, input) {
   transaction.objectStore(STORES.entities).put(entity);
   transaction.objectStore(STORES.mutations).put(mutation);
   sequenceStore.put({ key: "mutationSequence", value: mutation.queueSequence });
-  await patchSnapshotKeys(transaction, mutation);
+  patchSnapshotKeys(snapshotStoreHandle, snapshots, mutation);
   await complete(transaction);
   return { mutation, entity };
 }

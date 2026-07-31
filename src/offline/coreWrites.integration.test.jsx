@@ -225,6 +225,28 @@ test("editing primary grout from the data log queues an update", async () => {
   view.unmount();
 });
 
+test("editing grout sends the injection positions as an object, not a string", async () => {
+  // the one-shot write stringified these because GAS wanted text; the queue serializes the payload
+  // itself on the way out (`serializeSyncRowValues_` encodes each cell once), and the SAME payload
+  // is what the snapshot store overlays and the app then renders. Sending a string put a string back
+  // on screen — the ring visualiser reads `positions` as an object, and the next save would encode
+  // the string again into a cell no parse recovers. The create path is covered elsewhere; the update
+  // path lost its stringify in this task and had nothing watching it.
+  const grouts = [{ id: "g1", ringNo: "P41", partA: "12.5", partB: "6.25", pressure: "3.2", total: 18.75, groutPass: "1st Pass", date: "2026-07-30", positions: { A: true, B1: false, B2: false, C1: false, C2: false, K: false } }];
+  const view = render(
+    <GroutDashboardView groutRecords={grouts} secondaryGroutRecords={[]} segmentRecords={[]} machine="TBM1"
+      syncMeta={{ "grout:TBM1:P41:1st Pass": { version: 5 } }} onMutate={onMutate} />
+  );
+  await click(view.container.querySelector("tbody tr"));
+  await click(byTitle(view.container, "Edit"));
+  await click(button(view.container, /Save Changes/));
+
+  const { payload } = onMutate.mock.calls[0][0];
+  expect(typeof payload.positions).toBe("object");
+  expect(payload.positions).toMatchObject({ A: true, K: false });
+  view.unmount();
+});
+
 test("deleting primary grout from the data log queues a delete", async () => {
   const grouts = [{ id: "g1", ringNo: "P41", partA: "12.5", partB: "6.25", pressure: "3.2", total: 18.75, groutPass: "1st Pass", date: "2026-07-30", positions: {} }];
   const view = render(

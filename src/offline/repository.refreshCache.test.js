@@ -48,6 +48,23 @@ test("both refresh paths carry the server's own payload, untouched", async () =>
   expect(uncached.serverPayload).toBe(raw);
 });
 
+test("both refresh paths report which collections the response carried", async () => {
+  // `present` is what stops an absent collection reading as an empty one. It was dropped on the
+  // cache-write-ok path once already — `writeServerSnapshot` rebuilds its return value — which shut
+  // the create-a-report gate on every healthy device. The cacheError path had it and was untested,
+  // so a tidy-up there would reproduce that blocker for private-browsing and over-quota devices.
+  const raw = { status: "success", segments: [{ id: "s1", ringNo: "P1", machine: "TBM1" }] };
+
+  const cached = await makeRepository({ fetchServerSnapshot: async () => raw }).refresh("TBM1");
+  expect(cached.data.present).toMatchObject({ segments: true, shiftReports: false });
+
+  const uncached = await makeRepository({
+    fetchServerSnapshot: async () => raw,
+    writeServerSnapshot: async () => { throw new Error("QuotaExceededError"); },
+  }).refresh("TBM1");
+  expect(uncached.data.present).toMatchObject({ segments: true, shiftReports: false });
+});
+
 test("a successful refresh is not flagged stale", async () => {
   const repository = makeRepository();
 

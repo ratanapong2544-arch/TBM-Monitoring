@@ -6,7 +6,7 @@
 
 Round 11 returned PASS on both axes and recommended shipping. Round 12 — run against the round-11 fixes, with both reviewers told what had changed — returned **FAIL on both axes**, with two BLOCKERs the earlier rounds had missed. Round 13 then failed again, on a BLOCKER introduced *by* a round-12 fix. That is the useful fact about this task: a PASS from a reviewer that has not seen the latest commit is not a verdict on it, and a fix is not finished until it has been reviewed as harshly as the defect was.
 
-Fourteen review rounds ran. Every round from 4 onward surfaced a real defect the earlier rounds missed. The recurring shape, found in three separate forms, is worth carrying forward:
+Twenty-two review rounds ran. Every round from 4 onward surfaced a real defect the earlier rounds missed. The recurring shape, found in three separate forms, is worth carrying forward:
 
 > An effect that resets user-editable state, keyed on a prop that `App.jsx` re-mirrors with a **new array identity on every snapshot**. Before Task 7 the app only ever mirrored once, on load; now the cache pass, the server pass and every machine switch each land a fresh identity while the crew is typing. A reset keyed on `segmentRecords`/`shiftReports` therefore fires mid-edit and wipes typed manpower, ring numbers, chainage and grout volumes — none of which have an auto-save to recover from.
 
@@ -39,7 +39,8 @@ A systematic sweep of every effect in the view layer established that only `Shif
 | `0c6bf3a` | fix: gate a cold launch and read the server's own answer |
 | `a46fbc2` | fix: give the cold-launch gate a way out and a real test |
 | `0a5f56f` | fix: gate only what creates a report, on what the server actually sent |
-| _(pending)_ | fix: carry the response's collection flags to the only thing that reads them |
+| `1c18cf9` | fix: carry the response's collection flags to the only thing that reads them |
+| _(pending)_ | fix: make the seam pin deterministic and close its untested corners |
 
 The last row is always the commit that carries this file; `git log --oneline` on the branch is authoritative for its SHA.
 
@@ -125,7 +126,7 @@ Smaller: the block is a boolean rather than a dead timestamp (a stored time invi
 Round 18's cold-launch gate was right in intent and wrong in three ways, all found this round.
 
 - **BLOCKER: it had no way out.** Nothing in the app re-fetches on its own — `hydrate` runs once per machine, and the sync runner only drains the mutation queue, which shift reports do not use yet. So a tablet that launched underground with no cache and a failed fetch stayed **gated** for the whole session. The crew fills in a shift the notice explicitly invites them to fill in, reaches the shaft, gets a link — and Save is still disabled. The only two ways to clear it, a reload and a machine switch, both reload the form. **They would have had to destroy the report to regain the ability to save it.** The notice now carries a button that fetches the snapshot, and the report survives it.
-- **It accepted any rows at all, including a cached snapshot** — which leaves the hazard exactly as it was, since yesterday's cache does not contain the report the other crew filed at 19:00. It now requires a server answer for this machine this session. That costs nothing offline (`apiCall` rejects immediately without a connection) and costs seconds online.
+- **It accepted any rows at all, including a cached snapshot** — which leaves the hazard exactly as it was, since yesterday's cache does not contain the report the other crew filed at 19:00. It now requires a server answer for this machine this session. That costs nothing offline (`apiCall` rejects immediately without a connection). Online it is usually seconds — but on a link where the 463 KB snapshot times out while a kilobyte write would land, a report that does not yet exist cannot be created until a fetch succeeds, and the notice's button is the only retry. Updating an existing report is never gated.
 - **It was read at execution time**, breaking the rule the same file states 26 lines above it. A machine switch while a time-bar save sat queued flipped it false and threw that bar away — a bar belonging to the *other* machine's report, which the switch had already cleared from the form. It is captured when the crew acts, like everything else, and only **appends** are gated: an update carries an id already on the sheet, so it cannot duplicate anything.
 
 Its test was also a false pin: the cold-launch test clicked a `disabled` button, which React never dispatches, so the runtime guard could be deleted with the suite still green. The auto-save path — a time bar, which creates the report with no button at all — is what pins it now.
@@ -150,9 +151,19 @@ Both reviewers found the same BLOCKER independently, and it was mine from the pr
 
 That is the lesson of this task worth keeping: **a fake on either side of a seam can agree with itself while the seam is broken.** Rounds 16, 18 and 21 were all that shape.
 
-## Test evidence (at the round-21 commit)
+## Round 22 — the first clean verdict, and a flaky pin
 
-- `npm test -- --watchAll=false --runInBand` → 66 suites / 848 tests pass
+The quality axis returned **PASS**: no blocker, no major, and it would hand the work over. It verified the repository→App seam by mutation rather than by assertion — stripping `present` from the cache-writable branch fails exactly one test, the new real-repository one, and no fixture-based test can substitute for it.
+
+The spec axis failed it on the pin itself: the seam test waited a **fixed five macrotask flushes**, which was enough on a warm run and not on a cold or loaded one — it failed roughly a third of the time on the very command the plan uses as its gate. A count is not a wait. It now polls the observable condition with a bounded deadline; five consecutive runs of that file and three of the full suite are green.
+
+Also closed here, all from the two reviews: the seam fixture used today's date, so the report it returned would have matched the open form and made the assertions pass regardless of `present`; the `cacheError` branch's `present` had no test, so a tidy-up there would have reproduced the round-21 blocker for private-browsing and over-quota devices; `writeServerSnapshot` now has an invariant test asserting it returns every field it was given except the one it deliberately drops, which would have caught this two rounds earlier and will catch the next field someone adds; the cache fixtures no longer fabricate `present`, which the real cache read never returns; `useOfflineData.test.js` — the file whose whole subject is async flush ordering — was the last one running without React's escaped-update warning; and the `mayRelease` parameter, which could never change an outcome as wired, is gone in favour of stating the invariant that makes one handler safe.
+
+Task 8's delete-list now names every test the gate work added, because five of them assert a notice and a `disabled` button that Step 4 removes.
+
+## Test evidence (at the round-22 commit)
+
+- `npm test -- --watchAll=false --runInBand` → 66 suites / 850 tests pass (run three times; the previously flaky seam test five more)
 - `npm run test:gas-sync` → 92 pass / 0 fail
 - `npm run build` → Compiled successfully (build output restored with `git checkout -- build/`; the build artefact is not committed — Vercel builds from source)
 - `node --check ../gas-live/Code.js` → OK

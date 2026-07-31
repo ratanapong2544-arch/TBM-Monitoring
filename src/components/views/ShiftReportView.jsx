@@ -285,10 +285,12 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
   // The question is causal: was the sheet read after our request reached it? Only one fetch in the
   // app has a knowable answer — one the crew issues from here, after we gave up waiting. Every
   // ambient snapshot may have read the sheet long before, so an absent row in it proves nothing.
-  // `mayRelease` is false for the cold-launch banner: its fetch is issued BEFORE any give-up, so it
-  // cannot speak to a write that timed out afterwards. Only the unresolved notice's own press can,
-  // and that is the whole basis of the causal claim.
-  const checkWithServer = async ({ mayRelease = true } = {}) => {
+  // Both notices call this, and only one of them can be on screen: the cold-launch banner renders
+  // behind `!saveUnresolved` (see below), which is the block itself. That mutual exclusion is what
+  // makes a single handler safe — a fetch issued from the cold-launch banner is issued BEFORE any
+  // give-up and could not speak to a write that timed out afterwards. If the two are ever allowed to
+  // coexist, that press must stop clearing `state.blocked`.
+  const checkWithServer = async () => {
     if (!onRefresh) return;
     const key = selectorKey;
     const state = shiftSaveStateFor(key);
@@ -315,7 +317,7 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
       const rows = Array.isArray(payload.shiftReports) ? payload.shiftReports : [];
       const landed = rows.find(r => formatDisplayDate(r.date) === dateAtCheck && String(r.shift) === String(shiftAtCheck));
       if (landed && landed.id) state.savedIds.add(landed.id);
-      if (mayRelease) state.blocked = false;
+      state.blocked = false;
       bumpUnresolved(n => n + 1);
     } catch (error) {
       setCheckFailed(true);
@@ -384,8 +386,10 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
       // "Ready" means a SERVER answer this session, not merely rows on screen. A cached snapshot can
       // be hours old — yesterday's cache does not contain the report the other crew filed at 19:00,
       // so `existingReport` is null and an append would duplicate it. Requiring the server costs
-      // nothing offline, where `apiCall` rejects immediately anyway; it costs the seconds between
-      // launch and the snapshot landing, and the notice offers a button to fetch it now.
+      // nothing offline, where `apiCall` rejects immediately anyway. Online it is usually the seconds
+      // between launch and the snapshot landing — but on a link where the 463 KB snapshot times out
+      // while this kilobyte write would land, a report that does not yet exist cannot be created
+      // until a fetch succeeds. The notice's button is the only retry. Updates are never gated.
       const willAppend = !existedAtSave && !state.savedIds.has(id);
       if (willAppend && !snapshotReadyAtSave) throw new Error("SHIFT_SAVE_NO_SNAPSHOT");
       try {
@@ -676,7 +680,7 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
             {checkFailed && <strong> · ดึงข้อมูลไม่สำเร็จ ลองใหม่อีกครั้ง</strong>}
           </span>
           {onRefresh && (
-            <button onClick={() => checkWithServer({ mayRelease: false })} disabled={checking} className="bg-amber-600 hover:bg-amber-700 disabled:opacity-60 text-white px-3 py-1.5 rounded-input font-semibold transition-colors">
+            <button onClick={checkWithServer} disabled={checking} className="bg-amber-600 hover:bg-amber-700 disabled:opacity-60 text-white px-3 py-1.5 rounded-input font-semibold transition-colors">
               {checking ? "กำลังโหลด…" : "ดึงข้อมูลจากเซิร์ฟเวอร์"}
             </button>
           )}
@@ -695,7 +699,7 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
             {checkFailed && <strong> · ตรวจสอบไม่สำเร็จ (ยังติดต่อเซิร์ฟเวอร์ไม่ได้) ลองใหม่อีกครั้ง</strong>}
           </span>
           {onRefresh && (
-            <button onClick={() => checkWithServer({ mayRelease: true })} disabled={checking} className="bg-amber-600 hover:bg-amber-700 disabled:opacity-60 text-white px-3 py-1.5 rounded-input font-semibold transition-colors">
+            <button onClick={checkWithServer} disabled={checking} className="bg-amber-600 hover:bg-amber-700 disabled:opacity-60 text-white px-3 py-1.5 rounded-input font-semibold transition-colors">
               {checking ? "กำลังตรวจสอบ…" : "ตรวจสอบกับเซิร์ฟเวอร์"}
             </button>
           )}

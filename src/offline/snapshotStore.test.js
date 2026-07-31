@@ -22,6 +22,20 @@ test("persists and reconstructs a normalized snapshot with metadata", async () =
   expect(snapshot.planConfig).toEqual({ rings: 1 });
 });
 
+test("returns every field of the snapshot it was given, except the ones it deliberately drops", async () => {
+  // This function rebuilds its return value from `emptyServerData`, so anything added to
+  // `normalizeServerData` and not copied across is silently lost — which is how `present` failed to
+  // reach App and shut the create-a-report gate on every healthy device. The next field someone adds
+  // should fail here rather than in the field.
+  const db = await openOfflineDb();
+  const data = normalizeServerData({ segments: [{ ringNo: "P1" }], shiftReports: [], planConfig: { rings: 1 } }, "TBM1");
+  const returned = await writeServerSnapshot(db, "TBM1", data, "2026-07-29T00:00:00.000Z");
+
+  const dropped = Object.keys(data).filter(key => !(key in returned));
+  // `present` describes one response, not a stored snapshot; `repository.refresh` re-attaches it
+  expect(dropped).toEqual(["present"]);
+});
+
 test("preserves a pending optimistic entity by domain key when server data arrives", async () => {
   const db = await openOfflineDb();
   const first = normalizeServerData({ segments: [{ ringNo: "P1", status: "local", syncStatus: "pending" }] }, "TBM1");

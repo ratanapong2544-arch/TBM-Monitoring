@@ -23,10 +23,17 @@ jest.mock("../utils/api", () => ({ apiCall: jest.fn(async () => ({ status: "succ
 // The App-level mirror effect decides what a snapshot is allowed to overwrite. Nothing used to test
 // this file, which is why two data-loss defects survived two review rounds — every rule below is a
 // reproduction of one of them.
+// A REFRESH result: `present` marks which collections the response actually carried, and a fixture
+// stands for a complete GAS response unless a test overrides it.
 function snapshot(machine, overrides = {}) {
-  // `present` marks which collections the response actually carried; a fixture stands for a complete
-  // GAS response unless a test overrides it
   return { ...emptyServerData(machine), present: { shiftReports: true, segments: true, grouts: true }, ...overrides };
+}
+
+// A CACHE read has no `present` — a stored snapshot says nothing about what the server most recently
+// sent, and the real `readServerSnapshot` does not return it. Fabricating it here would be the same
+// mistake that let a broken seam pass green.
+function cached(machine, overrides = {}) {
+  return { ...emptyServerData(machine), ...overrides };
 }
 
 function renderApp(repository) {
@@ -57,7 +64,7 @@ function renderApp(repository) {
 
 function makeRepository(overrides = {}) {
   return {
-    load: async machine => ({ data: snapshot(machine), source: "indexeddb", fetchedAt: "2026-07-01T00:00:00.000Z", stale: true }),
+    load: async machine => ({ data: cached(machine), source: "indexeddb", fetchedAt: "2026-07-01T00:00:00.000Z", stale: true }),
     // `serverPayload` mirrors the real repository: the GAS response untouched, which is what a
     // caller asking "is this on the sheet?" must read rather than the merged snapshot
     refresh: async machine => ({ data: snapshot(machine), serverPayload: { status: "success", shiftReports: [] }, source: "server", fetchedAt: "2026-07-30T00:00:00.000Z", stale: false }),
@@ -83,7 +90,7 @@ test("an offline relaunch keeps unsynced issues that only exist in localStorage"
     { id: "iss_server_1", machine: "TBM1", title: "Server issue", status: "open" },
   ]));
   const repository = makeRepository({
-    load: async machine => ({ data: snapshot(machine, { issues: [{ id: "iss_server_1", machine: "TBM1", title: "Server issue", status: "open" }] }), source: "indexeddb", fetchedAt: "x", stale: true }),
+    load: async machine => ({ data: cached(machine, { issues: [{ id: "iss_server_1", machine: "TBM1", title: "Server issue", status: "open" }] }), source: "indexeddb", fetchedAt: "x", stale: true }),
     refresh: async () => { throw new Error("NETWORK"); },
   });
 
@@ -98,7 +105,7 @@ test("an offline relaunch keeps unsynced issues that only exist in localStorage"
 test("an offline relaunch keeps an unsynced route config", async () => {
   window.localStorage.setItem("tbmRouteConfig", JSON.stringify({ plannedDistance: 1234.56 }));
   const repository = makeRepository({
-    load: async machine => ({ data: snapshot(machine, { routeConfigs: { TBM1: { plannedDistance: 1000 } } }), source: "indexeddb", fetchedAt: "x", stale: true }),
+    load: async machine => ({ data: cached(machine, { routeConfigs: { TBM1: { plannedDistance: 1000 } } }), source: "indexeddb", fetchedAt: "x", stale: true }),
     refresh: async () => { throw new Error("NETWORK"); },
   });
 
@@ -194,7 +201,7 @@ test("the offline stamp carries the time, not just the date", async () => {
   // current to a crew at shift end
   const onLine = jest.spyOn(window.navigator, "onLine", "get").mockReturnValue(false);
   const repository = makeRepository({
-    load: async machine => ({ data: snapshot(machine), source: "indexeddb", fetchedAt: "2026-07-30T02:15:00.000Z", stale: true }),
+    load: async machine => ({ data: cached(machine), source: "indexeddb", fetchedAt: "2026-07-30T02:15:00.000Z", stale: true }),
     refresh: async () => { throw new Error("NETWORK"); },
   });
 
@@ -292,7 +299,7 @@ test("a cold launch cannot append a second report for a shift that already has o
   // already saved would append a second row for the same date and shift, silently.
   let release;
   const repository = makeRepository({
-    load: async machine => ({ data: snapshot(machine), source: "empty", fetchedAt: null, stale: true }),
+    load: async machine => ({ data: cached(machine), source: "empty", fetchedAt: null, stale: true }),
     refresh: machine => new Promise(resolve => {
       release = () => resolve({
         data: snapshot(machine, { shiftReports: [{ id: "sr_day", date: "2026-07-30", shift: "Day", tbmNo: "TBM1", manpower: {}, result: {}, events: {} }] }),
@@ -332,23 +339,36 @@ test("the real repository hands App everything the create-a-report gate needs", 
   const repository = createRepository({
     openDb: openOfflineDb,
     now: () => "2026-07-30T02:15:00.000Z",
+    // a date that can never be today: if the row matched the open form, `existingReport` would be
+    // truthy, the save would be an update, and the gate would be irrelevant — the assertions would
+    // pass whatever `present` held
     fetchServerSnapshot: async machine => ({
       status: "success",
       segments: [],
-      shiftReports: [{ id: "sr_day", date: "2026-07-30", shift: "Day", tbmNo: machine, manpower: "{}", result: "{}", events: "{}" }],
+      shiftReports: [{ id: "sr_old", date: "1999-01-01", shift: "Day", tbmNo: machine, manpower: "{}", result: "{}", events: "{}" }],
     }),
   });
 
   const app = renderApp(repository);
-  // real IndexedDB work settles on macrotasks, unlike the instant fake repositories elsewhere here
-  const settle = async () => { for (let i = 0; i < 5; i += 1) await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); }); };
-  await settle();
-  const tab = [...app.container.querySelectorAll("button")].find(b => /Shift Report/i.test(b.textContent));
-  if (!tab) throw new Error(`no Shift Report tab; app shows: ${app.text().slice(0, 300)}`);
-  await act(async () => { tab.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+  // Real IndexedDB work settles on macrotasks, unlike the instant fake repositories elsewhere here,
+  // and how many it takes depends on the machine. A fixed number of flushes is not a wait: five was
+  // enough on a warm run and not on a cold or loaded one, which made the one test crossing this seam
+  // fail about a third of the time — on the very command the plan uses as its gate.
+  const waitFor = async (predicate, label) => {
+    for (let attempt = 0; attempt < 200; attempt += 1) {
+      if (predicate()) return;
+      await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); });
+    }
+    throw new Error(`timed out waiting for ${label}; app shows: ${app.text().slice(0, 300)}`);
+  };
+  const button = pattern => [...app.container.querySelectorAll("button")].find(b => pattern.test(b.textContent));
+
+  await waitFor(() => Boolean(button(/Shift Report/i)), "the app to finish loading");
+  await act(async () => { button(/Shift Report/i).dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+  await waitFor(() => !app.text().includes("กำลังอัปเดตข้อมูลจากเซิร์ฟเวอร์"), "the server snapshot to land");
 
   expect(app.text()).not.toContain("ยังไม่ได้ข้อมูลรายงานกะของเครื่องนี้จากเซิร์ฟเวอร์");
-  expect([...app.container.querySelectorAll("button")].find(b => /Save to Cloud/.test(b.textContent)).disabled).toBe(false);
+  expect(button(/Save to Cloud/).disabled).toBe(false);
   app.unmount();
   await deleteOfflineDbForTests();
 });
@@ -358,7 +378,7 @@ test("a cached snapshot does not satisfy the create-a-report gate", async () => 
   // answer settles it. Yesterday's cache does not contain the report the other crew filed at 19:00,
   // and `source !== "empty"` — the first version of this predicate — accepted it.
   const repository = makeRepository({
-    load: async machine => ({ data: snapshot(machine), source: "indexeddb", fetchedAt: "2026-07-29T12:00:00.000Z", stale: true }),
+    load: async machine => ({ data: cached(machine), source: "indexeddb", fetchedAt: "2026-07-29T12:00:00.000Z", stale: true }),
     refresh: async () => { throw new Error("NETWORK"); },
   });
 
@@ -380,7 +400,7 @@ test("a response that omits the shift reports does not open the create gate", as
   // read failed — would otherwise look like "this shift has no report" and let the crew create a
   // second one, with a healthy server and nothing on screen.
   const repository = makeRepository({
-    load: async machine => ({ data: snapshot(machine), source: "empty", fetchedAt: null, stale: true }),
+    load: async machine => ({ data: cached(machine), source: "empty", fetchedAt: null, stale: true }),
     refresh: async machine => ({
       // normalizeServerData is what App sees; run the real one over a payload with no shiftReports
       data: normalizeServerData({ status: "success", segments: [] }, machine),
@@ -409,7 +429,7 @@ test("a launch whose fetch failed can still be recovered without losing the type
   // reload the form, destroying the report they were trying to save.
   let online = false;
   const repository = makeRepository({
-    load: async machine => ({ data: snapshot(machine), source: "empty", fetchedAt: null, stale: true }),
+    load: async machine => ({ data: cached(machine), source: "empty", fetchedAt: null, stale: true }),
     refresh: async machine => {
       if (!online) throw new Error("NETWORK");
       return { data: snapshot(machine), serverPayload: { status: "success", shiftReports: [] }, source: "server", fetchedAt: "2026-07-30T02:15:00.000Z", stale: false };

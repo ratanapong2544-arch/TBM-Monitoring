@@ -2,6 +2,10 @@ import React from "react";
 import { createRoot } from "react-dom/client";
 import { act } from "react-dom/test-utils";
 
+// the other three files in this seam set it; this one's entire subject is async flush ordering, so
+// it is the last place that should be running without React's escaped-update warning
+globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+
 import { useOfflineData } from "./useOfflineData";
 
 // No @testing-library in this project, so drive the hook with a minimal react-dom harness that

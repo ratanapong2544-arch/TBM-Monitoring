@@ -177,27 +177,24 @@ export function createRepository(deps = {}) {
           // whose payload arrived fine, just because the cache could not be written (quota, private
           // browsing, blocked upgrade). The payload is server-fresh, so `stale` stays false per the
           // documented contract; `cacheError` reports that it could not be persisted.
-          const result = { data: { ...data, fetchedAt }, source: "server", fetchedAt, stale: false, cacheError: writeError, serverPayload: raw };
+          const result = { data: { ...data, fetchedAt }, source: "server", fetchedAt, stale: false, cacheError: writeError };
           emit({ type: "data", machine, result });
           return result;
         }
         // `data` is what the app should render: `writeServerSnapshot` re-injects unsynced local
-        // records and overlays optimistic payloads onto incoming rows, which is right for display and
-        // wrong for any question of the form "is this on the sheet?". `serverPayload` is the GAS
-        // response untouched — key-for-key, so a caller can also tell an absent collection from an
-        // empty one, which the normalizer collapses. Both branches carry it, so the answer does not
-        // depend on whether IndexedDB happened to be writable.
-        // `present` describes THIS response and must reach the caller, but it is not part of the
-        // cached snapshot: `writeServerSnapshot` rebuilds its return value from `emptyServerData`,
-        // so anything not explicitly carried across is dropped here. It was — which closed the
-        // cold-launch gate on every healthy device and opened it only when IndexedDB was broken.
-        // Both fields were added for Task 7's save gate, and Task 8 deleted that gate: nothing in
-        // the app reads either one today. They stay because they answer a question the merged
-        // snapshot cannot ("is this on the sheet?", "did the server send this collection at all?"),
-        // Task 10's conflict UI is the next caller to need it, and both are pinned by the seam
-        // tests — not because a caller is hiding somewhere. Do not read them from the CACHE branch:
-        // a stored snapshot says nothing about what the server most recently sent.
-        const result = { data: { ...stored, present: data.present }, source: "server", fetchedAt: stored.fetchedAt, stale: false, serverPayload: raw };
+        // records and overlays optimistic payloads onto incoming rows.
+        // `present` describes THIS response — which collections it actually carried, since the
+        // normalizer maps an absent key to `[]` and so collapses "the server has none" into "this
+        // response omitted them". It is not part of the cached snapshot: `writeServerSnapshot`
+        // rebuilds its return value from `emptyServerData`, so anything not explicitly carried
+        // across is dropped here. It was once, and that closed Task 7's cold-launch gate on every
+        // healthy device while opening it only when IndexedDB was broken.
+        // That gate is gone — Task 8 deleted it — and `serverPayload`, which existed only for it,
+        // went with it: Step 4 says remove it once nothing reads it, and nothing does. `present`
+        // stays under the same step's other instruction, because Task 9 reconciles the legacy
+        // caches and an absent collection is not an empty one there either. Never read it from the
+        // CACHE branch: a stored snapshot says nothing about what the server most recently sent.
+        const result = { data: { ...stored, present: data.present }, source: "server", fetchedAt: stored.fetchedAt, stale: false };
         emit({ type: "data", machine, result });
         return result;
       } catch (error) {

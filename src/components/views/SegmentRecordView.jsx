@@ -118,15 +118,15 @@ const SegmentRecordView = ({ projectInfo, handleProjectInfoChange, segmentRecord
       await onMutate(buildMutationEnvelope({
         entityType: "segment", operation: isUpdate ? "update" : "create",
         machine: machineAtSave, recordId: recordData.id, payload: recordData, syncMeta,
+        // re-saving the open ring: the crew can correct the ring number before saving, and the key
+        // has to stay the one the row already carries on the server
+        identity: isUpdate ? segmentRecords.find(row => row.id === recordData.id) : null,
       }));
-      // A save resolves seconds later. If the crew switched machine meanwhile, NEITHER the rows nor
-      // the form may be touched. The rows are obvious — this machine's ring and surveyed chainage
-      // would land in the other machine's state. The form matters just as much: it now holds the
-      // other machine's next ring, so writing this save's row id into it would make the next Save an
-      // `updateSegment` against a row that machine's sheet does not have. GAS finds no match and
-      // no-ops, the local map matches nothing, and the ring is lost with no error shown.
-      // App applies the optimistic row when the mutation is queued, so the form must not write it
-      // into state as well — that would duplicate the ring
+      // A save resolves seconds later, and the crew may have switched machine in between. The row is
+      // App's to place and App withholds it; what this guard protects is the FORM, which by then
+      // holds the other machine's next ring. Writing this save's row id into it would make the next
+      // Save an update against a row that machine's sheet has never had: GAS finds no match, the
+      // local map matches nothing, and the ring is lost with no error shown.
       if (!stillOnMachine(machineAtSave)) { setIsSaving(false); return; }
       setFormData((prev) => {
         const isCompleted = prev.status === "Completed";

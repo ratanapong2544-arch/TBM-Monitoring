@@ -43,6 +43,32 @@ test("a synced mutation replaces its optimistic entity with the confirmed server
   await expect(repository.getEntity(confirmed.domainKey)).resolves.toMatchObject({ payload: expect.objectContaining({ status: "confirmed", version: 3, syncStatus: "synced" }) });
 });
 
+test("a confirmation names the record that moved and the version it moved to", async () => {
+  // The PRODUCER side of the seam App reads to keep `baseVersion` fresh. App's half is tested with a
+  // hand-built event, and a hand-built event agrees with itself no matter what the repository emits:
+  // drop `domainKey` and `version` here and every App test still passes, because nothing else in the
+  // suite builds a sync event from the real thing. What breaks in production is silent — the second
+  // edit of a record in a session claims the stale version, the server calls it a conflict, and the
+  // conflict blocks that record's domain with no UI until Task 10 to show it.
+  const repository = makeRepository();
+  const queued = await repository.mutate(segmentInput);
+  const events = [];
+  repository.subscribe(event => events.push(event));
+
+  await repository.applySyncSuccess(queued.requestId, {
+    requestId: queued.requestId, status: "success",
+    record: { recordId: "segment-1", domainKey: queued.optimisticRecord.domainKey, status: "confirmed" },
+    version: 3, updatedAt: "2026-07-29T01:00:00.000Z",
+  });
+
+  expect(events).toContainEqual(expect.objectContaining({
+    type: "sync",
+    requestId: queued.requestId,
+    domainKey: "segment:TBM1:P1:Permanent",
+    version: 3,
+  }));
+});
+
 test("a stored conflict keeps the server time and device holding that version", async () => {
   const repository = makeRepository();
   const queued = await repository.mutate(segmentInput);

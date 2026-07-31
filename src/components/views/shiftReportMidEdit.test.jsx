@@ -511,31 +511,19 @@ test("a save that resolves after a machine switch does not reach the other machi
   form.rerender(view({ machine: "TBM2", segmentRecords: [], shiftReports: rows, isCurrentMachine }));
   await act(async () => { release(); });
 
-  expect(rows).toEqual([]); // nothing written back into the other machine's state
+  // the form is what this view still owns: after a machine switch it must not clear the fields, so
+  // an empty Engineer here means the post-save reset stayed inside the guard
   expect(form.value("Engineer")).toBe("");
   form.unmount();
 });
 
-test("a save that resolves after the form unmounts does not reach the other machine", async () => {
-  // the machine switcher is in the TopBar, so the crew can save, tap another nav item (this view
-  // unmounts, freezing any ref inside it), then switch machine
-  let release;
-  onMutateOverride = () => new Promise(resolve => { release = () => resolve({}); });
-  let rows = [];
-  let currentMachine = "TBM1";
-  const form = render(view({ shiftReports: rows, isCurrentMachine: m => m === currentMachine }));
-  type(form.container, "Engineer", "6");
-  await act(async () => {
-    [...form.container.querySelectorAll("button")].find(b => /Save to Cloud/.test(b.textContent))
-      .dispatchEvent(new MouseEvent("click", { bubbles: true }));
-  });
-
-  form.unmount();          // navigated away
-  currentMachine = "TBM2"; // then switched machine
-  await act(async () => { release(); });
-
-  expect(rows).toEqual([]);
-});
+// A third test stood here — "a save that resolves after the form unmounts does not reach the other
+// machine" — asserting `expect(rows).toEqual([])` and nothing else. `rows` is written by
+// `setShiftReports`, a prop this view no longer takes, so no behaviour could have failed it: with
+// the machine guard defeated outright the whole file still passed. The scenario is real (the
+// switcher is in the TopBar, so the crew can save, tap another nav item, then switch machine), but
+// the rule it tests is App's, and it is covered where the guard is — `appDataFlow.test.jsx`, "a save
+// resolving after the crew navigates away and switches machine".
 
 test("a save queued before the crew changed date still writes its own report", async () => {
   // The queued save's payload was frozen for the 30th. Resolving its row identity when it finally

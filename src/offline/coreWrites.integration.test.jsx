@@ -313,6 +313,47 @@ test("saving a shift report queues a create keyed by its Bangkok date and shift"
   view.unmount();
 });
 
+test("correcting a mistyped ring keeps writing to the record's own version stream", async () => {
+  // The domain key is built from business fields, and the data log lets them be corrected. Keying
+  // the write on the EDITED ring asks the server about a record that has never existed under that
+  // key — `baseVersion` comes back 0, or, worse, the version belonging to whichever ring the typo
+  // now names. The write is then refused as unknown, or it advances a second version stream over
+  // one sheet row: two histories for one ring, which is exactly what one derivation exists to stop.
+  const records = [{ id: "seg_1", ringNo: "P41", typeRing: "C1", keyPos: "16", startCH: "8+010.20", finishCH: "8+008.80", length: "1.40", status: "Completed", installType: "Permanent", date: "2026-07-30" }];
+  const view = render(
+    <SegmentDashboardView segmentRecords={records} machine="TBM1"
+      syncMeta={{ "segment:TBM1:P41:Permanent": { version: 2 }, "segment:TBM1:P42:Permanent": { version: 88 } }}
+      onMutate={onMutate} />
+  );
+  await click(view.container.querySelector("tbody tr"));
+  await click(byTitle(view.container, "Edit"));
+  type(view.container, "ringNo", "P42");
+  await click(button(view.container, /Save Changes/));
+
+  const envelope = onMutate.mock.calls[0][0];
+  expect(envelope.domainKey).toBe("segment:TBM1:P41:Permanent"); // the record's own key, not the typo's
+  expect(envelope.baseVersion).toBe(2);                          // its own version, not P42's 88
+  expect(envelope.payload.ringNo).toBe("P42");                   // and the correction still travels
+  view.unmount();
+});
+
+test("a version that arrives from the sheet as text is still a version", async () => {
+  // a Sheets cell can hand back "2" rather than 2, and GAS compares loosely for that reason
+  // (`checkSyncVersion_("2", 2)` is a match). Refusing it here would quietly send baseVersion 0 —
+  // the state where the server accepts an edit made against a row that has since moved on.
+  const records = [{ id: "seg_1", ringNo: "P41", typeRing: "C1", keyPos: "16", startCH: "8+010.20", finishCH: "8+008.80", length: "1.40", status: "Completed", installType: "Permanent", date: "2026-07-30" }];
+  const view = render(
+    <SegmentDashboardView segmentRecords={records} machine="TBM1"
+      syncMeta={{ "segment:TBM1:P41:Permanent": { version: "2" } }} onMutate={onMutate} />
+  );
+  await click(view.container.querySelector("tbody tr"));
+  await click(byTitle(view.container, "Delete"));
+  await click(button(view.container, /^ลบ$/));
+
+  expect(onMutate.mock.calls[0][0].baseVersion).toBe(2);
+  view.unmount();
+});
+
 test("saving a shift report that already exists queues an update at its version", async () => {
   // the row's date arrives from GAS as a UTC ISO string; the key must reduce it to the Bangkok
   // calendar date, or an edit of a loaded report keys differently from the report itself

@@ -10,7 +10,7 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
 import App from "../App";
 import { OfflineProvider } from "./OfflineProvider";
-import { emptyServerData, normalizeServerData } from "./normalizeServerData";
+import { emptyServerData } from "./normalizeServerData";
 import { createRepository } from "./repository";
 import { deleteOfflineDbForTests, openOfflineDb } from "./db";
 import { apiCall } from "../utils/api";
@@ -36,9 +36,14 @@ function cached(machine, overrides = {}) {
   return { ...emptyServerData(machine), ...overrides };
 }
 
-function renderApp(repository) {
+function renderApp(repository, runner = {}) {
   let container;
   let root;
+  // The fake runner needs `runNow`: App calls it after every queued write to start the drain, and a
+  // fake without it made that call throw a TypeError into the swallowing catch — so the production
+  // line never ran in any test here, and a rename or a wiring slip would have left saves sitting in
+  // the queue until the next online/focus/visibilitychange, silently.
+  const syncRunner = { start: async () => {}, stop: () => {}, runNow: async () => {}, ...runner };
   act(() => {
     container = document.createElement("div");
     document.body.appendChild(container);
@@ -48,7 +53,7 @@ function renderApp(repository) {
         openDb: async () => ({}),
         stageLegacyLocalStorage: async () => {},
         createRepository: () => repository,
-        createSyncRunner: () => ({ start: async () => {}, stop: () => {} }),
+        createSyncRunner: () => syncRunner,
         storage: null,
       }}>
         <App />
@@ -65,9 +70,7 @@ function renderApp(repository) {
 function makeRepository(overrides = {}) {
   return {
     load: async machine => ({ data: cached(machine), source: "indexeddb", fetchedAt: "2026-07-01T00:00:00.000Z", stale: true }),
-    // `serverPayload` mirrors the real repository: the GAS response untouched, which is what a
-    // caller asking "is this on the sheet?" must read rather than the merged snapshot
-    refresh: async machine => ({ data: snapshot(machine), serverPayload: { status: "success", shiftReports: [] }, source: "server", fetchedAt: "2026-07-30T00:00:00.000Z", stale: false }),
+    refresh: async machine => ({ data: snapshot(machine), source: "server", fetchedAt: "2026-07-30T00:00:00.000Z", stale: false }),
     subscribe: () => () => {},
     getSyncSummary: async () => ({ online: true, pending: 0, syncing: 0, conflicts: 0, errors: 0, lastSyncedAt: null }),
     setSyncMetaValue: async () => {},
@@ -327,7 +330,6 @@ test("a second save of one record stamps the version the first one confirmed", a
     mutate: async input => { mutations.push(input); return { optimisticRecord: input.payload }; },
     refresh: async machine => ({
       data: snapshot(machine, { syncMeta: { "segment:TBM1:P41:Permanent": { version: 1 } } }),
-      serverPayload: { status: "success", shiftReports: [] },
       source: "server", fetchedAt: "2026-07-30T00:00:00.000Z", stale: false,
     }),
   });
@@ -393,6 +395,76 @@ test("a ring saved offline is on screen before the server ever sees it", async (
   // "Last:" is rendered from the record list, not from the form — reading the form field back would
   // pass on a value that was simply never cleared
   expect(app.text()).toContain("Last: P644");
+  app.unmount();
+});
+
+test("a ring deleted from the data log leaves the screen before the server confirms", async () => {
+  // the queued delete is durable either way; what this covers is the row disappearing. If it stays,
+  // the crew press Delete again — and a second delete queues on a domain the first one already
+  // emptied, which the server answers for a record it no longer has.
+  const sent = [];
+  const repository = makeRepository({
+    load: async machine => ({ data: cached(machine, { segments: [{ id: "s1", ringNo: "P643", machine: "TBM1", date: "2026-07-30", installType: "Permanent", status: "Completed" }] }), source: "indexeddb", fetchedAt: "x", stale: true }),
+    refresh: async machine => ({ data: snapshot(machine, { segments: [{ id: "s1", ringNo: "P643", machine: "TBM1", date: "2026-07-30", installType: "Permanent", status: "Completed" }] }), source: "server", fetchedAt: "2026-07-30T00:00:00.000Z", stale: false }),
+    mutate: async input => { sent.push(input); return { optimisticRecord: { ...input.payload, id: input.recordId } }; },
+  });
+  const app = renderApp(repository);
+  await act(async () => {});
+  await act(async () => {
+    [...app.container.querySelectorAll("button")].find(b => /Data Log · Segment/i.test(b.textContent))
+      .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  });
+  expect(app.text()).toContain("P643");
+
+  const click = async el => act(async () => { el.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+  await click(app.container.querySelector("tbody tr"));
+  await click(app.container.querySelector('[title="Delete"]'));
+  await click([...app.container.querySelectorAll("button")].find(b => /^ลบ$/.test(b.textContent)));
+
+  expect(sent.map(input => input.operation)).toEqual(["delete"]);
+  expect(app.text()).not.toContain("P643");
+  app.unmount();
+});
+
+test("a save resolving after the crew navigates away and switches machine does not land", async () => {
+  // the switcher is in the TopBar, reachable from every tab, so the crew can save, tap another nav
+  // item — the view unmounts, freezing anything it holds — and only then switch machine. Whatever
+  // the departed view believed, App is the one that still knows which machine is on screen.
+  let release;
+  const repository = makeRepository({
+    mutate: input => new Promise(resolve => {
+      release = () => resolve({ optimisticRecord: { ...input.payload, id: input.recordId } });
+    }),
+  });
+  const app = renderApp(repository);
+  await act(async () => {});
+  await saveRingOnSegmentForm(app, "P644");
+
+  const nav = pattern => [...app.container.querySelectorAll("button")].find(b => pattern.test(b.textContent));
+  await act(async () => { nav(/^Home$/).dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+  await act(async () => {
+    [...app.container.querySelectorAll("button")].find(b => b.textContent.trim() === "TBM2")
+      .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  });
+  await act(async () => { release(); });
+
+  expect(app.text()).not.toContain("P644");
+  app.unmount();
+});
+
+test("a queued write starts the drain instead of waiting for the next app event", async () => {
+  // without this the record is durable but idle: it goes out on the next online/focus/
+  // visibilitychange, which on a phone left face-up at the site office may be a long time
+  const runNow = jest.fn(async () => {});
+  const repository = makeRepository({ mutate: async input => ({ optimisticRecord: { ...input.payload, id: input.recordId } }) });
+  const app = renderApp(repository, { runNow });
+  await act(async () => {});
+  // the refresh path drains too, so only the calls AFTER the snapshot has settled say anything about
+  // the save — asserting "was called at all" passes with the save's own trigger deleted
+  const beforeSave = runNow.mock.calls.length;
+  await saveRingOnSegmentForm(app, "P644");
+
+  expect(runNow.mock.calls.length).toBeGreaterThan(beforeSave);
   app.unmount();
 });
 

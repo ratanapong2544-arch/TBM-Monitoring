@@ -21,9 +21,12 @@ const stableKey = (value) => {
 // second report for one shift. The queue owns everything else that used to live here — a deadline,
 // an unknown-outcome block, a per-report chain — because `requestId` makes a retry safe and the
 // per-domain ordering makes a second send an update rather than an append.
+// The key is in the id because a clock reading alone is not unique enough to be an identity: two
+// reports first touched in the same millisecond — a different date or shift, so genuinely two rows —
+// would take the same id, and everything downstream that matches rows by id would fold them into one.
 const shiftDraftIds = new Map();
 const draftIdFor = (key) => {
-  if (!shiftDraftIds.has(key)) shiftDraftIds.set(key, `shift_${Date.now()}`);
+  if (!shiftDraftIds.has(key)) shiftDraftIds.set(key, `shift_${Date.now()}_${String(key).replace(/[^\w-]+/g, "_")}`);
   return shiftDraftIds.get(key);
 };
 // module state persists across tests in one file, which would make them order-dependent

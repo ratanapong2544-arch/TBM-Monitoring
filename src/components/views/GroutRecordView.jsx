@@ -113,17 +113,14 @@ const GroutRecordView = ({ projectInfo, handleProjectInfoChange, groutRecords, s
       const rec = isSecondary
         ? { id: `sgrout_${Date.now()}`, ...base } // ไม่มี ratio/groutPass
         : { id: `grout_${Date.now()}`, ...base, ratio: Number((Number(currentTotal) / THEORETICAL_VOL) * 100), groutPass: "1st Pass" };
-      // App applies the optimistic row when the mutation is queued, so this must not add it too
       await onMutate(buildMutationEnvelope({
         entityType, operation: "create", machine: machineAtSave,
         recordId: rec.id, payload: rec, syncMeta,
       }));
-      // a save resolves seconds later: if the crew switched machine meanwhile, the form still holds
-      // the OTHER machine's ring and volumes, so the reset below must not run
+      // A save resolves seconds later. If the crew switched machine meanwhile the form holds the
+      // OTHER machine's ring and its measured Part A / Part B volumes, so the reset must not run:
+      // clearing them here wiped readings the crew had typed and not yet saved.
       if (!stillOnMachine(machineAtSave)) { setIsSaving(false); return; }
-      // the reset is inside the guard for the same reason: after a machine switch the form holds the
-      // OTHER machine's ring and its measured Part A / Part B volumes, and clearing them here wiped
-      // readings the crew had typed but not yet saved
       resetFormAfterSave();
     } catch (err) { alert("บันทึกข้อมูลไม่สำเร็จ: " + err.message); }
     setIsSaving(false);

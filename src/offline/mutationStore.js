@@ -1,5 +1,6 @@
 import { MUTATION_STATUS, STORES } from "./schema";
-import { entityKeyBelongsToDomain, FIELD_FOR_ENTITY_TYPE, isMachineScopedEntityType, optimisticEntityKey, snapshotScopeKey } from "./snapshotStore";
+import { entityKeyBelongsToDomain, optimisticEntityKey } from "./entityKeys";
+import { FIELD_FOR_ENTITY_TYPE, isMachineScopedEntityType, snapshotScopeKey } from "./snapshotStore";
 
 function complete(transaction) {
   return new Promise((resolve, reject) => {
@@ -109,7 +110,7 @@ export async function getMutation(db, requestId) {
 
 export async function getEntity(db, domainKey) {
   const transaction = db.transaction(STORES.entities, "readonly");
-  const result = await requestResult(transaction.objectStore(STORES.entities).get(`entity:optimistic:${domainKey}`));
+  const result = await requestResult(transaction.objectStore(STORES.entities).get(optimisticEntityKey(domainKey)));
   await complete(transaction);
   return result || null;
 }
@@ -230,7 +231,7 @@ export async function confirmMutation(db, requestId, response, { owner } = {}) {
   } else {
     const record = response.record || {};
     entityStore.put({
-      key: `entity:optimistic:${mutation.domainKey}`,
+      key: optimisticEntityKey(mutation.domainKey),
       entityType: record.entityType || mutation.entityType,
       machine: record.machine || mutation.machine || "GLOBAL",
       domainKey: record.domainKey || mutation.domainKey,

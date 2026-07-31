@@ -93,7 +93,7 @@ const GroutDashboardView = ({ groutRecords, segmentRecords, secondaryGroutRecord
       try {
         await onMutate(buildMutationEnvelope({
           entityType: "secondaryGrout", operation: "update", machine,
-          recordId: updated.id, payload: updated, syncMeta,
+          recordId: updated.id, payload: updated, identity: selectedRecord, syncMeta,
         }));
         setSelectedRecord(updated); setIsEditing(false);
       } catch (e) { alert("อัปเดตข้อมูลล้มเหลว: " + e.message); }
@@ -112,7 +112,9 @@ const GroutDashboardView = ({ groutRecords, segmentRecords, secondaryGroutRecord
       // object — the one-shot write used to stringify them here to stop GAS double-encoding
       await onMutate(buildMutationEnvelope({
         entityType: "grout", operation: "update", machine,
-        recordId: updatedRecord.id, payload: updatedRecord, syncMeta,
+        // the ring is editable here and the grout pass is part of the key too: key on what the
+        // record was, or a corrected ring number starts a second version stream over one sheet row
+        recordId: updatedRecord.id, payload: updatedRecord, identity: selectedRecord, syncMeta,
       }));
       setSelectedRecord(updatedRecord);
       setIsEditing(false);

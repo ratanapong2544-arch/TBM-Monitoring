@@ -1,4 +1,5 @@
 import { makeDomainKey } from "./domainKey";
+import { optimisticEntityKey, serverEntityKey } from "./entityKeys";
 import { emptyServerData } from "./normalizeServerData";
 import { MUTATION_STATUS, STORES } from "./schema";
 
@@ -22,20 +23,15 @@ function complete(transaction) { return new Promise((resolve, reject) => { trans
 function scopeKey(machine) { return `getData:${machine}`; }
 
 // A queued write has to reach the STORED snapshot too, not just the entities store: `load` rebuilds
-// the lists from `entityKeys` alone, so a record created offline was invisible after a relaunch and
-// a record deleted offline came back. A relaunch with no link is the ordinary case here — an eight
-// hour shift on a phone in a tunnel — so both were routine data loss, not edge cases. The key
-// formats and the field mapping are owned by this file; the queue borrows them rather than
-// re-deriving them, because two spellings of one key is the same bug wearing a different hat.
+// the lists from `entityKeys` alone, so a record created or edited offline was invisible after a
+// relaunch and a record deleted offline came back. A relaunch with no link is the ordinary case
+// here — an eight hour shift on a phone in a tunnel — so all three were routine data loss, not edge
+// cases. The queue does that patching and borrows the scope key and the field mapping from here
+// rather than re-deriving either; the entity key formats live in `entityKeys.js`, which the
+// migration in `db.js` needs too.
 export const snapshotScopeKey = scopeKey;
 export const FIELD_FOR_ENTITY_TYPE = new Map(collections.map(([field, entityType]) => [entityType, field]));
 export function isMachineScopedEntityType(entityType) { return MACHINE_SCOPED_COLLECTIONS.has(entityType); }
-export function optimisticEntityKey(domainKey) { return `entity:optimistic:${domainKey}`; }
-// server rows are keyed `entity:<machine>:<field>:<domainKey>:<rowId>`, so the surrounding colons
-// keep one ring's key from matching another whose domain key is a prefix of it (P64 vs P643)
-export function entityKeyBelongsToDomain(key, domainKey) {
-  return key === optimisticEntityKey(domainKey) || String(key).includes(`:${domainKey}:`);
-}
 // The store key must be unique per server ROW, not per domain: live sheets legitimately hold two
 // rows sharing a ring identity (the views run deduplicateRecords over them), and keying by domain
 // alone made one row overwrite the other in the cache and appear twice in the list.
@@ -43,7 +39,7 @@ function recordFor(machine, field, entityType, payload, index) {
   const recordMachine = payload.machine || machine;
   const domainKey = makeDomainKey({ entityType, machine: recordMachine, recordId: payload.id, payload });
   const rowId = payload.id != null && payload.id !== "" ? `id:${payload.id}` : `row:${index}`;
-  return { key: `entity:${machine}:${field}:${domainKey}:${rowId}`, machine, entityType, domainKey, payload };
+  return { key: serverEntityKey(machine, field, domainKey, rowId), machine, entityType, domainKey, payload };
 }
 
 // the config singletons are mutable sync entities, so a pending offline edit must survive a refresh
@@ -97,7 +93,7 @@ export async function writeServerSnapshot(db, machine, data, fetchedAt) {
   };
   const terminalStatus = domainKey => terminalByDomain.get(domainKey);
   const preserveLocal = record => Boolean(unresolvedStatus(record.domainKey)) || (!terminalStatus(record.domainKey) && UNRESOLVED_STATUSES.has(record.payload && record.payload.syncStatus));
-  const localForDomain = (domainKey, entityType) => existing.find(record => record.domainKey === domainKey && record.entityType === entityType && record.key === `entity:optimistic:${domainKey}`) || existing.find(record => record.domainKey === domainKey && record.entityType === entityType);
+  const localForDomain = (domainKey, entityType) => existing.find(record => record.domainKey === domainKey && record.entityType === entityType && record.key === optimisticEntityKey(domainKey)) || existing.find(record => record.domainKey === domainKey && record.entityType === entityType);
   const preserve = (record, status) => ({ ...record, payload: { ...record.payload, syncStatus: status } });
   // An optimistic record is stamped with its mutation's machine ("GLOBAL" for a project-wide
   // entity, or another machine's id), while a server-derived record is stamped with the active

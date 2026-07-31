@@ -31,22 +31,11 @@ test("a server payload still reaches the caller when the cache write fails", asy
   expect(result.cacheError).toBeInstanceOf(Error);
 });
 
-test("both refresh paths carry the server's own payload, untouched", async () => {
-  // The shift report's "did my write reach the sheet?" check reads this and nothing else: `data` is
-  // the merged snapshot, which re-injects unsynced local records, so a row in it can be this
-  // device's echo of the very write being asked about. It must also be the RAW response, key for
-  // key, so an absent collection can be told from an empty one. Both branches, because the answer
-  // cannot depend on whether IndexedDB happened to be writable.
-  const raw = { status: "success", segments: [{ id: "s1", ringNo: "P1", machine: "TBM1" }] };
-  const cached = await makeRepository({ fetchServerSnapshot: async () => raw }).refresh("TBM1");
-  expect(cached.serverPayload).toBe(raw);
-
-  const uncached = await makeRepository({
-    fetchServerSnapshot: async () => raw,
-    writeServerSnapshot: async () => { throw new Error("QuotaExceededError"); },
-  }).refresh("TBM1");
-  expect(uncached.serverPayload).toBe(raw);
-});
+// A test stood here for `serverPayload`, the raw GAS response `refresh` used to carry. It existed
+// for one caller — the shift report's "did my write reach the sheet?" check — and Task 8 replaced
+// that check with the queue, whose `requestId` and version answer the same question without asking
+// the server twice. The plan's Step 4 says to drop the field once nothing reads it. `present`, added
+// alongside it, is kept deliberately: the test below is why, and Task 9 is who needs it.
 
 test("both refresh paths report which collections the response carried", async () => {
   // `present` is what stops an absent collection reading as an empty one. It was dropped on the

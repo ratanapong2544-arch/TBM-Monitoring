@@ -34,6 +34,8 @@ import { savePrepTasks } from "./utils/prepGantt";
 import { isViewerMode, VIEWER_TABS } from "./utils/viewerMode";
 import { useOfflineData } from "./offline/useOfflineData";
 import { useOffline } from "./offline/OfflineProvider";
+import { toSyncVersion } from "./offline/mutationEnvelope";
+import { stripQueuedPhotos } from "./offline/displayRecord";
 
 import { Shell, NAV_GROUPS } from "./ui-ux-pro-max";
 import "./styles/globals.css";
@@ -250,19 +252,21 @@ const PrimaryGroutApp = () => {
   const activeIssues = forMachine(issues, activeMachine);
   const dashFilter = useFilterState();
 
-  // The version this device last saw per domain key. Views read it to stamp `baseVersion`, which is
-  // what lets the server refuse an edit made against a row that has since moved on.
-  // Versions confirmed since the last full snapshot. `data.syncMeta` only advances on a `getData`,
-  // so on its own it goes stale the moment a mutation syncs — and a stale `baseVersion` is not a
-  // harmless nuisance: the server rejects the next edit of that record as a conflict, and the
-  // conflict blocks its domain. These land from the repository's own sync events and win over the
-  // snapshot, which is always the older of the two.
+  // Versions confirmed since the last full snapshot, per domain key. Views read the merged map to
+  // stamp `baseVersion`, which is what lets the server refuse an edit made against a row that has
+  // since moved on. `data.syncMeta` only advances on a `getData`, so on its own it goes stale the
+  // moment a mutation syncs — and a stale `baseVersion` is not a harmless nuisance: the server
+  // rejects the next edit of that record as a conflict, and the conflict blocks its domain. These
+  // land from the repository's own sync events and win over the snapshot, always the older of the
+  // two. `toSyncVersion` because a version can come back through Sheets as text, which GAS itself
+  // accepts — refusing it here would quietly send 0 and reopen the hole this map exists to close.
   const [confirmedVersions, setConfirmedVersions] = useState(EMPTY_SYNC_META);
   useEffect(() => repository.subscribe(event => {
-    if (event.type !== "sync" || !event.domainKey || !Number.isInteger(event.version)) return;
-    setConfirmedVersions(prev => (prev[event.domainKey] && prev[event.domainKey].version === event.version
+    if (event.type !== "sync" || !event.domainKey || event.version == null) return;
+    const version = toSyncVersion(event.version);
+    setConfirmedVersions(prev => (prev[event.domainKey] && prev[event.domainKey].version === version
       ? prev
-      : { ...prev, [event.domainKey]: { version: event.version } }));
+      : { ...prev, [event.domainKey]: { version } }));
   }), [repository]);
   const snapshotSyncMeta = (offlineData.data && offlineData.data.syncMeta) || EMPTY_SYNC_META;
   const syncMeta = useMemo(
@@ -270,10 +274,12 @@ const PrimaryGroutApp = () => {
     [snapshotSyncMeta, confirmedVersions],
   );
 
-  // Every core engineering write goes through here: queue it durably first, show it immediately,
-  // then let the runner drain. The optimistic row is what the crew sees until the server confirms —
-  // so the success message must not claim it reached the sheet.
-  const applyOptimisticRecord = useCallback((entityType, operation, record) => {
+  // The row the crew sees until the server confirms. It is written here rather than in the views so
+  // that one writer owns each list — the machine guard below decides whether the row belongs on
+  // screen at all, and a second writer could step past it without anything failing.
+  const applyOptimisticRecord = useCallback((entityType, operation, incoming) => {
+    // the payload keeps its photo bytes for the queue to send; the row on screen takes the marker
+    const record = stripQueuedPhotos(incoming);
     const setter = {
       segment: setSegmentRecords,
       grout: setGroutRecords,
@@ -289,10 +295,12 @@ const PrimaryGroutApp = () => {
     });
   }, []);
 
+  // Every core engineering write goes through here: queue it durably first, show it immediately,
+  // then start the drain. "Saved" means saved on this device — the success messages say so, because
+  // the server has not seen it yet.
   const mutateBusinessRecord = useCallback(async (input) => {
     const { optimisticRecord } = await repository.mutate(input);
-    // The row write moved here from the views, and the guard has to move with it. A mutation
-    // resolves after the crew may have switched machine, and the machine-scoped arrays below belong
+    // A mutation resolves after the crew may have switched machine, and the machine-scoped arrays belong
     // to whichever machine is selected NOW — appending one machine's ring to the other's state is
     // what makes the record form derive the next ring from the wrong machine and the shift report
     // send an update carrying an id the other machine's sheet has never had. The queue keeps the

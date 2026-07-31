@@ -310,10 +310,8 @@ test("a segment save resolving after a machine switch does not land in the other
   // other machine's state, where the next snapshot merge would carry it to the sheet
   let release;
   onMutateOverride = () => new Promise(resolve => { release = () => resolve({}); });
-  let rows = [];
-  const setSegmentRecords = updater => { rows = typeof updater === "function" ? updater(rows) : updater; };
   const element = machine => (
-    <SegmentRecordView projectInfo={projectInfo} handleProjectInfoChange={() => {}} segmentRecords={rows} setCurrentModule={() => {}} setActiveTab={() => {}} machine={machine} onMutate={onMutate} />
+    <SegmentRecordView projectInfo={projectInfo} handleProjectInfoChange={() => {}} segmentRecords={[]} setCurrentModule={() => {}} setActiveTab={() => {}} machine={machine} onMutate={onMutate} />
   );
   const view = render(element("TBM1"));
   type(view.container, "ringNo", "P644");
@@ -325,10 +323,11 @@ test("a segment save resolving after a machine switch does not land in the other
   view.rerender(element("TBM2"));
   await act(async () => { release(); });
 
-  expect(rows).toEqual([]);
-  // and the FORM must be untouched too: it now holds the other machine's next ring, so taking this
-  // save's row id would turn the next Save into an updateSegment against a row TBM2's sheet has
-  // never seen — GAS finds no match, the local map matches nothing, and the ring is lost silently
+  // the FORM must be untouched: it now holds the other machine's next ring, so taking this save's
+  // row id would turn the next Save into an update against a row TBM2's sheet has never seen — GAS
+  // finds no match, the local map matches nothing, and the ring is lost silently. (Whether the ROW
+  // lands is App's rule now, tested in `appDataFlow.test.jsx`; asserting it here against a view that
+  // cannot write the list was an assertion nothing could fail.)
   expect(view.value("ringNo")).toBe("");
   expect(view.container.querySelector('[name="ringNo"]').closest("form")).toBeTruthy();
   type(view.container, "ringNo", "P101");
@@ -346,10 +345,8 @@ test("a segment save resolving after a machine switch does not land in the other
 test("a grout save resolving after a machine switch does not land in the other machine", async () => {
   let release;
   onMutateOverride = () => new Promise(resolve => { release = () => resolve({}); });
-  let rows = [];
-  const setGroutRecords = updater => { rows = typeof updater === "function" ? updater(rows) : updater; };
   const element = machine => (
-    <GroutRecordView projectInfo={projectInfo} handleProjectInfoChange={() => {}} groutRecords={rows} secondaryGroutRecords={[]}
+    <GroutRecordView projectInfo={projectInfo} handleProjectInfoChange={() => {}} groutRecords={[]} secondaryGroutRecords={[]}
       segmentRecords={[]} setCurrentModule={() => {}} setActiveTab={() => {}} machine={machine} onMutate={onMutate} />
   );
   const view = render(element("TBM1"));
@@ -368,8 +365,7 @@ test("a grout save resolving after a machine switch does not land in the other m
   type(view.container, "pressure", "3.2");
   await act(async () => { release(); });
 
-  expect(rows).toEqual([]);
-  // the post-save reset must be inside the guard too, or it clears measured volumes belonging to a
+  // the post-save reset must be inside the guard, or it clears measured volumes belonging to a
   // record that was never saved
   expect(view.value("ringNo")).toBe("P100");
   expect(view.value("partA")).toBe("11.0");

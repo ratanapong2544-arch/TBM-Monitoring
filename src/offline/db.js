@@ -1,4 +1,5 @@
 import { makeDomainKey } from "./domainKey";
+import { optimisticEntityKey } from "./entityKeys";
 import { DB_NAME, DB_VERSION, STORES } from "./schema";
 
 let openDbPromise;
@@ -46,7 +47,7 @@ export function recanonicalizeDomainKeys(transaction) {
 
     entities.getAll().onsuccess = entitiesEvent => {
       (entitiesEvent.target.result || []).forEach(record => {
-        const optimisticKey = `entity:optimistic:${record.domainKey}`;
+        const optimisticKey = optimisticEntityKey(record.domainKey);
         if (record.key !== optimisticKey) {
           entities.delete(record.key); // server-snapshot cache row → rebuilt on refresh
           return;
@@ -54,7 +55,7 @@ export function recanonicalizeDomainKeys(transaction) {
         const domainKey = remap.get(record.domainKey);
         if (!domainKey) return;
         entities.delete(record.key);
-        entities.put({ ...record, key: `entity:optimistic:${domainKey}`, domainKey }); // last-wins
+        entities.put({ ...record, key: optimisticEntityKey(domainKey), domainKey }); // last-wins
       });
     };
 

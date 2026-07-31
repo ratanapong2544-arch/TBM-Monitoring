@@ -1,6 +1,7 @@
 import { makeDomainKey } from "./domainKey";
 import { isLegacyOptimisticKey, isOptimisticKey, optimisticEntityKey } from "./entityKeys";
 import { DB_NAME, DB_VERSION, STORES } from "./schema";
+import { FIELD_FOR_ENTITY_TYPE, isMachineScopedEntityType } from "./snapshotStore";
 
 let openDbPromise;
 let openDb;
@@ -23,87 +24,134 @@ function createStore(db, name, options, indexes) {
 // and abort the whole upgrade, bricking the database. put() keeps the last writer — the losing
 // mutation is still in the queue, so its edit is not lost, only its stale optimistic snapshot.
 //
-// Durable records are re-keyed in place; the cache is discarded. Only the optimistic entity rows
-// (which back a pending edit) are re-keyed — the server-snapshot cache rows and the snapshots
-// store are cleared, because their entityKeys lists reference the pre-migration keys and a
-// re-key would leave load() resolving keys that no longer exist. The cache rebuilds on the first
-// refresh (spec §7 empty-state until then); the pending mutations, conflicts and their optimistic
-// rows all survive re-keyed.
+// Durable records are re-keyed in place; the server-snapshot CACHE ROWS are discarded, because the
+// keys they were stored under are the ones being rewritten. The cache rebuilds on the first refresh
+// (spec §7 empty-state until then); the pending mutations, conflicts and their optimistic rows all
+// survive re-keyed — and, since the snapshot is rebuilt rather than cleared, stay on screen.
 // v3: the optimistic entity key gained the record id, so one ring can hold a queued copy of each of
 // its rows. Existing rows are re-keyed from the record id their own payload already carries; a row
 // without one cannot be placed and is dropped, which costs only its on-screen copy — its mutation is
-// still in the queue and rewrites the row when it drains. The snapshot lists name the old keys, so
-// they are cleared along with the server cache and rebuilt on the first refresh, exactly as the v2
-// migration does.
+// still in the queue and rewrites the row when it drains.
 export function recordScopeOptimisticKeys(transaction) {
   const entities = transaction.objectStore(STORES.entities);
   const snapshots = transaction.objectStore(STORES.snapshots);
 
-  entities.getAll().onsuccess = event => {
-    (event.target.result || []).forEach(record => {
-      if (!isLegacyOptimisticKey(record.key)) {
-        if (!isOptimisticKey(record.key)) entities.delete(record.key); // cache row → rebuilt on refresh
-        return;
-      }
-      entities.delete(record.key);
-      const recordId = record.payload && (record.payload.recordId ?? record.payload.id);
-      if (recordId == null || recordId === "") return;
-      entities.put({ ...record, key: optimisticEntityKey(record.domainKey, recordId) });
-    });
+  // Sequenced, not concurrent: the rebuild needs the stored snapshots AND the rows that survived,
+  // and two requests over one store inside an upgrade transaction interleave.
+  snapshots.getAll().onsuccess = snapshotsEvent => {
+    const stored = snapshotsEvent.target.result || [];
+    entities.getAll().onsuccess = event => {
+      const kept = [];
+      (event.target.result || []).forEach(record => {
+        if (!isLegacyOptimisticKey(record.key)) {
+          if (isOptimisticKey(record.key)) kept.push(keptRow(record.key, record));
+          else entities.delete(record.key); // cache row → rebuilt on refresh
+          return;
+        }
+        entities.delete(record.key);
+        const recordId = record.payload && (record.payload.recordId ?? record.payload.id);
+        if (recordId == null || recordId === "") return;
+        const key = optimisticEntityKey(record.domainKey, recordId);
+        entities.put({ ...record, key });
+        kept.push(keptRow(key, record));
+      });
+      rebuildSnapshotRows(snapshots, stored, kept);
+    };
   };
+}
 
-  snapshots.clear();
+// Which snapshot list a surviving row belongs in. The machine comes from the domain key rather than
+// the row's own `machine` field because the key is what the migration has just canonicalised, and it
+// is the same thing the snapshot merge scopes by.
+function keptRow(key, record) {
+  return { key, entityType: record.entityType, machine: String(record.domainKey || "").split(":")[1] };
+}
+
+// A migration that CLEARED the snapshots took the crew's own queued work off every screen.
+// `readServerSnapshot` rebuilds each list from `snapshot.entityKeys` alone, so with no snapshot
+// there is nothing to rebuild from: the re-keyed optimistic rows sit in IndexedDB and appear on no
+// page, while the only thing said about it is "N รายการรอซิงก์ขึ้นเซิร์ฟเวอร์" — a message about
+// the queue, not about the app having forgotten the shift. Re-entering the report then files a
+// SECOND create for the one shift; the first is not rebased (creates never are) so it lands and the
+// second is refused, and the sheet keeps the stub instead of the full report the crew typed.
+//
+// So the snapshot is REDUCED rather than dropped: the row lists are rebuilt from the rows that
+// survived, and everything else it holds is kept, because none of it references an entity key —
+// `syncMeta` above all, which is server-confirmed state and not cache (losing it makes the next edit
+// of a confirmed record claim a stale version, refused as a conflict nobody caused). `fetchedAt`
+// goes to null: the lists now hold only what the queue is carrying, and a timestamp under them would
+// read as a full picture of the sheet.
+function rebuildSnapshotRows(snapshots, stored, kept) {
+  stored.forEach(snapshot => {
+    const entityKeys = {};
+    kept.forEach(row => {
+      const field = FIELD_FOR_ENTITY_TYPE.get(row.entityType);
+      // a config singleton is not a row in any list — it is overlaid from the entities store itself
+      if (!field) return;
+      if (isMachineScopedEntityType(row.entityType) && row.machine !== snapshot.machine) return;
+      entityKeys[field] = (entityKeys[field] || []).concat(row.key);
+    });
+    snapshots.put({ ...snapshot, fetchedAt: null, entityKeys });
+  });
 }
 
 export function recanonicalizeDomainKeys(transaction) {
   const mutations = transaction.objectStore(STORES.mutations);
   const entities = transaction.objectStore(STORES.entities);
   const conflicts = transaction.objectStore(STORES.conflicts);
+  const snapshots = transaction.objectStore(STORES.snapshots);
 
-  mutations.getAll().onsuccess = mutationsEvent => {
-    const remap = new Map();
-    (mutationsEvent.target.result || []).forEach(mutation => {
-      const domainKey = makeDomainKey(mutation);
-      if (domainKey !== mutation.domainKey) {
-        remap.set(mutation.domainKey, domainKey);
-        mutations.put({ ...mutation, domainKey }); // keyed by requestId, so no rename collision
-      }
-    });
-    // ONE pass over the entities, applying both rewrites: the domain remap where there is one, and
-    // the record-scoped key for every legacy optimistic row. It runs even when the remap is empty,
-    // because an install whose keys were already canonical still has v2-shaped optimistic rows —
-    // and two passes over one store inside a single upgrade transaction would interleave, the
-    // second reading rows the first had not rewritten yet.
-    let rekeyed = remap.size > 0;
-    entities.getAll().onsuccess = entitiesEvent => {
-      (entitiesEvent.target.result || []).forEach(record => {
-        if (!isOptimisticKey(record.key)) {
-          entities.delete(record.key); // server-snapshot cache row → rebuilt on refresh
-          rekeyed = true;
-          return;
+  snapshots.getAll().onsuccess = snapshotsEvent => {
+    const stored = snapshotsEvent.target.result || [];
+    mutations.getAll().onsuccess = mutationsEvent => {
+      const remap = new Map();
+      (mutationsEvent.target.result || []).forEach(mutation => {
+        const domainKey = makeDomainKey(mutation);
+        if (domainKey !== mutation.domainKey) {
+          remap.set(mutation.domainKey, domainKey);
+          mutations.put({ ...mutation, domainKey }); // keyed by requestId, so no rename collision
         }
-        const domainKey = remap.get(record.domainKey) || record.domainKey;
-        const recordId = record.payload && (record.payload.recordId ?? record.payload.id);
-        const key = recordId == null || recordId === "" ? null : optimisticEntityKey(domainKey, recordId);
-        if (key === record.key) return;
-        entities.delete(record.key);
-        rekeyed = true;
-        // A row whose payload names no record cannot be placed under the new key. Dropping it costs
-        // its on-screen copy only: its mutation is still in the queue and rewrites the row when it
-        // drains.
-        if (key) entities.put({ ...record, key, domainKey }); // last-wins
       });
-      // the cache references pre-migration keys; drop it so load() never resolves a stale one
-      if (rekeyed) transaction.objectStore(STORES.snapshots).clear();
-    };
+      // ONE pass over the entities, applying both rewrites: the domain remap where there is one, and
+      // the record-scoped key for every legacy optimistic row. It runs even when the remap is empty,
+      // because an install whose keys were already canonical still has v2-shaped optimistic rows —
+      // and two passes over one store inside a single upgrade transaction would interleave, the
+      // second reading rows the first had not rewritten yet.
+      let rekeyed = remap.size > 0;
+      entities.getAll().onsuccess = entitiesEvent => {
+        const kept = [];
+        (entitiesEvent.target.result || []).forEach(record => {
+          if (!isOptimisticKey(record.key)) {
+            entities.delete(record.key); // server-snapshot cache row → rebuilt on refresh
+            rekeyed = true;
+            return;
+          }
+          const domainKey = remap.get(record.domainKey) || record.domainKey;
+          const recordId = record.payload && (record.payload.recordId ?? record.payload.id);
+          const key = recordId == null || recordId === "" ? null : optimisticEntityKey(domainKey, recordId);
+          if (key === record.key) { kept.push(keptRow(key, record)); return; }
+          entities.delete(record.key);
+          rekeyed = true;
+          // A row whose payload names no record cannot be placed under the new key. Dropping it
+          // costs its on-screen copy only: its mutation is still in the queue and rewrites the row
+          // when it drains.
+          if (!key) return;
+          entities.put({ ...record, key, domainKey }); // last-wins
+          kept.push(keptRow(key, { ...record, domainKey }));
+        });
+        // the lists name pre-migration keys; rebuild them from what survived, so load() never
+        // resolves a stale key and never loses sight of a queued row either
+        if (rekeyed) rebuildSnapshotRows(snapshots, stored, kept);
+      };
 
-    if (remap.size === 0) return;
+      if (remap.size === 0) return;
 
-    conflicts.getAll().onsuccess = conflictsEvent => {
-      (conflictsEvent.target.result || []).forEach(conflict => {
-        const domainKey = remap.get(conflict.domainKey);
-        if (domainKey) conflicts.put({ ...conflict, domainKey });
-      });
+      conflicts.getAll().onsuccess = conflictsEvent => {
+        (conflictsEvent.target.result || []).forEach(conflict => {
+          const domainKey = remap.get(conflict.domainKey);
+          if (domainKey) conflicts.put({ ...conflict, domainKey });
+        });
+      };
     };
   };
 }

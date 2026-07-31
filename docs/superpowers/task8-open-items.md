@@ -4,9 +4,12 @@ Everything here is known, reproduced, and deliberately not fixed inside Task 8. 
 what closing it would take. Written down because two of them were found by review, fixed badly, and
 had to be withdrawn — the record is what stops that happening a third time.
 
-## 1. Deleting one row of a ring makes the other one uneditable (server-side)
+## 1. Deleting one row of a ring makes the other one uneditable (server-side) — BLOCKS THE PILOT
 
-**Reproduced against the real `handleSyncMutation_`.**
+**Reproduced against the real `handleSyncMutation_`. This one must be fixed and contract-tested on
+the deployment that opens the gate.** A crew that hits it has a bricked ring number; ring numbers
+here are sequential and never skipped, so it is a ring the machine will actually reach. It is listed
+as a prerequisite under Task 12 in `CLAUDE_HANDOFF.md`.
 
 `gas-live/Code.js` tombstones the ring KEY on a delete, not the row: `applySyncMutation_` then
 answers `SYNC_RECORD_DELETED` to every later UPDATE on that key. A ring legitimately carries two
@@ -24,8 +27,17 @@ against a tombstone GAS appended a second row with the same record id and blank 
 ids, a blanked photo link, and the sheet still holding the old value. `operation` is also a
 row-identity input to the local snapshot merge, so the disguise let an edit overwrite a neighbour.
 
-**The fix is in `gas-live/Code.js`**: tombstone the row rather than the key, or revive the key when a
-create arrives with a matching base. It needs the pre-sync backup, a contract test in
+**And the remedy the app itself prescribes cannot run.** After the refusal the ring's domain has a
+terminal head: `validation_error` is not terminal for ORDERING, so `domainHeads` keeps it as head
+and `isClaimable` never claims it again. The crew then does what the message tells them — delete the
+row and record it again — and neither the delete nor the new record ever leaves the device, while
+`deletePending` takes the deleted row off screen (see 3b) and the new one appears beside it. The
+data log then shows precisely the corrected state they intended; the sheet holds the original,
+uncorrected row. Executed end to end. It is counted (`3 รายการติดค้าง`), and it is a regression
+from pre-Task-8 behaviour, where the legacy write merged the row and cleared the flag.
+
+**The fix is in `gas-live/Code.js:1327`**: tombstone the row rather than the key, or revive the key
+when a create arrives with a matching base. It needs the pre-sync backup, a contract test in
 `tools/gas-sync-contract.test.cjs`, and a deployment — all of which this task is gated from.
 
 ## 2. The server does not check that a `domainKey` matches the row it names
@@ -59,23 +71,35 @@ The reasoning "two rows on one ring is a state the data logs dedupe for" is true
 `deduplicateRecords` runs in `ExecutiveDashboardView`, `RouteScheduleView`, `SegmentAnalysisView` and
 `SegmentDashboardView`, and all four key on `ringNo`.
 
-- **shiftReport** — nothing dedupes. Two rows for one (date, shift) make `PerformanceView` count the
-  shift twice, halving availability and double-counting any delay bar present in both.
+- **shiftReport** — **CLOSED for `PerformanceView`**, which now counts one row per (date, shift).
+  It was counting each row as a shift of its own: 24 hours of availability for a 12 hour shift, and
+  every delay bar present in both counted twice, on a page that gets printed for the owner. Nothing
+  else dedupes shift reports.
 - **grout / secondaryGrout** — nothing dedupes; `GroutDashboardView`'s average volume and ratio are
-  `sum / length`, so a second row shifts both.
+  `sum / length`, so a second row shifts both. Still open.
 - **segment** — the dedupe fires and prefers the Completed sheet row over an In Progress local one,
   so a newly recorded ring can be invisible in the data log while the strip says it is queued.
 
-None of this is new to Task 8 — the queue does not create the duplicate rows, the sheet does — but
-Task 8 is what makes both rows visible at once, so it is what makes the gap matter.
+**The earlier claim here — "the queue does not create the duplicate rows, the sheet does" — was
+wrong**, and it is why the consequence went uncosted for two rounds. The queue supplies the second
+row on its own, with one row on the sheet and no migration involved: a shift report created on a
+fresh install with no link is refused when the link returns (GAS answers `conflict` against the row
+already there), `UNRESOLVED_STATUSES` includes `CONFLICT`, so `preserveLocal` re-injects the refused
+copy into every merge — deliberately, since there is no conflict UI until Task 10 and the crew must
+be able to see their own work. Two rows for one shift, from then on.
 
 ## 3b. A delete queued behind a stuck head still takes its row off screen
 
-`unresolvedByDomain` holds the NEWEST unresolved mutation per domain, not the queue head. So when a
+`unresolvedByRecord` holds the NEWEST unresolved mutation per record, not the queue head. So when a
 domain already has a terminal head, a delete queued behind it — which `claimDueMutations` will never
 post — still hides its row from the refreshed list. The ring is off every screen on this device and
 still on the sheet, and the crew has affirmative feedback for a destructive action that did not
 happen.
+
+**This is not a corner: it is the second half of item 1's remedy.** The prescribed fix for a ring
+whose neighbour was deleted is delete-and-re-record, and behind that terminal head the delete hides
+the old row while the create adds the new one — so the screen shows exactly the corrected state
+while nothing at all has left the device. Reproduced end to end.
 
 It is counted (`errors` plus `blocked`), so the strip is not lying about the total, and it needs a
 stuck head to reach — which today means item 1. Fixing it properly means the tombstone asking whether
@@ -88,6 +112,20 @@ Step 4's wording. `deletePending` filters the row out of the merge instead of ma
 cannot tell a deleted-pending row from an absent one without joining the mutations store itself.
 Task 10 can reconstruct it; nothing in Task 8 needs it. Recorded because it is a deviation from the
 written contract, not an oversight.
+
+## 3d. A refused record's STORED row still reads `syncStatus: "pending"`
+
+`saveConflict` and `updateMutation` move the mutation to `conflict`, `validation_error` or
+`permanent_error` and never rewrite the optimistic entity's `payload.syncStatus`, which was stamped
+`pending` when the write was queued. `writeServerSnapshot` papers over it — the merge overlays the
+mutation's live status — so anything read through a refresh is right. `readServerSnapshot` is not:
+a relaunch, and every offline load, hands back the stored payload, and a refused record claims to be
+on its way indefinitely.
+
+Nothing in Task 8 renders it (the status strip counts the queue, not the row). Task 10's per-row
+badges read exactly this field, so it has to be closed before they can be trusted — and any rule
+written on the refusal statuses must not depend on the stored value until it is. The dedupe in 3a
+deliberately does not.
 
 ## 4. Deliberate deviations from the plan
 
@@ -112,7 +150,11 @@ the first, is where it bites) and it now has a test. A note that discourages tes
 data-loss path is worse than no note.
 
 - `mutationStore.js` — `patchSnapshotSyncMeta`'s scope bootstrap cannot fire while `patchSnapshotKeys`
-  creates the scope first. It earns its place with Task 9's project-wide entities.
+  creates the scope first. **It will not earn its place with Task 9's project-wide entities either**,
+  and the earlier claim that it would was wrong: `scopesFor` returns early on `!machineScoped`, so
+  for a project-wide entity on a device holding no snapshot the bootstrap is unreachable by
+  construction and the confirmed version is simply dropped. Task 9 needs a different change — a
+  machineless scope has no scope key to be created under, which is a design question that task owns.
 - `App.jsx` — the photo strip on the snapshot mirror is invisible to the DOM: carrying the bytes and
   dropping them render identically. The rule is tested on the reducer in `displayRecord.test.js`.
 - `repository.js` — the null-snapshot fallback in `refresh` (`(overtaken && read) || write`) is

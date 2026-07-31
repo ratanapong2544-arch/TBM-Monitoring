@@ -66,7 +66,24 @@ export default function PerformanceView({ segmentRecords = [], shiftReports = []
     const other3Theme = {};
     let shifts = 0;
     let operating = 0;
+    // ONE row per shift. Two rows can describe one (date, shift) and each was counted as a shift of
+    // its own: 24 hours of availability for a 12 hour shift, utilization halved, and every delay bar
+    // present in both counted twice — with nothing on a page that gets printed saying the number was
+    // wrong. Nothing dedupes shift reports anywhere, and since the core writes went through the
+    // queue the second row no longer needs a duplicate on the sheet: a report created with no link
+    // is refused when the link returns (GAS answers `conflict` against the row already there for
+    // that date and shift) and the refused copy stays in the list so the crew can see it.
+    // Keep the FIRST. The snapshot merge appends local-only rows after the server's and a relaunch
+    // replays that same order, so the first is the row the sheet holds — decided without reading a
+    // sync status, which a relaunch does not refresh. `formatDisplayDate` because the two rows
+    // reach here with different date formats: GAS serializes the sheet's date cell as UTC ISO, a
+    // report composed on the device carries the calendar date.
+    const shiftRows = new Map();
     filteredShiftReports.forEach((r) => {
+      const key = `${formatDisplayDate(r.date)}__${r.shift}`;
+      if (!shiftRows.has(key)) shiftRows.set(key, r);
+    });
+    Array.from(shiftRows.values()).forEach((r) => {
       shifts += 1;
       const events = r.events || {};
       Object.keys(events).forEach((cat) => {

@@ -377,6 +377,12 @@ After deployment, run `setupSheets()` once as the owner and perform only the non
 - Write deploy/rollback runbook and test matrix.
 - Pilot in three gates: Android+iPhone, 2–3 field users, then approximately ten users.
 - Promote only with duplicate count `0` and data-loss count `0`.
+- **Blocking prerequisite before any pilot gate:** fix and contract-test `gas-live/Code.js:1327` —
+  a delete tombstones the ring KEY rather than the row, so deleting one row of a ring makes every
+  later correction of the other terminal, and the remedy the app prints (delete and re-record)
+  no-ops behind the stuck head while the screen confirms it. Reproduced against the real
+  `handleSyncMutation_`; ring numbers are sequential and never skipped, so it is a ring the machine
+  will reach. Item 1 of `docs/superpowers/task8-open-items.md`.
 
 ## Critical Safety Notes
 

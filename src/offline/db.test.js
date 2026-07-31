@@ -5,6 +5,7 @@ if (!global.structuredClone) global.structuredClone = value => JSON.parse(JSON.s
 import { closeOfflineDb, deleteOfflineDbForTests, openOfflineDb, OPEN_DB_TIMEOUT_MS, recanonicalizeDomainKeys } from "./db";
 import { getOrCreateDeviceId } from "./device";
 import { makeDomainKey, syncDateKey } from "./domainKey";
+import { readServerSnapshot } from "./snapshotStore";
 
 beforeEach(async () => {
   await deleteOfflineDbForTests();
@@ -212,8 +213,9 @@ test("upgrading from v2 gives each record its own optimistic row", async () => {
   const keys = (await readAllStore(db, "entities")).map(row => row.key);
 
   expect(keys).toEqual([`entity:optimistic:${domainKey}:id:seg_b`]); // re-keyed by the record it names
-  // the cached server row goes: its key list named the old shape, so the cache is rebuilt on refresh
-  expect(await readAllStore(db, "snapshots")).toHaveLength(0);
+  // the cached server row goes — its key named the old shape — and the snapshot's list is rebuilt
+  // from what survived rather than cleared, so the queued row is still on screen after the upgrade
+  expect((await readAllStore(db, "snapshots"))[0].entityKeys).toEqual({ segments: [`entity:optimistic:${domainKey}:id:seg_b`] });
   // and both mutations are untouched — neither crew edit is lost, they simply drain and rewrite
   expect((await readAllStore(db, "mutations")).map(row => row.requestId).sort()).toEqual(["m-a", "m-b"]);
 });
@@ -230,6 +232,132 @@ test("upgrading from v2 keeps a row whose payload names its record only by recor
   const db = await openOfflineDb();
   expect((await readAllStore(db, "entities")).map(row => row.key)).toEqual([`entity:optimistic:${domainKey}:id:i1`]);
 });
+
+// What the crew SEES after an upgrade, which is a different question from what survives in the
+// store. `readServerSnapshot` rebuilds every list from `snapshot.entityKeys` alone, so a migration
+// that cleared the snapshots left the queued rows in IndexedDB and on no screen: a shift's work
+// gone from the data log with only "N รายการรอซิงก์" to hint at it — a message about the queue,
+// not about the app having forgotten the shift. Re-entering it then files a SECOND create for the
+// one shift, and the first one wins the drain, so the sheet keeps the stub and never the full
+// report. No shipped device is on v2 yet; the first task to bump DB_VERSION again makes it real.
+test("upgrading from v2 leaves the crew's queued work on screen", async () => {
+  const ringKey = "segment:TBM1:P644:Permanent";
+  const shiftKey = "shiftReport:TBM1:2026-07-30:Night";
+  await seedAtVersion(2, {
+    mutations: [
+      { requestId: "m-seg", status: "pending", entityType: "segment", machine: "TBM1", recordId: "seg_new", domainKey: ringKey, payload: { id: "seg_new" } },
+      { requestId: "m-shift", status: "pending", entityType: "shiftReport", machine: "TBM1", recordId: "shift_1", domainKey: shiftKey, payload: { id: "shift_1" } },
+    ],
+    entities: [
+      { key: `entity:optimistic:${ringKey}`, entityType: "segment", machine: "TBM1", domainKey: ringKey, payload: { id: "seg_new", ringNo: "P644" } },
+      { key: `entity:optimistic:${shiftKey}`, entityType: "shiftReport", machine: "TBM1", domainKey: shiftKey, payload: { id: "shift_1", shift: "Night" } },
+      { key: "entity:TBM1:segments:segment:TBM1:P600:Permanent:id:seg_old", entityType: "segment", machine: "TBM1", domainKey: "segment:TBM1:P600:Permanent", payload: { id: "seg_old" } },
+    ],
+    snapshots: [{
+      scopeKey: "getData:TBM1", machine: "TBM1", fetchedAt: "2026-07-30T01:00:00.000Z",
+      syncMeta: { [ringKey]: { version: 4, deleted: false } },
+      entityKeys: { segments: ["entity:TBM1:segments:segment:TBM1:P600:Permanent:id:seg_old", `entity:optimistic:${ringKey}`], shiftReports: [`entity:optimistic:${shiftKey}`] },
+    }],
+  });
+
+  const loaded = await readServerSnapshot(await openOfflineDb(), "TBM1");
+
+  expect(loaded.segments.map(row => row.id)).toEqual(["seg_new"]);
+  expect(loaded.shiftReports.map(row => row.id)).toEqual(["shift_1"]);
+  // server-confirmed state, not cache: without it the next edit of that ring stamps a version from
+  // before this device's own write and the server refuses it as a conflict nobody caused
+  expect(loaded.syncMeta).toEqual({ [ringKey]: { version: 4, deleted: false } });
+  // nothing has come from the server since, and saying otherwise puts a stale timestamp under a
+  // list that holds only what the queue is carrying
+  expect(loaded.fetchedAt).toBeNull();
+});
+
+test("a rebuilt snapshot names only the rows that belong to its machine", async () => {
+  // getData answers per machine for the ring-scoped collections and project-wide for the rest, so
+  // the same rule the queue patches by has to hold here: TBM2's ring belongs in TBM2's list only,
+  // and an issue belongs in both.
+  const tbm2Ring = "segment:TBM2:P12:Permanent";
+  const issueKey = "issue:GLOBAL:i1";
+  await seedAtVersion(2, {
+    mutations: [],
+    entities: [
+      { key: `entity:optimistic:${tbm2Ring}`, entityType: "segment", machine: "TBM2", domainKey: tbm2Ring, payload: { id: "seg_2" } },
+      { key: `entity:optimistic:${issueKey}`, entityType: "issue", machine: "GLOBAL", domainKey: issueKey, payload: { id: "i1" } },
+    ],
+    snapshots: [
+      { scopeKey: "getData:TBM1", machine: "TBM1", entityKeys: {} },
+      { scopeKey: "getData:TBM2", machine: "TBM2", entityKeys: {} },
+    ],
+  });
+
+  const db = await openOfflineDb();
+  const tbm1 = await readServerSnapshot(db, "TBM1");
+  const tbm2 = await readServerSnapshot(db, "TBM2");
+
+  expect(tbm1.segments).toEqual([]);
+  expect(tbm2.segments.map(row => row.id)).toEqual(["seg_2"]);
+  expect(tbm1.issues.map(row => row.id)).toEqual(["i1"]);
+  expect(tbm2.issues.map(row => row.id)).toEqual(["i1"]);
+});
+
+test("a queued config edit is not rebuilt into any collection list", async () => {
+  // The config entities are singletons overlaid from the entities store, not rows in a collection.
+  // Naming one in a list makes `load` hand a plan-config body back as a ring, and the data log and
+  // every dashboard downstream of it then read engineering fields off an object that has none.
+  const configKey = "planConfig:TBM1";
+  await seedAtVersion(2, {
+    mutations: [],
+    entities: [{ key: `entity:optimistic:${configKey}`, entityType: "planConfig", machine: "TBM1", domainKey: configKey, payload: { recordId: "planConfig", target: "12" } }],
+    snapshots: [{ scopeKey: "getData:TBM1", machine: "TBM1", planConfig: { target: "9" }, entityKeys: {} }],
+  });
+
+  const db = await openOfflineDb();
+  const loaded = await readServerSnapshot(db, "TBM1");
+
+  expect(loaded.segments).toEqual([]);
+  expect(loaded.planConfig).toEqual({ target: "9" });
+  // it is still re-keyed and still in the store — the next refresh overlays it as the singleton
+  expect((await readAllStore(db, "entities")).map(row => row.key)).toEqual([`entity:optimistic:${configKey}:id:planConfig`]);
+});
+
+test("upgrading from v1 leaves the crew's queued work on screen", async () => {
+  // the same rule on the other migration path, which re-keys the domain as well as the record
+  const stale = "issue:TBM1:i1";
+  const canonical = "issue:GLOBAL:i1";
+  await seedV1({
+    mutations: [{ requestId: "m1", status: "pending", entityType: "issue", machine: "TBM1", recordId: "i1", domainKey: stale, payload: { id: "i1" } }],
+    entities: [
+      { key: `entity:optimistic:${stale}`, entityType: "issue", machine: "TBM1", domainKey: stale, payload: { id: "i1", title: "offline" } },
+      { key: `entity:TBM1:issues:${stale}:id:i0`, entityType: "issue", machine: "TBM1", domainKey: "issue:TBM1:i0", payload: { id: "i0" } },
+    ],
+  });
+  await seedSnapshots([{
+    scopeKey: "getData:TBM1", machine: "TBM1", fetchedAt: "2026-07-30T01:00:00.000Z",
+    syncMeta: { [canonical]: { version: 2, deleted: false } },
+    entityKeys: { issues: [`entity:TBM1:issues:${stale}:id:i0`, `entity:optimistic:${stale}`] },
+  }]);
+
+  const loaded = await readServerSnapshot(await openOfflineDb(), "TBM1");
+
+  expect(loaded.issues.map(row => row.title)).toEqual(["offline"]);
+  expect(loaded.syncMeta).toEqual({ [canonical]: { version: 2, deleted: false } });
+  expect(loaded.fetchedAt).toBeNull();
+});
+
+function seedSnapshots(rows) {
+  const { DB_NAME } = require("./schema");
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(DB_NAME, 1);
+    request.onsuccess = () => {
+      const db = request.result;
+      const transaction = db.transaction("snapshots", "readwrite");
+      rows.forEach(row => transaction.objectStore("snapshots").put(row));
+      transaction.oncomplete = () => { db.close(); resolve(); };
+      transaction.onerror = () => reject(transaction.error);
+    };
+    request.onerror = () => reject(request.error);
+  });
+}
 
 function seedAtVersion(version, records) {
   const { DB_NAME, STORES } = require("./schema");
@@ -331,22 +459,29 @@ test("the migration requests the entity and conflict passes only after the mutat
   }
   const stores = {
     mutations: fakeStore("mutations", [{ requestId: "m1", entityType: "issue", machine: "TBM1", recordId: "i1", domainKey: stale, payload: { id: "i1" } }]),
-    entities: fakeStore("entities", [{ key: `entity:optimistic:${stale}`, domainKey: stale, payload: {} }]),
+    entities: fakeStore("entities", [{ key: `entity:optimistic:${stale}`, entityType: "issue", domainKey: stale, payload: { id: "i1" } }]),
     conflicts: fakeStore("conflicts", []),
-    snapshots: fakeStore("snapshots", []),
+    snapshots: fakeStore("snapshots", [{ scopeKey: "getData:TBM1", machine: "TBM1", entityKeys: {} }]),
   };
   recanonicalizeDomainKeys({ objectStore: name => stores[name] });
 
-  return Promise.resolve().then(() => Promise.resolve()).then(() => {
+  return Promise.resolve().then(() => Promise.resolve()).then(() => Promise.resolve()).then(() => {
+    const snapshotsGetAll = order.indexOf("getAll:snapshots");
     const mutationsGetAll = order.indexOf("getAll:mutations");
     const entitiesGetAll = order.indexOf("getAll:entities");
     const conflictsGetAll = order.indexOf("getAll:conflicts");
-    expect(mutationsGetAll).toBe(0);
+    // the snapshots are read first because the rebuild needs them, and the rest keeps its order
+    expect(snapshotsGetAll).toBe(0);
+    expect(mutationsGetAll).toBeGreaterThan(snapshotsGetAll);
     expect(entitiesGetAll).toBeGreaterThan(mutationsGetAll);
     expect(conflictsGetAll).toBeGreaterThan(mutationsGetAll);
     // the remap-building put on mutations happens before the entity pass is even requested
     expect(order.indexOf("put:mutations")).toBeLessThan(entitiesGetAll);
-    expect(order).toContain("clear:snapshots");
+    // rebuilt from the surviving rows, never cleared: clearing takes the crew's queued work off
+    // every screen, because `load` has nothing left to rebuild the lists from
+    expect(order).toContain("put:snapshots");
+    expect(order).not.toContain("clear:snapshots");
+    expect(order.indexOf("put:snapshots")).toBeGreaterThan(entitiesGetAll);
   });
 });
 
@@ -375,11 +510,11 @@ test("upgrading survives two records re-keying onto one canonical key", async ()
   expect(entities[0].key).toBe("entity:optimistic:issue:GLOBAL:i1:id:i1");
 });
 
-test("upgrading re-keys an already-canonical install, and drops the cache that named the old keys", async () => {
+test("upgrading re-keys an already-canonical install, and rebuilds the list that named the old keys", async () => {
   // Its domain keys need no remap, but its optimistic rows are still v2-shaped — one per domain,
   // which is what let two records sharing a ring overwrite each other. Re-keying them invalidates
-  // the snapshot's key list, so the cache goes with them and rebuilds on the first refresh; leaving
-  // it would make `load` resolve keys that no longer exist and return a gapped list.
+  // the snapshot's key list, so the list is rebuilt from the rows that survived; leaving it would
+  // make `load` resolve keys that no longer exist and return a gapped list.
   const canonical = "issue:GLOBAL:i1";
   await seedV1({
     mutations: [{ requestId: "m1", status: "pending", entityType: "issue", machine: null, recordId: "i1", domainKey: canonical, payload: { id: "i1" } }],
@@ -399,14 +534,15 @@ test("upgrading re-keys an already-canonical install, and drops the cache that n
   });
 
   const db = await openOfflineDb();
-  expect(await readAllStore(db, "snapshots")).toHaveLength(0);
+  expect((await readAllStore(db, "snapshots"))[0].entityKeys).toEqual({ issues: [`entity:optimistic:${canonical}:id:i1`] });
   expect((await readAllStore(db, "entities"))[0].key).toBe(`entity:optimistic:${canonical}:id:i1`);
 });
 
-test("upgrading discards the stale cache instead of leaving load() a gapped list", async () => {
+test("upgrading rewrites the stale key list instead of leaving load() a gapped one", async () => {
   // the cache's entityKeys reference pre-migration keys; re-keying the rows under them would make
-  // load() resolve keys that no longer exist and drop the record. Clearing the cache is clean:
-  // the pending mutation and its optimistic row survive re-keyed, and the cache rebuilds on refresh.
+  // load() resolve keys that no longer exist and drop the record. The list is rewritten to name what
+  // survived: the pending mutation and its optimistic row are re-keyed and stay on screen, and the
+  // cached server row goes, to be rebuilt on the first refresh.
   const stale = "issue:TBM1:i1";
   const canonical = "issue:GLOBAL:i1";
   await seedV1({
@@ -435,8 +571,8 @@ test("upgrading discards the stale cache instead of leaving load() a gapped list
   expect((await readAllStore(db, "mutations"))[0].domainKey).toBe(canonical);
   const entities = await readAllStore(db, "entities");
   expect(entities.map(row => row.key)).toEqual([`entity:optimistic:${canonical}:id:i1`]);
-  // cache: discarded, so load() reads a clean empty state rather than a broken key list
-  expect(await readAllStore(db, "snapshots")).toEqual([]);
+  // list: rewritten, so load() resolves every key it names and still shows the queued record
+  expect((await readAllStore(db, "snapshots"))[0].entityKeys).toEqual({ issues: [`entity:optimistic:${canonical}:id:i1`] });
 });
 
 test("a shift report loaded from the server keys the same as the sheet date", () => {

@@ -250,6 +250,29 @@ test("a successful refresh triggers the sync runner", async () => {
   hook.unmount();
 });
 
+test("a sync runner that rejects does not surface as a page error", async () => {
+  // the runner reaches IndexedDB to claim due mutations, so it rejects outright in the session this
+  // call exists for — the database could not be opened, so the runner was started anyway. Unhandled,
+  // every successful refresh would raise a page error on a screen that is working fine.
+  const rejections = [];
+  const onRejection = event => { rejections.push(event); event.preventDefault && event.preventDefault(); };
+  process.on("unhandledRejection", onRejection);
+  try {
+    const repository = makeRepository();
+    const runner = { runNow: jest.fn(() => Promise.reject(new Error("IndexedDB open timed out"))) };
+    const hook = renderHook(props => useOfflineData(props.machine, { repository, runner }), { machine: "TBM1" });
+    await act(async () => {});
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    expect(runner.runNow).toHaveBeenCalled();
+    expect(rejections).toHaveLength(0);
+    expect(hook.last()).toMatchObject({ source: "server", loading: false });
+    hook.unmount();
+  } finally {
+    process.off("unhandledRejection", onRejection);
+  }
+});
+
 test("a failing refresh does not trigger the sync runner", async () => {
   const repository = makeRepository({ refresh: jest.fn(async () => { throw new Error("NETWORK"); }) });
   const runner = { runNow: jest.fn(() => Promise.resolve()) };

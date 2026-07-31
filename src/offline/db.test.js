@@ -75,6 +75,32 @@ test("a rejected open does not poison the next attempt", async () => {
   expect([...db.objectStoreNames]).toEqual(expect.arrayContaining(["entities"]));
 });
 
+test("an abandoned open giving up later does not discard a newer attempt", async () => {
+  // closeOfflineDb during a pending open leaves that request orphaned. Whenever it finally gives up
+  // — its timeout, or a late `blocked` — it must not clear the module's promise, which by then
+  // belongs to a newer, valid open: that would leak the live connection and make the next caller
+  // open a third one against the same database.
+  const realOpen = indexedDB.open;
+  let orphan;
+  try {
+    indexedDB.open = () => { orphan = { result: null, error: null, onblocked: null, onsuccess: null, onerror: null, onupgradeneeded: null }; return orphan; };
+    const abandoned = openOfflineDb();
+    abandoned.catch(() => {});
+    closeOfflineDb();
+
+    indexedDB.open = realOpen;
+    const db = await openOfflineDb();
+    expect([...db.objectStoreNames]).toEqual(expect.arrayContaining(["entities"]));
+
+    orphan.onblocked(); // the abandoned open gives up, after the live one succeeded
+    await expect(abandoned).rejects.toThrow(/blocked/i);
+
+    expect(await openOfflineDb()).toBe(db); // the live connection is still the module's
+  } finally {
+    indexedDB.open = realOpen;
+  }
+});
+
 test("device id is stable for one installation", async () => {
   const db = await openOfflineDb();
 

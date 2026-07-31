@@ -4,9 +4,9 @@
 
 ## Verdicts
 
-Round 11 returned PASS on both axes and recommended shipping. Round 12 — run against the round-11 fixes, with both reviewers told what had changed — returned **FAIL on both axes**, with two BLOCKERs the earlier rounds had missed. That is the useful fact about this task: a PASS from a reviewer that has not seen the latest commit is not a verdict on it.
+Round 11 returned PASS on both axes and recommended shipping. Round 12 — run against the round-11 fixes, with both reviewers told what had changed — returned **FAIL on both axes**, with two BLOCKERs the earlier rounds had missed. Round 13 then failed again, on a BLOCKER introduced *by* a round-12 fix. That is the useful fact about this task: a PASS from a reviewer that has not seen the latest commit is not a verdict on it, and a fix is not finished until it has been reviewed as harshly as the defect was.
 
-Twelve review rounds ran. Every round from 4 onward surfaced a real defect the earlier rounds missed. The recurring shape, found in three separate forms, is worth carrying forward:
+Fourteen review rounds ran. Every round from 4 onward surfaced a real defect the earlier rounds missed. The recurring shape, found in three separate forms, is worth carrying forward:
 
 > An effect that resets user-editable state, keyed on a prop that `App.jsx` re-mirrors with a **new array identity on every snapshot**. Before Task 7 the app only ever mirrored once, on load; now the cache pass, the server pass and every machine switch each land a fresh identity while the crew is typing. A reset keyed on `segmentRecords`/`shiftReports` therefore fires mid-edit and wipes typed manpower, ring numbers, chainage and grout volumes — none of which have an auto-save to recover from.
 
@@ -30,7 +30,9 @@ A systematic sweep of every effect in the view layer established that only `Shif
 | `f00adbb` | fix: reset the shift report on a machine switch |
 | `020f41f` | fix: keep input typed while a save is in flight |
 | `43024a2` | fix: stop a save from writing into the wrong report or machine |
-| _(pending)_ | fix: close the round-12 blockers and the offline hang |
+| `8d347a9` | fix: close the round-12 blockers and the offline hang |
+| `c3cee78` | fix: decide a queued save's identity when the crew acts, not when it runs |
+| _(pending)_ | fix: bound the save chain and close the round-14 findings |
 
 ## Round 12 — what both PASSes had missed
 
@@ -42,11 +44,37 @@ A systematic sweep of every effect in the view layer established that only `Shif
 
 **Spec (FAIL): 1 MAJOR, 6 MINOR.** `indexedDB.open()` had no `onblocked` handler and no timeout, so a blocked upgrade (a second tab on an older `DB_VERSION` after a service-worker update) or the WebKit stall on iOS never settled. Every caller awaits it and `loading` is only cleared inside those callers, so the crew sat on the splash screen with the server payload already in memory. It now rejects, and the runner starts even when the database cannot be opened — otherwise a session that lost the open race had no automatic sync for its whole life.
 
-The same review verified the domain-key vectors independently: `tools/sync-domain-vectors.json` matches both `src/offline/domainKey.js` and `makeSyncRecordKey_` in the out-of-repo GAS, and both suites assert against it. No drift.
+The same review verified the domain-key vectors independently: `tools/sync-domain-vectors.json` matches both `src/offline/domainKey.js` and `makeSyncRecordKey_` in the out-of-repo GAS, and both suites assert against it. No drift. Rounds 13 and 14 re-verified this by hand, vector by vector, against the authoritative out-of-repo file.
 
-## Test evidence (at the round-12 commit)
+## Round 13 — the fix that was worse than the defect
 
-- `npm test -- --watchAll=false --runInBand` → 66 suites / 809 tests pass
+**Quality (FAIL): 1 BLOCKER, 2 MAJOR.** Serializing the shift-report saves (round 12's answer to the duplicate row) introduced a worse one. A queued save froze its **payload** when the crew acted but resolved its **row identity** — the id, and the append-versus-update decision — when the request finally started. Anything the crew did in between therefore changed which row their earlier edit landed in:
+
+- change the date while a save is in flight, and the queued save minted a fresh id and appended a **second row for the first date** — the exact defect the queue existed to prevent;
+- if the new date already had a report, the queued save adopted **that** row's id and overwrote the 31st's report with the 30th's content;
+- with a machine switch instead of a date change, it sent an `updateShiftReport` to the old machine's sheet carrying an id that sheet has never seen, and GAS no-opped it away.
+
+The edit serial had the same fault: sampled at execution, it counted edits made after queueing as already sent and cleared the dirty flag over them. And the bookkeeping was per-mount, so a nav tap and a return minted a second id for a report the sheet already had.
+
+Everything except "has this id reached the sheet yet" is now captured when the crew acts. That one fact cannot be known earlier, and it is what decides append versus update.
+
+**Spec (PASS, 7 MINOR)** — all consequences of the round-12 fixes: an unhandled `runNow()` rejection in exactly the session that starts the runner without a database; `refresh()`'s catch re-entering `openDb` and reporting "IndexedDB open timed out" for what was really a server or permission failure; an abandoned open's timer clearing a newer promise; and the network half of the hang still unbounded — a link that completes the handshake and goes quiet left "refreshing" up forever, which also **suppresses the snapshot-age strip**, so the crew is told data is coming instead of how old what they are looking at is.
+
+## Round 14 — both reviewers found the same blocker independently
+
+**Quality (FAIL): 1 BLOCKER, 3 MAJOR. Spec (FAIL): 2 MAJOR.** The blocker was the same on both axes, reached from different directions: round 13 moved the save chain to module scope so it would survive an unmount, but `apiCall` has no deadline of its own. One request that never answers — the same captive-portal / quiet-link failure the snapshot fetch had just been bounded against — therefore stalled **every** shift-report save for the rest of the session, across both machines and every date, with the button stuck reading "Saving…" and every time-bar auto-save silently swallowed. Moving the chain out of the component had removed the one escape that used to exist (navigate away and back). Fixed on both sides: one chain **per report**, so a dead request cannot block records it has nothing to do with, and a 45 s deadline on the save itself, after which the crew is told the outcome is unknown rather than being told nothing.
+
+The other findings:
+
+- **The own-write key was claimed for a payload the form no longer held.** Leave the report and come back while a save travels, and the form reloads from the stored copy — without the time bar that save is carrying. Claiming the key then made the view skip loading the row its own save produced, so the next save rebuilt its payload from the stale form and **erased the recorded time bar from the sheet**. Delay minutes gone from an official shift report, no error shown. The claim now also requires that nothing was reloaded or retyped since the payload was frozen. The cost is that a crew typing during the round trip sees their own row announced as a server copy — which is honest, because the arriving row genuinely lacks what they typed.
+- **The 30 s snapshot ceiling was too tight for the real payload.** A `getData` response for one machine measures 463 KB in this worktree, and GAS burns several seconds before the first byte; at 100 kbps — ordinary underground — an honest transfer needs ~45 s. A 30 s ceiling would have turned a working link into a deterministic failure the crew could not raise, pinning them to the previous shift's snapshot. Now 90 s, which still bounds the never-settles case.
+- The timeout now covers the body read (a portal that answers headers then stalls was reported as "cancelled"), `syncRunner`'s event trigger no longer raises an unhandled rejection in a session without a database, and the false claim that a caller's abort signal is what abandons a machine switch was corrected — nothing passes one; the request token does that.
+
+Two round-13 fixes had shipped unpinned, and one test was tautological (it asserted that `ApiFailure`'s constructor kept its own arguments). Both are pinned now, and the earlier "input typed while a save is in flight" test — which the review showed had stopped discriminating — was replaced by two that state the sharper rule.
+
+## Test evidence (at the round-14 commit)
+
+- `npm test -- --watchAll=false --runInBand` → 66 suites / 826 tests pass
 - `npm run test:gas-sync` → 92 pass / 0 fail
 - `npm run build` → Compiled successfully (build output restored with `git checkout -- build/`; the build artefact is not committed — Vercel builds from source)
 - `node --check ../gas-live/Code.js` → OK
@@ -76,13 +104,15 @@ Unchanged from Task 6. Nothing has been pushed to Vercel and no `clasp push`/`re
 - **Task 7 Step 4 says "do not clear arrays at machine switch before cached data has loaded"; the code does clear them.** `App.jsx` exposes `EMPTY_ROWS` for the four machine-scoped collections from the moment `activeMachine` changes until the new snapshot lands. Showing machine A's rows under machine B's label is not cosmetic here: `SegmentRecordView`'s prefill derives the next ring number and chainage from the last row it can see, so the crew would be handed machine A's next ring for machine B. This reproduces pre-Task-7 behaviour and is pinned by `appDataFlow.test.jsx`.
 - **`source:"empty"` can be returned while `data` still holds the previous machine's records.** Blanking `data` instead would make `data.machine === activeMachine` and flip `rowsReady` true over empty arrays, which is the prefill hazard above. The hook now also returns `dataMachine`, so a consumer can tell whose data it is holding; App already made the equivalent check before mirroring.
 - **Three files in Task 8's file list were modified** (`SegmentRecordView`, `GroutRecordView`, `ShiftReportView`). Forced by Task 7: hydration now lands two snapshots per load plus one per machine switch, each a fresh array identity, so reset effects keyed on those props fire mid-edit. **No write was routed through the mutation queue** — all three still call `apiCall`, so no Task 8 work was done early (independently verified in round 13: none of the three imports `repository`, `mutate` or `useOffline`). Task 8 Step 4's "preserve their existing form reset behavior" now means preserving the guards listed above.
-- **Files outside Task 7's list that were also modified**, for completeness: `src/offline/repository.js` (the `setSyncMetaValue` passthrough Task 7 Step 3 requires, plus the `cacheError` branch that keeps a server-fresh payload usable when the cache write fails) and `src/offline/mutationStore.js`. Four new test files were added outside the list as well.
+- **Files outside Task 7's list that were also modified**, for completeness: `src/offline/repository.js` (the `setSyncMetaValue` passthrough Task 7 Step 3 requires, the `cacheError` branch that keeps a server-fresh payload usable when the cache write fails, and the guarded catch that stops an unopenable database masking a network fault), `src/offline/mutationStore.js`, `src/offline/db.js` (Task 3's file — the `onblocked`/timeout fix) and `src/offline/apiTransport.js` (Task 4's file — the snapshot timeout). Five new test files were added outside the list as well.
+- **`ShiftReportView` keeps save bookkeeping in module scope** — the draft id, the set of ids known to be on the sheet, and the save chain, keyed per report (`machine|date|shift`), with a test-only reset export. It lives outside the component because a save outlives the form that started it: any nav tap unmounts the view while the request is still travelling, and per-instance state let the remounted form mint a second id for a report the sheet already had. **Task 8 removes this** — the mutation queue is the durable, idempotent version of exactly this bookkeeping, and the module-level state should be deleted when writes move onto it, not carried alongside it.
 - **`ShiftReportView` gained user-facing surface** — the server-copy notice with its two-step discard confirmation. It follows from the mid-edit hazard Task 7 creates and matches the design's "never silently overwrite" posture, but the discard/confirm pattern overlaps what Task 10's Sync Center will own. **Task 10 should absorb it, not duplicate it.**
 
 ## Deferred follow-ups (task chips filed)
 
 - Validate unknown sync payload keys per entity (carried from Task 6).
 - Close `PrepTaskModal` on a machine switch — an open modal keeps editing the previous machine's task.
+- **A shift report whose row is deleted from the sheet by hand locks into `updateShiftReport`.** `savedIds` records that an id reached the sheet and nothing removes it, so if the row is later deleted or overwritten directly in Sheets, every later save sends an update GAS cannot match, no-ops silently, and the crew is told "บันทึกสำเร็จ" while nothing is written. The app has no shift-report delete, so this needs someone editing the sheet. **Task 8 removes it structurally** — the mutation queue keys on `requestId` and version rather than on a client-side memory of what was sent.
 - **Deletion propagation has no owner.** An empty server collection no longer clears local state (`App.jsx`: `if (data.issues.length)`, `if (data.machineProgress)`, `mirrorInst`'s `!rows.length`), so deleting the last issue on device B leaves device A showing it forever, labelled server-confirmed. The trade is deliberate — `normalizeServerData` maps an absent key to `[]`, so an older GAS deployment or a partial `doGet` is indistinguishable from a real deletion, and losing a field record outranks showing a stale one — but Task 9's Steps 4–5 never mention restoring it. It needs to be added there or it ships as-is.
 
 ## Promotion gate — do not deploy between Task 7 and Task 9
@@ -96,3 +126,5 @@ Shipping Task 7 on its own would therefore contradict the design's "offline writ
 - Task 8's mutation queue replaces the direct `apiCall` in these three forms. When it does, the draft id, the edit serial and the machine-at-submit comparison must move into the queued mutation rather than being dropped: the queue makes the write durable, but the window between "payload built" and "row applied" gets longer, not shorter.
 - The Shift Report `Result` block intentionally prefers the ring-derived figure over a stored one (owner-confirmed). A correction has to be made against the ring records; typing over the total does not survive the next form load, and the code comment at `ShiftReportView.jsx` says so.
 - `App.jsx` gates rows on `rowsMachine`; any new machine-scoped collection added later must join that gate or it will leak across a switch.
+- **The 90 s snapshot ceiling is reasoned, not measured.** It comes from the 463 KB payload in this worktree and an assumed ~100 kbps floor. Task 12's matrix measures POST latency on a slow network but has no row for the GET, so nobody has yet timed a real `getData` from underground. Measure it there and adjust; a deadline that resets on progress would be strictly better than any fixed number.
+- **A timed-out save is genuinely ambiguous today.** The legacy `addShiftReport` is not idempotent, so the app cannot safely retry one on the crew's behalf — it tells them the outcome is unknown and asks them to check. Task 8's queue is what makes the retry safe; when it lands, that alert should become an automatic retry.

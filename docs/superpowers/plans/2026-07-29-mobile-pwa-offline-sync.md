@@ -1182,6 +1182,12 @@ Use repository mutation envelopes in `App.jsx`, `PrepGanttView`, `RouteScheduleV
 
 Keep pure manipulation helpers in existing utils. Mark `load*/persist*` localStorage functions as migration-only exports and stop calling them from active React paths. UI preferences (`tbmActiveMachine`, prep collapsed rows, prep forecast mode) remain in localStorage.
 
+- [ ] **Step 5b: Restore deletion propagation (added after Task 7's review — currently unowned)**
+
+Task 7 made the localStorage-primary collections server-only **and** empty-guarded: `App.jsx` mirrors them behind `if (data.issues.length)`, `if (data.dailyReports.length)`, `if (data.prepTasks.length)`, `if (data.machineProgress)` and `mirrorInst`'s `if (!rows.length) return`. Consequence: a deletion that empties a collection never propagates — delete the last issue on device B, and device A keeps showing it indefinitely, labelled server-confirmed.
+
+The guard is deliberate and must not simply be removed: `normalizeServerData` maps an absent key to `[]`, so an older GAS deployment or a partial `doGet` is indistinguishable from a real deletion, and losing a field record outranks showing a stale one. Reconciliation is the first point that can tell the two apart. Name the mechanism explicitly — a per-collection server revision, an explicit count, or tombstones — and only then relax the guard.
+
 - [ ] **Step 6: Run a business-localStorage audit**
 
 Run:
@@ -1465,7 +1471,8 @@ Matrix rows:
 - rollback order: frontend rollback first if contract-compatible, GAS rollback only from verified backup;
 - how to export pending records before device/browser maintenance;
 - known limitation that clearing site data or device loss can remove unsynced records;
-- no-login security warning.
+- no-login security warning;
+- **promotion gate (added after Task 7's review): Tasks 8 and 9 ship with Task 7, or none of them do.** Tasks 2 and 7 are what make the app openable and usable offline, which makes a pre-existing hole reachable for the first time — a non-empty server response still replaces the localStorage-primary collections wholesale (`App.jsx`, the `serverAuthoritative` branch), so a record created offline whose `apiCall` never landed is destroyed the first time the server answers. Offline reads are new; durable offline writes arrive with the mutation queue (Task 8) and legacy reconciliation (Task 9). Deploying Task 7 alone would contradict "offline writes survive normal application and device-browser restarts". See `docs/superpowers/task7-completion.md`.
 
 - [ ] **Step 6: Pilot in three gates**
 

@@ -51,15 +51,22 @@ export async function parseGasResponse(response) {
 // likely one underground: a tunnel link or a captive portal completes the TCP handshake and then
 // goes quiet, so the request neither succeeds nor errors. The app shows "refreshing" forever, which
 // also suppresses the snapshot-age strip — the crew is told data is on its way instead of being told
-// how old what they are looking at is. Longer than the sync POST's 15 s because a full snapshot is
-// much larger than one mutation.
-export const SNAPSHOT_FETCH_TIMEOUT_MS = 30000;
+// how old what they are looking at is.
+//
+// The ceiling has to tell "dead" apart from "slow", and this payload is not small: a real `getData`
+// response for one machine measures 463 KB (`data.json` in this worktree), and GAS itself burns
+// several seconds before the first byte. At 100 kbps — ordinary for a link underground — that is
+// roughly 45 s of honest transfer, so a 30 s ceiling would turn a working link into a deterministic
+// failure the crew cannot raise, pinning them to the previous shift's snapshot. 90 s still bounds
+// the never-settles case; it just refuses to call a slow link dead.
+export const SNAPSHOT_FETCH_TIMEOUT_MS = 90000;
 
 export async function fetchServerSnapshot(machine, { signal } = {}) {
   const controller = new AbortController();
   let timedOut = false;
   const timeout = setTimeout(() => { timedOut = true; controller.abort(); }, SNAPSHOT_FETCH_TIMEOUT_MS);
-  // a caller-supplied signal still cancels: the machine switch that abandons this request uses it
+  // `signal` is honoured if a caller passes one; none does today (a machine switch abandons its
+  // response through the request token in useOfflineData, not by aborting)
   const onCallerAbort = () => controller.abort();
   if (signal) {
     if (signal.aborted) controller.abort();
@@ -68,16 +75,24 @@ export async function fetchServerSnapshot(machine, { signal } = {}) {
   try {
     let response;
     try { response = await fetch(`${GAS_URL}?action=getData&machine=${encodeURIComponent(machine)}`, { redirect: "follow", signal: controller.signal }); }
-    catch (error) {
-      if (timedOut && error && error.name === "AbortError") throw new ApiFailure("retryable", "TIMEOUT", "Snapshot request timed out", { cause: error });
-      throw toApiFailure(error);
-    }
+    catch (error) { throw timedOutFailure(timedOut, error); }
     if (!response.ok) throw classifyHttpFailure(response.status);
-    return await parseGasResponse(response);
+    // the body read is inside the deadline too: a captive portal that returns headers and then
+    // stalls the body is the same failure one step later, and reporting it as ABORTED reads to the
+    // crew as "something cancelled it" rather than "it timed out"
+    try { return await parseGasResponse(response); }
+    catch (error) { throw timedOutFailure(timedOut, error); }
   } finally {
     clearTimeout(timeout);
     if (signal && typeof signal.removeEventListener === "function") signal.removeEventListener("abort", onCallerAbort);
   }
+}
+
+function timedOutFailure(timedOut, error) {
+  if (timedOut && error && (error.name === "AbortError" || error.code === "ABORTED")) {
+    return new ApiFailure("retryable", "TIMEOUT", "Snapshot request timed out", { cause: error });
+  }
+  return toApiFailure(error);
 }
 
 export function assertSyncResponse(mutation, result) {

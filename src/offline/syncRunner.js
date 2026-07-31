@@ -63,7 +63,10 @@ export function createSyncRunner({ repository, transport, clock = Date, jitter =
     return running;
   }
 
-  const trigger = () => { if (started && canRun()) runNow(); };
+  // `execute` reaches IndexedDB to claim due mutations, so it rejects outright in a session whose
+  // database could not be opened — and that is exactly the session the runner is started in anyway,
+  // so every online/focus/visibility event would raise an unhandled rejection on a working screen
+  const trigger = () => { if (started && canRun()) runNow().catch(() => {}); };
   return {
     runNow,
     start() {

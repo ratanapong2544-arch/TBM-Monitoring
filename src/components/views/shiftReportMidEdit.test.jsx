@@ -2,7 +2,7 @@ import React from "react";
 import { createRoot } from "react-dom/client";
 import { act } from "react-dom/test-utils";
 
-import ShiftReportView, { __resetShiftSaveStateForTests } from "./ShiftReportView";
+import ShiftReportView, { __resetShiftSaveStateForTests, SHIFT_SAVE_TIMEOUT_MS } from "./ShiftReportView";
 import { apiCall } from "../../utils/api";
 
 jest.mock("../../utils/api", () => ({ apiCall: jest.fn() }));
@@ -319,7 +319,7 @@ test("a value typed during a save survives a later snapshot from another device"
   form.unmount();
 });
 
-test("the crew's own save is never announced as a server copy", async () => {
+test("the crew's own save is not announced as a server copy", async () => {
   let release;
   apiCall.mockImplementation(() => new Promise(resolve => { release = () => resolve({ status: "success" }); }));
   let rows = [];
@@ -331,11 +331,74 @@ test("the crew's own save is never announced as a server copy", async () => {
     const save = [...form.container.querySelectorAll("button")].find(b => /Save to Cloud/.test(b.textContent));
     save.dispatchEvent(new MouseEvent("click", { bubbles: true }));
   });
-  type(form.container, "Surveyor", "2"); // keeps the form dirty through the round trip
   await act(async () => { release(); });
   form.rerender(view({ shiftReports: rows, setShiftReports }));
 
   expect(form.container.textContent).not.toContain("มีรายงานกะนี้จากเซิร์ฟเวอร์");
+  expect(form.value("Engineer")).toBe("6");
+  form.unmount();
+});
+
+test("a row that arrives without what was typed mid-flight is announced, not silently trusted", async () => {
+  // The own-write key says "this row is mine, leave the form alone". That is only true while the
+  // form still holds what was sent. Type during the round trip and the arriving row is missing it,
+  // so claiming the row would make the view skip loading it — and the next save, rebuilt from the
+  // form, would overwrite the sheet with the stale copy. Showing the notice is the safe side.
+  let release;
+  apiCall.mockImplementation(() => new Promise(resolve => { release = () => resolve({ status: "success" }); }));
+  let rows = [];
+  const setShiftReports = updater => { rows = typeof updater === "function" ? updater(rows) : updater; };
+  const form = render(view({ shiftReports: rows, setShiftReports }));
+  type(form.container, "Engineer", "6");
+
+  await act(async () => {
+    [...form.container.querySelectorAll("button")].find(b => /Save to Cloud/.test(b.textContent))
+      .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  });
+  type(form.container, "Surveyor", "2"); // not in the payload already sent
+  await act(async () => { release(); });
+  form.rerender(view({ shiftReports: rows, setShiftReports }));
+
+  expect(form.container.textContent).toContain("มีรายงานกะนี้จากเซิร์ฟเวอร์");
+  expect(form.value("Surveyor")).toBe("2"); // and what they typed is still there
+  form.unmount();
+});
+
+test("a time bar recorded while the form was reloaded is not erased by the next save", async () => {
+  // Leaving the report and coming back reloads the form from the stored copy, which does not yet
+  // contain the in-flight time bar. Claiming the own-write key then made the view skip loading the
+  // row that save produced, so the next save rebuilt its payload from the stale form and dropped the
+  // recorded bar — delay minutes gone from an official shift report, with no error.
+  const stored = { id: "sr1", date: "2026-07-30", shift: "Day", tbmNo: "TBM1", location: "อุโมงค์", manpower: {}, result: {}, events: {} };
+  let rows = [stored];
+  let release;
+  apiCall.mockImplementation(() => new Promise(resolve => { release = () => resolve({ status: "success" }); }));
+  const setShiftReports = updater => { rows = typeof updater === "function" ? updater(rows) : updater; };
+  const form = render(view({ shiftReports: rows, setShiftReports }));
+
+  // record a time bar; its auto-save starts travelling
+  act(() => { form.container.querySelector('[title="เพิ่มเวลาการทำงาน"]').dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+  const times = form.container.querySelectorAll('input[type="time"]');
+  [["08:00", 0], ["09:00", 1]].forEach(([v, i]) => act(() => {
+    Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set.call(times[i], v);
+    times[i].dispatchEvent(new Event("input", { bubbles: true }));
+  }));
+  await act(async () => {
+    [...form.container.querySelectorAll("button")].find(b => /เพิ่มช่วงเวลาลงกราฟ/.test(b.textContent))
+      .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  });
+
+  // the crew checks the other machine and comes back while it travels. Nothing is typed, so only
+  // the form RELOAD tells this save that the view no longer holds what it sent.
+  form.rerender(view({ machine: "TBM2", segmentRecords: [], shiftReports: [], setShiftReports }));
+  form.rerender(view({ shiftReports: rows, setShiftReports }));
+  await act(async () => { release(); });
+  form.rerender(view({ shiftReports: rows, setShiftReports }));
+
+  // the form must now be showing the row the save produced, so a later save cannot drop the bar
+  const saved = rows.find(r => r.id === "sr1");
+  expect(Object.values(saved.events).flat()).toHaveLength(1);
+  expect(form.container.textContent).toContain("08:00");
   form.unmount();
 });
 
@@ -424,6 +487,70 @@ test("a save queued before the crew changed date still writes its own report", a
   expect(second[0]).toBe("updateShiftReport"); // so it updates rather than appending a duplicate
   expect(rows).toHaveLength(1);
   form.unmount();
+});
+
+test("a save stalled on one report does not block another report's save", async () => {
+  // One chain for everything meant a request that never answers — a captive portal, a tunnel link
+  // that goes quiet — held back every later save for every date, shift and both machines.
+  apiCall.mockImplementation(action => (action === "addShiftReport" && apiCall.mock.calls.length === 1
+    ? new Promise(() => {})   // the first save never answers
+    : Promise.resolve({ status: "success" })));
+  let rows = [];
+  const setShiftReports = updater => { rows = typeof updater === "function" ? updater(rows) : updater; };
+  const form = render(view({ shiftReports: rows, setShiftReports }));
+
+  type(form.container, "Engineer", "3");
+  await act(async () => {
+    [...form.container.querySelectorAll("button")].find(b => /Save to Cloud/.test(b.textContent))
+      .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  });
+
+  // a different day's report must still reach the sheet. Its time-bar auto-save is the path that
+  // was silently swallowed — no alert, no console error, the bar simply never left the device.
+  type(form.container, "date", "2026-07-31");
+  act(() => { form.container.querySelector('[title="เพิ่มเวลาการทำงาน"]').dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+  const times = form.container.querySelectorAll('input[type="time"]');
+  [["19:00", 0], ["20:00", 1]].forEach(([v, i]) => act(() => {
+    Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set.call(times[i], v);
+    times[i].dispatchEvent(new Event("input", { bubbles: true }));
+  }));
+  await act(async () => {
+    [...form.container.querySelectorAll("button")].find(b => /เพิ่มช่วงเวลาลงกราฟ/.test(b.textContent))
+      .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  });
+
+  expect(apiCall).toHaveBeenCalledTimes(2);
+  expect(apiCall.mock.calls[1][1].date).toBe("2026-07-31");
+  expect(rows).toHaveLength(1);
+  form.unmount();
+});
+
+test("a save that never answers gives up and says the outcome is unknown", async () => {
+  // without a deadline the button stays disabled reading "Saving…" for the rest of the session, and
+  // the only recovery — a page reload — discards everything typed
+  jest.useFakeTimers();
+  const alerts = [];
+  const alertSpy = jest.spyOn(window, "alert").mockImplementation(message => alerts.push(message));
+  try {
+    apiCall.mockImplementation(() => new Promise(() => {}));
+    const form = render(view({ shiftReports: [], setShiftReports: () => {} }));
+    type(form.container, "Engineer", "3");
+    await act(async () => {
+      [...form.container.querySelectorAll("button")].find(b => /Save to Cloud/.test(b.textContent))
+        .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    const saveButton = () => [...form.container.querySelectorAll("button")].find(b => /Save to Cloud|Saving/.test(b.textContent));
+    expect(saveButton().disabled).toBe(true);
+
+    await act(async () => { jest.advanceTimersByTime(SHIFT_SAVE_TIMEOUT_MS); });
+
+    expect(alerts.join(" ")).toContain("ไม่ทราบว่าบันทึกสำเร็จหรือไม่");
+    expect(saveButton().disabled).toBe(false);
+    form.unmount();
+  } finally {
+    alertSpy.mockRestore();
+    jest.useRealTimers();
+  }
 });
 
 test("a remounted form does not append a second row for a report already saved", async () => {

@@ -21,14 +21,28 @@ const stableKey = (value) => {
 // double-counts it and its delay minutes, and which only the first row ever receives updates for.
 // Keyed per report (machine|date|shift), so a different report is a different entry.
 const shiftSaveState = new Map();
-let shiftSaveChain = Promise.resolve();
 const shiftSaveStateFor = (key) => {
   let state = shiftSaveState.get(key);
-  if (!state) { state = { draftId: null, savedIds: new Set() }; shiftSaveState.set(key, state); }
+  if (!state) { state = { draftId: null, savedIds: new Set(), chain: Promise.resolve() }; shiftSaveState.set(key, state); }
   return state;
 };
 // module state persists across tests in one file, which would make them order-dependent
-export const __resetShiftSaveStateForTests = () => { shiftSaveState.clear(); shiftSaveChain = Promise.resolve(); };
+export const __resetShiftSaveStateForTests = () => { shiftSaveState.clear(); };
+
+// `apiCall` has no deadline of its own, and the failure it needs one for is the same one the
+// snapshot fetch is bounded against: a captive portal or a quiet tunnel link completes the handshake
+// and then never answers. Without a deadline that request never settles, so the save button stays
+// disabled reading "Saving…", every later auto-save queues behind it and is silently swallowed, and
+// because the bookkeeping deliberately outlives the mount, navigating away and back does not clear
+// it — only a page reload does, which throws away everything the crew has typed.
+export const SHIFT_SAVE_TIMEOUT_MS = 45000;
+const withDeadline = (promise) => new Promise((resolve, reject) => {
+  const timer = setTimeout(() => reject(new Error("SHIFT_SAVE_TIMEOUT")), SHIFT_SAVE_TIMEOUT_MS);
+  promise.then(
+    value => { clearTimeout(timer); resolve(value); },
+    error => { clearTimeout(timer); reject(error); }
+  );
+});
 
 const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftReports, machine = "TBM1", isCurrentMachine, readOnly = false }) => {
   const [isSaving, setIsSaving] = useState(false);
@@ -115,6 +129,9 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
   const dirtyRef = useRef(false);
   // counts edits, so a save can tell whether anything was typed while its request was in flight
   const editSerialRef = useRef(0);
+  // counts form loads, so a save can tell whether the form was reloaded from the stored copy while
+  // its request was in flight — after which the form no longer holds what that save sent
+  const loadGenerationRef = useRef(0);
   const markDirty = () => { dirtyRef.current = true; editSerialRef.current += 1; };
   // the key of the row this view last wrote, so its own save is never announced as a server copy
   const ownWriteKeyRef = useRef(null);
@@ -150,6 +167,7 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
     // has to be made against the ring records, not typed over the total.
     touchedRef.current = {};
     dirtyRef.current = false;
+    loadGenerationRef.current += 1;
     // the key of the last row written is no longer the one to compare arrivals against. The draft id
     // and the set of ids already on the sheet are NOT cleared here: they are keyed per report, so a
     // different report already reads a different entry, and wiping them would let a save queued for
@@ -214,9 +232,14 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
   // two rows for the same date and shift. Every later update hits only the first (the sheet scan
   // stops at the first match), so the second stays frozen with a partial event set and the shift and
   // its delay minutes are counted twice on the next refresh. Saves therefore run one at a time.
-  const queueSave = (run) => {
-    const next = shiftSaveChain.then(run, run);
-    shiftSaveChain = next.then(() => {}, () => {});
+  // One chain PER REPORT, not one for everything. A single chain meant a save stalled on the 30th
+  // held back the 31st, and both machines with it — one dead request blocking records it has nothing
+  // to do with. Ordering only ever mattered within one report anyway: that is where append-versus-
+  // update is decided.
+  const queueSave = (key, run) => {
+    const state = shiftSaveStateFor(key);
+    const next = state.chain.then(run, run);
+    state.chain = next.then(() => {}, () => {});
     return next;
   };
 
@@ -240,6 +263,7 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
   // `eventsForSave` lets the auto-save send the event set it just produced, which is not in state yet
   const prepareSave = (eventsForSave) => {
     const serialAtSave = editSerialRef.current;
+    const loadAtSave = loadGenerationRef.current;
     const machineAtSave = machine;
     const keyAtSave = selectorKey;
     const id = reportIdForSave();
@@ -250,19 +274,25 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
 
     return async () => {
       const state = shiftSaveStateFor(keyAtSave);
-      await apiCall(existedAtSave || state.savedIds.has(id) ? "updateShiftReport" : "addShiftReport", { ...payload, machine: machineAtSave });
+      await withDeadline(apiCall(existedAtSave || state.savedIds.has(id) ? "updateShiftReport" : "addShiftReport", { ...payload, machine: machineAtSave }));
       state.savedIds.add(id);
-      // Only speak for the form if it is still showing this report. The dirty flag and the own-write
-      // key describe what is on screen, and by now the crew may have moved to another date, shift or
-      // machine — clearing another report's dirty flag would invite the next snapshot to load over
-      // whatever they have typed there.
-      if (selectorKeyRef.current === keyAtSave) {
+      // Only speak for the form if it is still showing this report AND still holding what was sent.
+      // Both conditions matter. The crew may have moved to another date, shift or machine, where
+      // clearing the dirty flag would invite the next snapshot to load over what they typed there.
+      // Or the form may have reloaded — leaving this report and coming back is enough — in which
+      // case it now shows the stored copy WITHOUT this write. Claiming the own-write key then made
+      // the effect below skip loading the row this save produced, so the next save rebuilt its
+      // payload from the stale form and erased the event that had just been recorded.
+      const formStillHoldsThisWrite = selectorKeyRef.current === keyAtSave
+        && loadGenerationRef.current === loadAtSave
+        && editSerialRef.current === serialAtSave;
+      if (formStillHoldsThisWrite) {
         // The row that comes back carries this write, so the effect watching for a server copy
-        // recognises it by key and leaves the form alone. The dirty flag still matters for the NEXT
-        // arrival: a GAS round trip takes seconds on a tunnel link and the payload was frozen before
-        // it started, so anything typed meanwhile is not in the sheet yet and the form must stay
-        // dirty or a later snapshot loads over it.
-        if (editSerialRef.current === serialAtSave) dirtyRef.current = false;
+        // recognises it by key and leaves the form alone. Anything typed or reloaded since the
+        // payload was frozen is NOT in the sheet, so the form has to stay dirty and take the arriving
+        // row instead — at worst that shows the crew their own write as a "server copy", which is
+        // cheap next to silently dropping a recorded time bar.
+        dirtyRef.current = false;
         ownWriteKeyRef.current = ownKey;
       }
       return commitSaved(machineAtSave, id, savedRecord);
@@ -271,18 +301,31 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
 
   const handleSaveToCloud = () => {
     setIsSaving(true);
+    const keyAtSave = selectorKey;
+    const machineAtSave = machine;
     const send = prepareSave(events);
-    return queueSave(async () => {
+    return queueSave(keyAtSave, async () => {
       try {
         if (await send()) alert("บันทึก Shift Report สำเร็จ");
-      } catch (e) { alert("บันทึกไม่สำเร็จ: " + e.message); }
+        // a save that landed after a machine switch reached the sheet, but its row was deliberately
+        // not written into the other machine's state — say so rather than saying nothing
+        else if (!stillOnMachine(machineAtSave)) alert("บันทึกแล้ว (สลับเครื่องระหว่างบันทึก — ข้อมูลอยู่ในกะของเครื่องเดิม)");
+      } catch (e) {
+        // A timed-out request may still be travelling, so its outcome is genuinely unknown: saving
+        // again could append a second row for the shift, because the legacy write is not idempotent
+        // (Task 8's queue is what makes a retry safe).
+        alert(e.message === "SHIFT_SAVE_TIMEOUT"
+          ? "หมดเวลารอเซิร์ฟเวอร์ — ไม่ทราบว่าบันทึกสำเร็จหรือไม่ กรุณาตรวจสอบรายงานกะนี้ก่อนบันทึกซ้ำ"
+          : "บันทึกไม่สำเร็จ: " + e.message);
+      }
       setIsSaving(false);
     });
   };
 
   const triggerAutoSaveEvents = (updatedEvents) => {
+    const keyAtSave = selectorKey;
     const send = prepareSave(updatedEvents);
-    return queueSave(async () => {
+    return queueSave(keyAtSave, async () => {
       try { await send(); }
       catch (e) { console.error("Auto-save failed", e); }
     });

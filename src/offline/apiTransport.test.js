@@ -1,4 +1,7 @@
-import { ApiFailure, classifyHttpFailure, fetchServerSnapshot, parseGasResponse, postSyncMutation, SNAPSHOT_FETCH_TIMEOUT_MS } from "./apiTransport";
+import { ApiFailure, classifyHttpFailure, fetchServerSnapshot, parseGasResponse, postSyncMutation, SNAPSHOT_FETCH_TIMEOUT_MS, toApiFailure } from "./apiTransport";
+
+// the stalled-body case advances timers while a promise chain is mid-flight; this just flushes it
+const act = async run => { run(); await Promise.resolve(); await Promise.resolve(); };
 
 afterEach(() => jest.restoreAllMocks());
 
@@ -103,7 +106,60 @@ test("rejects non-success HTTP responses before parsing their body", async () =>
 });
 
 test("ApiFailure retains a typed cause", () => {
-  expect(new ApiFailure("permanent", "CODE", "message")).toMatchObject({ kind: "permanent", code: "CODE", message: "message" });
+  // asserting only that the constructor kept its own three arguments could not fail; the point of
+  // this type is that the underlying error survives for diagnosis
+  const cause = new Error("socket hang up");
+  const failure = new ApiFailure("permanent", "CODE", "message", { cause });
+
+  expect(failure).toMatchObject({ kind: "permanent", code: "CODE", message: "message" });
+  expect(failure.cause).toBe(cause);
+  expect(toApiFailure(failure)).toBe(failure); // already typed, so it passes through unchanged
+});
+
+test("a body that stalls after the headers is reported as a timeout, not a cancellation", async () => {
+  // a captive portal answers the headers and then goes quiet. Reporting that as ABORTED reads to the
+  // crew as "something cancelled it" rather than "it timed out".
+  jest.useFakeTimers();
+  try {
+    global.fetch = jest.fn(async () => ({
+      ok: true,
+      text: () => new Promise((resolve, reject) => {
+        setTimeout(() => reject(Object.assign(new Error("aborted"), { name: "AbortError" })), SNAPSHOT_FETCH_TIMEOUT_MS + 1000);
+      }),
+    }));
+    const pending = fetchServerSnapshot("TBM1");
+    const settled = jest.fn();
+    pending.then(settled, settled);
+    await Promise.resolve();
+
+    await act(() => jest.advanceTimersByTime(SNAPSHOT_FETCH_TIMEOUT_MS + 1000));
+    await expect(pending).rejects.toMatchObject({ kind: "retryable", code: "TIMEOUT" });
+  } finally {
+    jest.useRealTimers();
+  }
+});
+
+test("a completed request clears its timer and its abort listener", async () => {
+  // the timer would otherwise keep the page alive and fire against a finished request
+  const caller = new AbortController();
+  const removeSpy = jest.spyOn(caller.signal, "removeEventListener");
+  const clearSpy = jest.spyOn(global, "clearTimeout");
+  global.fetch = jest.fn().mockResolvedValue({ ok: true, text: async () => JSON.stringify({ status: "success" }) });
+
+  await fetchServerSnapshot("TBM1", { signal: caller.signal });
+
+  expect(clearSpy).toHaveBeenCalled();
+  expect(removeSpy).toHaveBeenCalledWith("abort", expect.any(Function));
+});
+
+test("a signal already aborted before the call never leaves the device", async () => {
+  const caller = new AbortController();
+  caller.abort();
+  global.fetch = jest.fn((url, options) => (options.signal.aborted
+    ? Promise.reject(Object.assign(new Error("aborted"), { name: "AbortError" }))
+    : Promise.resolve({ ok: true, text: async () => "{}" })));
+
+  await expect(fetchServerSnapshot("TBM1", { signal: caller.signal })).rejects.toMatchObject({ kind: "aborted" });
 });
 
 test("posts the complete mutation envelope and returns the typed sync response", async () => {

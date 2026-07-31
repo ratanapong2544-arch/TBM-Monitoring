@@ -2,7 +2,6 @@ import React, { useState, useMemo, useEffect, useRef } from "react";
 import { Layers, ChevronRight, Save, Loader2, Camera, Clock } from "lucide-react";
 import { parseCH, formatCH } from "../../utils/formatters";
 import { offsetRingNo, calculateSoilVolume, handleFileUpload } from "../../utils/helpers";
-import { apiCall } from "../../utils/api";
 import { buildMutationEnvelope } from "../../offline/mutationEnvelope";
 import { SegmentedToggle } from "../../ui-ux-pro-max";
 import StickyActionBar from "../../ui-ux-pro-max/components/StickyActionBar";
@@ -110,27 +109,21 @@ const SegmentRecordView = ({ projectInfo, handleProjectInfoChange, segmentRecord
 
     try {
       recordData.id = isUpdate ? formData.id : `seg_${Date.now()}`;
-      // The queue owns durability and ordering now: the record is on this device before this
-      // resolves, and `baseVersion` lets the server refuse an edit made against a row that has
-      // since moved on. `onMutate` is optional so the view still renders in isolation.
-      if (onMutate) {
-        await onMutate(buildMutationEnvelope({
-          entityType: "segment", operation: isUpdate ? "update" : "create",
-          machine: machineAtSave, recordId: recordData.id, payload: recordData, syncMeta,
-        }));
-      } else {
-        await apiCall(isUpdate ? "updateSegment" : "addSegment", { ...recordData, machine: machineAtSave });
-      }
+      // The queue owns durability and ordering: the record is on this device before this resolves,
+      // and `baseVersion` lets the server refuse an edit made against a row that has since moved on.
+      await onMutate(buildMutationEnvelope({
+        entityType: "segment", operation: isUpdate ? "update" : "create",
+        machine: machineAtSave, recordId: recordData.id, payload: recordData, syncMeta,
+      }));
       // A save resolves seconds later. If the crew switched machine meanwhile, NEITHER the rows nor
       // the form may be touched. The rows are obvious — this machine's ring and surveyed chainage
       // would land in the other machine's state. The form matters just as much: it now holds the
       // other machine's next ring, so writing this save's row id into it would make the next Save an
       // `updateSegment` against a row that machine's sheet does not have. GAS finds no match and
       // no-ops, the local map matches nothing, and the ring is lost with no error shown.
+      // App applies the optimistic row when the mutation is queued, so the form must not write it
+      // into state as well — that would duplicate the ring
       if (!stillOnMachine(machineAtSave)) { setIsSaving(false); return; }
-      // when queued, App has already applied the optimistic row — writing it here too would
-      // duplicate the ring in state
-      if (!onMutate) setSegmentRecords((prev) => (isUpdate ? prev.map((r) => (r.id === recordData.id ? recordData : r)) : [...prev, recordData]));
       setFormData((prev) => {
         const isCompleted = prev.status === "Completed";
         return {

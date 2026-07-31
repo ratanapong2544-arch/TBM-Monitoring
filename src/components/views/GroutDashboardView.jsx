@@ -3,7 +3,6 @@ import { FileText, Droplet, Activity, ChevronLeft, ChevronRight, Edit, Trash2, X
 import { formatDisplayDate, formatCH } from "../../utils/formatters";
 import { getRingNumeric, getRingByOffsetFromHistory } from "../../utils/helpers";
 import { THEORETICAL_VOL, VOL_120, VOL_150 } from "../../utils/constants";
-import { apiCall } from "../../utils/api";
 import { buildMutationEnvelope } from "../../offline/mutationEnvelope";
 import StatCard from "../common/StatCard";
 import RingVisualizer from "../common/RingVisualizer";
@@ -92,15 +91,10 @@ const GroutDashboardView = ({ groutRecords, segmentRecords, setGroutRecords, sec
       const cleanRingNo = String(editFormData.ringNo).trim().toUpperCase();
       const updated = { ...editFormData, ringNo: cleanRingNo, total: Number(total) };
       try {
-        if (onMutate) {
-          await onMutate(buildMutationEnvelope({
-            entityType: "secondaryGrout", operation: "update", machine,
-            recordId: updated.id, payload: updated, syncMeta,
-          }));
-        } else {
-          await apiCall("updateSecondaryGrout", { ...updated, machine }); // positions object → GAS encode-once
-          setSecondaryGroutRecords((prev) => prev.map((r) => (r.id === updated.id ? updated : r)));
-        }
+        await onMutate(buildMutationEnvelope({
+          entityType: "secondaryGrout", operation: "update", machine,
+          recordId: updated.id, payload: updated, syncMeta,
+        }));
         setSelectedRecord(updated); setIsEditing(false);
       } catch (e) { alert("อัปเดตข้อมูลล้มเหลว: " + e.message); }
       return;
@@ -114,23 +108,12 @@ const GroutDashboardView = ({ groutRecords, segmentRecords, setGroutRecords, sec
     const updatedRecord = { ...editFormData, ringNo: cleanRingNo, total: Number(total), ratio: Number(ratio) };
 
     try {
-      const payloadRecord = {
-        ...updatedRecord,
-        positions: typeof updatedRecord.positions === 'object' ? JSON.stringify(updatedRecord.positions) : updatedRecord.positions,
-        primaryPositions: typeof updatedRecord.primaryPositions === 'object' ? JSON.stringify(updatedRecord.primaryPositions) : updatedRecord.primaryPositions,
-        secondaryPositions: typeof updatedRecord.secondaryPositions === 'object' ? JSON.stringify(updatedRecord.secondaryPositions) : updatedRecord.secondaryPositions
-      };
-      if (onMutate) {
-        // the queue serializes the payload itself, so it takes the record with `positions` still an
-        // object — the stringify above exists only for the legacy one-shot write
-        await onMutate(buildMutationEnvelope({
-          entityType: "grout", operation: "update", machine,
-          recordId: updatedRecord.id, payload: updatedRecord, syncMeta,
-        }));
-      } else {
-        await apiCall("updateGrout", { ...payloadRecord, machine });
-        setGroutRecords((prev) => prev.map((r) => (r.id === updatedRecord.id ? updatedRecord : r)));
-      }
+      // the queue serializes the payload itself, so it takes the record with `positions` still an
+      // object — the one-shot write used to stringify them here to stop GAS double-encoding
+      await onMutate(buildMutationEnvelope({
+        entityType: "grout", operation: "update", machine,
+        recordId: updatedRecord.id, payload: updatedRecord, syncMeta,
+      }));
       setSelectedRecord(updatedRecord);
       setIsEditing(false);
     } catch (e) { alert("อัปเดตข้อมูลล้มเหลว"); }
@@ -139,19 +122,11 @@ const GroutDashboardView = ({ groutRecords, segmentRecords, setGroutRecords, sec
   const handleDeleteRecord = async () => {
     try {
       const isSecondaryRecord = selectedRecord.groutType === "secondary";
-      if (onMutate) {
-        // the payload still carries the ring, because the domain key is derived from it
-        await onMutate(buildMutationEnvelope({
-          entityType: isSecondaryRecord ? "secondaryGrout" : "grout", operation: "delete", machine,
-          recordId: selectedRecord.id, payload: selectedRecord, syncMeta,
-        }));
-      } else if (isSecondaryRecord) {
-        await apiCall("deleteSecondaryGrout", { id: selectedRecord.id, machine });
-        setSecondaryGroutRecords((prev) => prev.filter((r) => r.id !== selectedRecord.id));
-      } else {
-        await apiCall("deleteGrout", { id: selectedRecord.id, machine });
-        setGroutRecords((prev) => prev.filter((r) => r.id !== selectedRecord.id));
-      }
+      // the payload still carries the ring, because the domain key is derived from it
+      await onMutate(buildMutationEnvelope({
+        entityType: isSecondaryRecord ? "secondaryGrout" : "grout", operation: "delete", machine,
+        recordId: selectedRecord.id, payload: selectedRecord, syncMeta,
+      }));
       setSelectedRecord(null);
       setShowDeleteConfirm(false);
     } catch (e) { alert("ลบข้อมูลล้มเหลว: " + e.message); }

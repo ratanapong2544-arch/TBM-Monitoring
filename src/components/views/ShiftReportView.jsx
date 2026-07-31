@@ -2,7 +2,6 @@ import React, { useState, useMemo, useEffect, useRef } from "react";
 import { FileText, CloudUpload, Save, Edit, Trash2, Plus, Users, Activity, Clock, Download, Loader2, Printer, X } from "lucide-react";
 import { formatDisplayDate, formatDisplayTime } from "../../utils/formatters";
 import { getLogicalShiftDate, getRingNumeric, loadHtml2Canvas } from "../../utils/helpers";
-import { apiCall } from "../../utils/api";
 import { buildMutationEnvelope } from "../../offline/mutationEnvelope";
 import { fitAndPrint } from "../../utils/printFit";
 
@@ -255,14 +254,10 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
     const ownKey = stableKey([savedRecord.id, savedRecord.location, savedRecord.manpower, savedRecord.result, savedRecord.events]);
 
     return async () => {
-      if (onMutate) {
-        await onMutate(buildMutationEnvelope({
-          entityType: "shiftReport", operation: existedAtSave ? "update" : "create",
-          machine: machineAtSave, recordId: id, payload, syncMeta,
-        }));
-      } else {
-        await apiCall(existedAtSave ? "updateShiftReport" : "addShiftReport", { ...payload, machine: machineAtSave });
-      }
+      await onMutate(buildMutationEnvelope({
+        entityType: "shiftReport", operation: existedAtSave ? "update" : "create",
+        machine: machineAtSave, recordId: id, payload, syncMeta,
+      }));
       // Only speak for the form if it is still showing this report AND still holding what was sent.
       // Both conditions matter. The crew may have moved to another date, shift or machine, where
       // clearing the dirty flag would invite the next snapshot to load over what they typed there.
@@ -293,7 +288,7 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
     try {
       // "saved on this device", not "saved": the queue has it durably, and the server has not
       // confirmed it yet. Task 10's Sync Center is where its progress becomes visible.
-      if (await send()) alert(onMutate ? "บันทึกในเครื่องแล้ว — รอซิงก์ขึ้นเซิร์ฟเวอร์" : "บันทึก Shift Report สำเร็จ");
+      if (await send()) alert("บันทึกในเครื่องแล้ว — รอซิงก์ขึ้นเซิร์ฟเวอร์");
       // a save that landed after a machine switch reached the queue, but its row was deliberately
       // not written into the other machine's state — say so rather than saying nothing
       else if (!stillOnMachine(machineAtSave)) alert("บันทึกแล้ว (สลับเครื่องระหว่างบันทึก — ข้อมูลอยู่ในกะของเครื่องเดิม)");

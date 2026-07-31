@@ -59,9 +59,13 @@ function type(container, name, value) {
   });
 }
 
+// Every save goes through the queue now, so the default mount supplies it — a view mounted without
+// `onMutate` would exercise a path the app no longer has. A test that needs to hold a save in flight
+// assigns `onMutateOverride` rather than threading a prop through every render in that test.
+let onMutateOverride = null;
 const view = (props = {}) => (
   <ShiftReportView projectInfo={projectInfo} segmentRecords={segments} shiftReports={[]}
-    setShiftReports={() => {}} machine="TBM1" {...props} />
+    setShiftReports={() => {}} machine="TBM1" onMutate={(...args) => (onMutateOverride ? onMutateOverride(...args) : Promise.resolve({}))} {...props} />
 );
 
 test("a snapshot landing mid-edit does not wipe typed manpower", () => {
@@ -142,7 +146,7 @@ test("input typed while a save is in flight is not discarded when it resolves", 
   // tunnel link — clearing the dirty flag unconditionally on resolve threw away anything typed
   // meanwhile, and the arriving row then loaded over the form
   let release;
-  apiCall.mockImplementation(() => new Promise(resolve => { release = () => resolve({ status: "success" }); }));
+  onMutateOverride = () => new Promise(resolve => { release = () => resolve({}); });
   // mirror the saved row back into the view the way App does, or the arriving copy never lands
   let rows = [];
   const setShiftReports = updater => { rows = typeof updater === "function" ? updater(rows) : updater; };
@@ -197,7 +201,7 @@ test("a server copy differing only in key order is not reported as a change", ()
 
 test("a time-bar auto-save keeps input typed while it is in flight", async () => {
   let release;
-  apiCall.mockImplementation(() => new Promise(resolve => { release = () => resolve({ status: "success" }); }));
+  onMutateOverride = () => new Promise(resolve => { release = () => resolve({}); });
   let rows = [];
   const setShiftReports = updater => { rows = typeof updater === "function" ? updater(rows) : updater; };
   const form = render(view({ shiftReports: rows, setShiftReports }));
@@ -298,7 +302,7 @@ test("a value typed during a save survives a later snapshot from another device"
   // dirty flag: a value typed while the request was in flight is not in the row that comes back, so
   // the form must still count as dirty when a DIFFERENT copy lands afterwards
   let release;
-  apiCall.mockImplementation(() => new Promise(resolve => { release = () => resolve({ status: "success" }); }));
+  onMutateOverride = () => new Promise(resolve => { release = () => resolve({}); });
   let rows = [];
   const setShiftReports = updater => { rows = typeof updater === "function" ? updater(rows) : updater; };
   const form = render(view({ shiftReports: rows, setShiftReports }));
@@ -321,7 +325,7 @@ test("a value typed during a save survives a later snapshot from another device"
 
 test("the crew's own save is not announced as a server copy", async () => {
   let release;
-  apiCall.mockImplementation(() => new Promise(resolve => { release = () => resolve({ status: "success" }); }));
+  onMutateOverride = () => new Promise(resolve => { release = () => resolve({}); });
   let rows = [];
   const setShiftReports = updater => { rows = typeof updater === "function" ? updater(rows) : updater; };
   const form = render(view({ shiftReports: rows, setShiftReports }));
@@ -345,7 +349,7 @@ test("a row that arrives without what was typed mid-flight is announced, not sil
   // so claiming the row would make the view skip loading it — and the next save, rebuilt from the
   // form, would overwrite the sheet with the stale copy. Showing the notice is the safe side.
   let release;
-  apiCall.mockImplementation(() => new Promise(resolve => { release = () => resolve({ status: "success" }); }));
+  onMutateOverride = () => new Promise(resolve => { release = () => resolve({}); });
   let rows = [];
   const setShiftReports = updater => { rows = typeof updater === "function" ? updater(rows) : updater; };
   const form = render(view({ shiftReports: rows, setShiftReports }));
@@ -372,7 +376,7 @@ test("a time bar recorded while the form was reloaded is not erased by the next 
   const stored = { id: "sr1", date: "2026-07-30", shift: "Day", tbmNo: "TBM1", location: "อุโมงค์", manpower: {}, result: {}, events: {} };
   let rows = [stored];
   let release;
-  apiCall.mockImplementation(() => new Promise(resolve => { release = () => resolve({ status: "success" }); }));
+  onMutateOverride = () => new Promise(resolve => { release = () => resolve({}); });
   const setShiftReports = updater => { rows = typeof updater === "function" ? updater(rows) : updater; };
   const form = render(view({ shiftReports: rows, setShiftReports }));
 
@@ -396,16 +400,17 @@ test("a time bar recorded while the form was reloaded is not erased by the next 
   form.rerender(view({ shiftReports: rows, setShiftReports }));
 
   // The form must now be showing the row the save produced. Asserting the stored row alone would
-  // pass either way (commitSaved runs regardless); what matters is that the NEXT save carries the
-  // bar, because that is the write that erased it.
-  apiCall.mockImplementation(async () => ({ status: "success" }));
+  // pass either way (the optimistic apply runs regardless); what matters is that the NEXT save
+  // carries the bar, because that is the write that erased it.
+  const later = [];
+  onMutateOverride = async envelope => { later.push(envelope); return {}; };
   type(form.container, "Engineer", "4");
   await act(async () => {
     [...form.container.querySelectorAll("button")].find(b => /Save to Cloud/.test(b.textContent))
       .dispatchEvent(new MouseEvent("click", { bubbles: true }));
   });
 
-  const lastPayload = apiCall.mock.calls[apiCall.mock.calls.length - 1][1];
+  const lastPayload = later[later.length - 1].payload;
   expect(Object.values(JSON.parse(lastPayload.events)).flat()).toHaveLength(1);
   expect(lastPayload.events).toContain("08:00");
   form.unmount();
@@ -413,7 +418,7 @@ test("a time bar recorded while the form was reloaded is not erased by the next 
 
 test("a save that resolves after a machine switch does not reach the other machine", async () => {
   let release;
-  apiCall.mockImplementation(() => new Promise(resolve => { release = () => resolve({ status: "success" }); }));
+  onMutateOverride = () => new Promise(resolve => { release = () => resolve({}); });
   let rows = [];
   let currentMachine = "TBM1";
   const setShiftReports = updater => { rows = typeof updater === "function" ? updater(rows) : updater; };
@@ -440,7 +445,7 @@ test("a save that resolves after the form unmounts does not reach the other mach
   // the machine switcher is in the TopBar, so the crew can save, tap another nav item (this view
   // unmounts, freezing any ref inside it), then switch machine
   let release;
-  apiCall.mockImplementation(() => new Promise(resolve => { release = () => resolve({ status: "success" }); }));
+  onMutateOverride = () => new Promise(resolve => { release = () => resolve({}); });
   let rows = [];
   let currentMachine = "TBM1";
   const setShiftReports = updater => { rows = typeof updater === "function" ? updater(rows) : updater; };
@@ -502,7 +507,7 @@ test("a queued save does not clear the dirty flag for edits it never carried", a
   // when the queued request starts counts edits made in between as already sent, and the next
   // snapshot then loads over them
   const releases = [];
-  apiCall.mockImplementation(() => new Promise(resolve => { releases.push(() => resolve({ status: "success" })); }));
+  onMutateOverride = () => new Promise(resolve => { releases.push(() => resolve({})); });
   let rows = [];
   const setShiftReports = updater => { rows = typeof updater === "function" ? updater(rows) : updater; };
   const form = render(view({ shiftReports: rows, setShiftReports }));

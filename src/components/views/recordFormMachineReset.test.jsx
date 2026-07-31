@@ -11,6 +11,14 @@ import { apiCall } from "../../utils/api";
 
 jest.mock("../../utils/api", () => ({ apiCall: jest.fn(async () => ({ status: "success" })) }));
 
+// Core writes go through the queue, so these forms take `onMutate`. Mounting them without it would
+// exercise a path the app no longer has. `sent` records the envelopes; `onMutateOverride` lets a
+// test hold one in flight.
+let onMutateOverride = null;
+const sent = [];
+const onMutate = envelope => { sent.push(envelope); return onMutateOverride ? onMutateOverride(envelope) : Promise.resolve({}); };
+beforeEach(() => { onMutateOverride = null; sent.length = 0; });
+
 // A record form left open across a machine switch kept the previous machine's ring number and
 // chainage. Both prefill effects are guarded on an empty ringNo, so they never corrected it, and a
 // submit wrote one machine's ring sequence and CH into the other machine's sheet — the ring numbers
@@ -53,7 +61,7 @@ const tbm1Segments = [
 test("a segment form drops the previous machine's ring and chainage on a machine switch", () => {
   const view = render(
     <SegmentRecordView projectInfo={projectInfo} handleProjectInfoChange={() => {}} segmentRecords={tbm1Segments}
-      setSegmentRecords={() => {}} setCurrentModule={() => {}} setActiveTab={() => {}} machine="TBM1" />
+      setSegmentRecords={() => {}} setCurrentModule={() => {}} setActiveTab={() => {}} machine="TBM1" onMutate={onMutate} />
   );
   // prefilled from TBM1's last ring
   expect(view.value("ringNo")).toBe("P644");
@@ -62,7 +70,7 @@ test("a segment form drops the previous machine's ring and chainage on a machine
   // switching machine also empties the rows (App gates them), so nothing may re-prefill
   view.rerender(
     <SegmentRecordView projectInfo={projectInfo} handleProjectInfoChange={() => {}} segmentRecords={[]}
-      setSegmentRecords={() => {}} setCurrentModule={() => {}} setActiveTab={() => {}} machine="TBM2" />
+      setSegmentRecords={() => {}} setCurrentModule={() => {}} setActiveTab={() => {}} machine="TBM2" onMutate={onMutate} />
   );
 
   expect(view.value("ringNo")).toBe("");
@@ -78,14 +86,14 @@ test("a segment form does not carry ring length or type into the next machine's 
   const shortRing = [{ id: "s1", ringNo: "P643", typeRing: "C2", keyPos: "16", startCH: "8+010.20", finishCH: "8+009.30", length: "0.90", status: "In Progress", installType: "Permanent", remark: "TBM1 note" }];
   const view = render(
     <SegmentRecordView projectInfo={projectInfo} handleProjectInfoChange={() => {}} segmentRecords={shortRing}
-      setSegmentRecords={() => {}} setCurrentModule={() => {}} setActiveTab={() => {}} machine="TBM1" />
+      setSegmentRecords={() => {}} setCurrentModule={() => {}} setActiveTab={() => {}} machine="TBM1" onMutate={onMutate} />
   );
   expect(view.value("length")).toBe("0.90");
 
   const tbm2 = [{ id: "s9", ringNo: "P100", typeRing: "C1", keyPos: "16", startCH: "9+499.50", finishCH: "9+498.60", length: "1.40", status: "Completed", installType: "Permanent" }];
   view.rerender(
     <SegmentRecordView projectInfo={projectInfo} handleProjectInfoChange={() => {}} segmentRecords={tbm2}
-      setSegmentRecords={() => {}} setCurrentModule={() => {}} setActiveTab={() => {}} machine="TBM2" />
+      setSegmentRecords={() => {}} setCurrentModule={() => {}} setActiveTab={() => {}} machine="TBM2" onMutate={onMutate} />
   );
 
   // TBM2's own last ring drives the next one: 9+498.60 − 1.40 = 9+497.20, not 9+497.70
@@ -102,7 +110,7 @@ test("a segment form never overwrites what the crew typed when new records arriv
   // the only thing stopping a background refresh from reverting a hand-corrected ring and chainage
   const view = render(
     <SegmentRecordView projectInfo={projectInfo} handleProjectInfoChange={() => {}} segmentRecords={tbm1Segments}
-      setSegmentRecords={() => {}} setCurrentModule={() => {}} setActiveTab={() => {}} machine="TBM1" />
+      setSegmentRecords={() => {}} setCurrentModule={() => {}} setActiveTab={() => {}} machine="TBM1" onMutate={onMutate} />
   );
   expect(view.value("ringNo")).toBe("P644");
 
@@ -116,7 +124,7 @@ test("a segment form never overwrites what the crew typed when new records arriv
   // a server refresh re-mirrors the same rows as a NEW array identity
   view.rerender(
     <SegmentRecordView projectInfo={projectInfo} handleProjectInfoChange={() => {}} segmentRecords={[...tbm1Segments]}
-      setSegmentRecords={() => {}} setCurrentModule={() => {}} setActiveTab={() => {}} machine="TBM1" />
+      setSegmentRecords={() => {}} setCurrentModule={() => {}} setActiveTab={() => {}} machine="TBM1" onMutate={onMutate} />
   );
 
   expect(view.value("ringNo")).toBe("P700");
@@ -130,7 +138,7 @@ test("a grout form drops every carried-over field on a machine switch", () => {
   const view = render(
     <GroutRecordView projectInfo={projectInfo} handleProjectInfoChange={() => {}} groutRecords={[]}
       setGroutRecords={() => {}} secondaryGroutRecords={[]} setSecondaryGroutRecords={() => {}}
-      segmentRecords={segmentsWithKey} setCurrentModule={() => {}} setActiveTab={() => {}} machine="TBM1" />
+      segmentRecords={segmentsWithKey} setCurrentModule={() => {}} setActiveTab={() => {}} machine="TBM1" onMutate={onMutate} />
   );
   // the crew types the ring being grouted; the key segment then syncs from that segment record
   type(view.container, "ringNo", "P643");
@@ -153,7 +161,7 @@ test("a grout form drops every carried-over field on a machine switch", () => {
   view.rerender(
     <GroutRecordView projectInfo={projectInfo} handleProjectInfoChange={() => {}} groutRecords={[]}
       setGroutRecords={() => {}} secondaryGroutRecords={[]} setSecondaryGroutRecords={() => {}}
-      segmentRecords={[]} setCurrentModule={() => {}} setActiveTab={() => {}} machine="TBM2" />
+      segmentRecords={[]} setCurrentModule={() => {}} setActiveTab={() => {}} machine="TBM2" onMutate={onMutate} />
   );
 
   expect(view.value("keyType")).toBe("16");
@@ -169,12 +177,12 @@ test("a grout form drops every carried-over field on a machine switch", () => {
 test("a grout machine switch clears the injection positions", async () => {
   // positions are submitted with the record and drive the ring visualiser's rotation, so a wedge
   // ticked on one machine must not be recorded against the other's ring
-  apiCall.mockClear();
+  sent.length = 0;
   const segments = [{ id: "s1", ringNo: "P643", keyPos: "4", startCH: "8+010.20", finishCH: "8+008.80", length: "1.40", status: "Completed", installType: "Permanent" }];
   const view = render(
     <GroutRecordView projectInfo={projectInfo} handleProjectInfoChange={() => {}} groutRecords={[]}
       setGroutRecords={() => {}} secondaryGroutRecords={[]} setSecondaryGroutRecords={() => {}}
-      segmentRecords={segments} setCurrentModule={() => {}} setActiveTab={() => {}} machine="TBM1" />
+      segmentRecords={segments} setCurrentModule={() => {}} setActiveTab={() => {}} machine="TBM1" onMutate={onMutate} />
   );
   act(() => {
     view.container.querySelector('svg g[style*="cursor"]').dispatchEvent(new MouseEvent("click", { bubbles: true }));
@@ -183,7 +191,7 @@ test("a grout machine switch clears the injection positions", async () => {
   view.rerender(
     <GroutRecordView projectInfo={projectInfo} handleProjectInfoChange={() => {}} groutRecords={[]}
       setGroutRecords={() => {}} secondaryGroutRecords={[]} setSecondaryGroutRecords={() => {}}
-      segmentRecords={[]} setCurrentModule={() => {}} setActiveTab={() => {}} machine="TBM2" />
+      segmentRecords={[]} setCurrentModule={() => {}} setActiveTab={() => {}} machine="TBM2" onMutate={onMutate} />
   );
   type(view.container, "ringNo", "P1");
   type(view.container, "partA", "5");
@@ -192,9 +200,9 @@ test("a grout machine switch clears the injection positions", async () => {
     view.container.querySelector("form").dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
   });
 
-  const [, payload] = apiCall.mock.calls[apiCall.mock.calls.length - 1];
-  expect(payload.machine).toBe("TBM2");
-  expect(payload.positions).toEqual({ A: false, B1: false, B2: false, C1: false, C2: false, K: false });
+  const last = sent[sent.length - 1];
+  expect(last.machine).toBe("TBM2");
+  expect(last.payload.positions).toEqual({ A: false, B1: false, B2: false, C1: false, C2: false, K: false });
   view.unmount();
 });
 
@@ -202,14 +210,14 @@ test("a grout save resolving after the form unmounts does not land in the other 
   // same hazard as the segment form: the crew taps another nav item mid-save, then switches machine.
   // Only App can answer which machine is current by then.
   let release;
-  apiCall.mockImplementation(() => new Promise(resolve => { release = () => resolve({ status: "success" }); }));
+  onMutateOverride = () => new Promise(resolve => { release = () => resolve({}); });
   let rows = [];
   let currentMachine = "TBM1";
   const view = render(
     <GroutRecordView projectInfo={projectInfo} handleProjectInfoChange={() => {}} groutRecords={rows}
       setGroutRecords={updater => { rows = typeof updater === "function" ? updater(rows) : updater; }}
       secondaryGroutRecords={[]} setSecondaryGroutRecords={() => {}} segmentRecords={[]}
-      setCurrentModule={() => {}} setActiveTab={() => {}} machine="TBM1"
+      setCurrentModule={() => {}} setActiveTab={() => {}} machine="TBM1" onMutate={onMutate}
       isCurrentMachine={m => m === currentMachine} />
   );
   type(view.container, "ringNo", "P643");
@@ -233,7 +241,7 @@ test("a grout form never overwrites a hand-corrected ring when new records arriv
   const view = render(
     <GroutRecordView projectInfo={projectInfo} handleProjectInfoChange={() => {}} groutRecords={grouts}
       setGroutRecords={() => {}} secondaryGroutRecords={[]} setSecondaryGroutRecords={() => {}}
-      segmentRecords={segments} setCurrentModule={() => {}} setActiveTab={() => {}} machine="TBM1" />
+      segmentRecords={segments} setCurrentModule={() => {}} setActiveTab={() => {}} machine="TBM1" onMutate={onMutate} />
   );
   const prefilled = view.value("ringNo");
   expect(prefilled).toBeTruthy();
@@ -242,7 +250,7 @@ test("a grout form never overwrites a hand-corrected ring when new records arriv
   view.rerender(
     <GroutRecordView projectInfo={projectInfo} handleProjectInfoChange={() => {}} groutRecords={[...grouts]}
       setGroutRecords={() => {}} secondaryGroutRecords={[]} setSecondaryGroutRecords={() => {}}
-      segmentRecords={[...segments]} setCurrentModule={() => {}} setActiveTab={() => {}} machine="TBM1" />
+      segmentRecords={[...segments]} setCurrentModule={() => {}} setActiveTab={() => {}} machine="TBM1" onMutate={onMutate} />
   );
 
   expect(view.value("ringNo")).toBe("P700");
@@ -252,18 +260,18 @@ test("a grout form never overwrites a hand-corrected ring when new records arriv
 test("a segment form does not carry the other machine's row id into a save", async () => {
   // handleSubmit branches on formData.id to choose updateSegment over addSegment, so a leaked id
   // would send an update carrying the previous machine's row id to this machine's sheet
-  apiCall.mockClear();
+  sent.length = 0;
   const inProgress = [{ id: "seg_tbm1_row", ringNo: "P643", typeRing: "C1", keyPos: "16", startCH: "8+010.20", finishCH: "8+008.80", length: "1.40", status: "In Progress", installType: "Permanent" }];
   const view = render(
     <SegmentRecordView projectInfo={projectInfo} handleProjectInfoChange={() => {}} segmentRecords={inProgress}
-      setSegmentRecords={() => {}} setCurrentModule={() => {}} setActiveTab={() => {}} machine="TBM1" />
+      setSegmentRecords={() => {}} setCurrentModule={() => {}} setActiveTab={() => {}} machine="TBM1" onMutate={onMutate} />
   );
   // the in-progress ring is loaded for editing, so the form now holds that row's id
   expect(view.value("ringNo")).toBe("P643");
 
   view.rerender(
     <SegmentRecordView projectInfo={projectInfo} handleProjectInfoChange={() => {}} segmentRecords={[]}
-      setSegmentRecords={() => {}} setCurrentModule={() => {}} setActiveTab={() => {}} machine="TBM2" />
+      setSegmentRecords={() => {}} setCurrentModule={() => {}} setActiveTab={() => {}} machine="TBM2" onMutate={onMutate} />
   );
   type(view.container, "ringNo", "P1");
   type(view.container, "startCH", "9+499.50");
@@ -273,11 +281,11 @@ test("a segment form does not carry the other machine's row id into a save", asy
     form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
   });
 
-  expect(apiCall).toHaveBeenCalled();
-  const [action, payload] = apiCall.mock.calls[apiCall.mock.calls.length - 1];
-  expect(action).toBe("addSegment");
-  expect(payload.machine).toBe("TBM2");
-  expect(payload.id).not.toBe("seg_tbm1_row");
+  expect(sent).toHaveLength(1);
+  const last = sent[sent.length - 1];
+  expect(last.operation).toBe("create");        // not an update against the other machine's row
+  expect(last.machine).toBe("TBM2");
+  expect(last.recordId).not.toBe("seg_tbm1_row");
   view.unmount();
 });
 
@@ -288,7 +296,7 @@ test("changing the working shift does not wipe the open segment record", () => {
   const element = shift => (
     <SegmentRecordView projectInfo={{ ...projectInfo, shift }} handleProjectInfoChange={() => {}}
       segmentRecords={tbm1Segments} setSegmentRecords={() => {}} setCurrentModule={() => {}}
-      setActiveTab={() => {}} machine="TBM1" />
+      setActiveTab={() => {}} machine="TBM1" onMutate={onMutate} />
   );
   const view = render(element("Day"));
   type(view.container, "excavStartTime", "08:15");
@@ -310,7 +318,7 @@ test("changing the working shift does not wipe the open segment record", () => {
 test("a segment machine switch clears the survey and excavation fields too", () => {
   const view = render(
     <SegmentRecordView projectInfo={projectInfo} handleProjectInfoChange={() => {}} segmentRecords={tbm1Segments}
-      setSegmentRecords={() => {}} setCurrentModule={() => {}} setActiveTab={() => {}} machine="TBM1" />
+      setSegmentRecords={() => {}} setCurrentModule={() => {}} setActiveTab={() => {}} machine="TBM1" onMutate={onMutate} />
   );
   type(view.container, "excavStartTime", "08:15");
   type(view.container, "excavEndTime", "09:40");
@@ -322,7 +330,7 @@ test("a segment machine switch clears the survey and excavation fields too", () 
 
   view.rerender(
     <SegmentRecordView projectInfo={projectInfo} handleProjectInfoChange={() => {}} segmentRecords={[]}
-      setSegmentRecords={() => {}} setCurrentModule={() => {}} setActiveTab={() => {}} machine="TBM2" />
+      setSegmentRecords={() => {}} setCurrentModule={() => {}} setActiveTab={() => {}} machine="TBM2" onMutate={onMutate} />
   );
 
   ["excavStartTime", "excavEndTime", "soilType", "headV", "artV", "tailV", "vrt"].forEach(name => {
@@ -336,12 +344,12 @@ test("a segment save resolving after a machine switch does not land in the other
   // the async one — writing the row back would put one machine's ring and surveyed CH into the
   // other machine's state, where the next snapshot merge would carry it to the sheet
   let release;
-  apiCall.mockImplementation(() => new Promise(resolve => { release = () => resolve({ status: "success" }); }));
+  onMutateOverride = () => new Promise(resolve => { release = () => resolve({}); });
   let rows = [];
   const setSegmentRecords = updater => { rows = typeof updater === "function" ? updater(rows) : updater; };
   const element = machine => (
     <SegmentRecordView projectInfo={projectInfo} handleProjectInfoChange={() => {}} segmentRecords={rows}
-      setSegmentRecords={setSegmentRecords} setCurrentModule={() => {}} setActiveTab={() => {}} machine={machine} />
+      setSegmentRecords={setSegmentRecords} setCurrentModule={() => {}} setActiveTab={() => {}} machine={machine} onMutate={onMutate} />
   );
   const view = render(element("TBM1"));
   type(view.container, "ringNo", "P644");
@@ -361,13 +369,13 @@ test("a segment save resolving after a machine switch does not land in the other
   expect(view.container.querySelector('[name="ringNo"]').closest("form")).toBeTruthy();
   type(view.container, "ringNo", "P101");
   type(view.container, "startCH", "9+499.50");
-  apiCall.mockImplementation(async () => ({ status: "success" }));
+  onMutateOverride = null;
   await act(async () => {
     view.container.querySelector("form").dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
   });
-  const [action, payload] = apiCall.mock.calls[apiCall.mock.calls.length - 1];
-  expect(action).toBe("addSegment");
-  expect(payload.machine).toBe("TBM2");
+  const last = sent[sent.length - 1];
+  expect(last.operation).toBe("create");
+  expect(last.machine).toBe("TBM2");
   view.unmount();
 });
 
@@ -376,13 +384,13 @@ test("a segment save resolving after the form unmounts does not land in the othe
   // tap another nav item (this view unmounts), then switch machine. A ref inside the view freezes at
   // unmount and would still answer "TBM1"; App's answer is the live one.
   let release;
-  apiCall.mockImplementation(() => new Promise(resolve => { release = () => resolve({ status: "success" }); }));
+  onMutateOverride = () => new Promise(resolve => { release = () => resolve({}); });
   let rows = [];
   let currentMachine = "TBM1";
   const view = render(
     <SegmentRecordView projectInfo={projectInfo} handleProjectInfoChange={() => {}} segmentRecords={rows}
       setSegmentRecords={updater => { rows = typeof updater === "function" ? updater(rows) : updater; }}
-      setCurrentModule={() => {}} setActiveTab={() => {}} machine="TBM1"
+      setCurrentModule={() => {}} setActiveTab={() => {}} machine="TBM1" onMutate={onMutate}
       isCurrentMachine={m => m === currentMachine} />
   );
   type(view.container, "ringNo", "P644");
@@ -400,13 +408,13 @@ test("a segment save resolving after the form unmounts does not land in the othe
 
 test("a grout save resolving after a machine switch does not land in the other machine", async () => {
   let release;
-  apiCall.mockImplementation(() => new Promise(resolve => { release = () => resolve({ status: "success" }); }));
+  onMutateOverride = () => new Promise(resolve => { release = () => resolve({}); });
   let rows = [];
   const setGroutRecords = updater => { rows = typeof updater === "function" ? updater(rows) : updater; };
   const element = machine => (
     <GroutRecordView projectInfo={projectInfo} handleProjectInfoChange={() => {}} groutRecords={rows}
       setGroutRecords={setGroutRecords} secondaryGroutRecords={[]} setSecondaryGroutRecords={() => {}}
-      segmentRecords={[]} setCurrentModule={() => {}} setActiveTab={() => {}} machine={machine} />
+      segmentRecords={[]} setCurrentModule={() => {}} setActiveTab={() => {}} machine={machine} onMutate={onMutate} />
   );
   const view = render(element("TBM1"));
   expect(view.container.querySelector("form")).toBeTruthy();
@@ -459,7 +467,7 @@ test("a grout form drops the previous machine's ring on a machine switch", () =>
   const view = render(
     <GroutRecordView projectInfo={projectInfo} handleProjectInfoChange={() => {}} groutRecords={grouts}
       setGroutRecords={() => {}} secondaryGroutRecords={[]} setSecondaryGroutRecords={() => {}}
-      segmentRecords={tbm1Segments} setCurrentModule={() => {}} setActiveTab={() => {}} machine="TBM1" />
+      segmentRecords={tbm1Segments} setCurrentModule={() => {}} setActiveTab={() => {}} machine="TBM1" onMutate={onMutate} />
   );
   const before = view.value("ringNo");
   expect(before).toBeTruthy();
@@ -467,7 +475,7 @@ test("a grout form drops the previous machine's ring on a machine switch", () =>
   view.rerender(
     <GroutRecordView projectInfo={projectInfo} handleProjectInfoChange={() => {}} groutRecords={[]}
       setGroutRecords={() => {}} secondaryGroutRecords={[]} setSecondaryGroutRecords={() => {}}
-      segmentRecords={[]} setCurrentModule={() => {}} setActiveTab={() => {}} machine="TBM2" />
+      segmentRecords={[]} setCurrentModule={() => {}} setActiveTab={() => {}} machine="TBM2" onMutate={onMutate} />
   );
 
   expect(view.value("ringNo")).toBe("");

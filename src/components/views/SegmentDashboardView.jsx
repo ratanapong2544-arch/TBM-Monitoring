@@ -4,7 +4,6 @@ import StatCard from "../common/StatCard";
 import RingVisualizer from "../common/RingVisualizer";
 import { formatDisplayDate, formatDisplayTime, parseCH, formatCH } from "../../utils/formatters";
 import { getRingNumeric, getLogicalShiftDate, calculateSoilVolume } from "../../utils/helpers";
-import { apiCall } from "../../utils/api";
 import { buildMutationEnvelope } from "../../offline/mutationEnvelope";
 import { ResponsiveContainer, ComposedChart, CartesianGrid, XAxis, YAxis, Tooltip, Bar, Line } from "recharts";
 import { Badge } from "../../ui-ux-pro-max";
@@ -242,15 +241,10 @@ const SegmentDashboardView = ({ segmentRecords, setSegmentRecords, machine = "TB
   const handleSaveEdit = async () => {
     try {
       const updatedRecord = { ...editFormData };
-      if (onMutate) {
-        await onMutate(buildMutationEnvelope({
-          entityType: "segment", operation: "update", machine,
-          recordId: updatedRecord.id, payload: updatedRecord, syncMeta,
-        }));
-      } else {
-        await apiCall("updateSegment", { ...updatedRecord, machine });
-        setSegmentRecords((prev) => prev.map((r) => (r.id === updatedRecord.id ? updatedRecord : r)));
-      }
+      await onMutate(buildMutationEnvelope({
+        entityType: "segment", operation: "update", machine,
+        recordId: updatedRecord.id, payload: updatedRecord, syncMeta,
+      }));
       setSelectedRecord(null);
       setIsEditing(false);
     } catch (err) { alert("อัปเดตข้อมูลไม่สำเร็จ: " + err.message); }
@@ -258,17 +252,12 @@ const SegmentDashboardView = ({ segmentRecords, setSegmentRecords, machine = "TB
 
   const handleDeleteRecord = async () => {
     try {
-      if (onMutate) {
-        // the payload still carries the ring: the domain key is derived from it, and a delete keyed
-        // differently from its own record would queue against a domain nothing else touches
-        await onMutate(buildMutationEnvelope({
-          entityType: "segment", operation: "delete", machine,
-          recordId: selectedRecord.id, payload: selectedRecord, syncMeta,
-        }));
-      } else {
-        await apiCall("deleteSegment", { id: selectedRecord.id, machine });
-        setSegmentRecords((prev) => prev.filter((r) => r.id !== selectedRecord.id));
-      }
+      // the payload still carries the ring: the domain key is derived from it, and a delete keyed
+      // differently from its own record would queue against a domain nothing else touches
+      await onMutate(buildMutationEnvelope({
+        entityType: "segment", operation: "delete", machine,
+        recordId: selectedRecord.id, payload: selectedRecord, syncMeta,
+      }));
       setSelectedRecord(null);
       setShowDeleteConfirm(false);
     } catch (err) { alert("ลบข้อมูลไม่สำเร็จ: " + err.message); }

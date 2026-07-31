@@ -3,7 +3,6 @@ import { Activity, Camera, Save, Loader2, AlertTriangle } from "lucide-react";
 import RingVisualizer from "../common/RingVisualizer";
 import { THEORETICAL_VOL } from "../../utils/constants";
 import { getRingByOffsetFromHistory, handleFileUpload } from "../../utils/helpers";
-import { apiCall } from "../../utils/api";
 import { buildMutationEnvelope } from "../../offline/mutationEnvelope";
 import { SegmentedToggle } from "../../ui-ux-pro-max";
 import StickyActionBar from "../../ui-ux-pro-max/components/StickyActionBar";
@@ -117,20 +116,14 @@ const GroutRecordView = ({ projectInfo, handleProjectInfoChange, groutRecords, s
       if (local.imageBase64) local.imageUrl = "Attached";
       delete local.imageBase64; delete local.imageName;
 
-      if (onMutate) {
-        await onMutate(buildMutationEnvelope({
-          entityType, operation: "create", machine: machineAtSave,
-          recordId: rec.id, payload: rec, syncMeta,
-        }));
-        // a save resolves seconds later: if the crew switched machine meanwhile, the form still holds
-        // the OTHER machine's ring and volumes, so the reset below must not run
-        if (!stillOnMachine(machineAtSave)) { setIsSaving(false); return; }
-      } else {
-        await apiCall(isSecondary ? "addSecondaryGrout" : "addGrout", { ...rec, machine: machineAtSave });
-        if (!stillOnMachine(machineAtSave)) { setIsSaving(false); return; }
-        // App applies the optimistic row when queued; writing it here too would duplicate the ring
-        (isSecondary ? setSecondaryGroutRecords : setGroutRecords)((prev) => [...prev, local]);
-      }
+      // App applies the optimistic row when the mutation is queued, so this must not add it too
+      await onMutate(buildMutationEnvelope({
+        entityType, operation: "create", machine: machineAtSave,
+        recordId: rec.id, payload: rec, syncMeta,
+      }));
+      // a save resolves seconds later: if the crew switched machine meanwhile, the form still holds
+      // the OTHER machine's ring and volumes, so the reset below must not run
+      if (!stillOnMachine(machineAtSave)) { setIsSaving(false); return; }
       // the reset is inside the guard for the same reason: after a machine switch the form holds the
       // OTHER machine's ring and its measured Part A / Part B volumes, and clearing them here wiped
       // readings the crew had typed but not yet saved

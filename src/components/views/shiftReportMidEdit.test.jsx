@@ -3,8 +3,12 @@ import { createRoot } from "react-dom/client";
 import { act } from "react-dom/test-utils";
 
 import ShiftReportView from "./ShiftReportView";
+import { apiCall } from "../../utils/api";
 
 jest.mock("../../utils/api", () => ({ apiCall: jest.fn() }));
+
+// CRA sets resetMocks, so a module-scope implementation is stripped before each test
+beforeEach(() => { apiCall.mockImplementation(async () => ({ status: "success" })); });
 
 // App re-mirrors segmentRecords/shiftReports with a NEW array identity on every snapshot — the
 // offline cache pass, then the server pass, then again on each machine switch. Because the app is
@@ -121,6 +125,86 @@ test("a report arriving on an untouched form is loaded normally", () => {
 
   expect(form.value("Engineer")).toBe("9");
   expect(form.container.textContent).not.toContain("มีรายงานกะนี้จากเซิร์ฟเวอร์");
+  form.unmount();
+});
+
+test("input typed while a save is in flight is not discarded when it resolves", async () => {
+  // the payload is built before the request goes out, and a GAS round trip takes seconds on a
+  // tunnel link — clearing the dirty flag unconditionally on resolve threw away anything typed
+  // meanwhile, and the arriving row then loaded over the form
+  let release;
+  apiCall.mockImplementation(() => new Promise(resolve => { release = () => resolve({ status: "success" }); }));
+  // mirror the saved row back into the view the way App does, or the arriving copy never lands
+  let rows = [];
+  const setShiftReports = updater => { rows = typeof updater === "function" ? updater(rows) : updater; };
+  const form = render(view({ shiftReports: rows, setShiftReports }));
+  type(form.container, "Engineer", "6");
+
+  await act(async () => {
+    const save = [...form.container.querySelectorAll("button")].find(b => /Save to Cloud/.test(b.textContent));
+    save.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  });
+  // the crew keeps typing while the request is in flight
+  type(form.container, "Surveyor", "2");
+  await act(async () => { release(); });
+  form.rerender(view({ shiftReports: rows, setShiftReports }));
+
+  expect(form.value("Engineer")).toBe("6");
+  expect(form.value("Surveyor")).toBe("2");
+  form.unmount();
+});
+
+test("a notice raised for a row that then disappears does not linger", () => {
+  const saved = { id: "sr1", date: "2026-07-30", shift: "Day", tbmNo: "TBM1", manpower: { Engineer: "7" }, result: {}, events: {} };
+  const form = render(view({ shiftReports: [] }));
+  type(form.container, "Engineer", "9");
+
+  form.rerender(view({ shiftReports: [saved] }));
+  expect(form.container.textContent).toContain("มีรายงานกะนี้จากเซิร์ฟเวอร์");
+
+  form.rerender(view({ shiftReports: [] }));
+
+  expect(form.container.textContent).not.toContain("มีรายงานกะนี้จากเซิร์ฟเวอร์");
+  expect(form.value("Engineer")).toBe("9");
+  form.unmount();
+});
+
+test("a server copy differing only in key order is not reported as a change", () => {
+  const form = render(view({ shiftReports: [] }));
+  type(form.container, "Engineer", "3");
+  const arriving = { id: "sr1", date: "2026-07-30", shift: "Day", tbmNo: "TBM1", manpower: { Engineer: "3", Worker: "1" }, result: {}, events: {} };
+  form.rerender(view({ shiftReports: [arriving] }));
+  expect(form.container.textContent).toContain("มีรายงานกะนี้จากเซิร์ฟเวอร์");
+
+  // same data, different insertion order
+  const reordered = { ...arriving, manpower: { Worker: "1", Engineer: "3" } };
+  const before = form.container.textContent;
+  form.rerender(view({ shiftReports: [reordered] }));
+
+  expect(form.container.textContent).toBe(before);
+  form.unmount();
+});
+
+test("a server copy differing only in location reaches an untouched form", () => {
+  const saved = { id: "sr1", date: "2026-07-30", shift: "Day", tbmNo: "TBM1", location: "เดิม", manpower: {}, result: {}, events: {} };
+  const form = render(view({ shiftReports: [saved] }));
+  expect(form.value("location")).toBe("เดิม");
+
+  form.rerender(view({ shiftReports: [{ ...saved, location: "แก้ไขแล้ว" }] }));
+
+  expect(form.value("location")).toBe("แก้ไขแล้ว");
+  form.unmount();
+});
+
+test("editing the location marks the form as having content to protect", () => {
+  const form = render(view({ shiftReports: [] }));
+  type(form.container, "location", "อุโมงค์ช่วงพิเศษ");
+
+  const arriving = { id: "sr1", date: "2026-07-30", shift: "Day", tbmNo: "TBM1", location: "ของเซิร์ฟเวอร์", manpower: {}, result: {}, events: {} };
+  form.rerender(view({ shiftReports: [arriving] }));
+
+  expect(form.value("location")).toBe("อุโมงค์ช่วงพิเศษ");
+  expect(form.container.textContent).toContain("มีรายงานกะนี้จากเซิร์ฟเวอร์");
   form.unmount();
 });
 

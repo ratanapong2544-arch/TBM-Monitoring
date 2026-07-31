@@ -5,6 +5,16 @@ import { getLogicalShiftDate, getRingNumeric, loadHtml2Canvas } from "../../util
 import { apiCall } from "../../utils/api";
 import { fitAndPrint } from "../../utils/printFit";
 
+// Key order is not part of a record's identity: the cached copy and the server copy can serialize
+// the same data differently, and a plain JSON.stringify would read that as a competing edit.
+const stableKey = (value) => {
+  if (Array.isArray(value)) return `[${value.map(stableKey).join(",")}]`;
+  if (value && typeof value === "object" && !(value instanceof Date)) {
+    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableKey(value[key])}`).join(",")}}`;
+  }
+  return JSON.stringify(value);
+};
+
 const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftReports, machine = "TBM1", readOnly = false }) => {
   const [isSaving, setIsSaving] = useState(false);
   const [isExportingImage, setIsExportingImage] = useState(false);
@@ -78,12 +88,15 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
   // keyed on CONTENT, not just the row id: the cache pass and the server pass can carry the same id
   // with different content, and keying on the id alone left the stale copy on screen and wrote it
   // back on the next save
-  const reportKey = existingReport ? JSON.stringify([existingReport.id, existingReport.manpower, existingReport.result, existingReport.events]) : null;
+  const reportKey = existingReport ? stableKey([existingReport.id, existingReport.location, existingReport.manpower, existingReport.result, existingReport.events]) : null;
   const autoResultRef = useRef(autoResult);
   autoResultRef.current = autoResult;
   const existingReportRef = useRef(existingReport);
   existingReportRef.current = existingReport;
   const dirtyRef = useRef(false);
+  // counts edits, so a save can tell whether anything was typed while its request was in flight
+  const editSerialRef = useRef(0);
+  const markDirty = () => { dirtyRef.current = true; editSerialRef.current += 1; };
   const [serverCopyPending, setServerCopyPending] = useState(false);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
 
@@ -104,8 +117,11 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
       setManpower(defaultManpower);
       setResult(autoResultRef.current);
     }
-    // only values typed in THIS session are protected from the auto-derived figure; a stored one is
-    // not, per the rule above
+    // A typed Result value is protected from the auto-derived figure only until the form reloads.
+    // Reloading includes the row coming back from the crew's own save, so a correction typed and
+    // then auto-saved (any time-bar edit) is re-derived on the next pass. That follows from the
+    // confirmed rule — the Result reflects the rings actually recorded — and is why a correction
+    // has to be made against the ring records, not typed over the total.
     touchedRef.current = {};
     dirtyRef.current = false;
     setServerCopyPending(false);
@@ -122,9 +138,10 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
   // form the crew has not started filling in; otherwise keep what they typed and tell them.
   useEffect(() => {
     if (!dirtyRef.current) loadForm();
-    else if (existingReportRef.current) setServerCopyPending(true);
     // a row that DISAPPEARED from the snapshot is not a competing copy — offering to "load" it
-    // would just wipe the form, so leave the crew's content alone and say nothing
+    // would just wipe the form. Clear any notice raised by an earlier arrival for the same reason:
+    // its "load the server copy" action would now have nothing behind it.
+    else setServerCopyPending(Boolean(existingReportRef.current));
     // eslint-disable-next-line
   }, [reportKey]);
 
@@ -143,19 +160,22 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
   }, [autoResult]);
 
   const handleMetaChange = (e) => {
-    dirtyRef.current = true;
+    markDirty();
     setMeta({ ...meta, [e.target.name]: e.target.value });
   };
 
   const handleSaveToCloud = async () => {
     setIsSaving(true);
+    const serialAtSave = editSerialRef.current;
     const payload = { id: existingReport ? existingReport.id : `shift_${Date.now()}`, date: meta.date, shift: meta.shift, tbmNo: meta.tbmNo, location: meta.location, events: JSON.stringify(events), manpower: JSON.stringify(manpower), result: JSON.stringify(result) };
     try {
       await apiCall(existingReport ? "updateShiftReport" : "addShiftReport", { ...payload, machine });
       const savedRecord = { ...payload, events: events, manpower: manpower, result: result };
-      // what we just stored IS the crew's copy: the row coming back must not be announced as a
-      // competing server copy, and it is safe to load over the form
-      dirtyRef.current = false;
+      // What we just stored IS the crew's copy, so the row coming back is not a competing one and
+      // may load over the form — but ONLY if nothing was typed while the request was in flight. A
+      // GAS round trip takes seconds on a tunnel link, and the payload was built before it started,
+      // so clearing this unconditionally threw away anything typed meanwhile.
+      if (editSerialRef.current === serialAtSave) dirtyRef.current = false;
       if (existingReport) setShiftReports(prev => prev.map(r => r.id === payload.id ? savedRecord : r));
       else setShiftReports(prev => [...prev, savedRecord]);
       alert("บันทึก Shift Report สำเร็จ");
@@ -164,11 +184,13 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
   };
 
   const triggerAutoSaveEvents = async (updatedEvents) => {
+    const serialAtSave = editSerialRef.current;
     const payload = { id: existingReport ? existingReport.id : `shift_${Date.now()}`, date: meta.date, shift: meta.shift, tbmNo: meta.tbmNo, location: meta.location, events: JSON.stringify(updatedEvents), manpower: JSON.stringify(manpower), result: JSON.stringify(result) };
     try {
       await apiCall(existingReport ? "updateShiftReport" : "addShiftReport", { ...payload, machine });
       const savedRecord = { ...payload, events: updatedEvents, manpower, result };
-      dirtyRef.current = false; // our own write, not a competing server copy
+      // our own write, not a competing copy — unless the crew typed during the round trip
+      if (editSerialRef.current === serialAtSave) dirtyRef.current = false;
       if (existingReport) setShiftReports(prev => prev.map(r => r.id === payload.id ? savedRecord : r));
       else setShiftReports(prev => [...prev, savedRecord]);
     } catch (e) { console.error("Auto-save failed", e); }
@@ -271,12 +293,12 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
   };
 
   const handleManpowerChange = (e) => {
-    dirtyRef.current = true;
+    markDirty();
     setManpower({ ...manpower, [e.target.name]: e.target.value });
   };
   const handleResultChange = (e) => {
     // remember the crew edited this field so the auto-derived value never overwrites it again
-    dirtyRef.current = true;
+    markDirty();
     touchedRef.current = { ...touchedRef.current, [e.target.name]: true };
     setResult({ ...result, [e.target.name]: e.target.value });
   };
@@ -327,7 +349,7 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
     if (!updatedEvents[activityName]) updatedEvents[activityName] = [];
     if (editingEventId) updatedEvents[activityName] = updatedEvents[activityName].map(ev => ev.id === editingEventId ? { ...ev, start: newEvent.start, end: newEvent.end, label: newEvent.label } : ev);
     else updatedEvents[activityName].push({ ...newEvent, id: Date.now() });
-    dirtyRef.current = true;
+    markDirty();
     setEvents(updatedEvents); setNewEvent({ start: '', end: '', label: '' }); setEditingEventId(null); triggerAutoSaveEvents(updatedEvents);
   };
 
@@ -335,7 +357,7 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
     const updatedEvents = { ...events };
     updatedEvents[activityName] = updatedEvents[activityName].filter(ev => ev.id !== id);
     if (updatedEvents[activityName].length === 0) delete updatedEvents[activityName];
-    dirtyRef.current = true;
+    markDirty();
     setEvents(updatedEvents); triggerAutoSaveEvents(updatedEvents);
   };
 

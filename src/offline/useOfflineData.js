@@ -34,7 +34,12 @@ export function useOfflineData(machine, deps = {}) {
   runnerRef.current = runner;
   const syncAfterRefresh = useCallback(() => {
     const current = runnerRef.current;
-    if (current && typeof current.runNow === "function") { try { current.runNow(); } catch (error) { /* sync is best-effort */ } }
+    if (!current || typeof current.runNow !== "function") return;
+    // Both halves matter. A synchronous throw is possible, and so is a rejected promise: the runner
+    // reaches IndexedDB to claim due mutations, and in exactly the session this exists for — the
+    // database could not be opened, so the runner was started anyway — that rejects on every
+    // trigger. Unhandled, it would surface as a page error on a screen that is working fine.
+    try { Promise.resolve(current.runNow()).catch(() => {}); } catch (error) { /* sync is best-effort */ }
   }, []);
   const [state, setState] = useState(() => initialState(machine));
   // one token per machine selection: a settled request whose token is stale is dropped.

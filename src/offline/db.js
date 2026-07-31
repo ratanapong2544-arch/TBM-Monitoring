@@ -77,15 +77,22 @@ export function recanonicalizeDomainKeys(transaction) {
 // rejection here so the caller's catch runs and the app carries on server-only.
 export const OPEN_DB_TIMEOUT_MS = 8000;
 
+let openGeneration = 0;
+
 export function openOfflineDb() {
   if (openDbPromise) return openDbPromise;
+
+  // an abandoned open (closeOfflineDb ran while it was still pending) must not clear a promise that
+  // belongs to a later attempt when its timer eventually fires
+  const generation = ++openGeneration;
+  const forgetIfCurrent = () => { if (generation === openGeneration) openDbPromise = undefined; };
 
   openDbPromise = new Promise((resolve, reject) => {
     let settled = false;
     const fail = message => {
       if (settled) return;
       settled = true;
-      openDbPromise = undefined;
+      forgetIfCurrent();
       clearTimeout(timer);
       reject(new Error(message));
     };
@@ -119,7 +126,7 @@ export function openOfflineDb() {
     request.onerror = () => {
       if (settled) return;
       settled = true;
-      openDbPromise = undefined;
+      forgetIfCurrent();
       clearTimeout(timer);
       reject(request.error);
     };

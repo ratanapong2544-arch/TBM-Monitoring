@@ -1,4 +1,4 @@
-import { ApiFailure, classifyHttpFailure, fetchServerSnapshot, parseGasResponse, postSyncMutation } from "./apiTransport";
+import { ApiFailure, classifyHttpFailure, fetchServerSnapshot, parseGasResponse, postSyncMutation, SNAPSHOT_FETCH_TIMEOUT_MS } from "./apiTransport";
 
 afterEach(() => jest.restoreAllMocks());
 
@@ -47,9 +47,49 @@ test("classifies malformed JSON as a permanent GAS response failure", async () =
 
 test("preserves abort failures as a distinct typed failure", async () => {
   global.fetch = jest.fn().mockRejectedValue(Object.assign(new Error("aborted"), { name: "AbortError" }));
-  await expect(fetchServerSnapshot("TBM 1", { signal: "signal" }))
+  const caller = new AbortController();
+  await expect(fetchServerSnapshot("TBM 1", { signal: caller.signal }))
     .rejects.toMatchObject({ kind: "aborted", code: "ABORTED" });
-  expect(global.fetch).toHaveBeenCalledWith(expect.stringContaining("machine=TBM%201"), expect.objectContaining({ redirect: "follow", signal: "signal" }));
+  expect(global.fetch).toHaveBeenCalledWith(expect.stringContaining("machine=TBM%201"), expect.objectContaining({ redirect: "follow" }));
+});
+
+test("the caller's signal still cancels the request", async () => {
+  // the request now carries its own timeout controller, so the caller's signal is chained onto it
+  // rather than passed through — a machine switch abandoning this fetch must still abort it
+  const caller = new AbortController();
+  let aborted = false;
+  global.fetch = jest.fn((url, options) => new Promise((resolve, reject) => {
+    options.signal.addEventListener("abort", () => {
+      aborted = true;
+      reject(Object.assign(new Error("aborted"), { name: "AbortError" }));
+    });
+  }));
+  const pending = fetchServerSnapshot("TBM1", { signal: caller.signal });
+  caller.abort();
+
+  await expect(pending).rejects.toMatchObject({ kind: "aborted", code: "ABORTED" });
+  expect(aborted).toBe(true);
+});
+
+test("a request that never answers times out instead of hanging", async () => {
+  // a tunnel link or captive portal completes the handshake and goes quiet: the request neither
+  // succeeds nor fails, and the app shows "refreshing" forever, which hides the snapshot-age strip
+  jest.useFakeTimers();
+  try {
+    global.fetch = jest.fn((url, options) => new Promise((resolve, reject) => {
+      options.signal.addEventListener("abort", () => reject(Object.assign(new Error("aborted"), { name: "AbortError" })));
+    }));
+    const pending = fetchServerSnapshot("TBM1");
+    const settled = jest.fn();
+    pending.then(settled, settled);
+    await Promise.resolve();
+    expect(settled).not.toHaveBeenCalled();
+
+    jest.advanceTimersByTime(SNAPSHOT_FETCH_TIMEOUT_MS);
+    await expect(pending).rejects.toMatchObject({ kind: "retryable", code: "TIMEOUT" });
+  } finally {
+    jest.useRealTimers();
+  }
 });
 
 test("classifies normal network rejection as retryable", async () => {

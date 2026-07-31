@@ -195,6 +195,33 @@ test("a grout machine switch clears the injection positions", async () => {
   view.unmount();
 });
 
+test("a grout save resolving after the form unmounts does not land in the other machine", async () => {
+  // same hazard as the segment form: the crew taps another nav item mid-save, then switches machine.
+  // Only App can answer which machine is current by then.
+  let release;
+  apiCall.mockImplementation(() => new Promise(resolve => { release = () => resolve({ status: "success" }); }));
+  let rows = [];
+  let currentMachine = "TBM1";
+  const view = render(
+    <GroutRecordView projectInfo={projectInfo} handleProjectInfoChange={() => {}} groutRecords={rows}
+      setGroutRecords={updater => { rows = typeof updater === "function" ? updater(rows) : updater; }}
+      secondaryGroutRecords={[]} setSecondaryGroutRecords={() => {}} segmentRecords={[]}
+      setCurrentModule={() => {}} setActiveTab={() => {}} machine="TBM1"
+      isCurrentMachine={m => m === currentMachine} />
+  );
+  type(view.container, "ringNo", "P643");
+  type(view.container, "partA", "12.5");
+  await act(async () => {
+    view.container.querySelector("form").dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+  });
+
+  view.unmount();
+  currentMachine = "TBM2";
+  await act(async () => { release(); });
+
+  expect(rows).toEqual([]);
+});
+
 test("a grout form never overwrites a hand-corrected ring when new records arrive", () => {
   // the twin of the segment guard: the mirror hands this view a new array identity on every
   // snapshot, so without it the typed ring reverts to the computed one and gets submitted
@@ -379,6 +406,7 @@ test("a grout save resolving after a machine switch does not land in the other m
       segmentRecords={[]} setCurrentModule={() => {}} setActiveTab={() => {}} machine={machine} />
   );
   const view = render(element("TBM1"));
+  expect(view.container.querySelector("form")).toBeTruthy();
   type(view.container, "ringNo", "P643");
   type(view.container, "partA", "12.5");
   await act(async () => {

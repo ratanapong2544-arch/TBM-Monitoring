@@ -47,3 +47,21 @@ test("a fetch failure still throws so the caller can keep its cached snapshot", 
 
   await expect(repository.refresh("TBM1")).rejects.toThrow("NETWORK");
 });
+
+test("a fetch failure reports the fetch failure even when the database is unusable too", async () => {
+  // reading the cache on the way out is a courtesy for subscribers. Since openDb can now reject
+  // rather than hang, an unguarded read there replaced the real fault: the crew was shown
+  // "IndexedDB open timed out" for what was actually a server or permission failure, and the error
+  // events never fired.
+  const errors = [];
+  const repository = makeRepository({
+    fetchServerSnapshot: async () => { throw new Error("GAS_PERMISSION_HTML"); },
+    openDb: async () => { throw new Error("IndexedDB open timed out"); },
+  });
+  repository.subscribe(event => { if (event.type === "error") errors.push(event); });
+
+  await expect(repository.refresh("TBM1")).rejects.toThrow("GAS_PERMISSION_HTML");
+  expect(errors).toHaveLength(1);
+  expect(errors[0].error.message).toBe("GAS_PERMISSION_HTML");
+  expect(errors[0].result).toBeNull();
+});

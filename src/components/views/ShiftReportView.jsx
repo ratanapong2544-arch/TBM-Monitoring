@@ -15,6 +15,21 @@ const stableKey = (value) => {
   return JSON.stringify(value);
 };
 
+// Save bookkeeping lives OUTSIDE the component, because a save outlives the form that started it:
+// any nav tap unmounts this view while the request is still travelling. Per-instance state let the
+// remounted form mint a second id for a report the sheet already has — two rows for one shift, which
+// double-counts it and its delay minutes, and which only the first row ever receives updates for.
+// Keyed per report (machine|date|shift), so a different report is a different entry.
+const shiftSaveState = new Map();
+let shiftSaveChain = Promise.resolve();
+const shiftSaveStateFor = (key) => {
+  let state = shiftSaveState.get(key);
+  if (!state) { state = { draftId: null, savedIds: new Set() }; shiftSaveState.set(key, state); }
+  return state;
+};
+// module state persists across tests in one file, which would make them order-dependent
+export const __resetShiftSaveStateForTests = () => { shiftSaveState.clear(); shiftSaveChain = Promise.resolve(); };
+
 const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftReports, machine = "TBM1", isCurrentMachine, readOnly = false }) => {
   const [isSaving, setIsSaving] = useState(false);
   const [isExportingImage, setIsExportingImage] = useState(false);
@@ -89,6 +104,10 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
   // with different content, and keying on the id alone left the stale copy on screen and wrote it
   // back on the next save
   const reportKey = existingReport ? stableKey([existingReport.id, existingReport.location, existingReport.manpower, existingReport.result, existingReport.events]) : null;
+  // which report is on screen right now, so a save that resolves later can tell whether the form it
+  // started from is still the one being edited
+  const selectorKeyRef = useRef(selectorKey);
+  selectorKeyRef.current = selectorKey;
   const autoResultRef = useRef(autoResult);
   autoResultRef.current = autoResult;
   const existingReportRef = useRef(existingReport);
@@ -131,12 +150,11 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
     // has to be made against the ring records, not typed over the total.
     touchedRef.current = {};
     dirtyRef.current = false;
-    // the form now holds a different report, so the draft id minted for the last one must not be
-    // reused — a save on the new date would have written over the previous date's row — and the key
-    // of the last row written is no longer the one to compare arrivals against
-    draftIdRef.current = null;
+    // the key of the last row written is no longer the one to compare arrivals against. The draft id
+    // and the set of ids already on the sheet are NOT cleared here: they are keyed per report, so a
+    // different report already reads a different entry, and wiping them would let a save queued for
+    // the old report append a second row for one the sheet already has.
     ownWriteKeyRef.current = null;
-    savedIdsRef.current = new Set();
     setServerCopyPending(false);
     setConfirmDiscard(false);
     // eslint-disable-next-line
@@ -184,29 +202,23 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
   // One id per report being composed. Both save paths mint their own before `existingReport` turns
   // truthy, so Save to Cloud overlapping a time-bar auto-save used to create two rows for the same
   // date and shift — after which only the first was ever updated and the dashboards double-counted.
-  const draftIdRef = useRef(null);
   const reportIdForSave = () => {
     if (existingReportRef.current) return existingReportRef.current.id;
-    if (!draftIdRef.current) draftIdRef.current = `shift_${Date.now()}`;
-    return draftIdRef.current;
+    const state = shiftSaveStateFor(selectorKey);
+    if (!state.draftId) state.draftId = `shift_${Date.now()}`;
+    return state.draftId;
   };
 
   // Sharing the id was not enough on its own: `addShiftReport` appends to the sheet without checking
   // the id, and two saves in flight together both saw a falsy `existingReport` and both sent `add` —
   // two rows for the same date and shift. Every later update hits only the first (the sheet scan
   // stops at the first match), so the second stays frozen with a partial event set and the shift and
-  // its delay minutes are counted twice on the next refresh. Saves therefore run one at a time, and
-  // each picks its action when it actually starts, from the ids known to be on the sheet by then.
-  const savedIdsRef = useRef(new Set());
-  const saveChainRef = useRef(Promise.resolve());
+  // its delay minutes are counted twice on the next refresh. Saves therefore run one at a time.
   const queueSave = (run) => {
-    const next = saveChainRef.current.then(run, run);
-    saveChainRef.current = next.then(() => {}, () => {});
+    const next = shiftSaveChain.then(run, run);
+    shiftSaveChain = next.then(() => {}, () => {});
     return next;
   };
-  const saveAction = (id) => (savedIdsRef.current.has(id) || (existingReportRef.current && existingReportRef.current.id === id)
-    ? "updateShiftReport"
-    : "addShiftReport");
 
   // A save resolves seconds after it starts. If the crew switched machine meanwhile, writing the
   // result back would put one machine's crew counts and surveyed chainage into the other's state —
@@ -219,39 +231,62 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
     return true;
   };
 
+  // Everything about WHICH row this save is and WHAT it carries is decided here, when the crew acts —
+  // never when the queued request finally starts. Deciding the id later was worse than the duplicate
+  // it was meant to prevent: a queued save whose payload held the 30th could pick up the id minted
+  // for the 31st after the crew changed the date, and overwrite the wrong day's report with it.
+  // Only one thing is read at execution time, and it cannot be known earlier: whether this exact id
+  // has reached the sheet yet, which is what decides append versus update.
   // `eventsForSave` lets the auto-save send the event set it just produced, which is not in state yet
-  const sendReport = async (eventsForSave) => {
+  const prepareSave = (eventsForSave) => {
     const serialAtSave = editSerialRef.current;
     const machineAtSave = machine;
+    const keyAtSave = selectorKey;
     const id = reportIdForSave();
+    const existedAtSave = Boolean(existingReportRef.current && existingReportRef.current.id === id);
     const payload = { id, date: meta.date, shift: meta.shift, tbmNo: meta.tbmNo, location: meta.location, events: JSON.stringify(eventsForSave), manpower: JSON.stringify(manpower), result: JSON.stringify(result) };
-    await apiCall(saveAction(id), { ...payload, machine: machineAtSave });
-    savedIdsRef.current.add(id);
     const savedRecord = { ...payload, events: eventsForSave, manpower, result };
-    // The row that comes back carries this write, so the effect watching for a server copy
-    // recognises it by key and leaves the form alone. The dirty flag still matters for the NEXT
-    // arrival: a GAS round trip takes seconds on a tunnel link and the payload was built before it
-    // started, so anything typed meanwhile is not in the sheet yet and the form must stay dirty or
-    // a later snapshot loads over it.
-    if (editSerialRef.current === serialAtSave) dirtyRef.current = false;
-    ownWriteKeyRef.current = stableKey([savedRecord.id, savedRecord.location, savedRecord.manpower, savedRecord.result, savedRecord.events]);
-    return commitSaved(machineAtSave, id, savedRecord);
+    const ownKey = stableKey([savedRecord.id, savedRecord.location, savedRecord.manpower, savedRecord.result, savedRecord.events]);
+
+    return async () => {
+      const state = shiftSaveStateFor(keyAtSave);
+      await apiCall(existedAtSave || state.savedIds.has(id) ? "updateShiftReport" : "addShiftReport", { ...payload, machine: machineAtSave });
+      state.savedIds.add(id);
+      // Only speak for the form if it is still showing this report. The dirty flag and the own-write
+      // key describe what is on screen, and by now the crew may have moved to another date, shift or
+      // machine — clearing another report's dirty flag would invite the next snapshot to load over
+      // whatever they have typed there.
+      if (selectorKeyRef.current === keyAtSave) {
+        // The row that comes back carries this write, so the effect watching for a server copy
+        // recognises it by key and leaves the form alone. The dirty flag still matters for the NEXT
+        // arrival: a GAS round trip takes seconds on a tunnel link and the payload was frozen before
+        // it started, so anything typed meanwhile is not in the sheet yet and the form must stay
+        // dirty or a later snapshot loads over it.
+        if (editSerialRef.current === serialAtSave) dirtyRef.current = false;
+        ownWriteKeyRef.current = ownKey;
+      }
+      return commitSaved(machineAtSave, id, savedRecord);
+    };
   };
 
   const handleSaveToCloud = () => {
     setIsSaving(true);
+    const send = prepareSave(events);
     return queueSave(async () => {
       try {
-        if (await sendReport(events)) alert("บันทึก Shift Report สำเร็จ");
+        if (await send()) alert("บันทึก Shift Report สำเร็จ");
       } catch (e) { alert("บันทึกไม่สำเร็จ: " + e.message); }
       setIsSaving(false);
     });
   };
 
-  const triggerAutoSaveEvents = (updatedEvents) => queueSave(async () => {
-    try { await sendReport(updatedEvents); }
-    catch (e) { console.error("Auto-save failed", e); }
-  });
+  const triggerAutoSaveEvents = (updatedEvents) => {
+    const send = prepareSave(updatedEvents);
+    return queueSave(async () => {
+      try { await send(); }
+      catch (e) { console.error("Auto-save failed", e); }
+    });
+  };
 
   const displayEvents = useMemo(() => {
     const merged = { ...events };

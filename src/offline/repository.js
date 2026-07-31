@@ -176,8 +176,14 @@ export function createRepository(deps = {}) {
         emit({ type: "data", machine, result });
         return result;
       } catch (error) {
-        const cached = await readServerSnapshot(await openDb(), machine);
-        const result = cachedResult(cached);
+        // Reading the cache here is a courtesy — it lets subscribers show the last known data
+        // alongside the failure. It must not be able to replace the fault being reported: when the
+        // database itself is what cannot be opened, this read throws too, and an unguarded `await`
+        // would surface "IndexedDB open timed out" for what was really a network or permission
+        // failure, and skip the error events entirely.
+        let result = null;
+        try { result = cachedResult(await readServerSnapshot(await openDb(), machine)); }
+        catch (cacheError) { /* no cache to offer; the original fault is what matters */ }
         const event = { type: "error", machine, error, result };
         emit(event);
         emitError(event);

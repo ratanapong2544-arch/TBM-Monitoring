@@ -2,13 +2,17 @@ import React from "react";
 import { createRoot } from "react-dom/client";
 import { act } from "react-dom/test-utils";
 
-import ShiftReportView from "./ShiftReportView";
+import ShiftReportView, { __resetShiftSaveStateForTests } from "./ShiftReportView";
 import { apiCall } from "../../utils/api";
 
 jest.mock("../../utils/api", () => ({ apiCall: jest.fn() }));
 
 // CRA sets resetMocks, so a module-scope implementation is stripped before each test
-beforeEach(() => { apiCall.mockImplementation(async () => ({ status: "success" })); });
+beforeEach(() => {
+  apiCall.mockImplementation(async () => ({ status: "success" }));
+  // the save bookkeeping deliberately outlives a mount, so it has to be cleared between tests
+  __resetShiftSaveStateForTests();
+});
 
 // App re-mirrors segmentRecords/shiftReports with a NEW array identity on every snapshot — the
 // offline cache pass, then the server pass, then again on each machine switch. Because the app is
@@ -339,19 +343,154 @@ test("a save that resolves after a machine switch does not reach the other machi
   let release;
   apiCall.mockImplementation(() => new Promise(resolve => { release = () => resolve({ status: "success" }); }));
   let rows = [];
+  let currentMachine = "TBM1";
   const setShiftReports = updater => { rows = typeof updater === "function" ? updater(rows) : updater; };
-  const form = render(view({ shiftReports: rows, setShiftReports }));
+  // App answers the machine question, so the guard has to be driven through that prop — a local ref
+  // would pass this test while still being frozen for the case below
+  const isCurrentMachine = m => m === currentMachine;
+  const form = render(view({ shiftReports: rows, setShiftReports, isCurrentMachine }));
   type(form.container, "Engineer", "6");
 
   await act(async () => {
     const save = [...form.container.querySelectorAll("button")].find(b => /Save to Cloud/.test(b.textContent));
     save.dispatchEvent(new MouseEvent("click", { bubbles: true }));
   });
-  form.rerender(view({ machine: "TBM2", segmentRecords: [], shiftReports: rows, setShiftReports }));
+  currentMachine = "TBM2";
+  form.rerender(view({ machine: "TBM2", segmentRecords: [], shiftReports: rows, setShiftReports, isCurrentMachine }));
   await act(async () => { release(); });
 
   expect(rows).toEqual([]); // nothing written back into the other machine's state
   expect(form.value("Engineer")).toBe("");
+  form.unmount();
+});
+
+test("a save that resolves after the form unmounts does not reach the other machine", async () => {
+  // the machine switcher is in the TopBar, so the crew can save, tap another nav item (this view
+  // unmounts, freezing any ref inside it), then switch machine
+  let release;
+  apiCall.mockImplementation(() => new Promise(resolve => { release = () => resolve({ status: "success" }); }));
+  let rows = [];
+  let currentMachine = "TBM1";
+  const setShiftReports = updater => { rows = typeof updater === "function" ? updater(rows) : updater; };
+  const form = render(view({ shiftReports: rows, setShiftReports, isCurrentMachine: m => m === currentMachine }));
+  type(form.container, "Engineer", "6");
+  await act(async () => {
+    [...form.container.querySelectorAll("button")].find(b => /Save to Cloud/.test(b.textContent))
+      .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  });
+
+  form.unmount();          // navigated away
+  currentMachine = "TBM2"; // then switched machine
+  await act(async () => { release(); });
+
+  expect(rows).toEqual([]);
+});
+
+test("a save queued before the crew changed date still writes its own report", async () => {
+  // The queued save's payload was frozen for the 30th. Resolving its row identity when it finally
+  // runs — after the form moved to the 31st — made it either append a SECOND row for the 30th or
+  // overwrite the 31st's row with the 30th's content. Both were silent.
+  const releases = [];
+  apiCall.mockImplementation(() => new Promise(resolve => { releases.push(() => resolve({ status: "success" })); }));
+  let rows = [];
+  const setShiftReports = updater => { rows = typeof updater === "function" ? updater(rows) : updater; };
+  const form = render(view({ shiftReports: rows, setShiftReports }));
+
+  type(form.container, "Engineer", "3");
+  await act(async () => {
+    [...form.container.querySelectorAll("button")].find(b => /Save to Cloud/.test(b.textContent))
+      .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  });
+  // a time bar is added while that save travels, so its auto-save is queued behind it
+  act(() => { form.container.querySelector('[title="เพิ่มเวลาการทำงาน"]').dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+  const times = form.container.querySelectorAll('input[type="time"]');
+  [["08:00", 0], ["09:00", 1]].forEach(([v, i]) => act(() => {
+    Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set.call(times[i], v);
+    times[i].dispatchEvent(new Event("input", { bubbles: true }));
+  }));
+  await act(async () => {
+    [...form.container.querySelectorAll("button")].find(b => /เพิ่มช่วงเวลาลงกราฟ/.test(b.textContent))
+      .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  });
+
+  type(form.container, "date", "2026-07-31"); // the crew moves on before either lands
+  await act(async () => { releases[0](); });
+  await act(async () => { releases[1](); });
+
+  const [first, second] = apiCall.mock.calls;
+  expect(first[1].date).toBe("2026-07-30");
+  expect(second[1].date).toBe("2026-07-30");   // the queued save still belongs to the 30th
+  expect(second[1].id).toBe(first[1].id);      // and to the row the first one created
+  expect(second[0]).toBe("updateShiftReport"); // so it updates rather than appending a duplicate
+  expect(rows).toHaveLength(1);
+  form.unmount();
+});
+
+test("a remounted form does not append a second row for a report already saved", async () => {
+  // any nav tap unmounts this view; the save keeps travelling. Per-mount bookkeeping let the
+  // remounted form mint a fresh id and append a duplicate for the same date and shift.
+  let release;
+  apiCall.mockImplementation(() => new Promise(resolve => { release = () => resolve({ status: "success" }); }));
+  let rows = [];
+  const setShiftReports = updater => { rows = typeof updater === "function" ? updater(rows) : updater; };
+  const first = render(view({ shiftReports: rows, setShiftReports }));
+  type(first.container, "Engineer", "3");
+  await act(async () => {
+    [...first.container.querySelectorAll("button")].find(b => /Save to Cloud/.test(b.textContent))
+      .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  });
+  first.unmount();                        // navigated away mid-save
+  await act(async () => { release(); });  // the row lands in App's state
+
+  apiCall.mockImplementation(async () => ({ status: "success" }));
+  const second = render(view({ shiftReports: [], setShiftReports })); // came back before the snapshot
+  type(second.container, "Surveyor", "2");
+  await act(async () => {
+    [...second.container.querySelectorAll("button")].find(b => /Save to Cloud/.test(b.textContent))
+      .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  });
+
+  const calls = apiCall.mock.calls;
+  expect(calls[1][1].id).toBe(calls[0][1].id);
+  expect(calls[1][0]).toBe("updateShiftReport");
+  expect(rows).toHaveLength(1);
+  second.unmount();
+});
+
+test("a queued save does not clear the dirty flag for edits it never carried", async () => {
+  // the edit serial has to be sampled when the save is QUEUED, alongside its payload — sampling it
+  // when the queued request starts counts edits made in between as already sent, and the next
+  // snapshot then loads over them
+  const releases = [];
+  apiCall.mockImplementation(() => new Promise(resolve => { releases.push(() => resolve({ status: "success" })); }));
+  let rows = [];
+  const setShiftReports = updater => { rows = typeof updater === "function" ? updater(rows) : updater; };
+  const form = render(view({ shiftReports: rows, setShiftReports }));
+
+  await act(async () => {
+    [...form.container.querySelectorAll("button")].find(b => /Save to Cloud/.test(b.textContent))
+      .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  });
+  act(() => { form.container.querySelector('[title="เพิ่มเวลาการทำงาน"]').dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+  const times = form.container.querySelectorAll('input[type="time"]');
+  [["08:00", 0], ["09:00", 1]].forEach(([v, i]) => act(() => {
+    Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set.call(times[i], v);
+    times[i].dispatchEvent(new Event("input", { bubbles: true }));
+  }));
+  await act(async () => {
+    [...form.container.querySelectorAll("button")].find(b => /เพิ่มช่วงเวลาลงกราฟ/.test(b.textContent))
+      .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  });
+
+  type(form.container, "Foreman", "4"); // typed after the second save was queued
+  await act(async () => { releases[0](); });
+  await act(async () => { releases[1](); });
+
+  // another device's copy of the same shift arrives afterwards
+  const other = { id: "sr-other", date: "2026-07-30", shift: "Day", tbmNo: "TBM1", location: "อุโมงค์", manpower: { Foreman: "9" }, result: {}, events: {} };
+  form.rerender(view({ shiftReports: [other], setShiftReports }));
+
+  expect(form.value("Foreman")).toBe("4");
   form.unmount();
 });
 

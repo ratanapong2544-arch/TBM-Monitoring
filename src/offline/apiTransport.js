@@ -47,11 +47,37 @@ export async function parseGasResponse(response) {
   }
 }
 
+// A GET that never settles is the twin of an IndexedDB open that never settles, and it is the more
+// likely one underground: a tunnel link or a captive portal completes the TCP handshake and then
+// goes quiet, so the request neither succeeds nor errors. The app shows "refreshing" forever, which
+// also suppresses the snapshot-age strip — the crew is told data is on its way instead of being told
+// how old what they are looking at is. Longer than the sync POST's 15 s because a full snapshot is
+// much larger than one mutation.
+export const SNAPSHOT_FETCH_TIMEOUT_MS = 30000;
+
 export async function fetchServerSnapshot(machine, { signal } = {}) {
-  let response;
-  try { response = await fetch(`${GAS_URL}?action=getData&machine=${encodeURIComponent(machine)}`, { redirect: "follow", signal }); } catch (error) { throw toApiFailure(error); }
-  if (!response.ok) throw classifyHttpFailure(response.status);
-  return parseGasResponse(response);
+  const controller = new AbortController();
+  let timedOut = false;
+  const timeout = setTimeout(() => { timedOut = true; controller.abort(); }, SNAPSHOT_FETCH_TIMEOUT_MS);
+  // a caller-supplied signal still cancels: the machine switch that abandons this request uses it
+  const onCallerAbort = () => controller.abort();
+  if (signal) {
+    if (signal.aborted) controller.abort();
+    else if (typeof signal.addEventListener === "function") signal.addEventListener("abort", onCallerAbort);
+  }
+  try {
+    let response;
+    try { response = await fetch(`${GAS_URL}?action=getData&machine=${encodeURIComponent(machine)}`, { redirect: "follow", signal: controller.signal }); }
+    catch (error) {
+      if (timedOut && error && error.name === "AbortError") throw new ApiFailure("retryable", "TIMEOUT", "Snapshot request timed out", { cause: error });
+      throw toApiFailure(error);
+    }
+    if (!response.ok) throw classifyHttpFailure(response.status);
+    return await parseGasResponse(response);
+  } finally {
+    clearTimeout(timeout);
+    if (signal && typeof signal.removeEventListener === "function") signal.removeEventListener("abort", onCallerAbort);
+  }
 }
 
 export function assertSyncResponse(mutation, result) {

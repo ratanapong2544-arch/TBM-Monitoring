@@ -213,6 +213,9 @@ test("the offline stamp carries the time, not just the date", async () => {
 
   expect(app.text()).toContain("2026-07-30 09:15"); // Asia/Bangkok
   app.unmount();
+  // an unrestored spy leaves `navigator.onLine` undefined for the rest of the file — a state no
+  // browser produces — which quietly steers every later test down the online branch
+  onLine.mockRestore();
 });
 
 test("a machine switch shows a loading signal instead of the other machine's rings", async () => {
@@ -451,6 +454,11 @@ test("a save resolving after the crew navigates away and switches machine does n
   expect(app.text()).not.toContain("P644");
   app.unmount();
 });
+
+// A test stood here for the photo strip, and it could not fail: carrying the base64 or dropping it
+// produces the same DOM, because both leave the photo link hidden — there is no URL to open until
+// GAS answers. The rule is about what the list HOLDS, so it is tested where that is visible:
+// `displayRecord.test.js`, over the reducer App now applies.
 
 test("a queued write starts the drain instead of waiting for the next app event", async () => {
   // without this the record is durable but idle: it goes out on the next online/focus/

@@ -335,15 +335,37 @@ test("saving a shift report queues a create keyed by its Bangkok date and shift"
   view.unmount();
 });
 
-test("correcting a mistyped ring keeps writing to the record's own version stream", async () => {
-  // The domain key is built from business fields, and the data log lets them be corrected. Keying
-  // the write on the EDITED ring asks the server about a record that has never existed under that
-  // key — `baseVersion` comes back 0, or, worse, the version belonging to whichever ring the typo
-  // now names. The write is then refused as unknown, or it advances a second version stream over
-  // one sheet row: two histories for one ring, which is exactly what one derivation exists to stop.
-  const records = [{ id: "seg_1", ringNo: "P41", typeRing: "C1", keyPos: "16", startCH: "8+010.20", finishCH: "8+008.80", length: "1.40", status: "Completed", installType: "Permanent", date: "2026-07-30" }];
+const segmentRow = { id: "seg_1", ringNo: "P41", typeRing: "C1", keyPos: "16", startCH: "8+010.20", finishCH: "8+008.80", length: "1.40", status: "Completed", installType: "Permanent", date: "2026-07-30" };
+
+test("correcting a mistyped ring starts that ring's version stream instead of inheriting one", async () => {
+  // The domain key is built from business fields, and the data log lets them be corrected. The key
+  // follows the payload — it has no choice, because `repository.mutate` recomputes it from the
+  // payload and refuses a mismatch, and GAS does the same. So a corrected ring writes under the NEW
+  // key, and the only question is what version it claims: a record that has never existed under
+  // that key has no history there, and claiming 0 is what makes the server mint one.
   const view = render(
-    <SegmentDashboardView segmentRecords={records} machine="TBM1"
+    <SegmentDashboardView segmentRecords={[segmentRow]} machine="TBM1"
+      syncMeta={{ "segment:TBM1:P41:Permanent": { version: 2 } }} onMutate={onMutate} />
+  );
+  await click(view.container.querySelector("tbody tr"));
+  await click(byTitle(view.container, "Edit"));
+  type(view.container, "ringNo", "P42");
+  await click(button(view.container, /Save Changes/));
+
+  const envelope = onMutate.mock.calls[0][0];
+  expect(envelope.domainKey).toBe("segment:TBM1:P42:Permanent"); // canonical: derived from the payload
+  expect(envelope.baseVersion).toBe(0);                          // not P41's 2, which belongs to the old identity
+  expect(envelope.payload.ringNo).toBe("P42");
+  view.unmount();
+});
+
+test("a correction onto a ring that already has a record is refused, not merged", async () => {
+  // The other outcome, and the dangerous one: this device knows a version for the new key, so some
+  // other record already holds that identity. Sending its version would put two sheet rows on one
+  // version stream, where every edit of either silently invalidates the other. Nothing is queued and
+  // the crew is told — the alternative is a conflict no screen shows until Task 10.
+  const view = render(
+    <SegmentDashboardView segmentRecords={[segmentRow]} machine="TBM1"
       syncMeta={{ "segment:TBM1:P41:Permanent": { version: 2 }, "segment:TBM1:P42:Permanent": { version: 88 } }}
       onMutate={onMutate} />
   );
@@ -352,10 +374,27 @@ test("correcting a mistyped ring keeps writing to the record's own version strea
   type(view.container, "ringNo", "P42");
   await click(button(view.container, /Save Changes/));
 
-  const envelope = onMutate.mock.calls[0][0];
-  expect(envelope.domainKey).toBe("segment:TBM1:P41:Permanent"); // the record's own key, not the typo's
-  expect(envelope.baseVersion).toBe(2);                          // its own version, not P42's 88
-  expect(envelope.payload.ringNo).toBe("P42");                   // and the correction still travels
+  expect(onMutate).not.toHaveBeenCalled();
+  view.unmount();
+});
+
+test("tidying a stored ring's spacing is not read as a different ring", async () => {
+  // the views trim and upper-case on the way into the payload while the sheet still holds whatever
+  // it holds. Reading that as a re-identified record would refuse an edit that changed nothing but
+  // whitespace — and this fires on edits that never touch the ring at all.
+  const view = render(
+    <SegmentDashboardView segmentRecords={[{ ...segmentRow, ringNo: " p41 " }]} machine="TBM1"
+      syncMeta={{ "segment:TBM1:P41:Permanent": { version: 2 } }} onMutate={onMutate} />
+  );
+  await click(view.container.querySelector("tbody tr"));
+  await click(byTitle(view.container, "Edit"));
+  type(view.container, "ringNo", "P41");
+  await click(button(view.container, /Save Changes/));
+
+  expect(onMutate).toHaveBeenCalledWith(expect.objectContaining({
+    domainKey: "segment:TBM1:P41:Permanent",
+    baseVersion: 2, // its own history, kept
+  }));
   view.unmount();
 });
 

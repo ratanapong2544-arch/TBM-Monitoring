@@ -13,6 +13,19 @@ const PHOTOS = [
   ["excavImageBase64", "excavImageName", "excavImageUrl"],
 ];
 
+// How a queued write lands in the list the crew is looking at. It lives here, next to the photo
+// rule, because every caller needs both and because the alternative — inlining it in App — left the
+// rule with nothing that could test it: the difference between carrying the photo bytes and not is
+// invisible in the DOM, so only a direct test of the reducer can see it at all.
+export function applyOptimisticRow(rows, operation, incoming) {
+  const record = stripQueuedPhotos(incoming);
+  if (!record) return rows;
+  if (operation === "delete") return rows.filter(row => row.id !== record.id);
+  return rows.some(row => row.id === record.id)
+    ? rows.map(row => (row.id === record.id ? record : row))
+    : [...rows, record];
+}
+
 export function stripQueuedPhotos(record) {
   if (!record || !PHOTOS.some(([base64]) => record[base64])) return record;
   const display = { ...record };

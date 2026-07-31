@@ -118,8 +118,9 @@ const SegmentRecordView = ({ projectInfo, handleProjectInfoChange, segmentRecord
       await onMutate(buildMutationEnvelope({
         entityType: "segment", operation: isUpdate ? "update" : "create",
         machine: machineAtSave, recordId: recordData.id, payload: recordData, syncMeta,
-        // re-saving the open ring: the crew can correct the ring number before saving, and the key
-        // has to stay the one the row already carries on the server
+        // re-saving the open ring: the crew can correct its number before saving, and a T-prefix
+        // even flips installType on its own — both change the key, so the stored row goes along to
+        // say whether this save re-identifies the record
         identity: isUpdate ? segmentRecords.find(row => row.id === recordData.id) : null,
       }));
       // A save resolves seconds later, and the crew may have switched machine in between. The row is

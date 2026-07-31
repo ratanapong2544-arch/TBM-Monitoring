@@ -146,9 +146,7 @@ test("input typed while a save is in flight is not discarded when it resolves", 
   // meanwhile, and the arriving row then loaded over the form
   let release;
   onMutateOverride = () => new Promise(resolve => { release = () => resolve({}); });
-  // mirror the saved row back into the view the way App does, or the arriving copy never lands
-  let rows = [];
-  const form = render(view({ shiftReports: rows }));
+  const form = render(view({ shiftReports: [] }));
   type(form.container, "Engineer", "6");
 
   await act(async () => {
@@ -158,7 +156,7 @@ test("input typed while a save is in flight is not discarded when it resolves", 
   // the crew keeps typing while the request is in flight
   type(form.container, "Surveyor", "2");
   await act(async () => { release(); });
-  form.rerender(view({ shiftReports: rows }));
+  form.rerender(view({ shiftReports: [] }));
 
   expect(form.value("Engineer")).toBe("6");
   expect(form.value("Surveyor")).toBe("2");
@@ -200,8 +198,7 @@ test("a server copy differing only in key order is not reported as a change", ()
 test("a time-bar auto-save keeps input typed while it is in flight", async () => {
   let release;
   onMutateOverride = () => new Promise(resolve => { release = () => resolve({}); });
-  let rows = [];
-  const form = render(view({ shiftReports: rows }));
+  const form = render(view({ shiftReports: [] }));
 
   const click = el => act(() => { el.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
   const setValue = (el, value) => act(() => {
@@ -221,7 +218,7 @@ test("a time-bar auto-save keeps input typed while it is in flight", async () =>
 
   type(form.container, "Engineer", "4"); // typed while the auto-save is still in flight
   await act(async () => { release(); });
-  form.rerender(view({ shiftReports: rows }));
+  form.rerender(view({ shiftReports: [] }));
   expect(form.value("Engineer")).toBe("4");
 
   // and it is still there when a copy from another device lands afterwards: the auto-save's payload
@@ -359,6 +356,12 @@ test("a report started on another date is its own row, not an overwrite", async 
   expect(second.domainKey).toBe("shiftReport:TBM1:2026-07-31:Day");
   expect(second.recordId).not.toBe(first.recordId);
   expect(second.operation).toBe("create");
+  // and they differ by more than a clock tick. A bare `Date.now()` id passed this test only because
+  // the wall clock happened to advance between the two saves; composed in the same millisecond —
+  // which two reports genuinely can be — both rows would have taken the same id, and anything that
+  // matches rows by id would fold two shifts into one.
+  expect(first.recordId).toContain("2026-07-30");
+  expect(second.recordId).toContain("2026-07-31");
   form.unmount();
 });
 
@@ -368,8 +371,7 @@ test("a value typed during a save survives a later snapshot from another device"
   // the form must still count as dirty when a DIFFERENT copy lands afterwards
   let release;
   onMutateOverride = () => new Promise(resolve => { release = () => resolve({}); });
-  let rows = [];
-  const form = render(view({ shiftReports: rows }));
+  const form = render(view({ shiftReports: [] }));
 
   await act(async () => {
     const save = [...form.container.querySelectorAll("button")].find(b => /Save to Cloud/.test(b.textContent));
@@ -495,12 +497,11 @@ test("a time bar recorded while the form was reloaded is not erased by the next 
 test("a save that resolves after a machine switch does not reach the other machine", async () => {
   let release;
   onMutateOverride = () => new Promise(resolve => { release = () => resolve({}); });
-  let rows = [];
   let currentMachine = "TBM1";
   // App answers the machine question, so the guard has to be driven through that prop — a local ref
   // would pass this test while still being frozen for the case below
   const isCurrentMachine = m => m === currentMachine;
-  const form = render(view({ shiftReports: rows, isCurrentMachine }));
+  const form = render(view({ shiftReports: [], isCurrentMachine }));
   type(form.container, "Engineer", "6");
 
   await act(async () => {
@@ -508,7 +509,7 @@ test("a save that resolves after a machine switch does not reach the other machi
     save.dispatchEvent(new MouseEvent("click", { bubbles: true }));
   });
   currentMachine = "TBM2";
-  form.rerender(view({ machine: "TBM2", segmentRecords: [], shiftReports: rows, isCurrentMachine }));
+  form.rerender(view({ machine: "TBM2", segmentRecords: [], isCurrentMachine }));
   await act(async () => { release(); });
 
   // the form is what this view still owns: after a machine switch it must not clear the fields, so
@@ -570,8 +571,7 @@ test("a queued save does not clear the dirty flag for edits it never carried", a
   // snapshot then loads over them
   const releases = [];
   onMutateOverride = () => new Promise(resolve => { releases.push(() => resolve({})); });
-  let rows = [];
-  const form = render(view({ shiftReports: rows }));
+  const form = render(view({ shiftReports: [] }));
 
   await act(async () => {
     [...form.container.querySelectorAll("button")].find(b => /Save to Cloud/.test(b.textContent))

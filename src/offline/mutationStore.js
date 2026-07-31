@@ -1,5 +1,6 @@
 import { MUTATION_STATUS, STORES } from "./schema";
-import { entityKeyBelongsToDomain, optimisticEntityKey } from "./entityKeys";
+import { entityKeyBelongsToDomain, entityKeyForRecord, entityKeyHasRecordId, optimisticEntityKey } from "./entityKeys";
+import { toSyncVersion } from "./mutationEnvelope";
 import { FIELD_FOR_ENTITY_TYPE, isMachineScopedEntityType, snapshotScopeKey } from "./snapshotStore";
 
 function complete(transaction) {
@@ -37,26 +38,56 @@ function patchSnapshotKeys(snapshots, stored, mutation) {
     scoped = [{ scopeKey: snapshotScopeKey(mutation.machine), machine: mutation.machine, fetchedAt: null, entityKeys: {} }];
   }
   const optimisticKey = optimisticEntityKey(mutation.domainKey);
+  // A mutation is about ONE row. A live sheet legitimately holds two rows sharing a ring identity —
+  // that is why the store key is per row and why five views run `deduplicateRecords` — so matching
+  // by domain alone picks whichever of them happens to come first. Doing that on an update replaced
+  // the wrong row's key (one ring vanished, the edited one appeared twice, and the crew's own edit
+  // was the copy the dedupe then discarded); doing it on a delete emptied both. The record id is
+  // what identifies the row, and a server key carries it.
+  const mine = key => entityKeyForRecord(key, mutation.recordId) || key === optimisticKey;
   scoped.forEach(snapshot => {
     const keys = (snapshot.entityKeys && snapshot.entityKeys[field]) || [];
     let next;
     if (mutation.operation === "delete") {
-      next = keys.filter(key => !entityKeyBelongsToDomain(key, mutation.domainKey));
+      next = keys.filter(key => !mine(key));
+      // a row whose key carries no id (a legacy row the sheet returned without one) can only be
+      // matched by domain, and it is still the row being deleted
+      if (next.length === keys.length) next = keys.filter(key => !entityKeyBelongsToDomain(key, mutation.domainKey));
     } else {
-      // Create and update are the same operation as far as this list is concerned: put the
-      // optimistic copy where the domain's row already sits, or append it if the domain has none.
-      // Replacing rather than appending is what stops a create over a row the sheet already holds
-      // from reading as two rings, and it is the only way an update becomes visible at all — its
+      // Put the optimistic copy where this row already sits, or append it if it has no place yet.
+      // Replacing rather than appending is the only way an update becomes visible at all — its
       // optimistic copy lives under a different key from the server row it supersedes.
-      // Only the FIRST matching key is replaced: a live sheet legitimately holds two rows sharing a
-      // ring identity, and `writeServerSnapshot` overlays at most one of them for the same reason.
-      const slot = keys.findIndex(key => entityKeyBelongsToDomain(key, mutation.domainKey));
+      //
+      // An update names its row, so it matches on the record id. A CREATE has no row to name: it
+      // takes the domain's slot, because `writeServerSnapshot` overlays an optimistic record onto
+      // one incoming row per domain and the two have to agree. That is also what stops a ring the
+      // sheet already holds from reading as two rings until the server settles which it is.
+      let slot = keys.findIndex(mine);
+      if (slot === -1) {
+        slot = mutation.operation === "create"
+          ? keys.findIndex(key => entityKeyBelongsToDomain(key, mutation.domainKey))
+          : keys.findIndex(key => entityKeyBelongsToDomain(key, mutation.domainKey) && !entityKeyHasRecordId(key));
+      }
       if (slot === -1) next = keys.concat(optimisticKey);
       else if (keys[slot] === optimisticKey) next = keys;
       else next = keys.map((key, index) => (index === slot ? optimisticKey : key));
     }
-    if (next === keys) return;
+    if (next === keys || (next.length === keys.length && next.every((key, index) => key === keys[index]))) return;
     snapshots.put({ ...snapshot, entityKeys: { ...snapshot.entityKeys, [field]: next } });
+  });
+}
+
+// The stored snapshot carries `syncMeta` as a singleton, and `readServerSnapshot` hands it straight
+// back — so writing a confirmed version here is what makes it outlive the tab.
+function patchSnapshotSyncMeta(snapshots, stored, mutation, version) {
+  const scoped = isMachineScopedEntityType(mutation.entityType)
+    ? stored.filter(snapshot => snapshot.machine === mutation.machine)
+    : stored;
+  scoped.forEach(snapshot => {
+    const current = (snapshot.syncMeta && snapshot.syncMeta[mutation.domainKey]) || null;
+    // a snapshot fetched after this write already knows a later version; never walk it backwards
+    if (current && toSyncVersion(current.version) >= version) return;
+    snapshots.put({ ...snapshot, syncMeta: { ...snapshot.syncMeta, [mutation.domainKey]: { ...current, version } } });
   });
 }
 
@@ -195,10 +226,15 @@ export async function updateMutation(db, requestId, update, { owner } = {}) {
 }
 
 export async function confirmMutation(db, requestId, response, { owner } = {}) {
-  const transaction = db.transaction([STORES.entities, STORES.mutations], "readwrite");
+  const transaction = db.transaction([STORES.entities, STORES.mutations, STORES.snapshots], "readwrite");
   const mutationStore = transaction.objectStore(STORES.mutations);
   const entityStore = transaction.objectStore(STORES.entities);
-  const [mutation, mutations] = await Promise.all([requestResult(mutationStore.get(requestId)), requestResult(mutationStore.getAll())]);
+  const snapshotStoreHandle = transaction.objectStore(STORES.snapshots);
+  const [mutation, mutations, snapshots] = await Promise.all([
+    requestResult(mutationStore.get(requestId)),
+    requestResult(mutationStore.getAll()),
+    requestResult(snapshotStoreHandle.getAll()),
+  ]);
   if (!mutation) { transaction.abort(); throw new Error(`Unknown mutation ${requestId}`); }
   if (owner && (mutation.status !== MUTATION_STATUS.SYNCING || mutation.syncOwner !== owner)) {
     await complete(transaction);
@@ -221,15 +257,24 @@ export async function confirmMutation(db, requestId, response, { owner } = {}) {
   // confirmed version is also always the freshest the device has seen, since the server hands back
   // the version it just wrote.
   const rebased = new Map();
-  const confirmedVersion = Number.isInteger(response.version) ? response.version : null;
+  const confirmedVersion = response.version == null ? null : toSyncVersion(response.version);
   if (confirmedVersion !== null) {
     mutations
-      .filter(item => item.domainKey === mutation.domainKey && item.requestId !== requestId && !isTerminal(item))
+      .filter(item => item.domainKey === mutation.domainKey && item.requestId !== requestId
+        // only what is still on its way. A conflicted or refused mutation is not queued behind this
+        // one — it is parked, and whatever resolves it composes its own base from the server's copy.
+        && (item.status === MUTATION_STATUS.PENDING || item.status === MUTATION_STATUS.SYNCING))
       .forEach(item => {
         const patched = { ...item, baseVersion: confirmedVersion };
         rebased.set(item.requestId, patched);
         mutationStore.put(patched);
       });
+    // ...and record it where a relaunch will find it. `confirmedVersions` in App is React state, so
+    // a backgrounded PWA that gets killed — an eight hour shift on a phone — comes back knowing only
+    // what the last full `getData` carried. The next edit of this record would stamp the version
+    // from before its own write, the server would answer `conflict` for a row nobody else touched,
+    // and that conflict would block the record's domain with nothing on screen to show it.
+    patchSnapshotSyncMeta(snapshotStoreHandle, snapshots, mutation, confirmedVersion);
   }
   const newestOutstanding = mutations
     .map(item => (item.requestId === requestId ? next : rebased.get(item.requestId) || item))
@@ -237,6 +282,11 @@ export async function confirmMutation(db, requestId, response, { owner } = {}) {
     .sort((left, right) => (right.queueSequence || 0) - (left.queueSequence || 0))[0];
   if (newestOutstanding) {
     entityStore.put(optimisticEntity(newestOutstanding));
+  } else if (mutation.operation === "delete") {
+    // a confirmed delete has no row left to describe. Writing one would leave an entity nothing
+    // points at — `patchSnapshotKeys` took its key out of the list when the delete was queued — and
+    // the next refresh only deletes the keys the previous snapshot named, so it would simply sit there.
+    entityStore.delete(optimisticEntityKey(mutation.domainKey));
   } else {
     const record = response.record || {};
     entityStore.put({

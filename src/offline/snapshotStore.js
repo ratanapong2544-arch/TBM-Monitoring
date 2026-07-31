@@ -86,10 +86,21 @@ export async function writeServerSnapshot(db, machine, data, fetchedAt) {
   // refused or flagged as a conflict is not on its way to anything: keeping the row hidden takes it
   // off this device's every screen while it sits on the sheet, permanently, with nothing to see and
   // nothing to press — there is no conflict UI until Task 10. In flight it hides; stuck it shows.
-  const deletePending = domainKey => {
+  // It hides ONE row, not the ring. Two sheet rows can share a ring identity, and a delete names the
+  // row it is deleting: filtering by domain took the other one off screen as well, on a device whose
+  // crew had asked for neither.
+  const pendingDelete = domainKey => {
     const mutation = unresolvedByDomain.get(domainKey);
-    if (!mutation || mutation.operation !== "delete") return false;
-    return mutation.status === MUTATION_STATUS.PENDING || mutation.status === MUTATION_STATUS.SYNCING;
+    if (!mutation || mutation.operation !== "delete") return null;
+    if (mutation.status !== MUTATION_STATUS.PENDING && mutation.status !== MUTATION_STATUS.SYNCING) return null;
+    return mutation;
+  };
+  const deletePending = (domainKey, recordId) => {
+    const mutation = pendingDelete(domainKey);
+    if (!mutation) return false;
+    // a row the sheet returned without an id can only be matched by its domain, and it is the row
+    if (mutation.recordId == null || mutation.recordId === "" || recordId == null || recordId === "") return true;
+    return String(recordId) === String(mutation.recordId);
   };
   const terminalStatus = domainKey => terminalByDomain.get(domainKey);
   const preserveLocal = record => Boolean(unresolvedStatus(record.domainKey)) || (!terminalStatus(record.domainKey) && UNRESOLVED_STATUSES.has(record.payload && record.payload.syncStatus));
@@ -115,16 +126,37 @@ export async function writeServerSnapshot(db, machine, data, fetchedAt) {
     // one entry per retained domain: the optimistic row wins over a stale server copy of the same
     // domain, otherwise the record appears twice with two different values
     const retainedDomains = new Set(existing.filter(record => inScope(record, entityType) && preserveLocal(record))
-      .filter(record => !incomingDomains.has(record.domainKey) && !deletePending(record.domainKey))
+      .filter(record => !incomingDomains.has(record.domainKey) && !deletePending(record.domainKey, record.payload && record.payload.id))
       .map(record => record.domainKey));
     const retained = [...retainedDomains].map(domainKey => localForDomain(domainKey, entityType)).filter(Boolean);
     // Overlay the optimistic record onto AT MOST ONE incoming row per domain. When the server
     // returns two rows sharing a ring identity (a live dedupe situation), replacing every one of
     // them with the same optimistic record both duplicated it and dropped the distinct second row.
+    //
+    // WHICH one matters just as much. The optimistic copy carries the id of the row it is about, so
+    // it overlays that row. Only when no incoming row carries that id — a record created locally
+    // over a ring the sheet already holds, where the two rows have different ids — does it fall back
+    // to the domain's first row, which is what keeps one ring reading as one ring until the server
+    // settles it. Without the id check, a queued edit or delete of one row was painted over its
+    // neighbour: the crew's change appeared on a record they never touched.
+    const incomingIdsByDomain = new Map();
+    incoming.forEach(record => {
+      const ids = incomingIdsByDomain.get(record.domainKey) || new Set();
+      if (record.payload && record.payload.id != null) ids.add(String(record.payload.id));
+      incomingIdsByDomain.set(record.domainKey, ids);
+    });
+    const overlaysThisRow = (local, record) => {
+      const localId = local.payload && local.payload.id;
+      const rowId = record.payload && record.payload.id;
+      if (localId == null || rowId == null) return true;
+      if (String(localId) === String(rowId)) return true;
+      const ids = incomingIdsByDomain.get(record.domainKey);
+      return !(ids && ids.has(String(localId)));
+    };
     const overlaidDomains = new Set();
-    const merged = incoming.filter(record => !deletePending(record.domainKey)).map(record => {
+    const merged = incoming.filter(record => !deletePending(record.domainKey, record.payload && record.payload.id)).map(record => {
       const local = localForDomain(record.domainKey, entityType);
-      if (local && preserveLocal(local) && !overlaidDomains.has(record.domainKey)) {
+      if (local && preserveLocal(local) && !overlaidDomains.has(record.domainKey) && overlaysThisRow(local, record)) {
         overlaidDomains.add(record.domainKey);
         const status = unresolvedStatus(record.domainKey) || local.payload && local.payload.syncStatus;
         return preserve(local, status || local.payload.syncStatus);

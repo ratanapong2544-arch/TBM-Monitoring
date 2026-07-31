@@ -22,3 +22,14 @@ export function serverEntityKey(machine, field, domainKey, rowId) {
 export function entityKeyBelongsToDomain(key, domainKey) {
   return key === optimisticEntityKey(domainKey) || String(key).includes(`:${domainKey}:`);
 }
+
+// Which ROW a server key names. A mutation is about one row, and two rows can share a domain, so
+// anything that edits or removes a single row has to match on this rather than on the domain.
+export function entityKeyHasRecordId(key) {
+  return /:id:[^:]*$/.test(String(key));
+}
+
+export function entityKeyForRecord(key, recordId) {
+  if (recordId == null || recordId === "") return false;
+  return String(key).endsWith(`:id:${recordId}`);
+}

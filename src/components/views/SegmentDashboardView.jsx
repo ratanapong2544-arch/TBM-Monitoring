@@ -243,8 +243,8 @@ const SegmentDashboardView = ({ segmentRecords, machine = "TBM1", onMutate, sync
       const updatedRecord = { ...editFormData };
       await onMutate(buildMutationEnvelope({
         entityType: "segment", operation: "update", machine,
-        // the ring and its install type are editable here, and both are part of the domain key —
-        // so the record's pre-edit identity is what this write must be keyed and versioned on
+        // the ring and its install type are editable here, and both are part of the domain key, so
+        // the pre-edit record goes along to say whether this edit re-identifies the row
         recordId: updatedRecord.id, payload: updatedRecord, identity: selectedRecord, syncMeta,
       }));
       setSelectedRecord(null);

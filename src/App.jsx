@@ -35,7 +35,7 @@ import { isViewerMode, VIEWER_TABS } from "./utils/viewerMode";
 import { useOfflineData } from "./offline/useOfflineData";
 import { useOffline } from "./offline/OfflineProvider";
 import { toSyncVersion } from "./offline/mutationEnvelope";
-import { stripQueuedPhotos } from "./offline/displayRecord";
+import { applyOptimisticRow } from "./offline/displayRecord";
 
 import { Shell, NAV_GROUPS } from "./ui-ux-pro-max";
 import "./styles/globals.css";
@@ -269,17 +269,27 @@ const PrimaryGroutApp = () => {
       : { ...prev, [event.domainKey]: { version } }));
   }), [repository]);
   const snapshotSyncMeta = (offlineData.data && offlineData.data.syncMeta) || EMPTY_SYNC_META;
-  const syncMeta = useMemo(
-    () => (confirmedVersions === EMPTY_SYNC_META ? snapshotSyncMeta : { ...snapshotSyncMeta, ...confirmedVersions }),
-    [snapshotSyncMeta, confirmedVersions],
-  );
+  // The NEWER of the two per key, not simply the local one. A confirmed version is newer than the
+  // snapshot only until another device writes: once a second phone takes a ring to version 9, a
+  // full refresh carries 9 while this device still remembers confirming 2, and preferring its own
+  // memory would stamp 2 for the rest of the session. The server answers `conflict` for a row this
+  // device merely read stale, and that conflict blocks the ring's domain — the same failure this
+  // map exists to prevent, arriving from the other direction.
+  const syncMeta = useMemo(() => {
+    if (confirmedVersions === EMPTY_SYNC_META) return snapshotSyncMeta;
+    const merged = { ...snapshotSyncMeta };
+    Object.keys(confirmedVersions).forEach(key => {
+      const confirmed = toSyncVersion(confirmedVersions[key] && confirmedVersions[key].version);
+      const stored = toSyncVersion(merged[key] && merged[key].version);
+      if (confirmed > stored) merged[key] = confirmedVersions[key];
+    });
+    return merged;
+  }, [snapshotSyncMeta, confirmedVersions]);
 
   // The row the crew sees until the server confirms. It is written here rather than in the views so
   // that one writer owns each list — the machine guard below decides whether the row belongs on
   // screen at all, and a second writer could step past it without anything failing.
-  const applyOptimisticRecord = useCallback((entityType, operation, incoming) => {
-    // the payload keeps its photo bytes for the queue to send; the row on screen takes the marker
-    const record = stripQueuedPhotos(incoming);
+  const applyOptimisticRecord = useCallback((entityType, operation, record) => {
     const setter = {
       segment: setSegmentRecords,
       grout: setGroutRecords,
@@ -287,12 +297,7 @@ const PrimaryGroutApp = () => {
       shiftReport: setShiftReports,
     }[entityType];
     if (!setter || !record) return;
-    setter(prev => {
-      if (operation === "delete") return prev.filter(row => row.id !== record.id);
-      return prev.some(row => row.id === record.id)
-        ? prev.map(row => (row.id === record.id ? record : row))
-        : [...prev, record];
-    });
+    setter(prev => applyOptimisticRow(prev, operation, record));
   }, []);
 
   // Every core engineering write goes through here: queue it durably first, show it immediately,

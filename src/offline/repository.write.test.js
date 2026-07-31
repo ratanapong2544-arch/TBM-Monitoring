@@ -1,6 +1,7 @@
 import "fake-indexeddb/auto";
 if (!global.structuredClone) global.structuredClone = value => JSON.parse(JSON.stringify(value));
 import { deleteOfflineDbForTests, openOfflineDb } from "./db";
+import { buildMutationEnvelope } from "./mutationEnvelope";
 import { createRepository } from "./repository";
 
 beforeEach(async () => { await deleteOfflineDbForTests(); });
@@ -41,6 +42,35 @@ test("a synced mutation replaces its optimistic entity with the confirmed server
 
   await expect(repository.getMutation(queued.requestId)).resolves.toMatchObject({ status: "synced" });
   await expect(repository.getEntity(confirmed.domainKey)).resolves.toMatchObject({ payload: expect.objectContaining({ status: "confirmed", version: 3, syncStatus: "synced" }) });
+});
+
+test("every envelope the views build is one the repository accepts", async () => {
+  // The seam nothing crossed. `coreWrites.integration.test.jsx` asserts envelope shapes against a
+  // `jest.fn()`, and the one App test that mounts a real repository replaces `mutate` immediately
+  // before the write — so an envelope could be shaped in a way the repository refuses outright and
+  // every test would still pass. It was: keying an edit on the record's pre-edit identity made
+  // `mutate` throw "Mutation domainKey must match canonical domain key" before anything was queued,
+  // and a corrected ring number was lost rather than mis-keyed. The rule is that the key travels
+  // with the payload, and the only way to know a builder still obeys it is to hand the result to
+  // the thing that checks.
+  const repository = makeRepository();
+  const cases = [
+    ["segment create", { entityType: "segment", operation: "create", machine: "TBM1", recordId: "seg_1", payload: { id: "seg_1", ringNo: "P41", installType: "Permanent" } }],
+    ["segment update", { entityType: "segment", operation: "update", machine: "TBM1", recordId: "seg_1", payload: { id: "seg_1", ringNo: "P41", installType: "Permanent" }, syncMeta: { "segment:TBM1:P41:Permanent": { version: 2 } } }],
+    ["segment re-identified", { entityType: "segment", operation: "update", machine: "TBM1", recordId: "seg_1", payload: { id: "seg_1", ringNo: "P42", installType: "Permanent" }, identity: { ringNo: "P41", installType: "Permanent" }, syncMeta: { "segment:TBM1:P41:Permanent": { version: 2 } } }],
+    ["segment delete", { entityType: "segment", operation: "delete", machine: "TBM1", recordId: "seg_1", payload: { id: "seg_1", ringNo: "P41", installType: "Permanent" }, syncMeta: { "segment:TBM1:P41:Permanent": { version: 2 } } }],
+    ["grout create", { entityType: "grout", operation: "create", machine: "TBM1", recordId: "g_1", payload: { id: "g_1", ringNo: "P41", groutPass: "1st Pass" } }],
+    ["grout re-identified", { entityType: "grout", operation: "update", machine: "TBM1", recordId: "g_1", payload: { id: "g_1", ringNo: "P42", groutPass: "1st Pass" }, identity: { ringNo: "P41", groutPass: "1st Pass" }, syncMeta: { "grout:TBM1:P41:1st Pass": { version: 4 } } }],
+    ["secondaryGrout update", { entityType: "secondaryGrout", operation: "update", machine: "TBM1", recordId: "sg_1", payload: { id: "sg_1", ringNo: "P41" }, identity: { ringNo: "P41" }, syncMeta: { "secondaryGrout:TBM1:P41:sg_1": { version: 1 } } }],
+    ["shiftReport update", { entityType: "shiftReport", operation: "update", machine: "TBM1", recordId: "sr_1", payload: { id: "sr_1", date: "2026-07-30", shift: "Day" }, syncMeta: { "shiftReport:TBM1:2026-07-30:Day": { version: 7 } } }],
+  ];
+
+  for (const [name, input] of cases) {
+    const envelope = buildMutationEnvelope(input);
+    await expect(repository.mutate(envelope)).resolves.toMatchObject({ status: "pending" });
+    const stored = await repository.getMutation((await repository.mutate(envelope)).requestId);
+    expect([name, stored.domainKey]).toEqual([name, envelope.domainKey]);
+  }
 });
 
 test("a confirmation names the record that moved and the version it moved to", async () => {

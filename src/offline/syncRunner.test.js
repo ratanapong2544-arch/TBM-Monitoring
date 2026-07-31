@@ -132,6 +132,30 @@ test("one trigger drains a backlog queued on a single record", async () => {
   await expect(repository.getMutation(last.requestId)).resolves.toMatchObject({ status: "synced" });
 });
 
+test("a drain that syncs nothing ends the pass rather than claiming forever", async () => {
+  // The loop's exit condition is "a pass synced something". If it were "a pass attempted something"
+  // — or if an empty claim did not end it — `runNow` would never return: it holds `running` for the
+  // life of the call, so every later trigger joins the same hung promise, the queue stops draining
+  // for the rest of the session and the tab pegs a core. A phone in a tunnel is the worst place for
+  // both. Nothing here is claimable, so a correct pass returns immediately.
+  const post = jest.fn();
+  const { runner } = setup(post);
+
+  await expect(runner.runNow()).resolves.toEqual({ attempted: 0, synced: 0, conflicts: 0, errors: 0 });
+  expect(post).not.toHaveBeenCalled();
+});
+
+test("a drain whose only mutation errors ends the pass rather than retrying in a loop", async () => {
+  // an attempt is not progress: the mutation goes back to pending with a backoff and is claimable
+  // again the moment the clock allows, so looping on "attempted" would spin on a failing server
+  const post = jest.fn().mockRejectedValue(retryable());
+  const { repository, runner } = setup(post);
+  await repository.mutate(input("P1"));
+
+  await expect(runner.runNow()).resolves.toMatchObject({ attempted: 1, synced: 0 });
+  expect(post).toHaveBeenCalledTimes(1);
+});
+
 test("a domain that conflicts stops draining instead of spinning", async () => {
   // the drain loop must not turn a blocked domain into an endless retry: the conflict is the head
   // of its domain and stays claimable-looking until Task 10 resolves it

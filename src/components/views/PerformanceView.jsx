@@ -73,15 +73,32 @@ export default function PerformanceView({ segmentRecords = [], shiftReports = []
     // queue the second row no longer needs a duplicate on the sheet: a report created with no link
     // is refused when the link returns (GAS answers `conflict` against the row already there for
     // that date and shift) and the refused copy stays in the list so the crew can see it.
-    // Keep the FIRST. The snapshot merge appends local-only rows after the server's and a relaunch
-    // replays that same order, so the first is the row the sheet holds — decided without reading a
-    // sync status, which a relaunch does not refresh. `formatDisplayDate` because the two rows
-    // reach here with different date formats: GAS serializes the sheet's date cell as UTC ISO, a
-    // report composed on the device carries the calendar date.
+    // The shift's own fields come from the FIRST row: the snapshot merge appends local-only rows
+    // after the server's and a relaunch replays that order, so the first is the row the sheet holds
+    // — decided without reading a sync status, which a relaunch does not refresh.
+    // The time bars are UNIONED, because dropping the later row loses work: on the live sheet the
+    // later row of 2026-04-09 Day carries an hour of Locomotive / Rail System the kept row does not.
+    // A bar is identified by what a bar IS — its category, its window and its label — so a re-save
+    // collapses and a genuinely new entry survives. Two bars agreeing on all three cannot be two
+    // things that happened: one shift cannot hold the same activity twice over the same minutes.
+    // `formatDisplayDate` because the rows reach here with different date formats: GAS serializes
+    // the sheet's date cell as UTC ISO, a report composed on the device carries the calendar date.
     const shiftRows = new Map();
+    const seenEvents = new Map();
     filteredShiftReports.forEach((r) => {
       const key = `${formatDisplayDate(r.date)}__${r.shift}`;
-      if (!shiftRows.has(key)) shiftRows.set(key, r);
+      if (!shiftRows.has(key)) { shiftRows.set(key, { ...r, events: {} }); seenEvents.set(key, new Set()); }
+      const merged = shiftRows.get(key);
+      const seen = seenEvents.get(key);
+      Object.keys(r.events || {}).forEach((cat) => {
+        const arr = Array.isArray(r.events[cat]) ? r.events[cat] : [];
+        arr.forEach((ev) => {
+          const id = `${cat}|${ev.start}|${ev.end}|${ev.label || ""}`;
+          if (seen.has(id)) return;
+          seen.add(id);
+          merged.events[cat] = (merged.events[cat] || []).concat(ev);
+        });
+      });
     });
     Array.from(shiftRows.values()).forEach((r) => {
       shifts += 1;

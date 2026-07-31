@@ -32,19 +32,46 @@ test("one shift counts once however many rows describe it", () => {
     shiftReports={[
       // the row the sheet holds
       { id: "sr_server", date: "2026-07-30", shift: "Night", events: muckFull("21:00"), syncStatus: "synced" },
-      // the crew's own copy, refused by the server and still on screen
-      { id: "sr_local", date: "2026-07-30", shift: "Night", events: muckFull("22:00"), syncStatus: "conflict" },
+      // the crew's own copy, refused by the server and still on screen — the same shift, re-entered
+      { id: "sr_local", date: "2026-07-30", shift: "Night", events: muckFull("21:00"), syncStatus: "conflict" },
     ]}
     filterState={{}}
   />);
 
   expect(container.textContent).toContain("จาก 1 กะ");
-  // and the delay is counted once, from the row the sheet actually holds — the local copy carries
-  // two hours. Preferring the first is what makes that the sheet's row without reading a sync
-  // status: the merge appends local-only rows after the server's, and a relaunch replays that same
-  // order from the stored key list.
+  // and its one hour of delay is counted once rather than twice
   expect(container.textContent).toContain("1.0 ชม.");
   expect(container.textContent).not.toContain("2.0 ชม.");
+});
+
+test("a shift's time bars are unioned across the rows that describe it", () => {
+  // Two rows for one shift are usually a re-save — the same bars entered twice — but not always.
+  // On the live sheet the later row of 2026-04-09 Day carries an hour the kept row does not, with
+  // its own event id. Counting both rows inflates the shift; keeping only one loses that hour.
+  const container = render(<PerformanceView
+    segmentRecords={[]}
+    shiftReports={[
+      // one category, two separate stoppages — a shift really can wait for muck removal twice
+      { id: "a", date: "2026-07-30", shift: "Night", events: { "Muck Full": [{ start: "20:00", end: "21:00", label: "รอรถขนดิน" }, { start: "23:00", end: "23:30", label: "รอรถขนดิน" }] } },
+      {
+        id: "b",
+        date: "2026-07-30",
+        shift: "Night",
+        events: {
+          // the same bar again — one shift cannot hold the same activity twice over the same minutes
+          "Muck Full": [{ start: "20:00", end: "21:00", label: "รอรถขนดิน" }],
+          // and one only this row recorded
+          "Power Supply": [{ start: "22:00", end: "23:00", label: "ไฟดับ" }],
+        },
+      },
+    ]}
+    filterState={{}}
+  />);
+
+  expect(container.textContent).toContain("จาก 1 กะ");
+  // 60 + 30 counted once each, plus the 60 recorded only on the later row
+  expect(container.textContent).toContain("2.5 ชม.");
+  expect(container.textContent).not.toContain("3.5 ชม.");
 });
 
 test("two different shifts are still two shifts", () => {

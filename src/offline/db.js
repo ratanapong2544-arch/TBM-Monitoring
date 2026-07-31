@@ -1,6 +1,6 @@
 import { makeDomainKey } from "./domainKey";
 import { isLegacyOptimisticKey, isOptimisticKey, optimisticEntityKey } from "./entityKeys";
-import { DB_NAME, DB_VERSION, STORES } from "./schema";
+import { DB_NAME, DB_VERSION, MUTATION_STATUS, STORES } from "./schema";
 import { FIELD_FOR_ENTITY_TYPE, isMachineScopedEntityType } from "./snapshotStore";
 
 let openDbPromise;
@@ -36,28 +36,49 @@ export function recordScopeOptimisticKeys(transaction) {
   const entities = transaction.objectStore(STORES.entities);
   const snapshots = transaction.objectStore(STORES.snapshots);
 
-  // Sequenced, not concurrent: the rebuild needs the stored snapshots AND the rows that survived,
-  // and two requests over one store inside an upgrade transaction interleave.
+  // Sequenced, not concurrent: the rebuild needs the stored snapshots, the queue's tombstones AND
+  // the rows that survived, and two requests over one store inside an upgrade transaction
+  // interleave.
   snapshots.getAll().onsuccess = snapshotsEvent => {
     const stored = snapshotsEvent.target.result || [];
-    entities.getAll().onsuccess = event => {
-      const kept = [];
-      (event.target.result || []).forEach(record => {
-        if (!isLegacyOptimisticKey(record.key)) {
-          if (isOptimisticKey(record.key)) kept.push(keptRow(record.key, record));
-          else entities.delete(record.key); // cache row → rebuilt on refresh
-          return;
-        }
-        entities.delete(record.key);
-        const recordId = record.payload && (record.payload.recordId ?? record.payload.id);
-        if (recordId == null || recordId === "") return;
-        const key = optimisticEntityKey(record.domainKey, recordId);
-        entities.put({ ...record, key });
-        kept.push(keptRow(key, record));
-      });
-      rebuildSnapshotRows(snapshots, stored, kept);
+    transaction.objectStore(STORES.mutations).getAll().onsuccess = mutationsEvent => {
+      const hidden = tombstonedKeys(mutationsEvent.target.result, mutation => mutation.domainKey);
+      entities.getAll().onsuccess = event => {
+        const kept = [];
+        (event.target.result || []).forEach(record => {
+          if (!isLegacyOptimisticKey(record.key)) {
+            if (isOptimisticKey(record.key)) kept.push(keptRow(record.key, record));
+            else entities.delete(record.key); // cache row → rebuilt on refresh
+            return;
+          }
+          entities.delete(record.key);
+          const recordId = record.payload && (record.payload.recordId ?? record.payload.id);
+          if (recordId == null || recordId === "") return;
+          const key = optimisticEntityKey(record.domainKey, recordId);
+          entities.put({ ...record, key });
+          kept.push(keptRow(key, record));
+        });
+        rebuildSnapshotRows(snapshots, stored, kept, hidden);
+      };
     };
   };
+}
+
+// The optimistic rows a rebuild must NOT name, because the crew deleted them. A queued delete's
+// representation on screen is an ABSENCE, and the entities store cannot hold one:
+// `putOptimisticMutation` writes an optimistic row for a delete like any other write, and it is
+// `patchSnapshotKeys` that takes the key out of the list. So a rebuild that reads the store puts the
+// deleted ring back into the data log, the dashboards and the shift report's ring count, badged as
+// ordinary pending work, until the next successful getData — which underground is the next shift.
+// PENDING and SYNCING only, exactly as `deletePending` in the snapshot merge: in flight it hides,
+// stuck it shows. A delete the server refused is not on its way to anything, and hiding its row
+// would take a record off every screen on this device while it sits on the sheet, with nothing to
+// see and nothing to press before Task 10.
+function tombstonedKeys(mutations, canonicalDomainKey) {
+  return new Set((mutations || [])
+    .filter(mutation => mutation.operation === "delete"
+      && (mutation.status === MUTATION_STATUS.PENDING || mutation.status === MUTATION_STATUS.SYNCING))
+    .map(mutation => optimisticEntityKey(canonicalDomainKey(mutation), mutation.recordId)));
 }
 
 // Which snapshot list a surviving row belongs in. The machine comes from the domain key rather than
@@ -81,14 +102,21 @@ function keptRow(key, record) {
 // of a confirmed record claim a stale version, refused as a conflict nobody caused). `fetchedAt`
 // goes to null: the lists now hold only what the queue is carrying, and a timestamp under them would
 // read as a full picture of the sheet.
-function rebuildSnapshotRows(snapshots, stored, kept) {
+function rebuildSnapshotRows(snapshots, stored, kept, hidden) {
   stored.forEach(snapshot => {
     const entityKeys = {};
+    // ONE entry per surviving ROW. `kept` holds one per SOURCE row, and two source rows can re-key
+    // onto one destination key — `entities.put` is last-wins, so they become a single stored row.
+    // Naming it twice makes `readServerSnapshot` resolve it twice and render the record twice, which
+    // is the defect the per-record key was introduced to close.
+    const named = new Set();
     kept.forEach(row => {
       const field = FIELD_FOR_ENTITY_TYPE.get(row.entityType);
       // a config singleton is not a row in any list — it is overlaid from the entities store itself
       if (!field) return;
       if (isMachineScopedEntityType(row.entityType) && row.machine !== snapshot.machine) return;
+      if (named.has(row.key) || hidden.has(row.key)) return;
+      named.add(row.key);
       entityKeys[field] = (entityKeys[field] || []).concat(row.key);
     });
     snapshots.put({ ...snapshot, fetchedAt: null, entityKeys });
@@ -112,6 +140,8 @@ export function recanonicalizeDomainKeys(transaction) {
           mutations.put({ ...mutation, domainKey }); // keyed by requestId, so no rename collision
         }
       });
+      // read from the CANONICAL key, since that is the shape the rows are being re-keyed into
+      const hidden = tombstonedKeys(mutationsEvent.target.result, makeDomainKey);
       // ONE pass over the entities, applying both rewrites: the domain remap where there is one, and
       // the record-scoped key for every legacy optimistic row. It runs even when the remap is empty,
       // because an install whose keys were already canonical still has v2-shaped optimistic rows —
@@ -141,7 +171,7 @@ export function recanonicalizeDomainKeys(transaction) {
         });
         // the lists name pre-migration keys; rebuild them from what survived, so load() never
         // resolves a stale key and never loses sight of a queued row either
-        if (rekeyed) rebuildSnapshotRows(snapshots, stored, kept);
+        if (rekeyed) rebuildSnapshotRows(snapshots, stored, kept, hidden);
       };
 
       if (remap.size === 0) return;

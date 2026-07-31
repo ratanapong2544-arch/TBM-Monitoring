@@ -300,6 +300,99 @@ test("a rebuilt snapshot names only the rows that belong to its machine", async 
   expect(tbm2.issues.map(row => row.id)).toEqual(["i1"]);
 });
 
+test("a ring deleted offline does not come back when the database upgrades", async () => {
+  // A queued delete's correct representation on screen is an ABSENCE, and the entities store cannot
+  // hold one: `putOptimisticMutation` writes an optimistic row for a delete like any other write,
+  // and it is `patchSnapshotKeys` that takes the key out of the list. So a rebuild that reads the
+  // STORE puts the deleted ring back into the data log, the dashboards and the shift report's ring
+  // count, badged as ordinary pending work — until the next successful getData, which underground
+  // can be the next shift. Same rule as `deletePending` in the merge: in flight it hides.
+  const ringKey = "segment:TBM1:P644:Permanent";
+  await seedAtVersion(2, {
+    mutations: [{ requestId: "m-del", status: "pending", operation: "delete", entityType: "segment", machine: "TBM1", recordId: "seg_x", domainKey: ringKey, payload: { id: "seg_x" } }],
+    entities: [{ key: `entity:optimistic:${ringKey}`, entityType: "segment", machine: "TBM1", domainKey: ringKey, payload: { id: "seg_x", ringNo: "P644" } }],
+    snapshots: [{ scopeKey: "getData:TBM1", machine: "TBM1", entityKeys: { segments: [] } }],
+  });
+
+  const db = await openOfflineDb();
+
+  expect((await readServerSnapshot(db, "TBM1")).segments).toEqual([]);
+  // the delete itself is untouched — it still has to reach the sheet
+  expect((await readAllStore(db, "mutations")).map(row => row.requestId)).toEqual(["m-del"]);
+});
+
+test("a ring whose delete the server refused stays visible after an upgrade", async () => {
+  // The other half of the same rule. A refused delete is not on its way to anything, and hiding its
+  // row would take a record off every screen on this device while it sits on the sheet — permanently,
+  // with nothing to see and nothing to press before Task 10. `deletePending` shows it; so does this.
+  const ringKey = "segment:TBM1:P645:Permanent";
+  await seedAtVersion(2, {
+    mutations: [{ requestId: "m-del", status: "conflict", operation: "delete", entityType: "segment", machine: "TBM1", recordId: "seg_y", domainKey: ringKey, payload: { id: "seg_y" } }],
+    entities: [{ key: `entity:optimistic:${ringKey}`, entityType: "segment", machine: "TBM1", domainKey: ringKey, payload: { id: "seg_y", ringNo: "P645" } }],
+    snapshots: [{ scopeKey: "getData:TBM1", machine: "TBM1", entityKeys: { segments: [] } }],
+  });
+
+  const loaded = await readServerSnapshot(await openOfflineDb(), "TBM1");
+
+  expect(loaded.segments.map(row => row.id)).toEqual(["seg_y"]);
+});
+
+test("a ring deleted offline does not come back on the v1 path either", async () => {
+  // the same rule on the other migration path, where the tombstone has to be read from the
+  // CANONICAL key — the one the row is being re-keyed into, not the one the mutation was stored with
+  const stale = "issue:TBM1:i1";
+  await seedV1({
+    mutations: [{ requestId: "m-del", status: "pending", operation: "delete", entityType: "issue", machine: "TBM1", recordId: "i1", domainKey: stale, payload: { id: "i1" } }],
+    entities: [{ key: `entity:optimistic:${stale}`, entityType: "issue", machine: "TBM1", domainKey: stale, payload: { id: "i1" } }],
+  });
+  await seedSnapshots([{ scopeKey: "getData:TBM1", machine: "TBM1", entityKeys: { issues: [] } }]);
+
+  expect((await readServerSnapshot(await openOfflineDb(), "TBM1")).issues).toEqual([]);
+});
+
+test("two rows re-keying onto one key are named once, not twice", async () => {
+  // `entities.put` is last-wins, so two source rows collapse to ONE stored row — the documented
+  // collision this migration is built to survive (the same project-wide record edited under two
+  // machines). Naming it once per SOURCE row makes `readServerSnapshot` resolve the same key twice
+  // and render the record twice, which is exactly the defect open item 3 records as closed. Nothing
+  // dedupes issues, daily reports, prep tasks or grouts, and `GroutDashboardView` averages by
+  // `sum / length`.
+  await seedV1({
+    mutations: [
+      { requestId: "m-tbm1", status: "pending", entityType: "issue", machine: "TBM1", recordId: "i1", domainKey: "issue:TBM1:i1", payload: { id: "i1" } },
+      { requestId: "m-tbm2", status: "pending", entityType: "issue", machine: "TBM2", recordId: "i1", domainKey: "issue:TBM2:i1", payload: { id: "i1" } },
+    ],
+    entities: [
+      { key: "entity:optimistic:issue:TBM1:i1", entityType: "issue", machine: "TBM1", domainKey: "issue:TBM1:i1", payload: { id: "i1", note: "from-tbm1" } },
+      { key: "entity:optimistic:issue:TBM2:i1", entityType: "issue", machine: "TBM2", domainKey: "issue:TBM2:i1", payload: { id: "i1", note: "from-tbm2" } },
+    ],
+  });
+  // WITH a snapshot: the existing collision test seeds none, so the rebuild never runs in it
+  await seedSnapshots([{ scopeKey: "getData:TBM1", machine: "TBM1", entityKeys: { issues: [] } }]);
+
+  const loaded = await readServerSnapshot(await openOfflineDb(), "TBM1");
+
+  expect(loaded.issues).toHaveLength(1);
+});
+
+test("both key shapes for one record are named once", async () => {
+  // the v2 path's version of the same collision: an install that rolled back and forward again can
+  // hold the v2 and v3 keys for one record, and both re-key onto the v3 one
+  const domainKey = "issue:GLOBAL:i1";
+  await seedAtVersion(2, {
+    mutations: [],
+    entities: [
+      { key: `entity:optimistic:${domainKey}`, entityType: "issue", machine: "GLOBAL", domainKey, payload: { id: "i1", note: "old-shape" } },
+      { key: `entity:optimistic:${domainKey}:id:i1`, entityType: "issue", machine: "GLOBAL", domainKey, payload: { id: "i1", note: "new-shape" } },
+    ],
+    snapshots: [{ scopeKey: "getData:TBM1", machine: "TBM1", entityKeys: { issues: [] } }],
+  });
+
+  const loaded = await readServerSnapshot(await openOfflineDb(), "TBM1");
+
+  expect(loaded.issues).toHaveLength(1);
+});
+
 test("a queued config edit is not rebuilt into any collection list", async () => {
   // The config entities are singletons overlaid from the entities store, not rows in a collection.
   // Naming one in a list makes `load` hand a plan-config body back as a ring, and the data log and

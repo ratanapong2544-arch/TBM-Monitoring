@@ -71,10 +71,18 @@ The reasoning "two rows on one ring is a state the data logs dedupe for" is true
 `deduplicateRecords` runs in `ExecutiveDashboardView`, `RouteScheduleView`, `SegmentAnalysisView` and
 `SegmentDashboardView`, and all four key on `ringNo`.
 
-- **shiftReport** — **CLOSED for `PerformanceView`**, which now counts one row per (date, shift).
-  It was counting each row as a shift of its own: 24 hours of availability for a 12 hour shift, and
-  every delay bar present in both counted twice, on a page that gets printed for the owner. Nothing
-  else dedupes shift reports.
+- **shiftReport** — **CLOSED for `PerformanceView`**, which now counts one shift per (date, shift)
+  and UNIONS the time bars across the rows describing it, identifying a bar by its category, window
+  and label. It was counting each row as a shift of its own: 24 hours of availability for a 12 hour
+  shift, and every delay bar present in both counted twice, on a page that gets printed for the
+  owner. Keeping only the first row was tried and was also wrong — measured against the captured
+  production payload, the live sheet's three duplicated shifts contain 510 minutes of genuine
+  re-saves AND 60 minutes (2026-04-09 Day, `Locomotive / Rail System` 14:00–15:00) recorded on the
+  later row alone. Two bars agreeing on category, window and label cannot be two things that
+  happened. Nothing else dedupes shift reports.
+  - **Latent:** a row with a blank `date` keys as `__<shift>`, so every undated row of one shift name
+    collapses into one. The captured payload holds none, and `filterByState` does not filter them out
+    in the default mode, so this is waiting on the first blank-dated sheet row.
 - **grout / secondaryGrout** — nothing dedupes; `GroutDashboardView`'s average volume and ratio are
   `sum / length`, so a second row shifts both. Still open.
 - **segment** — the dedupe fires and prefers the Completed sheet row over an In Progress local one,
@@ -126,6 +134,17 @@ Nothing in Task 8 renders it (the status strip counts the queue, not the row). T
 badges read exactly this field, so it has to be closed before they can be trusted — and any rule
 written on the refusal statuses must not depend on the stored value until it is. The dedupe in 3a
 deliberately does not.
+
+## 3e. After a DB upgrade the dashboards show progress over an almost-empty ring list
+
+The rebuilt snapshot keeps every singleton the old one held — including `machineProgress`, which is
+server-derived — while its row lists hold only what the queue is carrying. So until the first
+refresh the Executive Dashboard reports the real ring and chainage above a list containing the
+crew's queued rings and nothing else.
+
+Dropping `machineProgress` instead would report a machine that has bored nothing, which is further
+from the truth, and the strip already says "แสดงข้อมูลที่บันทึกไว้" with no timestamp, because
+`fetchedAt` is null. Recorded because it is a state no screen names explicitly.
 
 ## 4. Deliberate deviations from the plan
 

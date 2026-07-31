@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo, useEffect, useRef } from "react";
 import { Layers, ChevronRight, Save, Loader2, Camera, Clock } from "lucide-react";
 import { parseCH, formatCH } from "../../utils/formatters";
 import { offsetRingNo, calculateSoilVolume, handleFileUpload } from "../../utils/helpers";
@@ -8,6 +8,8 @@ import StickyActionBar from "../../ui-ux-pro-max/components/StickyActionBar";
 
 const SegmentRecordView = ({ projectInfo, handleProjectInfoChange, segmentRecords, setSegmentRecords, setCurrentModule, setActiveTab, machine = "TBM1" }) => {
   const [isSaving, setIsSaving] = useState(false);
+  const machineRef = useRef(machine);
+  machineRef.current = machine;
   const [formData, setFormData] = useState({
     id: null, ringNo: "", typeRing: "C1", keyPos: "16", startCH: "", finishCH: "", length: "1.40", remark: "",
     excavStartTime: "", excavEndTime: "", soilType: "", excavImageBase64: "", excavImageName: "", excavShift: projectInfo.shift,
@@ -96,18 +98,21 @@ const SegmentRecordView = ({ projectInfo, handleProjectInfoChange, segmentRecord
     e.preventDefault();
     if (!formData.ringNo) return;
     setIsSaving(true);
+    const machineAtSave = machine;
     const cleanRingNo = String(formData.ringNo).trim().toUpperCase();
     const recordData = { ...projectInfo, ...formData, ringNo: cleanRingNo, soilVolume: calculateSoilVolume(formData.length) };
 
     try {
       if (formData.id) {
         recordData.id = formData.id;
-        await apiCall("updateSegment", { ...recordData, machine });
-        setSegmentRecords((prev) => prev.map((r) => (r.id === recordData.id ? recordData : r)));
+        await apiCall("updateSegment", { ...recordData, machine: machineAtSave });
+        // a save resolves seconds later; if the crew switched machine meanwhile, writing the result
+        // back would put this machine's ring and surveyed chainage into the other machine's state
+        if (machineRef.current === machineAtSave) setSegmentRecords((prev) => prev.map((r) => (r.id === recordData.id ? recordData : r)));
       } else {
         recordData.id = `seg_${Date.now()}`;
-        await apiCall("addSegment", { ...recordData, machine });
-        setSegmentRecords((prev) => [...prev, recordData]);
+        await apiCall("addSegment", { ...recordData, machine: machineAtSave });
+        if (machineRef.current === machineAtSave) setSegmentRecords((prev) => [...prev, recordData]);
       }
       setFormData((prev) => {
         const isCompleted = prev.status === "Completed";

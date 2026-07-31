@@ -170,18 +170,182 @@ test("a notice raised for a row that then disappears does not linger", () => {
 });
 
 test("a server copy differing only in key order is not reported as a change", () => {
-  const form = render(view({ shiftReports: [] }));
-  type(form.container, "Engineer", "3");
-  const arriving = { id: "sr1", date: "2026-07-30", shift: "Day", tbmNo: "TBM1", manpower: { Engineer: "3", Worker: "1" }, result: {}, events: {} };
-  form.rerender(view({ shiftReports: [arriving] }));
-  expect(form.container.textContent).toContain("มีรายงานกะนี้จากเซิร์ฟเวอร์");
+  // must start from a loaded, quiet form: asserting while a notice is already up cannot tell the
+  // two behaviours apart, because both render identically
+  const cached = { id: "sr1", date: "2026-07-30", shift: "Day", tbmNo: "TBM1", manpower: { Engineer: "3", Worker: "1" }, result: {}, events: {} };
+  const form = render(view({ shiftReports: [cached] }));
+  expect(form.value("Engineer")).toBe("3");
+  type(form.container, "Surveyor", "5");
+  expect(form.container.textContent).not.toContain("มีรายงานกะนี้จากเซิร์ฟเวอร์");
 
   // same data, different insertion order
-  const reordered = { ...arriving, manpower: { Worker: "1", Engineer: "3" } };
-  const before = form.container.textContent;
-  form.rerender(view({ shiftReports: [reordered] }));
+  form.rerender(view({ shiftReports: [{ ...cached, manpower: { Worker: "1", Engineer: "3" } }] }));
 
-  expect(form.container.textContent).toBe(before);
+  expect(form.container.textContent).not.toContain("มีรายงานกะนี้จากเซิร์ฟเวอร์");
+  expect(form.value("Surveyor")).toBe("5");
+  form.unmount();
+});
+
+test("a time-bar auto-save keeps input typed while it is in flight", async () => {
+  let release;
+  apiCall.mockImplementation(() => new Promise(resolve => { release = () => resolve({ status: "success" }); }));
+  let rows = [];
+  const setShiftReports = updater => { rows = typeof updater === "function" ? updater(rows) : updater; };
+  const form = render(view({ shiftReports: rows, setShiftReports }));
+
+  const click = el => act(() => { el.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+  const setValue = (el, value) => act(() => {
+    Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set.call(el, value);
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+
+  // add a time bar, which auto-saves without reloading the form
+  click(form.container.querySelector('[title="เพิ่มเวลาการทำงาน"]'));
+  const times = form.container.querySelectorAll('input[type="time"]');
+  setValue(times[0], "08:00");
+  setValue(times[1], "09:00");
+  await act(async () => {
+    const add = [...form.container.querySelectorAll("button")].find(b => /เพิ่มช่วงเวลาลงกราฟ/.test(b.textContent));
+    add.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  });
+
+  type(form.container, "Engineer", "4"); // typed while the auto-save is still in flight
+  await act(async () => { release(); });
+  form.rerender(view({ shiftReports: rows, setShiftReports }));
+  expect(form.value("Engineer")).toBe("4");
+
+  // and it is still there when a copy from another device lands afterwards: the auto-save's payload
+  // predates the typing, so the form has to stay dirty
+  const other = { id: "sr-other", date: "2026-07-30", shift: "Day", tbmNo: "TBM1", location: "อุโมงค์", manpower: { Engineer: "9" }, result: {}, events: {} };
+  form.rerender(view({ shiftReports: [other], setShiftReports }));
+
+  expect(form.value("Engineer")).toBe("4");
+  form.unmount();
+});
+
+test("two saves overlapping on a new report write one row, not two", async () => {
+  const releases = [];
+  apiCall.mockImplementation(() => new Promise(resolve => { releases.push(() => resolve({ status: "success" })); }));
+  let rows = [];
+  const setShiftReports = updater => { rows = typeof updater === "function" ? updater(rows) : updater; };
+  const form = render(view({ shiftReports: rows, setShiftReports }));
+
+  // Save to Cloud goes out first
+  await act(async () => {
+    const save = [...form.container.querySelectorAll("button")].find(b => /Save to Cloud/.test(b.textContent));
+    save.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  });
+
+  // a time bar is added before it comes back, so its auto-save goes out too — both while
+  // `existingReport` is still falsy
+  act(() => { form.container.querySelector('[title="เพิ่มเวลาการทำงาน"]').dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+  const times = form.container.querySelectorAll('input[type="time"]');
+  [["08:00", 0], ["09:00", 1]].forEach(([v, i]) => act(() => {
+    Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set.call(times[i], v);
+    times[i].dispatchEvent(new Event("input", { bubbles: true }));
+  }));
+  await act(async () => {
+    const add = [...form.container.querySelectorAll("button")].find(b => /เพิ่มช่วงเวลาลงกราฟ/.test(b.textContent));
+    add.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  });
+
+  await act(async () => { releases.forEach(r => r()); });
+
+  const ids = apiCall.mock.calls.map(([, payload]) => payload.id);
+  expect(ids).toHaveLength(2);
+  expect(ids[0]).toBe(ids[1]);
+  expect(rows).toHaveLength(1);
+  form.unmount();
+});
+
+test("a report started on another date does not overwrite the row already saved", async () => {
+  let rows = [];
+  const setShiftReports = updater => { rows = typeof updater === "function" ? updater(rows) : updater; };
+  const form = render(view({ shiftReports: rows, setShiftReports }));
+  const save = async () => {
+    await act(async () => {
+      [...form.container.querySelectorAll("button")].find(b => /Save to Cloud/.test(b.textContent))
+        .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    form.rerender(view({ shiftReports: rows, setShiftReports }));
+  };
+
+  type(form.container, "Engineer", "3");
+  await save();
+  expect(rows).toHaveLength(1);
+
+  type(form.container, "date", "2026-07-31"); // a different shift report, still unsaved
+  type(form.container, "Engineer", "5");
+  await save();
+
+  expect(rows).toHaveLength(2);
+  expect(rows[0].manpower.Engineer).toBe("3");
+  form.unmount();
+});
+
+test("a value typed during a save survives a later snapshot from another device", async () => {
+  // the save's own row is recognised by its key, so the guard that matters here is the one on the
+  // dirty flag: a value typed while the request was in flight is not in the row that comes back, so
+  // the form must still count as dirty when a DIFFERENT copy lands afterwards
+  let release;
+  apiCall.mockImplementation(() => new Promise(resolve => { release = () => resolve({ status: "success" }); }));
+  let rows = [];
+  const setShiftReports = updater => { rows = typeof updater === "function" ? updater(rows) : updater; };
+  const form = render(view({ shiftReports: rows, setShiftReports }));
+
+  await act(async () => {
+    const save = [...form.container.querySelectorAll("button")].find(b => /Save to Cloud/.test(b.textContent));
+    save.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  });
+  type(form.container, "Engineer", "6"); // in flight — not in the payload already sent
+  await act(async () => { release(); });
+
+  // another device's copy of the same shift lands
+  const other = { id: "sr-other", date: "2026-07-30", shift: "Day", tbmNo: "TBM1", location: "อุโมงค์", manpower: { Engineer: "9" }, result: {}, events: {} };
+  form.rerender(view({ shiftReports: [other], setShiftReports }));
+
+  expect(form.value("Engineer")).toBe("6");
+  expect(form.container.textContent).toContain("มีรายงานกะนี้จากเซิร์ฟเวอร์");
+  form.unmount();
+});
+
+test("the crew's own save is never announced as a server copy", async () => {
+  let release;
+  apiCall.mockImplementation(() => new Promise(resolve => { release = () => resolve({ status: "success" }); }));
+  let rows = [];
+  const setShiftReports = updater => { rows = typeof updater === "function" ? updater(rows) : updater; };
+  const form = render(view({ shiftReports: rows, setShiftReports }));
+  type(form.container, "Engineer", "6");
+
+  await act(async () => {
+    const save = [...form.container.querySelectorAll("button")].find(b => /Save to Cloud/.test(b.textContent));
+    save.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  });
+  type(form.container, "Surveyor", "2"); // keeps the form dirty through the round trip
+  await act(async () => { release(); });
+  form.rerender(view({ shiftReports: rows, setShiftReports }));
+
+  expect(form.container.textContent).not.toContain("มีรายงานกะนี้จากเซิร์ฟเวอร์");
+  form.unmount();
+});
+
+test("a save that resolves after a machine switch does not reach the other machine", async () => {
+  let release;
+  apiCall.mockImplementation(() => new Promise(resolve => { release = () => resolve({ status: "success" }); }));
+  let rows = [];
+  const setShiftReports = updater => { rows = typeof updater === "function" ? updater(rows) : updater; };
+  const form = render(view({ shiftReports: rows, setShiftReports }));
+  type(form.container, "Engineer", "6");
+
+  await act(async () => {
+    const save = [...form.container.querySelectorAll("button")].find(b => /Save to Cloud/.test(b.textContent));
+    save.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  });
+  form.rerender(view({ machine: "TBM2", segmentRecords: [], shiftReports: rows, setShiftReports }));
+  await act(async () => { release(); });
+
+  expect(rows).toEqual([]); // nothing written back into the other machine's state
+  expect(form.value("Engineer")).toBe("");
   form.unmount();
 });
 

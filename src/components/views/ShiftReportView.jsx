@@ -97,6 +97,10 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
   // counts edits, so a save can tell whether anything was typed while its request was in flight
   const editSerialRef = useRef(0);
   const markDirty = () => { dirtyRef.current = true; editSerialRef.current += 1; };
+  // the key of the row this view last wrote, so its own save is never announced as a server copy
+  const ownWriteKeyRef = useRef(null);
+  const machineRef = useRef(machine);
+  machineRef.current = machine;
   const [serverCopyPending, setServerCopyPending] = useState(false);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
 
@@ -124,6 +128,11 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
     // has to be made against the ring records, not typed over the total.
     touchedRef.current = {};
     dirtyRef.current = false;
+    // the form now holds a different report, so the draft id minted for the last one must not be
+    // reused — a save on the new date would have written over the previous date's row — and the key
+    // of the last row written is no longer the one to compare arrivals against
+    draftIdRef.current = null;
+    ownWriteKeyRef.current = null;
     setServerCopyPending(false);
     setConfirmDiscard(false);
     // eslint-disable-next-line
@@ -137,6 +146,8 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
   // a snapshot changed the stored copy of the report for the current date/shift. Only take it over a
   // form the crew has not started filling in; otherwise keep what they typed and tell them.
   useEffect(() => {
+    // the row this view just wrote is the crew's own, even if they kept typing during the request
+    if (reportKey && reportKey === ownWriteKeyRef.current) return;
     if (!dirtyRef.current) loadForm();
     // a row that DISAPPEARED from the snapshot is not a competing copy — offering to "load" it
     // would just wipe the form. Clear any notice raised by an earlier arrival for the same reason:
@@ -164,35 +175,57 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
     setMeta({ ...meta, [e.target.name]: e.target.value });
   };
 
+  // One id per report being composed. Both save paths mint their own before `existingReport` turns
+  // truthy, so Save to Cloud overlapping a time-bar auto-save used to create two rows for the same
+  // date and shift — after which only the first was ever updated and the dashboards double-counted.
+  const draftIdRef = useRef(null);
+  const reportIdForSave = () => {
+    if (existingReport) return existingReport.id;
+    if (!draftIdRef.current) draftIdRef.current = `shift_${Date.now()}`;
+    return draftIdRef.current;
+  };
+
+  // A save resolves seconds after it starts. If the crew switched machine meanwhile, writing the
+  // result back would put one machine's crew counts and surveyed chainage into the other's state —
+  // the async door into the contamination the machine reset closes on the synchronous side.
+  const commitSaved = (machineAtSave, payloadId, savedRecord) => {
+    if (machineRef.current !== machineAtSave) return false;
+    setShiftReports(prev => (prev.some(r => r.id === payloadId)
+      ? prev.map(r => (r.id === payloadId ? savedRecord : r))
+      : [...prev, savedRecord]));
+    return true;
+  };
+
   const handleSaveToCloud = async () => {
     setIsSaving(true);
     const serialAtSave = editSerialRef.current;
-    const payload = { id: existingReport ? existingReport.id : `shift_${Date.now()}`, date: meta.date, shift: meta.shift, tbmNo: meta.tbmNo, location: meta.location, events: JSON.stringify(events), manpower: JSON.stringify(manpower), result: JSON.stringify(result) };
+    const machineAtSave = machine;
+    const payload = { id: reportIdForSave(), date: meta.date, shift: meta.shift, tbmNo: meta.tbmNo, location: meta.location, events: JSON.stringify(events), manpower: JSON.stringify(manpower), result: JSON.stringify(result) };
     try {
-      await apiCall(existingReport ? "updateShiftReport" : "addShiftReport", { ...payload, machine });
+      await apiCall(existingReport ? "updateShiftReport" : "addShiftReport", { ...payload, machine: machineAtSave });
       const savedRecord = { ...payload, events: events, manpower: manpower, result: result };
       // What we just stored IS the crew's copy, so the row coming back is not a competing one and
       // may load over the form — but ONLY if nothing was typed while the request was in flight. A
       // GAS round trip takes seconds on a tunnel link, and the payload was built before it started,
       // so clearing this unconditionally threw away anything typed meanwhile.
       if (editSerialRef.current === serialAtSave) dirtyRef.current = false;
-      if (existingReport) setShiftReports(prev => prev.map(r => r.id === payload.id ? savedRecord : r));
-      else setShiftReports(prev => [...prev, savedRecord]);
-      alert("บันทึก Shift Report สำเร็จ");
+      ownWriteKeyRef.current = stableKey([savedRecord.id, savedRecord.location, savedRecord.manpower, savedRecord.result, savedRecord.events]);
+      if (commitSaved(machineAtSave, payload.id, savedRecord)) alert("บันทึก Shift Report สำเร็จ");
     } catch (e) { alert("บันทึกไม่สำเร็จ: " + e.message); }
     setIsSaving(false);
   };
 
   const triggerAutoSaveEvents = async (updatedEvents) => {
     const serialAtSave = editSerialRef.current;
-    const payload = { id: existingReport ? existingReport.id : `shift_${Date.now()}`, date: meta.date, shift: meta.shift, tbmNo: meta.tbmNo, location: meta.location, events: JSON.stringify(updatedEvents), manpower: JSON.stringify(manpower), result: JSON.stringify(result) };
+    const machineAtSave = machine;
+    const payload = { id: reportIdForSave(), date: meta.date, shift: meta.shift, tbmNo: meta.tbmNo, location: meta.location, events: JSON.stringify(updatedEvents), manpower: JSON.stringify(manpower), result: JSON.stringify(result) };
     try {
-      await apiCall(existingReport ? "updateShiftReport" : "addShiftReport", { ...payload, machine });
+      await apiCall(existingReport ? "updateShiftReport" : "addShiftReport", { ...payload, machine: machineAtSave });
       const savedRecord = { ...payload, events: updatedEvents, manpower, result };
       // our own write, not a competing copy — unless the crew typed during the round trip
       if (editSerialRef.current === serialAtSave) dirtyRef.current = false;
-      if (existingReport) setShiftReports(prev => prev.map(r => r.id === payload.id ? savedRecord : r));
-      else setShiftReports(prev => [...prev, savedRecord]);
+      ownWriteKeyRef.current = stableKey([savedRecord.id, savedRecord.location, savedRecord.manpower, savedRecord.result, savedRecord.events]);
+      commitSaved(machineAtSave, payload.id, savedRecord);
     } catch (e) { console.error("Auto-save failed", e); }
   };
 

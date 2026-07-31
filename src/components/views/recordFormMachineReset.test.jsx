@@ -301,6 +301,56 @@ test("a segment machine switch clears the survey and excavation fields too", () 
   view.unmount();
 });
 
+test("a segment save resolving after a machine switch does not land in the other machine", async () => {
+  // the reset closes the synchronous door; a save takes seconds on a tunnel link, so its resolve is
+  // the async one — writing the row back would put one machine's ring and surveyed CH into the
+  // other machine's state, where the next snapshot merge would carry it to the sheet
+  let release;
+  apiCall.mockImplementation(() => new Promise(resolve => { release = () => resolve({ status: "success" }); }));
+  let rows = [];
+  const setSegmentRecords = updater => { rows = typeof updater === "function" ? updater(rows) : updater; };
+  const element = machine => (
+    <SegmentRecordView projectInfo={projectInfo} handleProjectInfoChange={() => {}} segmentRecords={rows}
+      setSegmentRecords={setSegmentRecords} setCurrentModule={() => {}} setActiveTab={() => {}} machine={machine} />
+  );
+  const view = render(element("TBM1"));
+  type(view.container, "ringNo", "P644");
+  type(view.container, "startCH", "8+008.80");
+  await act(async () => {
+    view.container.querySelector("form").dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+  });
+
+  view.rerender(element("TBM2"));
+  await act(async () => { release(); });
+
+  expect(rows).toEqual([]);
+  view.unmount();
+});
+
+test("a grout save resolving after a machine switch does not land in the other machine", async () => {
+  let release;
+  apiCall.mockImplementation(() => new Promise(resolve => { release = () => resolve({ status: "success" }); }));
+  let rows = [];
+  const setGroutRecords = updater => { rows = typeof updater === "function" ? updater(rows) : updater; };
+  const element = machine => (
+    <GroutRecordView projectInfo={projectInfo} handleProjectInfoChange={() => {}} groutRecords={rows}
+      setGroutRecords={setGroutRecords} secondaryGroutRecords={[]} setSecondaryGroutRecords={() => {}}
+      segmentRecords={[]} setCurrentModule={() => {}} setActiveTab={() => {}} machine={machine} />
+  );
+  const view = render(element("TBM1"));
+  type(view.container, "ringNo", "P643");
+  type(view.container, "partA", "12.5");
+  await act(async () => {
+    view.container.querySelector("form").dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+  });
+
+  view.rerender(element("TBM2"));
+  await act(async () => { release(); });
+
+  expect(rows).toEqual([]);
+  view.unmount();
+});
+
 test("a segment form keeps its prefill across an unrelated re-render", () => {
   const element = machineProps => (
     <SegmentRecordView projectInfo={projectInfo} handleProjectInfoChange={() => {}} segmentRecords={tbm1Segments}

@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo, useEffect, useRef } from "react";
 import { Activity, Camera, Save, Loader2, AlertTriangle } from "lucide-react";
 import RingVisualizer from "../common/RingVisualizer";
 import { THEORETICAL_VOL } from "../../utils/constants";
@@ -9,6 +9,8 @@ import StickyActionBar from "../../ui-ux-pro-max/components/StickyActionBar";
 
 const GroutRecordView = ({ projectInfo, handleProjectInfoChange, groutRecords, setGroutRecords, secondaryGroutRecords = [], setSecondaryGroutRecords, segmentRecords, setCurrentModule, setActiveTab, machine = "TBM1" }) => {
   const [isSaving, setIsSaving] = useState(false);
+  const machineRef = useRef(machine);
+  machineRef.current = machine;
   const [groutType, setGroutType] = useState("primary"); // primary | secondary
   const isSecondary = groutType === "secondary";
   const [formData, setFormData] = useState({ ringNo: "", excavRing: "", pressure: "", partA: "", partB: "", keyType: "16", positions: { A: false, B1: false, B2: false, C1: false, C2: false, K: false }, remark: "", imageBase64: "", imageName: "" });
@@ -97,6 +99,7 @@ const GroutRecordView = ({ projectInfo, handleProjectInfoChange, groutRecords, s
     e.preventDefault();
     if (!formData.ringNo || !formData.partA) return;
     setIsSaving(true);
+    const machineAtSave = machine;
     const inputRing = String(formData.ringNo).trim().toUpperCase();
     // ส่ง positions เป็น object → GAS encode ครั้งเดียว (กัน double-encode)
     const base = { ...projectInfo, ...formData, ringNo: inputRing, key: formData.keyType, total: Number(currentTotal) };
@@ -104,18 +107,20 @@ const GroutRecordView = ({ projectInfo, handleProjectInfoChange, groutRecords, s
     try {
       if (isSecondary) {
         const rec = { id: `sgrout_${Date.now()}`, ...base }; // ไม่มี ratio/groutPass
-        await apiCall("addSecondaryGrout", { ...rec, machine });
+        await apiCall("addSecondaryGrout", { ...rec, machine: machineAtSave });
         const local = { ...rec };
         if (local.imageBase64) local.imageUrl = "Attached";
         delete local.imageBase64; delete local.imageName;
-        setSecondaryGroutRecords((prev) => [...prev, local]);
+        // a save resolves seconds later: if the crew switched machine meanwhile, writing the result
+        // back would put this machine's ring and volumes into the other machine's state
+        if (machineRef.current === machineAtSave) setSecondaryGroutRecords((prev) => [...prev, local]);
       } else {
         const rec = { id: `grout_${Date.now()}`, ...base, ratio: Number((Number(currentTotal) / THEORETICAL_VOL) * 100), groutPass: "1st Pass" };
-        await apiCall("addGrout", { ...rec, machine });
+        await apiCall("addGrout", { ...rec, machine: machineAtSave });
         const local = { ...rec };
         if (local.imageBase64) local.imageUrl = "Attached";
         delete local.imageBase64; delete local.imageName;
-        setGroutRecords((prev) => [...prev, local]);
+        if (machineRef.current === machineAtSave) setGroutRecords((prev) => [...prev, local]);
       }
       resetFormAfterSave();
     } catch (err) { alert("บันทึกข้อมูลไม่สำเร็จ: " + err.message); }

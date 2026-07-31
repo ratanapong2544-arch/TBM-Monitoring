@@ -1,4 +1,5 @@
 import { MUTATION_STATUS, STORES } from "./schema";
+import { entityKeyBelongsToDomain, FIELD_FOR_ENTITY_TYPE, isMachineScopedEntityType, optimisticEntityKey } from "./snapshotStore";
 
 function complete(transaction) {
   return new Promise((resolve, reject) => {
@@ -15,9 +16,34 @@ function requestResult(request) {
   });
 }
 
+// `load` rebuilds each collection from the stored snapshot's key list, so a queued write that only
+// touches the entities store is invisible to it: a ring created offline vanished on the next launch
+// and a ring deleted offline came back. Patch the list in the SAME transaction as the mutation —
+// split across two, a crash in between leaves the queue and the snapshot disagreeing about what the
+// crew recorded, which is the one state neither side can detect afterwards.
+async function patchSnapshotKeys(transaction, mutation) {
+  const field = FIELD_FOR_ENTITY_TYPE.get(mutation.entityType);
+  if (!field || (mutation.operation !== "create" && mutation.operation !== "delete")) return;
+  const snapshots = transaction.objectStore(STORES.snapshots);
+  const stored = await requestResult(snapshots.getAll());
+  // a machine-scoped entity belongs to its own machine's snapshot; everything else comes back from
+  // getData for every machine, so every scope has to agree
+  const scoped = isMachineScopedEntityType(mutation.entityType)
+    ? stored.filter(snapshot => snapshot.machine === mutation.machine)
+    : stored;
+  scoped.forEach(snapshot => {
+    const keys = (snapshot.entityKeys && snapshot.entityKeys[field]) || [];
+    const next = mutation.operation === "delete"
+      ? keys.filter(key => !entityKeyBelongsToDomain(key, mutation.domainKey))
+      : keys.concat(keys.includes(optimisticEntityKey(mutation.domainKey)) ? [] : [optimisticEntityKey(mutation.domainKey)]);
+    if (next.length === keys.length && mutation.operation === "delete") return;
+    snapshots.put({ ...snapshot, entityKeys: { ...snapshot.entityKeys, [field]: next } });
+  });
+}
+
 function optimisticEntity(mutation, status = mutation.status) {
   return {
-    key: `entity:optimistic:${mutation.domainKey}`,
+    key: optimisticEntityKey(mutation.domainKey),
     entityType: mutation.entityType,
     machine: mutation.machine || "GLOBAL",
     domainKey: mutation.domainKey,
@@ -34,7 +60,7 @@ function optimisticEntity(mutation, status = mutation.status) {
 }
 
 export async function putOptimisticMutation(db, input) {
-  const transaction = db.transaction([STORES.entities, STORES.mutations, STORES.syncMeta], "readwrite");
+  const transaction = db.transaction([STORES.entities, STORES.mutations, STORES.syncMeta, STORES.snapshots], "readwrite");
   const sequenceStore = transaction.objectStore(STORES.syncMeta);
   const sequence = await requestResult(sequenceStore.get("mutationSequence"));
   const mutation = {
@@ -49,6 +75,7 @@ export async function putOptimisticMutation(db, input) {
   transaction.objectStore(STORES.entities).put(entity);
   transaction.objectStore(STORES.mutations).put(mutation);
   sequenceStore.put({ key: "mutationSequence", value: mutation.queueSequence });
+  await patchSnapshotKeys(transaction, mutation);
   await complete(transaction);
   return { mutation, entity };
 }

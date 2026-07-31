@@ -206,19 +206,17 @@ test("a grout machine switch clears the injection positions", async () => {
   view.unmount();
 });
 
-test("a grout save resolving after the form unmounts does not land in the other machine", async () => {
-  // same hazard as the segment form: the crew taps another nav item mid-save, then switches machine.
-  // Only App can answer which machine is current by then.
-  let release;
-  onMutateOverride = () => new Promise(resolve => { release = () => resolve({}); });
-  let rows = [];
-  let currentMachine = "TBM1";
+test("a grout save writes the record list through App, never itself", async () => {
+  // this used to assert an empty `rows` after an unmount-then-switch. Since the view stopped writing
+  // the list in step 5 it never fills `rows` under any circumstance, so the assertion held whatever
+  // App did — the machine guard it was named for now lives in App and is tested there. What is left
+  // for the view to owe is that it does not write the list at all: two writers for one row is how the
+  // guard gets bypassed in the first place.
+  const setGroutRecords = jest.fn();
   const view = render(
-    <GroutRecordView projectInfo={projectInfo} handleProjectInfoChange={() => {}} groutRecords={rows}
-      setGroutRecords={updater => { rows = typeof updater === "function" ? updater(rows) : updater; }}
-      secondaryGroutRecords={[]} setSecondaryGroutRecords={() => {}} segmentRecords={[]}
-      setCurrentModule={() => {}} setActiveTab={() => {}} machine="TBM1" onMutate={onMutate}
-      isCurrentMachine={m => m === currentMachine} />
+    <GroutRecordView projectInfo={projectInfo} handleProjectInfoChange={() => {}} groutRecords={[]}
+      setGroutRecords={setGroutRecords} secondaryGroutRecords={[]} setSecondaryGroutRecords={() => {}}
+      segmentRecords={[]} setCurrentModule={() => {}} setActiveTab={() => {}} machine="TBM1" onMutate={onMutate} />
   );
   type(view.container, "ringNo", "P643");
   type(view.container, "partA", "12.5");
@@ -226,11 +224,9 @@ test("a grout save resolving after the form unmounts does not land in the other 
     view.container.querySelector("form").dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
   });
 
+  expect(sent[sent.length - 1].payload.ringNo).toBe("P643"); // the save did happen
+  expect(setGroutRecords).not.toHaveBeenCalled();
   view.unmount();
-  currentMachine = "TBM2";
-  await act(async () => { release(); });
-
-  expect(rows).toEqual([]);
 });
 
 test("a grout form never overwrites a hand-corrected ring when new records arrive", () => {
@@ -379,19 +375,13 @@ test("a segment save resolving after a machine switch does not land in the other
   view.unmount();
 });
 
-test("a segment save resolving after the form unmounts does not land in the other machine", async () => {
-  // the machine switcher is in the TopBar, so it is reachable from every tab — the crew can submit,
-  // tap another nav item (this view unmounts), then switch machine. A ref inside the view freezes at
-  // unmount and would still answer "TBM1"; App's answer is the live one.
-  let release;
-  onMutateOverride = () => new Promise(resolve => { release = () => resolve({}); });
-  let rows = [];
-  let currentMachine = "TBM1";
+test("a segment save writes the record list through App, never itself", async () => {
+  // twin of the grout case above, and the same history: the assertion this replaces could not fail.
+  const setSegmentRecords = jest.fn();
   const view = render(
-    <SegmentRecordView projectInfo={projectInfo} handleProjectInfoChange={() => {}} segmentRecords={rows}
-      setSegmentRecords={updater => { rows = typeof updater === "function" ? updater(rows) : updater; }}
-      setCurrentModule={() => {}} setActiveTab={() => {}} machine="TBM1" onMutate={onMutate}
-      isCurrentMachine={m => m === currentMachine} />
+    <SegmentRecordView projectInfo={projectInfo} handleProjectInfoChange={() => {}} segmentRecords={[]}
+      setSegmentRecords={setSegmentRecords} setCurrentModule={() => {}} setActiveTab={() => {}}
+      machine="TBM1" onMutate={onMutate} />
   );
   type(view.container, "ringNo", "P644");
   type(view.container, "startCH", "8+008.80");
@@ -399,11 +389,9 @@ test("a segment save resolving after the form unmounts does not land in the othe
     view.container.querySelector("form").dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
   });
 
-  view.unmount();          // the crew navigated away
-  currentMachine = "TBM2"; // then switched machine
-  await act(async () => { release(); });
-
-  expect(rows).toEqual([]);
+  expect(sent[sent.length - 1].payload.ringNo).toBe("P644");
+  expect(setSegmentRecords).not.toHaveBeenCalled();
+  view.unmount();
 });
 
 test("a grout save resolving after a machine switch does not land in the other machine", async () => {

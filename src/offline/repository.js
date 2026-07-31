@@ -88,7 +88,16 @@ export function createRepository(deps = {}) {
     const mutation = await confirmMutation(await openDb(), requestId, response, options);
     if (!mutation) return null;
     await setLastSyncedAt(await openDb(), response.updatedAt || now());
-    emit({ type: "sync", requestId, status: mutation.status });
+    // The confirmed version has to reach whoever stamps the NEXT mutation's `baseVersion`. Without
+    // it a second edit of the same record in one session is still stamped with the version the last
+    // full snapshot carried, the server sees base ≠ current and answers `conflict` — for a row
+    // nobody else touched — and that conflict then sits at the head of its domain and blocks every
+    // later edit of the same record, with no conflict UI until Task 10 to show any of it.
+    emit({
+      type: "sync", requestId, status: mutation.status,
+      domainKey: mutation.domainKey,
+      version: response.version ?? null,
+    });
     return mutation;
   }
 

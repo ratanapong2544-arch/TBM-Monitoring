@@ -252,7 +252,23 @@ const PrimaryGroutApp = () => {
 
   // The version this device last saw per domain key. Views read it to stamp `baseVersion`, which is
   // what lets the server refuse an edit made against a row that has since moved on.
-  const syncMeta = (offlineData.data && offlineData.data.syncMeta) || EMPTY_SYNC_META;
+  // Versions confirmed since the last full snapshot. `data.syncMeta` only advances on a `getData`,
+  // so on its own it goes stale the moment a mutation syncs — and a stale `baseVersion` is not a
+  // harmless nuisance: the server rejects the next edit of that record as a conflict, and the
+  // conflict blocks its domain. These land from the repository's own sync events and win over the
+  // snapshot, which is always the older of the two.
+  const [confirmedVersions, setConfirmedVersions] = useState(EMPTY_SYNC_META);
+  useEffect(() => repository.subscribe(event => {
+    if (event.type !== "sync" || !event.domainKey || !Number.isInteger(event.version)) return;
+    setConfirmedVersions(prev => (prev[event.domainKey] && prev[event.domainKey].version === event.version
+      ? prev
+      : { ...prev, [event.domainKey]: { version: event.version } }));
+  }), [repository]);
+  const snapshotSyncMeta = (offlineData.data && offlineData.data.syncMeta) || EMPTY_SYNC_META;
+  const syncMeta = useMemo(
+    () => (confirmedVersions === EMPTY_SYNC_META ? snapshotSyncMeta : { ...snapshotSyncMeta, ...confirmedVersions }),
+    [snapshotSyncMeta, confirmedVersions],
+  );
 
   // Every core engineering write goes through here: queue it durably first, show it immediately,
   // then let the runner drain. The optimistic row is what the crew sees until the server confirms —
@@ -275,12 +291,18 @@ const PrimaryGroutApp = () => {
 
   const mutateBusinessRecord = useCallback(async (input) => {
     const { optimisticRecord } = await repository.mutate(input);
-    applyOptimisticRecord(input.entityType, input.operation, optimisticRecord);
+    // The row write moved here from the views, and the guard has to move with it. A mutation
+    // resolves after the crew may have switched machine, and the machine-scoped arrays below belong
+    // to whichever machine is selected NOW — appending one machine's ring to the other's state is
+    // what makes the record form derive the next ring from the wrong machine and the shift report
+    // send an update carrying an id the other machine's sheet has never had. The queue keeps the
+    // write regardless; only the on-screen copy is withheld, and the next snapshot restores it.
+    if (isCurrentMachine(input.machine)) applyOptimisticRecord(input.entityType, input.operation, optimisticRecord);
     // best-effort: draining is the runner's job and a failure here must not fail the crew's save,
     // which is already durable in IndexedDB by this point
     try { Promise.resolve(runner.runNow()).catch(() => {}); } catch (error) { /* queued regardless */ }
     return optimisticRecord;
-  }, [applyOptimisticRecord, repository, runner]);
+  }, [applyOptimisticRecord, isCurrentMachine, repository, runner]);
 
   const liveHeaderStatus = useMemo(() => {
     if (activeSegments.length === 0) return null;

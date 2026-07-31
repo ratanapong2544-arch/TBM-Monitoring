@@ -20,6 +20,22 @@ const CONFIRMED_MUTATION_RETENTION = 200;
 function requestResult(request) { return new Promise((resolve, reject) => { request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error); }); }
 function complete(transaction) { return new Promise((resolve, reject) => { transaction.oncomplete = () => resolve(); transaction.onerror = () => reject(transaction.error); transaction.onabort = () => reject(transaction.error); }); }
 function scopeKey(machine) { return `getData:${machine}`; }
+
+// A queued write has to reach the STORED snapshot too, not just the entities store: `load` rebuilds
+// the lists from `entityKeys` alone, so a record created offline was invisible after a relaunch and
+// a record deleted offline came back. A relaunch with no link is the ordinary case here — an eight
+// hour shift on a phone in a tunnel — so both were routine data loss, not edge cases. The key
+// formats and the field mapping are owned by this file; the queue borrows them rather than
+// re-deriving them, because two spellings of one key is the same bug wearing a different hat.
+export const snapshotScopeKey = scopeKey;
+export const FIELD_FOR_ENTITY_TYPE = new Map(collections.map(([field, entityType]) => [entityType, field]));
+export function isMachineScopedEntityType(entityType) { return MACHINE_SCOPED_COLLECTIONS.has(entityType); }
+export function optimisticEntityKey(domainKey) { return `entity:optimistic:${domainKey}`; }
+// server rows are keyed `entity:<machine>:<field>:<domainKey>:<rowId>`, so the surrounding colons
+// keep one ring's key from matching another whose domain key is a prefix of it (P64 vs P643)
+export function entityKeyBelongsToDomain(key, domainKey) {
+  return key === optimisticEntityKey(domainKey) || String(key).includes(`:${domainKey}:`);
+}
 // The store key must be unique per server ROW, not per domain: live sheets legitimately hold two
 // rows sharing a ring identity (the views run deduplicateRecords over them), and keying by domain
 // alone made one row overwrite the other in the cache and appear twice in the list.
@@ -67,6 +83,13 @@ export async function writeServerSnapshot(db, machine, data, fetchedAt) {
     .sort((left, right) => (left.queueSequence || 0) - (right.queueSequence || 0))
     .map(mutation => [mutation.domainKey, mutation.status]));
   const unresolvedStatus = domainKey => unresolvedByDomain.get(domainKey) && unresolvedByDomain.get(domainKey).status;
+  // a delete still in the queue is a tombstone: the server has not seen it yet, so it keeps
+  // returning the row, and overlaying the optimistic copy would put the deleted ring back on screen
+  // at the next refresh. Hide it until the mutation leaves the queue one way or the other.
+  const deletePending = domainKey => {
+    const mutation = unresolvedByDomain.get(domainKey);
+    return Boolean(mutation && mutation.operation === "delete");
+  };
   const terminalStatus = domainKey => terminalByDomain.get(domainKey);
   const preserveLocal = record => Boolean(unresolvedStatus(record.domainKey)) || (!terminalStatus(record.domainKey) && UNRESOLVED_STATUSES.has(record.payload && record.payload.syncStatus));
   const localForDomain = (domainKey, entityType) => existing.find(record => record.domainKey === domainKey && record.entityType === entityType && record.key === `entity:optimistic:${domainKey}`) || existing.find(record => record.domainKey === domainKey && record.entityType === entityType);
@@ -91,14 +114,14 @@ export async function writeServerSnapshot(db, machine, data, fetchedAt) {
     // one entry per retained domain: the optimistic row wins over a stale server copy of the same
     // domain, otherwise the record appears twice with two different values
     const retainedDomains = new Set(existing.filter(record => inScope(record, entityType) && preserveLocal(record))
-      .filter(record => !incomingDomains.has(record.domainKey))
+      .filter(record => !incomingDomains.has(record.domainKey) && !deletePending(record.domainKey))
       .map(record => record.domainKey));
     const retained = [...retainedDomains].map(domainKey => localForDomain(domainKey, entityType)).filter(Boolean);
     // Overlay the optimistic record onto AT MOST ONE incoming row per domain. When the server
     // returns two rows sharing a ring identity (a live dedupe situation), replacing every one of
     // them with the same optimistic record both duplicated it and dropped the distinct second row.
     const overlaidDomains = new Set();
-    const merged = incoming.map(record => {
+    const merged = incoming.filter(record => !deletePending(record.domainKey)).map(record => {
       const local = localForDomain(record.domainKey, entityType);
       if (local && preserveLocal(local) && !overlaidDomains.has(record.domainKey)) {
         overlaidDomains.add(record.domainKey);

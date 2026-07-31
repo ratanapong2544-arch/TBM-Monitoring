@@ -325,9 +325,12 @@ test("a value typed during a save survives a later snapshot from another device"
 
 test("the crew's own save is not announced as a server copy", async () => {
   let release;
-  onMutateOverride = () => new Promise(resolve => { release = () => resolve({}); });
   let rows = [];
   const setShiftReports = updater => { rows = typeof updater === "function" ? updater(rows) : updater; };
+  onMutateOverride = envelope => new Promise(resolve => {
+    // App applies the optimistic row when the mutation resolves — the view no longer writes it
+    release = () => { setShiftReports(prev => [...prev.filter(r => r.id !== envelope.recordId), envelope.payload]); resolve({}); };
+  });
   const form = render(view({ shiftReports: rows, setShiftReports }));
   type(form.container, "Engineer", "6");
 
@@ -349,9 +352,11 @@ test("a row that arrives without what was typed mid-flight is announced, not sil
   // so claiming the row would make the view skip loading it — and the next save, rebuilt from the
   // form, would overwrite the sheet with the stale copy. Showing the notice is the safe side.
   let release;
-  onMutateOverride = () => new Promise(resolve => { release = () => resolve({}); });
   let rows = [];
   const setShiftReports = updater => { rows = typeof updater === "function" ? updater(rows) : updater; };
+  onMutateOverride = envelope => new Promise(resolve => {
+    release = () => { setShiftReports(prev => [...prev.filter(r => r.id !== envelope.recordId), envelope.payload]); resolve({}); };
+  });
   const form = render(view({ shiftReports: rows, setShiftReports }));
   type(form.container, "Engineer", "6");
 
@@ -376,8 +381,12 @@ test("a time bar recorded while the form was reloaded is not erased by the next 
   const stored = { id: "sr1", date: "2026-07-30", shift: "Day", tbmNo: "TBM1", location: "อุโมงค์", manpower: {}, result: {}, events: {} };
   let rows = [stored];
   let release;
-  onMutateOverride = () => new Promise(resolve => { release = () => resolve({}); });
   const setShiftReports = updater => { rows = typeof updater === "function" ? updater(rows) : updater; };
+  // App applies the optimistic row when the mutation resolves, which is what puts the recorded bar
+  // back in front of the reloaded form
+  onMutateOverride = envelope => new Promise(resolve => {
+    release = () => { setShiftReports(prev => prev.map(r => (r.id === envelope.recordId ? envelope.payload : r))); resolve({}); };
+  });
   const form = render(view({ shiftReports: rows, setShiftReports }));
 
   // record a time bar; its auto-save starts travelling
@@ -410,9 +419,12 @@ test("a time bar recorded while the form was reloaded is not erased by the next 
       .dispatchEvent(new MouseEvent("click", { bubbles: true }));
   });
 
+  // the payload carries objects, not JSON strings: the queue serializes on the way out, and this
+  // same payload is what the snapshot store overlays and the app renders
   const lastPayload = later[later.length - 1].payload;
-  expect(Object.values(JSON.parse(lastPayload.events)).flat()).toHaveLength(1);
-  expect(lastPayload.events).toContain("08:00");
+  const bars = Object.values(lastPayload.events).flat();
+  expect(bars).toHaveLength(1);
+  expect(bars[0].start).toBe("08:00");
   form.unmount();
 });
 

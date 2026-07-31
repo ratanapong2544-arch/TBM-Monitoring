@@ -221,16 +221,11 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
 
   const reportIdForSave = () => (existingReportRef.current ? existingReportRef.current.id : draftIdFor(selectorKey));
 
-  // A save resolves seconds after it starts. If the crew switched machine meanwhile, writing the
-  // result back would put one machine's crew counts and surveyed chainage into the other's state —
-  // the async door into the contamination the machine reset closes on the synchronous side.
-  const commitSaved = (machineAtSave, payloadId, savedRecord) => {
-    if (!stillOnMachine(machineAtSave)) return false;
-    setShiftReports(prev => (prev.some(r => r.id === payloadId)
-      ? prev.map(r => (r.id === payloadId ? savedRecord : r))
-      : [...prev, savedRecord]));
-    return true;
-  };
+  // A save resolves seconds after it starts, and by then the crew may have switched machine. App
+  // applies the optimistic row (behind the same machine check), so this only reports whether the
+  // save spoke for the machine it was started on — writing the row here as well left two writers
+  // disagreeing about its shape.
+  const savedForThisMachine = (machineAtSave) => stillOnMachine(machineAtSave);
 
   // Everything about WHICH row this save is and WHAT it carries is decided here, when the crew acts.
   // That rule predates the queue and still holds: a queued save whose payload held the 30th must not
@@ -249,8 +244,15 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
     const keyAtSave = selectorKey;
     const id = reportIdForSave();
     const existedAtSave = Boolean(existingReportRef.current && existingReportRef.current.id === id);
-    const payload = { id, date: meta.date, shift: meta.shift, tbmNo: meta.tbmNo, location: meta.location, events: JSON.stringify(eventsForSave), manpower: JSON.stringify(manpower), result: JSON.stringify(result) };
-    const savedRecord = { ...payload, events: eventsForSave, manpower, result };
+    // Objects, not JSON strings. The one-shot write stringified these because GAS wanted text, but
+    // the queue serializes the payload itself on the way out (`serializeSyncRowValues_` encodes each
+    // cell once), and the SAME payload is what the snapshot store overlays and the app then renders.
+    // Sending strings put strings back on screen: `loadForm` spread a string into `manpower` and got
+    // index keys, `displayEvents` found no arrays so every recorded time bar vanished from the
+    // report, and the next save stringified the string again — a double-encoded column that no
+    // parse recovers.
+    const payload = { id, date: meta.date, shift: meta.shift, tbmNo: meta.tbmNo, location: meta.location, events: eventsForSave, manpower, result };
+    const savedRecord = { ...payload };
     const ownKey = stableKey([savedRecord.id, savedRecord.location, savedRecord.manpower, savedRecord.result, savedRecord.events]);
 
     return async () => {
@@ -277,7 +279,7 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
         dirtyRef.current = false;
         ownWriteKeyRef.current = ownKey;
       }
-      return commitSaved(machineAtSave, id, savedRecord);
+      return savedForThisMachine(machineAtSave);
     };
   };
 

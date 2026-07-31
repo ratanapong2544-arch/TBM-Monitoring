@@ -310,6 +310,118 @@ test("the real repository hands App the versions a queued write stamps itself wi
   await deleteOfflineDbForTests();
 });
 
+test("a second save of one record stamps the version the first one confirmed", async () => {
+  // `data.syncMeta` only advances on a full `getData`, so on its own the second save of a record in
+  // one session still claims the version the last snapshot carried. The server compares base against
+  // current exactly, answers `conflict` for a row nobody else touched, and that conflict then sits
+  // at the head of its domain and blocks every later edit of the same record — with no conflict UI
+  // until Task 10 to show any of it. The core TBM flow hits this on every ring: saved In Progress at
+  // excavation, saved again Completed at install.
+  // the provider subscribes too, so keep every listener — holding only the last one would deliver
+  // the sync event to whichever component happened to mount second
+  const listeners = new Set();
+  const notify = event => listeners.forEach(listener => listener(event));
+  const mutations = [];
+  const repository = makeRepository({
+    subscribe: listener => { listeners.add(listener); return () => listeners.delete(listener); },
+    mutate: async input => { mutations.push(input); return { optimisticRecord: input.payload }; },
+    refresh: async machine => ({
+      data: snapshot(machine, { syncMeta: { "segment:TBM1:P41:Permanent": { version: 1 } } }),
+      serverPayload: { status: "success", shiftReports: [] },
+      source: "server", fetchedAt: "2026-07-30T00:00:00.000Z", stale: false,
+    }),
+  });
+
+  const app = renderApp(repository);
+  await act(async () => {});
+  await act(async () => {
+    [...app.container.querySelectorAll("button")].find(b => /Record · Segment/i.test(b.textContent))
+      .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  });
+  const setField = (name, value) => act(() => {
+    const field = app.container.querySelector(`[name="${name}"]`);
+    Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set.call(field, value);
+    field.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  setField("ringNo", "P41");
+  await act(async () => {
+    app.container.querySelector("form").dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+  });
+  expect(mutations[0].baseVersion).toBe(1);
+
+  // the runner drains it; GAS confirms at version 2
+  await act(async () => { notify({ type: "sync", requestId: "r1", status: "synced", domainKey: "segment:TBM1:P41:Permanent", version: 2 }); });
+
+  setField("ringNo", "P41");
+  await act(async () => {
+    app.container.querySelector("form").dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+  });
+
+  expect(mutations).toHaveLength(2);
+  expect(mutations[1].baseVersion).toBe(2); // not 1 — that would be refused as a conflict
+  app.unmount();
+});
+
+// App now owns the optimistic row: the five record views stopped writing the lists in step 5, and
+// nothing tested what replaced them. The two view tests that used to cover this rule were left
+// asserting an empty array against views that no longer write at all — green whatever App does.
+// submits and returns once the click is flushed — NOT once the save resolves, which is the whole
+// window these tests are about. Awaiting a pending save inside `act` deadlocks the scope instead.
+async function saveRingOnSegmentForm(app, ring) {
+  const nav = label => [...app.container.querySelectorAll("button")].find(b => label.test(b.textContent));
+  await act(async () => { nav(/Record · Segment/i).dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+  const field = app.container.querySelector('[name="ringNo"]');
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set.call(field, ring);
+    field.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await act(async () => {
+    app.container.querySelector("form").dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+  });
+}
+
+test("a ring saved offline is on screen before the server ever sees it", async () => {
+  // the whole point of the queue: the crew saves in the tunnel, with no link, and the ring must
+  // still count. It is counted by being in the list — the next ring prefills from it.
+  const repository = makeRepository({
+    mutate: async input => ({ optimisticRecord: { ...input.payload, id: input.recordId } }),
+  });
+  const app = renderApp(repository);
+  await act(async () => {});
+  await saveRingOnSegmentForm(app, "P644");
+
+  // "Last:" is rendered from the record list, not from the form — reading the form field back would
+  // pass on a value that was simply never cleared
+  expect(app.text()).toContain("Last: P644");
+  app.unmount();
+});
+
+test("a save resolving after a machine switch does not land in the other machine", async () => {
+  // the machine switcher sits in the TopBar, reachable from every tab, and a save takes seconds on a
+  // tunnel link. Appending TBM1's ring to TBM2's list is what makes the record form derive the next
+  // ring from the wrong machine and the dashboard send an update carrying an id TBM2's sheet has
+  // never had. The queue keeps the write either way; only the on-screen copy is withheld.
+  let release;
+  const repository = makeRepository({
+    mutate: input => new Promise(resolve => {
+      release = () => resolve({ optimisticRecord: { ...input.payload, id: input.recordId } });
+    }),
+  });
+  const app = renderApp(repository);
+  await act(async () => {});
+  await saveRingOnSegmentForm(app, "P644");
+
+  await act(async () => {
+    [...app.container.querySelectorAll("button")].find(b => b.textContent.trim() === "TBM2")
+      .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  });
+  await act(async () => { release(); });
+
+  expect(app.text()).not.toContain("Last: P644");
+  expect(app.text()).not.toContain("P645"); // nor a next ring derived from it
+  app.unmount();
+});
+
 test("a launch with no snapshot at all still reports the failure", async () => {
   const repository = makeRepository({
     load: async () => { throw new Error("IDB blocked"); },

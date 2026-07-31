@@ -19,20 +19,25 @@ import { toSyncVersion } from "./syncVersion";
  * if the row has moved on since — which is what turns a lost update into a conflict.
  *
  * `identity` is the record as it stood BEFORE the edit, and it is what tells us the write
- * RE-IDENTIFIES the record: the ring, its install type, the grout pass and the report's date and
- * shift are all editable, and all of them are part of the key.
+ * RE-IDENTIFIES the record — changes a field the key is built from.
  *
- * Re-identifying a record in place is refused. The sync protocol cannot express it. The key travels
- * with the payload, so the write lands under the NEW key and GAS mints metadata for it — while the
- * OLD key's metadata stays behind, alive, pointing at a ring no row carries any more. Ring numbers
- * here are sequential and never skipped, so the ring that was mistyped is a ring the machine will
- * actually reach, weeks later; recording it then returns SYNC_META_ORPHAN, which is terminal, and
- * replaying it returns the same. Nothing on screen would say so — the row still looks recorded.
- * A mistyped ring corrected in place therefore poisons that ring number for the rest of the drive.
+ * Re-identifying a record in place is refused, because the sync protocol cannot express it. The key
+ * travels with the payload, so the write lands under the NEW key and GAS mints metadata for it —
+ * while the OLD key's metadata stays behind, alive, pointing at a ring no row carries any more. Ring
+ * numbers here are sequential and never skipped, so the ring that was mistyped is a ring the machine
+ * will actually reach; recording it then returns SYNC_META_ORPHAN, which is terminal, and replaying
+ * it returns the same. Nothing on screen would say so — the row still looks recorded. One correction
+ * therefore poisons that ring number for the rest of the drive.
  *
- * Delete the record and record it again instead: the delete tombstones the old key, and the new
- * record starts a clean stream under its own. That is two actions where the crew expected one, and
- * it is the only sequence the protocol has.
+ * Delete the record and record it again instead: the delete tombstones the old key, the new record
+ * lifts it (see `createBaseVersion`), and the ring keeps one continuous history.
+ *
+ * Only ONE path can still reach this — the segment record form, where the ring is the field the crew
+ * types into and a T/P prefix also flips the install type. The data logs show a record's identity
+ * without offering to change it, and delete-and-re-record is a sequence they support. That matters:
+ * the remedy has to exist wherever the refusal does, and it does not exist everywhere. A shift
+ * report has no delete operation at all, and no view can create a Re-Grout or a secondary grout
+ * under a chosen ring — which is exactly why those fields are not editable rather than refused.
  */
 export function buildMutationEnvelope({ entityType, operation, machine, recordId, payload, syncMeta, identity }) {
   const domainKey = makeDomainKey({ entityType, machine, recordId, payload });
@@ -74,7 +79,7 @@ function createBaseVersion(known) {
 // apart from a storage fault without matching on the message.
 export class ReidentifiedRecordError extends Error {
   constructor(previousKey, nextKey) {
-    super("แก้ข้อมูลที่ใช้ระบุรายการ (เช่น เลขริง) ในรายการเดิมไม่ได้ — ให้ลบรายการนี้แล้วบันทึกใหม่");
+    super("แก้เลขริง/ชนิดการติดตั้งของรายการที่บันทึกไว้แล้วไม่ได้ — ให้ลบรายการนี้ แล้วบันทึกใหม่ด้วยเลขที่ถูกต้อง");
     this.name = "ReidentifiedRecordError";
     this.code = "SYNC_REIDENTIFIED_RECORD";
     this.previousKey = previousKey;
@@ -96,4 +101,3 @@ function normalizeRing(source) {
   return { ...source, ringNo: String(source.ringNo).trim().toUpperCase() };
 }
 
-export { toSyncVersion };

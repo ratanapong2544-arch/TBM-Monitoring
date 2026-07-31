@@ -78,8 +78,8 @@ const GroutDashboardView = ({ groutRecords, segmentRecords, secondaryGroutRecord
   const handleEditChange = (e) => {
     const { name, value } = e.target;
     setEditFormData((prev) => {
-      let updated = { ...prev, [name]: value };
-      if (name === "ringNo") updated.excavRing = getRingByOffsetFromHistory(String(value).trim(), 3, segmentRecords);
+      const updated = { ...prev, [name]: value };
+      // there was a `ringNo` branch here re-deriving `excavRing`; the ring is no longer editable
       return updated;
     });
   };
@@ -88,15 +88,15 @@ const GroutDashboardView = ({ groutRecords, segmentRecords, secondaryGroutRecord
     // secondary grout → sheet แยก, ไม่มี ratio
     if (editFormData.groutType === "secondary") {
       const total = Number(editFormData.partA || 0) + Number(editFormData.partB || 0);
-      const cleanRingNo = String(editFormData.ringNo).trim().toUpperCase();
-      const updated = { ...editFormData, ringNo: cleanRingNo, total: Number(total) };
+      // the ring is not editable here, so it travels exactly as the record carries it
+      const updated = { ...editFormData, total: Number(total) };
       try {
         await onMutate(buildMutationEnvelope({
           entityType: "secondaryGrout", operation: "update", machine,
-          recordId: updated.id, payload: updated, identity: selectedRecord, syncMeta,
+          recordId: updated.id, payload: updated, syncMeta,
         }));
         setSelectedRecord(updated); setIsEditing(false);
-      } catch (e) { alert(e.code === "SYNC_REIDENTIFIED_RECORD" ? e.message : "อัปเดตข้อมูลล้มเหลว: " + e.message); }
+      } catch (e) { alert("อัปเดตข้อมูลล้มเหลว: " + e.message); }
       return;
     }
     const isReGrout = editFormData.groutPass === "Re-Grout";
@@ -104,22 +104,19 @@ const GroutDashboardView = ({ groutRecords, segmentRecords, secondaryGroutRecord
       ? Number(editFormData.primaryPartA || editFormData.partA || 0) + Number(editFormData.primaryPartB || editFormData.partB || 0) + Number(editFormData.secondaryPartA || 0) + Number(editFormData.secondaryPartB || 0)
       : Number(editFormData.partA || 0) + Number(editFormData.partB || 0);
     const ratio = (total / THEORETICAL_VOL) * 100;
-    const cleanRingNo = String(editFormData.ringNo).trim().toUpperCase();
-    const updatedRecord = { ...editFormData, ringNo: cleanRingNo, total: Number(total), ratio: Number(ratio) };
+    // the ring is not editable here, so it travels exactly as the record carries it
+    const updatedRecord = { ...editFormData, total: Number(total), ratio: Number(ratio) };
 
     try {
       // the queue serializes the payload itself, so it takes the record with `positions` still an
       // object — the one-shot write used to stringify them here to stop GAS double-encoding
       await onMutate(buildMutationEnvelope({
         entityType: "grout", operation: "update", machine,
-        // the ring is editable here and the grout pass is part of the key too, so the pre-edit
-        // record goes along to say whether this edit re-identifies the row
-        recordId: updatedRecord.id, payload: updatedRecord, identity: selectedRecord, syncMeta,
+        recordId: updatedRecord.id, payload: updatedRecord, syncMeta,
       }));
       setSelectedRecord(updatedRecord);
       setIsEditing(false);
-      // the reason matters: without it a refused edit reads as an unexplained failure
-    } catch (e) { alert(e.code === "SYNC_REIDENTIFIED_RECORD" ? e.message : "อัปเดตข้อมูลล้มเหลว: " + e.message); }
+    } catch (e) { alert("อัปเดตข้อมูลล้มเหลว: " + e.message); }
   };
 
   const handleDeleteRecord = async () => {

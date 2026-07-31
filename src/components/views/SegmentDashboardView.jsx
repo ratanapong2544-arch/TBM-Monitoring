@@ -240,21 +240,18 @@ const SegmentDashboardView = ({ segmentRecords, machine = "TBM1", onMutate, sync
 
   const handleSaveEdit = async () => {
     try {
-      // the ring goes to the sheet AND into the domain key, so it is normalised the way both record
-      // forms normalise it. The field's `uppercase` class is CSS: it changes what the crew sees, not
-      // what they typed, so " p500 " would travel verbatim — a ring number the sheet has never used
-      // and a key nothing else will ever match.
-      const updatedRecord = { ...editFormData, ringNo: String(editFormData.ringNo).trim().toUpperCase() };
+      // The ring is not editable here (see the detail panel), so it travels as the record already
+      // carries it — untouched, including whatever spacing the sheet stored. Normalising it would be
+      // this view renaming a row nobody asked to rename, and the key is derived from the same value,
+      // so leaving it alone is what keeps the edit on the record's own version stream.
+      const updatedRecord = { ...editFormData };
       await onMutate(buildMutationEnvelope({
         entityType: "segment", operation: "update", machine,
-        // the ring and its install type are editable here, and both are part of the domain key, so
-        // the pre-edit record goes along to say whether this edit re-identifies the row
-        recordId: updatedRecord.id, payload: updatedRecord, identity: selectedRecord, syncMeta,
+        recordId: updatedRecord.id, payload: updatedRecord, syncMeta,
       }));
       setSelectedRecord(null);
       setIsEditing(false);
-      // a refusal is not a failed save — nothing was attempted — so it must not be announced as one
-    } catch (err) { alert(err.code === "SYNC_REIDENTIFIED_RECORD" ? err.message : "อัปเดตข้อมูลไม่สำเร็จ: " + err.message); }
+    } catch (err) { alert("อัปเดตข้อมูลไม่สำเร็จ: " + err.message); }
   };
 
   const handleDeleteRecord = async () => {

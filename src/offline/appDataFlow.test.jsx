@@ -571,6 +571,44 @@ test("a write the queue cannot finish is said out loud", async () => {
   app.unmount();
 });
 
+test("the queue's state is said alongside the other notices, not instead of them", async () => {
+  // A stuck write lasts until Task 10 exists, so a branch of its own would have permanently taken
+  // the strip's one line — including from "บันทึกลงเครื่องไม่ได้", which says the queue is not
+  // durable at all and outranks anything in it. And the quiet half, sitting last, could never appear
+  // while the device was offline: the one situation it exists for.
+  const repository = makeRepository({
+    getSyncSummary: async () => ({ online: false, pending: 2, syncing: 0, conflicts: 1, errors: 0, lastSyncedAt: null }),
+    refresh: async machine => ({ data: snapshot(machine), source: "server", fetchedAt: "2026-07-30T00:00:00.000Z", stale: false, cacheError: new Error("QuotaExceededError") }),
+  });
+  const app = renderApp(repository);
+  await act(async () => {});
+
+  expect(app.text()).toContain("บันทึกลงเครื่องไม่ได้"); // still the headline
+  expect(app.text()).toContain("1 รายการติดค้าง");       // and the queue is reported too
+  app.unmount();
+});
+
+test("a write that dies terminally stops being counted as on its way", async () => {
+  // `updateMutation` is the only path to a validation or permanent error, and the summary is
+  // recomputed on repository events. With no event, the mutation's own queueing event was the last
+  // word — so the strip went on reporting a dead write as still in flight, which is worse than
+  // saying nothing. Driven through the real repository, because the fault was that it stayed quiet.
+  await deleteOfflineDbForTests();
+  const repository = createRepository({ openDb: openOfflineDb, fetchServerSnapshot: async () => ({ segments: [] }) });
+  const seen = [];
+  repository.subscribe(event => seen.push(event.status));
+  const queued = await repository.mutate({
+    entityType: "segment", operation: "create", machine: "TBM1", recordId: "s1",
+    payload: { id: "s1", ringNo: "P644" }, baseVersion: 0, domainKey: "segment:TBM1:P644:Permanent",
+  });
+
+  await repository.updateMutation(queued.requestId, { status: "validation_error", lastError: { code: "SYNC_FIELD_TOO_LARGE" } });
+
+  expect(seen).toContain("validation_error");
+  await expect(repository.getSyncSummary()).resolves.toMatchObject({ pending: 0, errors: 1 });
+  await deleteOfflineDbForTests();
+});
+
 test("work still on its way out is said quietly", async () => {
   // "saved" here means saved on this device, and nothing else on screen distinguishes the two
   const repository = makeRepository({

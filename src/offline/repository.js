@@ -252,7 +252,16 @@ export function createRepository(deps = {}) {
     async getConflict(conflictId) { return getConflict(await openDb(), conflictId); },
     async getDueMutations(at) { return listDueMutations(await openDb(), at); },
     async claimDueMutations(options) { return claimDueMutations(await openDb(), options); },
-    async updateMutation(requestId, update, options) { return updateMutation(await openDb(), requestId, update, options); },
+    // Announced like the others. This is the only path to `validation_error` and `permanent_error`,
+    // and the summary is recomputed on repository events — so without an event, a write that had
+    // just died terminally went on being counted as pending, and the status strip went on reporting
+    // it as still on its way. Every malformed response, oversized field and GAS permission page
+    // arrives here; conflicts were the only stuck writes the crew could see.
+    async updateMutation(requestId, update, options) {
+      const mutation = await updateMutation(await openDb(), requestId, update, options);
+      if (mutation) emit({ type: "mutation", requestId, status: mutation.status, domainKey: mutation.domainKey });
+      return mutation;
+    },
     applySyncSuccess,
     applyConflict,
     async getSyncSummary() { return { online: Boolean(online()), ...(await getSyncCounts(await openDb())) }; },

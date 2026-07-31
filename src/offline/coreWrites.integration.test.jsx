@@ -446,12 +446,13 @@ test("a ring recorded twice claims nothing, so the server can say so", async () 
 });
 
 test("a ring the sheet stored untidily still edits under its own key", async () => {
-  // the sheet holds whatever it holds — " p41 " — while the view normalises on the way into the
-  // payload. Reading that difference as a re-identified record would refuse an edit that changed
-  // nothing but whitespace, and it would fire on edits that never touch the ring at all.
+  // The sheet holds whatever it holds — " p41 " — and GAS builds the key from that same value
+  // verbatim (`makeSyncRecordKey_` does not trim or upper-case either). So the edit must send the
+  // ring exactly as the record carries it: tidying it here would key the write to a ring the server
+  // has no metadata for, which is a rename this view was never asked to make.
   const view = render(
     <SegmentDashboardView segmentRecords={[{ ...segmentRow, ringNo: " p41 " }]} machine="TBM1"
-      syncMeta={{ "segment:TBM1:P41:Permanent": { version: 2 } }} onMutate={onMutate} />
+      syncMeta={{ "segment:TBM1: p41 :Permanent": { version: 2 } }} onMutate={onMutate} />
   );
   await click(view.container.querySelector("tbody tr"));
   await click(byTitle(view.container, "Edit"));
@@ -459,10 +460,10 @@ test("a ring the sheet stored untidily still edits under its own key", async () 
   await click(button(view.container, /Save Changes/));
 
   expect(onMutate).toHaveBeenCalledWith(expect.objectContaining({
-    domainKey: "segment:TBM1:P41:Permanent",
-    baseVersion: 2, // its own history, kept
+    domainKey: "segment:TBM1: p41 :Permanent",
+    baseVersion: 2, // the record's own history, found because the key matches the server's
   }));
-  expect(onMutate.mock.calls[0][0].payload.ringNo).toBe("P41"); // and it travels tidied
+  expect(onMutate.mock.calls[0][0].payload.ringNo).toBe(" p41 ");
   view.unmount();
 });
 

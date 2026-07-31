@@ -34,7 +34,7 @@ import { savePrepTasks } from "./utils/prepGantt";
 import { isViewerMode, VIEWER_TABS } from "./utils/viewerMode";
 import { useOfflineData } from "./offline/useOfflineData";
 import { useOffline } from "./offline/OfflineProvider";
-import { toSyncVersion } from "./offline/mutationEnvelope";
+import { toSyncVersion } from "./offline/syncVersion";
 import { applyOptimisticRow, stripQueuedPhotos } from "./offline/displayRecord";
 
 import { Shell, NAV_GROUPS } from "./ui-ux-pro-max";
@@ -369,19 +369,29 @@ const PrimaryGroutApp = () => {
   // Non-blocking snapshot state (design §7: keep the local snapshot visible and warn that it is
   // stale rather than blocking). Task 10 replaces this strip with the full Sync Center.
   const offlineNotice = useMemo(() => {
-    // A queued write that cannot proceed is the one thing worth interrupting for. Its row stays on
-    // screen looking recorded while the sheet has never seen it, and the queue orders per record, so
-    // everything the crew does to that ring afterwards waits behind it. Task 10's Sync Center is
-    // where it gets resolved; until then the crew at least learns it happened, and how many.
+    // The queue's own state rides ALONGSIDE whatever else the strip is saying, because it is a
+    // different fact about a different thing and both can be true at once. Making it a branch of
+    // its own put it in front of everything below — including "บันทึกลงเครื่องไม่ได้", which says
+    // the queue is not durable at all and outranks anything in it — and, being permanent until
+    // Task 10 exists, it would have held that place for good. The quiet half had the mirror-image
+    // fault: sitting last, it could never appear while the device was offline, which is the one
+    // situation it was written for.
     const stuck = (syncSummary.conflicts || 0) + (syncSummary.errors || 0);
-    if (stuck > 0) return { text: `${stuck} รายการติดค้าง ยังไม่ขึ้นเซิร์ฟเวอร์ — แจ้งผู้ดูแลระบบ`, spinning: false };
+    const waiting = (syncSummary.pending || 0) + (syncSummary.syncing || 0);
+    // Task 10's Sync Center is where a stuck write gets resolved; until then the crew at least
+    // learns it happened. Its row stays on screen looking recorded while the sheet has never seen
+    // it, and the queue orders per record, so everything they do to that ring waits behind it.
+    const queueNote = stuck > 0
+      ? `${stuck} รายการติดค้าง ยังไม่ขึ้นเซิร์ฟเวอร์ — แจ้งผู้ดูแลระบบ`
+      : waiting > 0 ? `${waiting} รายการรอซิงก์ขึ้นเซิร์ฟเวอร์` : null;
+    const withQueue = notice => (queueNote ? { ...notice, text: `${notice.text} · ${queueNote}` } : notice);
     // The rows for this machine are not on screen yet (first launch, or a machine switch whose
     // snapshot is still loading). Step 4 requires a `refreshing` signal here: the lists are empty
     // because we refuse to show another machine's rings, so say so rather than look like no data.
-    if (!rowsReady) return { text: "กำลังโหลดข้อมูลของเครื่องนี้…", spinning: true };
-    if (offlineData.refreshing) return { text: "กำลังอัปเดตข้อมูลจากเซิร์ฟเวอร์…", spinning: true };
+    if (!rowsReady) return withQueue({ text: "กำลังโหลดข้อมูลของเครื่องนี้…", spinning: true });
+    if (offlineData.refreshing) return withQueue({ text: "กำลังอัปเดตข้อมูลจากเซิร์ฟเวอร์…", spinning: true });
     if (offlineData.cacheError) {
-      return { text: "ข้อมูลล่าสุดแสดงอยู่ แต่บันทึกลงเครื่องไม่ได้ — ปิดแอพแล้วข้อมูลจะไม่อยู่", spinning: false };
+      return withQueue({ text: "ข้อมูลล่าสุดแสดงอยู่ แต่บันทึกลงเครื่องไม่ได้ — ปิดแอพแล้วข้อมูลจะไม่อยู่", spinning: false });
     }
     if (offlineData.stale && offlineData.source !== "empty") {
       // date AND time: a snapshot from the start of the shift and one from minutes ago both render
@@ -393,16 +403,13 @@ const PrimaryGroutApp = () => {
       // Only claim the device is offline when it is. A permission page, an HTTP 4xx or malformed
       // JSON all fail while online, and their diagnostic code belongs on screen.
       const offline = typeof navigator !== "undefined" && navigator.onLine === false;
-      if (offline) return { text: `ออฟไลน์ — ${saved}`, spinning: false };
+      if (offline) return withQueue({ text: `ออฟไลน์ — ${saved}`, spinning: false });
       const code = offlineData.error && offlineData.error.code ? ` (${offlineData.error.code})` : "";
-      return { text: `เชื่อมต่อเซิร์ฟเวอร์ไม่ได้${code} — ${saved}`, spinning: false };
+      return withQueue({ text: `เชื่อมต่อเซิร์ฟเวอร์ไม่ได้${code} — ${saved}`, spinning: false });
     }
-    // nothing wrong, but work is still on its way out: worth saying quietly, because "saved" here
-    // means saved on this device and the crew otherwise has no way to tell the difference
-    if (syncSummary.pending > 0 || syncSummary.syncing > 0) {
-      return { text: `${syncSummary.pending + syncSummary.syncing} รายการรอซิงก์ขึ้นเซิร์ฟเวอร์`, spinning: false };
-    }
-    return null;
+    // nothing else to report: the queue's state stands on its own. "Saved" here means saved on this
+    // device, and nothing else on screen tells the crew the difference.
+    return queueNote ? { text: queueNote, spinning: false } : null;
   }, [rowsReady, offlineData.refreshing, offlineData.stale, offlineData.source, offlineData.fetchedAt, offlineData.cacheError, offlineData.error, syncSummary]);
 
   if (isLoadingMain) return (

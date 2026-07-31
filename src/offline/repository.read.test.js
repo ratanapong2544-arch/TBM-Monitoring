@@ -8,6 +8,14 @@ import { ApiFailure } from "./apiTransport";
 beforeEach(async () => { await deleteOfflineDbForTests(); });
 afterEach(async () => { await deleteOfflineDbForTests(); });
 
+// A clock that always moves. The rules about a request and a confirmation racing are ORDERINGS, and
+// on the real clock both can land in the same millisecond — which makes the comparison pass or fail
+// by timing rather than by the rule, and lets an inverted comparison survive most runs.
+function advancingClock(startMs = Date.parse("2026-07-30T02:00:00.000Z")) {
+  let tick = 0;
+  return () => new Date(startMs + (tick += 1000)).toISOString();
+}
+
 test("load returns an explicit stale empty wrapper before any snapshot", async () => {
   const repository = createRepository({ openDb: openOfflineDb });
   await expect(repository.load("TBM1")).resolves.toEqual(expect.objectContaining({ source: "empty", fetchedAt: null, stale: true, data: expect.objectContaining({ machine: "TBM1", segments: [], grouts: [], syncMeta: {} }) }));
@@ -148,6 +156,52 @@ test("an offline edit of one of two rows sharing a ring does not displace the ot
   expect(rows.find(row => row.id === "seg_a").length).toBe("1.40");
 });
 
+test("an edit whose row another device removed does not displace a row that is still there", async () => {
+  // Two rows share ring P643. The crew edits seg_b offline; meanwhile another device removes seg_b
+  // from the sheet. The next answer carries only seg_a — and painting the crew's edit onto it would
+  // show their change on a record they never touched AND take a real row off screen. The edit keeps
+  // its own place instead: it is unsynced work, and dropping it would lose it.
+  const repository = createRepository({ openDb: openOfflineDb, fetchServerSnapshot: async () => ({ segments: twoRowsOnOneRing }) });
+  await repository.refresh("TBM1");
+  await repository.mutate({
+    entityType: "segment", operation: "update", machine: "TBM1", recordId: "seg_b",
+    payload: { id: "seg_b", ringNo: "P643", installType: "Permanent", length: "9.99" }, baseVersion: 0,
+    domainKey: "segment:TBM1:P643:Permanent",
+  });
+
+  const sheetWithoutB = createRepository({ openDb: openOfflineDb, fetchServerSnapshot: async () => ({ segments: [twoRowsOnOneRing[0]] }) });
+  const rows = (await sheetWithoutB.refresh("TBM1")).data.segments;
+
+  expect(rows.map(row => row.id).sort()).toEqual(["seg_a", "seg_b"]);
+  expect(rows.find(row => row.id === "seg_a").length).toBe("1.40"); // untouched by someone else's edit
+  expect(rows.find(row => row.id === "seg_b").length).toBe("9.99"); // the crew's own work, still theirs
+});
+
+test("a confirmed delete of one row does not hide its neighbour", async () => {
+  // the confirmed half of the tombstone names a row exactly as the pending half does; ignoring which
+  // row it named took both off screen, on a device whose crew asked for neither
+  let releaseFetch;
+  const repository = createRepository({
+    openDb: openOfflineDb,
+    fetchServerSnapshot: async () => new Promise(resolve => { releaseFetch = () => resolve({ segments: twoRowsOnOneRing }); }),
+  });
+  await repository.mutate({
+    entityType: "segment", operation: "delete", machine: "TBM1", recordId: "seg_a",
+    payload: { id: "seg_a", ringNo: "P643", installType: "Permanent" }, baseVersion: 0,
+    domainKey: "segment:TBM1:P643:Permanent",
+  });
+  const queued = (await repository.getDueMutations(Date.now()))[0];
+
+  const refreshing = repository.refresh("TBM1");
+  await repository.applySyncSuccess(queued.requestId, {
+    requestId: queued.requestId, status: "success",
+    record: { id: "seg_a", deleted: true }, version: 2, updatedAt: "2026-07-30T02:00:00.000Z",
+  });
+  releaseFetch();
+
+  expect((await refreshing).data.segments.map(row => row.id)).toEqual(["seg_b"]);
+});
+
 test("deleting one of two rows sharing a ring keeps the other", async () => {
   const repository = createRepository({ openDb: openOfflineDb, fetchServerSnapshot: async () => ({ segments: twoRowsOnOneRing }) });
   await repository.refresh("TBM1");
@@ -218,6 +272,10 @@ test("a ring confirmed while the launch fetch was in flight is not wiped by it",
   let releaseFetch;
   const repository = createRepository({
     openDb: openOfflineDb,
+    // an injected clock, because the rule under test is an ORDERING: on the real clock the request
+    // and the confirmation can land in the same millisecond, and then the comparison passes or fails
+    // by luck rather than by the rule — a full inversion of it survived two runs in three
+    now: advancingClock(),
     // the answer describes the sheet as it was BEFORE the queued ring reached it
     fetchServerSnapshot: async () => new Promise(resolve => { releaseFetch = () => resolve({ segments: [{ id: "s0", ringNo: "P499" }], syncMeta: {} }); }),
   });
@@ -251,6 +309,7 @@ test("a ring deleted while the launch fetch was in flight does not come back", a
   let releaseFetch;
   const repository = createRepository({
     openDb: openOfflineDb,
+    now: advancingClock(), // an ordering rule needs a clock that orders — see the create case above
     fetchServerSnapshot: async () => new Promise(resolve => { releaseFetch = () => resolve({ segments: [{ id: "s0", ringNo: "P499" }, { id: "s1", ringNo: "P500" }], syncMeta: {} }); }),
   });
   await repository.mutate({
@@ -318,6 +377,61 @@ test("re-recording a ring this device just deleted works without waiting for a r
     entityType: "segment", operation: "create", machine: "TBM1", recordId: "seg_new",
     payload: { id: "seg_new", ringNo: "P500", installType: "Permanent" }, syncMeta: data.syncMeta,
   }).baseVersion).toBe(2);
+});
+
+test("a refresh does not walk a stored version backwards", async () => {
+  // The persistent half of the version merge, and the one that matters more: it survives the
+  // relaunch. This device confirms version 5; a getData composed earlier carries 2; keeping 2 means
+  // the next edit claims 2, the server answers `conflict` for a row nobody else touched, and that
+  // conflict parks at the head of the ring's domain with no UI until Task 10.
+  const repository = createRepository({
+    openDb: openOfflineDb,
+    now: () => "2026-07-30T02:00:00.000Z",
+    fetchServerSnapshot: async () => ({ segments: [{ id: "s1", ringNo: "P643" }], syncMeta: { "segment:TBM1:P643:Permanent": { version: 2 } } }),
+  });
+  await repository.refresh("TBM1");
+  const queued = await repository.mutate({
+    entityType: "segment", operation: "update", machine: "TBM1", recordId: "s1",
+    payload: { id: "s1", ringNo: "P643", status: "Completed" }, baseVersion: 2,
+    domainKey: "segment:TBM1:P643:Permanent",
+  });
+  await repository.applySyncSuccess(queued.requestId, {
+    requestId: queued.requestId, status: "success",
+    record: { id: "s1", ringNo: "P643" }, version: 5, updatedAt: "2026-07-30T02:00:00.000Z",
+  });
+
+  // the same older answer arrives again
+  const refreshed = await repository.refresh("TBM1");
+
+  expect(refreshed.data.syncMeta["segment:TBM1:P643:Permanent"]).toMatchObject({ version: 5 });
+  expect((await repository.load("TBM1")).data.syncMeta["segment:TBM1:P643:Permanent"]).toMatchObject({ version: 5 });
+});
+
+test("a confirmed edit leaves the key live, so the next record for that ring still conflicts", async () => {
+  // the tombstone flag has two sides. Marking a key deleted when it is not would hand the NEXT
+  // create the live version — and GAS reads a create whose base matches as a post-conflict
+  // successor, applying it onto the row already there.
+  const repository = createRepository({
+    openDb: openOfflineDb,
+    fetchServerSnapshot: async () => ({ segments: [{ id: "s1", ringNo: "P643" }], syncMeta: { "segment:TBM1:P643:Permanent": { version: 2 } } }),
+  });
+  await repository.refresh("TBM1");
+  const queued = await repository.mutate({
+    entityType: "segment", operation: "update", machine: "TBM1", recordId: "s1",
+    payload: { id: "s1", ringNo: "P643", status: "Completed" }, baseVersion: 2,
+    domainKey: "segment:TBM1:P643:Permanent",
+  });
+  await repository.applySyncSuccess(queued.requestId, {
+    requestId: queued.requestId, status: "success",
+    record: { id: "s1", ringNo: "P643" }, version: 3, updatedAt: "2026-07-30T02:00:00.000Z",
+  });
+
+  const { data } = await repository.load("TBM1");
+  expect(data.syncMeta["segment:TBM1:P643:Permanent"]).toMatchObject({ version: 3, deleted: false });
+  expect(buildMutationEnvelope({
+    entityType: "segment", operation: "create", machine: "TBM1", recordId: "seg_other",
+    payload: { id: "seg_other", ringNo: "P643", installType: "Permanent" }, syncMeta: data.syncMeta,
+  }).baseVersion).toBe(0);
 });
 
 test("a ring another crew still holds is not quietly taken over by a second record", async () => {

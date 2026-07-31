@@ -113,9 +113,13 @@ export async function writeServerSnapshot(db, machine, data, fetchedAt, requeste
     if (mutation.status !== MUTATION_STATUS.PENDING && mutation.status !== MUTATION_STATUS.SYNCING) return null;
     return mutation;
   };
-  // a delete names one row; a row the sheet returned without an id cannot be matched to it
+  // A delete names one row, and a row the sheet returned without an id cannot be matched to it.
+  // Both sides read the same way as `entityKeyForRecord`, which the snapshot key patch uses: an
+  // absent id on either side matches nothing. `requireMutationEnvelope` refuses a delete with no
+  // record id, so the mutation side cannot be absent anyway — and answering "matches everything"
+  // there would have made this half of the rule contradict the other.
   const matchesDeletedRow = (mutation, recordId) => {
-    if (mutation.recordId == null || mutation.recordId === "") return true;
+    if (mutation.recordId == null || mutation.recordId === "") return false;
     if (recordId == null || recordId === "") return false;
     return String(recordId) === String(mutation.recordId);
   };
@@ -186,12 +190,40 @@ export async function writeServerSnapshot(db, machine, data, fetchedAt, requeste
       const rowId = record.payload && record.payload.id;
       if (localId == null) return true; // the local copy names no row, so it speaks for the domain
       if (String(localId) === String(rowId)) return true;
-      // it names a row that is NOT this one. Only fall back to this row if the response does not
-      // carry the row it names — otherwise a queued edit of one record is painted over its
-      // neighbour, including a row the sheet returned with no id of its own to defend it.
+      // It names a row that is NOT this one. A CREATE may still take this slot: it has no row on the
+      // sheet yet, and putting it here is what keeps one ring reading as one ring until the server
+      // settles which record owns it. An edit or a delete may not — the row it names either arrived
+      // in this response, in which case that is where it belongs, or it did not, in which case
+      // painting it onto a neighbour shows the crew's change on a record they never touched and
+      // hides a row that really is on the sheet. Unmatched edits are appended below instead.
+      const queued = unresolvedByDomain.get(record.domainKey);
+      if (queued && queued.operation !== "create") return false;
       const ids = incomingIdsByDomain.get(record.domainKey);
       return !(ids && ids.has(String(localId)));
     };
+    // An edit or delete whose row this response does not carry keeps its own place in the list
+    // rather than displacing a stranger: the sheet no longer shows the row it is about (another
+    // device removed it, or it has not landed yet), and dropping it would take the crew's own
+    // unsynced work off screen.
+    const unmatchedById = new Map();
+    existing.filter(record => inScope(record, entityType) && preserveLocal(record))
+      .filter(record => incomingDomains.has(record.domainKey) && !retainedDomains.has(record.domainKey))
+      .filter(record => {
+        const localId = record.payload && record.payload.id;
+        if (localId == null) return false;
+        const ids = incomingIdsByDomain.get(record.domainKey);
+        if (ids && ids.has(String(localId))) return false;
+        const queued = unresolvedByDomain.get(record.domainKey);
+        return Boolean(queued) && queued.operation !== "create" && !deletePending(record.domainKey, localId);
+      })
+      // the store holds two rows for a record mid-edit — the server copy from the last refresh and
+      // the optimistic one — and the crew's own copy is the one to keep
+      .forEach(record => {
+        const id = String(record.payload.id);
+        const held = unmatchedById.get(id);
+        if (!held || record.key === optimisticEntityKey(record.domainKey)) unmatchedById.set(id, record);
+      });
+    const unmatchedLocal = [...unmatchedById.values()];
     const overlaidDomains = new Set();
     const merged = incoming.filter(record => !deletePending(record.domainKey, record.payload && record.payload.id)).map(record => {
       const local = localForDomain(record.domainKey, entityType);
@@ -201,7 +233,7 @@ export async function writeServerSnapshot(db, machine, data, fetchedAt, requeste
         return preserve(local, status || local.payload.syncStatus);
       }
       return record;
-    }).concat(retained.map(record => preserve(record, unresolvedStatus(record.domainKey) || record.payload.syncStatus)));
+    }).concat(retained.concat(unmatchedLocal).map(record => preserve(record, unresolvedStatus(record.domainKey) || record.payload.syncStatus)));
     entityKeys[field] = merged.map(record => record.key);
     committed[field] = merged.map(record => record.payload);
     merged.forEach(record => entities.put(record));

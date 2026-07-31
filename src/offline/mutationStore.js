@@ -269,7 +269,15 @@ export async function confirmMutation(db, requestId, response, { owner, confirme
       .filter(item => item.domainKey === mutation.domainKey && item.requestId !== requestId
         // only what is still on its way. A conflicted or refused mutation is not queued behind this
         // one — it is parked, and whatever resolves it composes its own base from the server's copy.
-        && (item.status === MUTATION_STATUS.PENDING || item.status === MUTATION_STATUS.SYNCING))
+        && (item.status === MUTATION_STATUS.PENDING || item.status === MUTATION_STATUS.SYNCING)
+        // and never a create onto a key this write left LIVE. A create claims a version only to lift
+        // a tombstone; handing it the version of a record that now exists tells GAS it is a
+        // post-conflict successor, and GAS then applies it onto that row and discards its own id —
+        // two rings recorded, one row kept, `success` reported. `createBaseVersion` closes exactly
+        // that door on the way in, and rebasing indiscriminately reopened it for this device's own
+        // second create. A create behind a confirmed DELETE is the opposite case: the key really was
+        // vacated, and the version it must claim is the one the delete just wrote.
+        && (item.operation !== "create" || mutation.operation === "delete"))
       .forEach(item => {
         const patched = { ...item, baseVersion: confirmedVersion };
         rebased.set(item.requestId, patched);

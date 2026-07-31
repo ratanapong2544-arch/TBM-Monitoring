@@ -106,6 +106,43 @@ test("the row on screen after a confirmation is the newest edit, not an older on
   await expect(repository.getEntity(first.optimisticRecord.domainKey)).resolves.toMatchObject({ payload: expect.objectContaining({ status: "third" }) });
 });
 
+test("a second record for one ring is not rebased into an overwrite of the first", async () => {
+  // Rebasing keeps an offline chain of EDITS linear. A create is not part of that chain: it claims
+  // a version only to lift a tombstone, and handing it the version of a record that now exists tells
+  // GAS it is a post-conflict successor — GAS then applies it onto that row and discards its own id,
+  // so two rings recorded become one row kept, reported as success. That is the collapse
+  // `createBaseVersion` refuses on the way in; the rebase must not undo it on the way out.
+  const repository = makeRepository({ createRequestId: (() => { let n = 0; return () => `request-${++n}`; })() });
+  const create = input => ({ ...segmentInput, operation: "create", baseVersion: 0, payload: { ...segmentInput.payload, ...input } });
+  const first = await repository.mutate(create({ status: "first" }));
+  const second = await repository.mutate(create({ status: "second" }));
+
+  await repository.applySyncSuccess(first.requestId, {
+    requestId: first.requestId, status: "success",
+    record: { id: "segment-1", domainKey: first.optimisticRecord.domainKey },
+    version: 1, updatedAt: "2026-07-29T01:00:00.000Z",
+  });
+
+  await expect(repository.getMutation(second.requestId)).resolves.toMatchObject({ operation: "create", baseVersion: 0 });
+});
+
+test("a record queued behind a confirmed delete claims the version that delete wrote", async () => {
+  // the opposite case, and the reason the rule is about the CONFIRMED operation rather than about
+  // creates in general: the key really was vacated, and a create at 0 would be refused by the
+  // tombstone the delete just left
+  const repository = makeRepository({ createRequestId: (() => { let n = 0; return () => `request-${++n}`; })() });
+  const remove = await repository.mutate({ ...segmentInput, operation: "delete" });
+  const again = await repository.mutate({ ...segmentInput, operation: "create", baseVersion: 0, payload: { ...segmentInput.payload, status: "re-recorded" } });
+
+  await repository.applySyncSuccess(remove.requestId, {
+    requestId: remove.requestId, status: "success",
+    record: { id: "segment-1", deleted: true },
+    version: 3, updatedAt: "2026-07-29T01:00:00.000Z",
+  });
+
+  await expect(repository.getMutation(again.requestId)).resolves.toMatchObject({ operation: "create", baseVersion: 3 });
+});
+
 test("a mutation the server refused is not quietly rebased under the crew's feet", async () => {
   // rebasing only what is still on its way. A parked conflict is not queued behind anything — it is
   // waiting for someone to resolve it, and its payload was composed against the row state the

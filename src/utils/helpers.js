@@ -81,7 +81,11 @@ export const safeParseJSON = (jsonString, fallback) => {
 
 // นาทีของ event ใน shift หนึ่ง (อ้างอิงจุดเริ่มกะ: Day 07:00 / Night 19:00),
 // รองรับคร่อมเที่ยงคืน + clamp 0..720 (12 ชม./กะ) — mirror ตรรกะใน ShiftReportView
-export const shiftEventMinutes = (start, end, shift) => {
+// Where a time bar SITS inside its shift, clamped to the 12-hour window, in minutes from the shift's
+// start. Its length is the usual question and `shiftEventMinutes` below answers it — but not the
+// only one: two bars covering the same minutes of one activity are one stoppage recorded twice, and
+// telling that apart needs where they sit, not how long they are.
+export const shiftEventWindow = (start, end, shift) => {
   const startH = shift === "Night" ? 19 : 7;
   const toMin = (t) => {
     if (!t) return null;
@@ -95,9 +99,14 @@ export const shiftEventMinutes = (start, end, shift) => {
   };
   let s = toMin(start);
   let e = toMin(end);
-  if (s === null || e === null) return 0;
+  if (s === null || e === null) return [0, 0];
   s = Math.max(0, Math.min(s, 720));
   e = Math.max(0, Math.min(e, 720));
   if (e < s) e = s;
+  return [s, e];
+};
+
+export const shiftEventMinutes = (start, end, shift) => {
+  const [s, e] = shiftEventWindow(start, end, shift);
   return e - s;
 };

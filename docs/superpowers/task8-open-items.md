@@ -72,14 +72,25 @@ The reasoning "two rows on one ring is a state the data logs dedupe for" is true
 `SegmentDashboardView`, and all four key on `ringNo`.
 
 - **shiftReport** — **CLOSED for `PerformanceView`**, which now counts one shift per (date, shift)
-  and UNIONS the time bars across the rows describing it, identifying a bar by its category, window
-  and label. It was counting each row as a shift of its own: 24 hours of availability for a 12 hour
-  shift, and every delay bar present in both counted twice, on a page that gets printed for the
-  owner. Keeping only the first row was tried and was also wrong — measured against the captured
-  production payload, the live sheet's three duplicated shifts contain 510 minutes of genuine
-  re-saves AND 60 minutes (2026-04-09 Day, `Locomotive / Rail System` 14:00–15:00) recorded on the
-  later row alone. Two bars agreeing on category, window and label cannot be two things that
-  happened. Nothing else dedupes shift reports.
+  and counts its time bars by the MINUTES THEY OCCUPY within each category, not per bar. It was
+  counting each row as a shift of its own: 24 hours of availability for a 12 hour shift, and every
+  delay bar present in both counted twice, on a page that gets printed for the owner. Two attempts
+  before this one were wrong, both measured against the captured production payload:
+  - **Keep the first row** loses work — the later row of 2026-04-09 Day carries an hour of
+    `Locomotive / Rail System` (14:00–15:00) that the first does not.
+  - **Match bars by category, window and label** collapsed NOTHING. The duplicated rows are two
+    transcriptions of one shift by a crew who could not see the first, so they agree on when the
+    machine stood still and on nothing else: 2026-04-09 Day carries `Clean Area 08:00-17:00` on both
+    rows with labels differing by one space, and 2026-03-02 Night records the same rail work as
+    19:00–20:00 and as 19:00–20:30. It printed **18.0 ชม. of delay inside a 12 hour shift, and
+    150%** — worse than either of the states it replaced.
+
+  A shift cannot spend one minute twice on one activity, so overlap within a category is double
+  entry by definition; the rule follows from that and needs no guess about labels. It also collapses
+  overlap WITHIN a single row, which is the same rule and the same truth (the payload holds no such
+  bar today). **It does not bound the delay GROUP**: two different categories recorded over the same
+  minutes still add, so `Delay รวม` can exceed the shift. That is pre-existing, unchanged here, and
+  not in evidence in the payload. Nothing else dedupes shift reports.
   - **Latent:** a row with a blank `date` keys as `__<shift>`, so every undated row of one shift name
     collapses into one. The captured payload holds none, and `filterByState` does not filter them out
     in the default mode, so this is waiting on the first blank-dated sheet row.

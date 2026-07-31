@@ -1,7 +1,7 @@
 import { makeDomainKey } from "./domainKey";
 import { isLegacyOptimisticKey, isOptimisticKey, optimisticEntityKey } from "./entityKeys";
 import { DB_NAME, DB_VERSION, MUTATION_STATUS, STORES } from "./schema";
-import { FIELD_FOR_ENTITY_TYPE, isMachineScopedEntityType } from "./snapshotStore";
+import { FIELD_FOR_ENTITY_TYPE, isMachineScopedEntityType, UNRESOLVED_STATUSES } from "./snapshotStore";
 
 let openDbPromise;
 let openDb;
@@ -42,7 +42,7 @@ export function recordScopeOptimisticKeys(transaction) {
   snapshots.getAll().onsuccess = snapshotsEvent => {
     const stored = snapshotsEvent.target.result || [];
     transaction.objectStore(STORES.mutations).getAll().onsuccess = mutationsEvent => {
-      const hidden = tombstonedKeys(mutationsEvent.target.result, mutation => mutation.domainKey);
+      const hidden = tombstonedKeys(mutationsEvent.target.result, mutation => mutation.domainKey, Date.now());
       entities.getAll().onsuccess = event => {
         const kept = [];
         (event.target.result || []).forEach(record => {
@@ -70,12 +70,23 @@ export function recordScopeOptimisticKeys(transaction) {
 // `patchSnapshotKeys` that takes the key out of the list. So a rebuild that reads the store puts the
 // deleted ring back into the data log, the dashboards and the shift report's ring count, badged as
 // ordinary pending work, until the next successful getData — which underground is the next shift.
-// PENDING and SYNCING only, exactly as `deletePending` in the snapshot merge: in flight it hides,
-// stuck it shows. A delete the server refused is not on its way to anything, and hiding its row
-// would take a record off every screen on this device while it sits on the sheet, with nothing to
-// see and nothing to press before Task 10.
-function tombstonedKeys(mutations, canonicalDomainKey) {
-  return new Set((mutations || [])
+// It asks `deletePending`'s question, not a simpler one: is the NEWEST unresolved mutation for this
+// record a delete, and is it still on its way? Any device state where the migration hides a row the
+// first refresh shows is a defect — the two halves of one rule disagreeing is how a row flickers off
+// on one path and back on the other. So the lease matters (a SYNCING claim whose lease has expired
+// is not in flight, it is abandoned), a later edit of the same record supersedes the delete, and
+// PENDING/SYNCING is the whole of "on its way": in flight it hides, stuck it shows. A delete the
+// server refused is not travelling anywhere, and hiding its row would take a record off every screen
+// on this device while it sits on the sheet, with nothing to see and nothing to press before Task 10.
+function tombstonedKeys(mutations, canonicalDomainKey, now) {
+  const slot = mutation => `${canonicalDomainKey(mutation)}||${mutation.recordId}`;
+  const newestPerRecord = new Map();
+  (mutations || [])
+    .filter(mutation => UNRESOLVED_STATUSES.has(mutation.status)
+      && (mutation.status !== MUTATION_STATUS.SYNCING || !mutation.leaseExpiresAt || Date.parse(mutation.leaseExpiresAt) > now))
+    .sort((left, right) => (left.queueSequence || 0) - (right.queueSequence || 0))
+    .forEach(mutation => newestPerRecord.set(slot(mutation), mutation));
+  return new Set([...newestPerRecord.values()]
     .filter(mutation => mutation.operation === "delete"
       && (mutation.status === MUTATION_STATUS.PENDING || mutation.status === MUTATION_STATUS.SYNCING))
     .map(mutation => optimisticEntityKey(canonicalDomainKey(mutation), mutation.recordId)));
@@ -141,7 +152,7 @@ export function recanonicalizeDomainKeys(transaction) {
         }
       });
       // read from the CANONICAL key, since that is the shape the rows are being re-keyed into
-      const hidden = tombstonedKeys(mutationsEvent.target.result, makeDomainKey);
+      const hidden = tombstonedKeys(mutationsEvent.target.result, makeDomainKey, Date.now());
       // ONE pass over the entities, applying both rewrites: the domain remap where there is one, and
       // the record-scoped key for every legacy optimistic row. It runs even when the remap is empty,
       // because an install whose keys were already canonical still has v2-shaped optimistic rows —

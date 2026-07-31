@@ -4,7 +4,7 @@ import { filterByState } from "../../hooks/useGlobalFilter";
 import SectionHeader from "../common/SectionHeader";
 import StatCard from "../common/StatCard";
 import { formatDisplayTime, formatDisplayDate } from "../../utils/formatters";
-import { getRingNumeric, shiftEventMinutes, getLogicalShiftDate } from "../../utils/helpers";
+import { getRingNumeric, shiftEventMinutes, shiftEventWindow, getLogicalShiftDate } from "../../utils/helpers";
 import { chartColors, axisTick, tooltipStyle } from "../../ui-ux-pro-max/chartTheme";
 import { computeMuckImpact } from "../../utils/muckStats";
 import { classifyOther3 } from "../../utils/delayClassify";
@@ -26,6 +26,27 @@ const CAT = {
 };
 
 const fmt1 = (v) => Number(v || 0).toFixed(1);
+
+// How many minutes of this bar no earlier bar of the same category has already claimed. `covered`
+// is the disjoint set of minutes claimed so far and is extended here — disjoint because a bar
+// overlapping two earlier ones would otherwise have the shared part subtracted twice.
+function uncoveredMinutes(covered, [from, to]) {
+  if (to <= from) return 0;
+  let minutes = to - from;
+  covered.forEach(([start, end]) => {
+    const overlap = Math.min(to, end) - Math.max(from, start);
+    if (overlap > 0) minutes -= overlap;
+  });
+  covered.push([from, to]);
+  covered.sort((a, b) => a[0] - b[0]);
+  for (let i = 1; i < covered.length; i += 1) {
+    if (covered[i][0] > covered[i - 1][1]) continue;
+    covered[i - 1][1] = Math.max(covered[i - 1][1], covered[i][1]);
+    covered.splice(i, 1);
+    i -= 1;
+  }
+  return Math.max(0, minutes);
+}
 
 export default function PerformanceView({ segmentRecords = [], shiftReports = [], filterState = {} }) {
   const filteredSegments = useMemo(() => filterByState(segmentRecords, filterState), [segmentRecords, filterState]);
@@ -73,31 +94,27 @@ export default function PerformanceView({ segmentRecords = [], shiftReports = []
     // queue the second row no longer needs a duplicate on the sheet: a report created with no link
     // is refused when the link returns (GAS answers `conflict` against the row already there for
     // that date and shift) and the refused copy stays in the list so the crew can see it.
-    // The shift's own fields come from the FIRST row: the snapshot merge appends local-only rows
-    // after the server's and a relaunch replays that order, so the first is the row the sheet holds
-    // — decided without reading a sync status, which a relaunch does not refresh.
-    // The time bars are UNIONED, because dropping the later row loses work: on the live sheet the
-    // later row of 2026-04-09 Day carries an hour of Locomotive / Rail System the kept row does not.
-    // A bar is identified by what a bar IS — its category, its window and its label — so a re-save
-    // collapses and a genuinely new entry survives. Two bars agreeing on all three cannot be two
-    // things that happened: one shift cannot hold the same activity twice over the same minutes.
+    // The shift's own fields come from the FIRST row; every row's time bars are gathered, and the
+    // minutes are counted by the MINUTES THEY OCCUPY rather than per bar. Two rows describing one
+    // shift are two transcriptions of it — the crew who typed the second could not see the first —
+    // so their bars agree on when the machine stood still and rarely on anything else. On the live
+    // sheet the two rows of 2026-04-09 Day both carry Clean Area 08:00-17:00, with labels differing
+    // by one space, and the two rows of 2026-03-02 Night carry the same rail work as 19:00-20:00 and
+    // 19:00-20:30. Counting each bar gave 18 hours of delay inside a 12 hour shift, printed as 150%;
+    // matching bars by label collapsed neither pair. A shift cannot spend one minute twice on one
+    // activity, so overlap within a category is double entry by definition — and the hour of
+    // Locomotive / Rail System that only the later row of 2026-04-09 records still adds, because no
+    // earlier bar of that category covers it.
     // `formatDisplayDate` because the rows reach here with different date formats: GAS serializes
     // the sheet's date cell as UTC ISO, a report composed on the device carries the calendar date.
     const shiftRows = new Map();
-    const seenEvents = new Map();
     filteredShiftReports.forEach((r) => {
       const key = `${formatDisplayDate(r.date)}__${r.shift}`;
-      if (!shiftRows.has(key)) { shiftRows.set(key, { ...r, events: {} }); seenEvents.set(key, new Set()); }
-      const merged = shiftRows.get(key);
-      const seen = seenEvents.get(key);
+      if (!shiftRows.has(key)) shiftRows.set(key, { ...r, events: {} });
+      const merged = shiftRows.get(key).events;
       Object.keys(r.events || {}).forEach((cat) => {
         const arr = Array.isArray(r.events[cat]) ? r.events[cat] : [];
-        arr.forEach((ev) => {
-          const id = `${cat}|${ev.start}|${ev.end}|${ev.label || ""}`;
-          if (seen.has(id)) return;
-          seen.add(id);
-          merged.events[cat] = (merged.events[cat] || []).concat(ev);
-        });
+        if (arr.length) merged[cat] = (merged[cat] || []).concat(arr);
       });
     });
     Array.from(shiftRows.values()).forEach((r) => {
@@ -105,15 +122,15 @@ export default function PerformanceView({ segmentRecords = [], shiftReports = []
       const events = r.events || {};
       Object.keys(events).forEach((cat) => {
         const arr = Array.isArray(events[cat]) ? events[cat] : [];
-        const mins = arr.reduce((s, ev) => s + shiftEventMinutes(ev.start, ev.end, r.shift), 0);
-        catMin[cat] = (catMin[cat] || 0) + mins;
-        // แตก "Other 3" (catch-all) ตาม label เพื่อให้ Pareto โชว์สาเหตุจริงแทนแท่งรวมเดียว
-        if (cat === "Other 3") {
-          arr.forEach((ev) => {
-            const m = shiftEventMinutes(ev.start, ev.end, r.shift);
-            if (m > 0) { const th = classifyOther3(ev.label); other3Theme[th] = (other3Theme[th] || 0) + m; }
-          });
-        }
+        const covered = [];
+        arr.forEach((ev) => {
+          const mins = uncoveredMinutes(covered, shiftEventWindow(ev.start, ev.end, r.shift));
+          if (mins <= 0) return;
+          catMin[cat] = (catMin[cat] || 0) + mins;
+          // แตก "Other 3" (catch-all) ตาม label เพื่อให้ Pareto โชว์สาเหตุจริงแทนแท่งรวมเดียว
+          // counted from the same minutes, so the themes always add up to the category total
+          if (cat === "Other 3") { const th = classifyOther3(ev.label); other3Theme[th] = (other3Theme[th] || 0) + mins; }
+        });
       });
       operating += Math.min(SHIFT_MINUTES, shiftOp[`${formatDisplayDate(r.date)}__${r.shift}`] || 0);
     });

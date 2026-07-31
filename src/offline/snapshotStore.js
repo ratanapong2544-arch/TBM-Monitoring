@@ -15,7 +15,10 @@ const singletonKeys = ["planConfig", "distPlanConfig", "routeConfigs", "routePro
 // entities whose sheet (and therefore whose getData payload) is per machine; everything else is
 // returned project-wide, so an unsynced record of any machine belongs in the list
 const MACHINE_SCOPED_COLLECTIONS = new Set(["segment", "grout", "secondaryGrout", "shiftReport"]);
-const UNRESOLVED_STATUSES = new Set([MUTATION_STATUS.PENDING, MUTATION_STATUS.SYNCING, MUTATION_STATUS.VALIDATION_ERROR, MUTATION_STATUS.CONFLICT]);
+// exported because the migration in `db.js` answers the same question about the same rows: two
+// spellings of "still unresolved" would let the list a migration rebuilds disagree with the list the
+// next refresh produces, for the same store
+export const UNRESOLVED_STATUSES = new Set([MUTATION_STATUS.PENDING, MUTATION_STATUS.SYNCING, MUTATION_STATUS.VALIDATION_ERROR, MUTATION_STATUS.CONFLICT]);
 // confirmed mutations kept for the Sync Center's recent list (it shows the last 50)
 const CONFIRMED_MUTATION_RETENTION = 200;
 

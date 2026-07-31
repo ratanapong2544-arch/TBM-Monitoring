@@ -337,6 +337,40 @@ test("a ring whose delete the server refused stays visible after an upgrade", as
   expect(loaded.segments.map(row => row.id)).toEqual(["seg_y"]);
 });
 
+test("a delete whose claim was abandoned mid-post leaves its row visible", async () => {
+  // A SYNCING lease that has expired is not a write in flight, it is one whose device was killed
+  // mid-post; `unresolvedByRecord` drops it and `deletePending` shows the row. The migration must
+  // agree — a row the upgrade hides and the first refresh shows is the same rule answering twice.
+  const ringKey = "segment:TBM1:P646:Permanent";
+  await seedAtVersion(2, {
+    mutations: [{
+      requestId: "m-del", status: "syncing", operation: "delete", entityType: "segment", machine: "TBM1",
+      recordId: "seg_z", domainKey: ringKey, payload: { id: "seg_z" }, leaseExpiresAt: "2020-01-01T00:00:00.000Z",
+    }],
+    entities: [{ key: `entity:optimistic:${ringKey}`, entityType: "segment", machine: "TBM1", domainKey: ringKey, payload: { id: "seg_z" } }],
+    snapshots: [{ scopeKey: "getData:TBM1", machine: "TBM1", entityKeys: { segments: [] } }],
+  });
+
+  expect((await readServerSnapshot(await openOfflineDb(), "TBM1")).segments.map(row => row.id)).toEqual(["seg_z"]);
+});
+
+test("a delete superseded by a later edit of the same record leaves its row visible", async () => {
+  // `deletePending` reads the NEWEST unresolved mutation for the record, so an edit queued after a
+  // delete takes its place and the row stands. Not reachable through the shipped forms today — a
+  // deleted row leaves React state — but it is the rule, and Task 9 queues writes from more places.
+  const ringKey = "segment:TBM1:P647:Permanent";
+  await seedAtVersion(2, {
+    mutations: [
+      { requestId: "m-del", status: "pending", operation: "delete", entityType: "segment", machine: "TBM1", recordId: "seg_w", domainKey: ringKey, payload: { id: "seg_w" }, queueSequence: 1 },
+      { requestId: "m-edit", status: "pending", operation: "update", entityType: "segment", machine: "TBM1", recordId: "seg_w", domainKey: ringKey, payload: { id: "seg_w" }, queueSequence: 2 },
+    ],
+    entities: [{ key: `entity:optimistic:${ringKey}`, entityType: "segment", machine: "TBM1", domainKey: ringKey, payload: { id: "seg_w" } }],
+    snapshots: [{ scopeKey: "getData:TBM1", machine: "TBM1", entityKeys: { segments: [] } }],
+  });
+
+  expect((await readServerSnapshot(await openOfflineDb(), "TBM1")).segments.map(row => row.id)).toEqual(["seg_w"]);
+});
+
 test("a ring deleted offline does not come back on the v1 path either", async () => {
   // the same rule on the other migration path, where the tombstone has to be read from the
   // CANONICAL key — the one the row is being re-keyed into, not the one the mutation was stored with

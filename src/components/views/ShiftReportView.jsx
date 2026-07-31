@@ -3,6 +3,7 @@ import { FileText, CloudUpload, Save, Edit, Trash2, Plus, Users, Activity, Clock
 import { formatDisplayDate, formatDisplayTime } from "../../utils/formatters";
 import { getLogicalShiftDate, getRingNumeric, loadHtml2Canvas } from "../../utils/helpers";
 import { apiCall } from "../../utils/api";
+import { buildMutationEnvelope } from "../../offline/mutationEnvelope";
 import { fitAndPrint } from "../../utils/printFit";
 
 // Key order is not part of a record's identity: the cached copy and the server copy can serialize
@@ -15,53 +16,22 @@ const stableKey = (value) => {
   return JSON.stringify(value);
 };
 
-// Save bookkeeping lives OUTSIDE the component, because a save outlives the form that started it:
-// any nav tap unmounts this view while the request is still travelling. Per-instance state let the
-// remounted form mint a second id for a report the sheet already has — two rows for one shift, which
-// double-counts it and its delay minutes, and which only the first row ever receives updates for.
-// Keyed per report (machine|date|shift), so a different report is a different entry.
-const shiftSaveState = new Map();
-const shiftSaveStateFor = (key) => {
-  let state = shiftSaveState.get(key);
-  if (!state) { state = { draftId: null, savedIds: new Set(), chain: Promise.resolve() }; shiftSaveState.set(key, state); }
-  return state;
+// One id per report being composed, so an auto-save and a Save to Cloud that overlap describe the
+// same row rather than two. It outlives the mount because a save does: any nav tap unmounts this
+// view while its mutation is still queued, and a remounted form minting a fresh id would file a
+// second report for one shift. The queue owns everything else that used to live here — a deadline,
+// an unknown-outcome block, a per-report chain — because `requestId` makes a retry safe and the
+// per-domain ordering makes a second send an update rather than an append.
+const shiftDraftIds = new Map();
+const draftIdFor = (key) => {
+  if (!shiftDraftIds.has(key)) shiftDraftIds.set(key, `shift_${Date.now()}`);
+  return shiftDraftIds.get(key);
 };
 // module state persists across tests in one file, which would make them order-dependent
-export const __resetShiftSaveStateForTests = () => { shiftSaveState.clear(); };
+export const __resetShiftSaveStateForTests = () => { shiftDraftIds.clear(); };
 
-// `apiCall` has no deadline of its own, and the failure it needs one for is the same one the
-// snapshot fetch is bounded against: a captive portal or a quiet tunnel link completes the handshake
-// and then never answers. Without a deadline that request never settles, so the save button stays
-// disabled reading "Saving…", every later auto-save queues behind it and is silently swallowed, and
-// because the bookkeeping deliberately outlives the mount, navigating away and back does not clear
-// it — only a page reload does, which throws away everything the crew has typed.
-// 45 s, and the reasoning matters because a false positive here is expensive: the request is not
-// cancelled (apiCall has no abort path), so giving up early on a request that later lands leaves the
-// report in the "outcome unknown" state below until the server answers again. The write itself is
-// small — a shift report is kilobytes, not the 463 KB snapshot — but it queues behind
-// `LockService` (10 s of tryLock in GAS) on top of an Apps Script cold start, so a healthy save can
-// legitimately take tens of seconds on the same slow link the 90 s snapshot ceiling is sized for.
-// Like that one, this number is reasoned rather than measured; Task 12's matrix should time it.
-export const SHIFT_SAVE_TIMEOUT_MS = 45000;
-const withDeadline = (promise) => new Promise((resolve, reject) => {
-  const timer = setTimeout(() => reject(new Error("SHIFT_SAVE_TIMEOUT")), SHIFT_SAVE_TIMEOUT_MS);
-  promise.then(
-    value => { clearTimeout(timer); resolve(value); },
-    error => { clearTimeout(timer); reject(error); }
-  );
-});
-
-const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftReports, machine = "TBM1", isCurrentMachine, onRefresh, snapshotReady = true, readOnly = false }) => {
-  // WHICH reports are being saved, not merely "a save is running": a save stalled on the 30th used
-  // to leave the button disabled for the 31st too, for as long as the deadline lasts. A single slot
-  // was not enough either — starting B cleared the indication for A while A was still travelling.
-  const [savingKeys, setSavingKeys] = useState(() => new Set());
-  const markSaving = (key, saving) => setSavingKeys(prev => {
-    if (saving === prev.has(key)) return prev;
-    const next = new Set(prev);
-    if (saving) next.add(key); else next.delete(key);
-    return next;
-  });
+const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftReports, machine = "TBM1", isCurrentMachine, onMutate, syncMeta, readOnly = false }) => {
+  const [isSaving, setIsSaving] = useState(false);
   const [isExportingImage, setIsExportingImage] = useState(false);
 
   const defaultManpower = { Engineer: '', Operator: '', Surveyor: '', Machanic: '', Electrician: '', Foreman: '', Worker: '', CraneOp: '' };
@@ -143,16 +113,6 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
   // started from is still the one being edited
   const selectorKeyRef = useRef(selectorKey);
   selectorKeyRef.current = selectorKey;
-  // The block lives in module scope so it survives a nav tap, and module state cannot trigger a
-  // render on its own — this does.
-  const [, bumpUnresolved] = useState(0);
-  const [checking, setChecking] = useState(false);
-  const [checkFailed, setCheckFailed] = useState(false);
-  // Captured per save in `prepareSave`, never read at execution time: this prop describes the
-  // machine currently selected, and a queued save belongs to whichever machine it was started on.
-  // Reading it late discarded a time bar belonging to the other machine's report.
-  const snapshotReadyRef = useRef(snapshotReady);
-  snapshotReadyRef.current = snapshotReady;
   const autoResultRef = useRef(autoResult);
   autoResultRef.current = autoResult;
   const existingReportRef = useRef(existingReport);
@@ -211,7 +171,6 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
     ownWriteKeyRef.current = null;
     setServerCopyPending(false);
     setConfirmDiscard(false);
-    setCheckFailed(false); // a different report; the last check's failure says nothing about it
     // eslint-disable-next-line
   }, []);
 
@@ -261,82 +220,7 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
     setMeta({ ...meta, [e.target.name]: e.target.value });
   };
 
-  // One id per report being composed. Both save paths mint their own before `existingReport` turns
-  // truthy, so Save to Cloud overlapping a time-bar auto-save used to create two rows for the same
-  // date and shift — after which only the first was ever updated and the dashboards double-counted.
-  const reportIdForSave = () => {
-    if (existingReportRef.current) return existingReportRef.current.id;
-    const state = shiftSaveStateFor(selectorKey);
-    if (!state.draftId) state.draftId = `shift_${Date.now()}`;
-    return state.draftId;
-  };
-
-  // Sharing the id was not enough on its own: `addShiftReport` appends to the sheet without checking
-  // the id, and two saves in flight together both saw a falsy `existingReport` and both sent `add` —
-  // two rows for the same date and shift. Every later update hits only the first (the sheet scan
-  // stops at the first match), so the second stays frozen with a partial event set and the shift and
-  // its delay minutes are counted twice on the next refresh. Saves therefore run one at a time.
-  // One chain PER REPORT, not one for everything. A single chain meant a save stalled on the 30th
-  // held back the 31st, and both machines with it — one dead request blocking records it has nothing
-  // to do with. Ordering only ever mattered within one report anyway: that is where append-versus-
-  // update is decided.
-  // Releasing this block by INFERENCE has now been wrong three rounds running — a prop identity, a
-  // mount-scoped counter, and a completion timestamp were each a different fact from the one needed.
-  // The question is causal: was the sheet read after our request reached it? Only one fetch in the
-  // app has a knowable answer — one the crew issues from here, after we gave up waiting. Every
-  // ambient snapshot may have read the sheet long before, so an absent row in it proves nothing.
-  // Both notices call this. Only one can be ON SCREEN at a time — the cold-launch banner renders
-  // behind `!saveUnresolved`, which is the block itself — but that says nothing about what happens
-  // ACROSS the await: a save already travelling can give up while this fetch is in the air, arming
-  // the block after the press. This fetch was issued before that give-up, so it cannot speak to it,
-  // and clearing the block would let the next time bar append a second row for the shift. Hence the
-  // capture below: release only a block that was already armed when the question was asked.
-  const checkWithServer = async () => {
-    if (!onRefresh) return;
-    const key = selectorKey;
-    const state = shiftSaveStateFor(key);
-    // WHICH block, not merely whether one existed. Two checks can be in flight at once — press, nav
-    // tap (which remounts and re-enables the button), press again — and a boolean lets the older one
-    // release a block armed after it asked. The epoch only ever increases, so it cannot be recycled.
-    const blockEpochAtCheck = state.blocked ? (state.blockSerial || 0) : null;
-    const dateAtCheck = meta.date;
-    const shiftAtCheck = meta.shift;
-    setChecking(true);
-    setCheckFailed(false);
-    try {
-      const fresh = await onRefresh();
-      // still unreachable; the block stands. Say so on the notice itself — a button that looks
-      // unchanged reads as broken, and the crew's next move would be a reload, which drops the
-      // block along with everything they have typed since.
-      if (!fresh || !fresh.serverPayload) { setCheckFailed(true); return; }
-      // The SERVER's own answer, not the snapshot the app renders: that one re-injects unsynced
-      // local records and overlays optimistic payloads, so a row could be our own echo of the very
-      // write we are asking about.
-      const payload = fresh.serverPayload;
-      // An absent collection is not an empty one. The normalizer maps a missing key to [], so an
-      // older GAS deployment or a partial doGet would otherwise read as "the row never landed" and
-      // release the block — the same ambiguity App refuses to act on when mirroring collections.
-      if (!Object.prototype.hasOwnProperty.call(payload, "shiftReports")) { setCheckFailed(true); return; }
-      // Ask the question that matters — "does this shift have a row?" — rather than matching an id
-      // this device chose. An update-path block may have no draft id at all.
-      const rows = Array.isArray(payload.shiftReports) ? payload.shiftReports : [];
-      const landed = rows.find(r => formatDisplayDate(r.date) === dateAtCheck && String(r.shift) === String(shiftAtCheck));
-      if (landed && landed.id) state.savedIds.add(landed.id);
-      if (blockEpochAtCheck !== null && state.blocked && (state.blockSerial || 0) === blockEpochAtCheck) state.blocked = false;
-      bumpUnresolved(n => n + 1);
-    } catch (error) {
-      setCheckFailed(true);
-    } finally {
-      setChecking(false);
-    }
-  };
-
-  const queueSave = (key, run) => {
-    const state = shiftSaveStateFor(key);
-    const next = state.chain.then(run, run);
-    state.chain = next.then(() => {}, () => {});
-    return next;
-  };
+  const reportIdForSave = () => (existingReportRef.current ? existingReportRef.current.id : draftIdFor(selectorKey));
 
   // A save resolves seconds after it starts. If the crew switched machine meanwhile, writing the
   // result back would put one machine's crew counts and surveyed chainage into the other's state —
@@ -349,19 +233,21 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
     return true;
   };
 
-  // Everything about WHICH row this save is and WHAT it carries is decided here, when the crew acts —
-  // never when the queued request finally starts. Deciding the id later was worse than the duplicate
-  // it was meant to prevent: a queued save whose payload held the 30th could pick up the id minted
-  // for the 31st after the crew changed the date, and overwrite the wrong day's report with it.
-  // Only one thing is read at execution time, and it cannot be known earlier: whether this exact id
-  // has reached the sheet yet, which is what decides append versus update.
+  // Everything about WHICH row this save is and WHAT it carries is decided here, when the crew acts.
+  // That rule predates the queue and still holds: a queued save whose payload held the 30th must not
+  // pick up an id minted for the 31st after the crew changed the date.
+  //
+  // Append-versus-update is no longer decided here at all. The queue keys on `domainKey`, orders per
+  // domain, and carries a `requestId` the server dedupes on, so a second send for the same shift
+  // updates the row the first one created instead of appending beside it. That is what let the
+  // deadline, the unknown-outcome block and the cold-launch gate be deleted with it.
+  //
   // `eventsForSave` lets the auto-save send the event set it just produced, which is not in state yet
   const prepareSave = (eventsForSave) => {
     const formAtSave = formSerialRef.current;
     const loadAtSave = loadGenerationRef.current;
     const machineAtSave = machine;
     const keyAtSave = selectorKey;
-    const snapshotReadyAtSave = snapshotReadyRef.current;
     const id = reportIdForSave();
     const existedAtSave = Boolean(existingReportRef.current && existingReportRef.current.id === id);
     const payload = { id, date: meta.date, shift: meta.shift, tbmNo: meta.tbmNo, location: meta.location, events: JSON.stringify(eventsForSave), manpower: JSON.stringify(manpower), result: JSON.stringify(result) };
@@ -369,50 +255,14 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
     const ownKey = stableKey([savedRecord.id, savedRecord.location, savedRecord.manpower, savedRecord.result, savedRecord.events]);
 
     return async () => {
-      const state = shiftSaveStateFor(keyAtSave);
-      // A timed-out request was NOT cancelled — `apiCall` has no abort path, so it is still
-      // travelling and may yet append the row. Sending again before that is resolved would append a
-      // SECOND row for the same date and shift, which is the defect the whole queue exists to
-      // prevent, and the auto-save path would do it on the crew's behalf with nothing on screen.
-      // Cleared only by an explicit check against the server (see checkWithServer).
-      if (state.blocked) throw new Error("SHIFT_SAVE_UNRESOLVED");
-      // No snapshot for this machine yet. This needs no server fault at all and is the wider hazard:
-      // a cold launch (fresh install, cleared storage, private mode, blocked IndexedDB) renders an
-      // editable BLANK form for as long as the snapshot takes — up to the 90 s fetch ceiling — so a
-      // crew filling in a shift that already has a row would append a second one. `existingReport`
-      // cannot be trusted until this machine's rows have arrived.
-      //
-      // Only APPENDS are gated, and only on what was true when the crew acted. An update carries an
-      // id already known to be on the sheet, so it cannot duplicate anything — refusing it would
-      // just discard a recorded time bar. And reading this at execution time broke the rule stated
-      // above: a machine switch while a save was queued flipped it to false and threw away a bar
-      // belonging to the OTHER machine's report, which the switch had already cleared from the form.
-      //
-      // "Ready" means a SERVER answer this session, not merely rows on screen. A cached snapshot can
-      // be hours old — yesterday's cache does not contain the report the other crew filed at 19:00,
-      // so `existingReport` is null and an append would duplicate it. Requiring the server costs
-      // nothing offline, where `apiCall` rejects immediately anyway. Online it is usually the seconds
-      // between launch and the snapshot landing — but on a link where the 463 KB snapshot times out
-      // while this kilobyte write would land, a report that does not yet exist cannot be created
-      // until a fetch succeeds. The notice's button is the only retry. Updates are never gated.
-      const willAppend = !existedAtSave && !state.savedIds.has(id);
-      if (willAppend && !snapshotReadyAtSave) throw new Error("SHIFT_SAVE_NO_SNAPSHOT");
-      try {
-        await withDeadline(apiCall(willAppend ? "addShiftReport" : "updateShiftReport", { ...payload, machine: machineAtSave }));
-      } catch (error) {
-        // Deliberately a counter, not a timestamp: nothing compares times any more (that comparison
-        // was wrong in three separate rounds), but a block needs an IDENTITY. Two checks can be in
-        // flight at once — a press, a nav tap that remounts and re-enables the button, a second
-        // press — and a boolean cannot tell an older check that the block it is about to release is
-        // a different one, armed after it asked.
-        if (error.message === "SHIFT_SAVE_TIMEOUT") {
-          state.blocked = true;
-          state.blockSerial = (state.blockSerial || 0) + 1;
-          bumpUnresolved(n => n + 1);
-        }
-        throw error;
+      if (onMutate) {
+        await onMutate(buildMutationEnvelope({
+          entityType: "shiftReport", operation: existedAtSave ? "update" : "create",
+          machine: machineAtSave, recordId: id, payload, syncMeta,
+        }));
+      } else {
+        await apiCall(existedAtSave ? "updateShiftReport" : "addShiftReport", { ...payload, machine: machineAtSave });
       }
-      state.savedIds.add(id);
       // Only speak for the form if it is still showing this report AND still holding what was sent.
       // Both conditions matter. The crew may have moved to another date, shift or machine, where
       // clearing the dirty flag would invite the next snapshot to load over what they typed there.
@@ -436,58 +286,31 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
     };
   };
 
-  const isSaving = savingKeys.has(selectorKey);
-  // Derived from the module-scope map, not from component state: the block belongs to the report and
-  // outlives this mount, so a notice held in state showed nothing after a nav tap while writes were
-  // still being refused, and cleared on a different report's successful save.
-  const reportSaveState = shiftSaveState.get(selectorKey) || {};
-  const saveUnresolved = Boolean(reportSaveState.blocked);
-  // The gate is against CREATING a second report for a shift that already has one, so it applies
-  // only when this save would append. Disabling the button whenever a snapshot is missing gated
-  // updates too, which is the opposite of the rule the save path states: on a marginal link the
-  // 463 KB snapshot can time out while a kilobyte write would land, and a crew correcting manpower
-  // — the one field group with no auto-save — would have found Save dead and lost it on the next
-  // nav tap.
-  const wouldAppend = !existingReport
-    && !(reportSaveState.draftId && reportSaveState.savedIds && reportSaveState.savedIds.has(reportSaveState.draftId));
-  const appendBlocked = wouldAppend && !snapshotReady;
-
-  const handleSaveToCloud = () => {
-    const keyAtSave = selectorKey;
-    markSaving(keyAtSave, true);
+  const handleSaveToCloud = async () => {
+    setIsSaving(true);
     const machineAtSave = machine;
     const send = prepareSave(events);
-    return queueSave(keyAtSave, async () => {
-      try {
-        if (await send()) alert("บันทึก Shift Report สำเร็จ");
-        // a save that landed after a machine switch reached the sheet, but its row was deliberately
-        // not written into the other machine's state — say so rather than saying nothing
-        else if (!stillOnMachine(machineAtSave)) alert("บันทึกแล้ว (สลับเครื่องระหว่างบันทึก — ข้อมูลอยู่ในกะของเครื่องเดิม)");
-      } catch (e) {
-        // A timed-out request may still be travelling, so its outcome is genuinely unknown: saving
-        // again could append a second row for the shift, because the legacy write is not idempotent
-        // (Task 8's queue is what makes a retry safe).
-        alert(e.message === "SHIFT_SAVE_NO_SNAPSHOT" ? "ยังไม่ได้ข้อมูลรายงานกะของเครื่องนี้จากเซิร์ฟเวอร์ — รอสักครู่ก่อนบันทึก มิฉะนั้นอาจสร้างรายงานซ้ำกับที่มีอยู่แล้ว"
-          : e.message === "SHIFT_SAVE_TIMEOUT" ? "หมดเวลารอเซิร์ฟเวอร์ — ไม่ทราบว่าบันทึกสำเร็จหรือไม่ กรุณาตรวจสอบรายงานกะนี้ก่อนบันทึกซ้ำ"
-          : e.message === "SHIFT_SAVE_UNRESOLVED" ? "ยังไม่ทราบผลการบันทึกครั้งก่อน — กดปุ่ม “ตรวจสอบกับเซิร์ฟเวอร์” ในแถบเตือนด้านบนก่อน จึงจะบันทึกต่อได้"
-          : "บันทึกไม่สำเร็จ: " + e.message);
-      }
-      markSaving(keyAtSave, false);
-    });
+    try {
+      // "saved on this device", not "saved": the queue has it durably, and the server has not
+      // confirmed it yet. Task 10's Sync Center is where its progress becomes visible.
+      if (await send()) alert(onMutate ? "บันทึกในเครื่องแล้ว — รอซิงก์ขึ้นเซิร์ฟเวอร์" : "บันทึก Shift Report สำเร็จ");
+      // a save that landed after a machine switch reached the queue, but its row was deliberately
+      // not written into the other machine's state — say so rather than saying nothing
+      else if (!stillOnMachine(machineAtSave)) alert("บันทึกแล้ว (สลับเครื่องระหว่างบันทึก — ข้อมูลอยู่ในกะของเครื่องเดิม)");
+    } catch (e) {
+      alert("บันทึกไม่สำเร็จ: " + e.message);
+    }
+    setIsSaving(false);
   };
 
-  const triggerAutoSaveEvents = (updatedEvents) => {
-    const keyAtSave = selectorKey;
+  const triggerAutoSaveEvents = async (updatedEvents) => {
     const send = prepareSave(updatedEvents);
-    return queueSave(keyAtSave, async () => {
-      try { await send(); }
-      catch (e) {
-        // This path had nothing on screen at all, which is how a timed-out auto-save could leave the
-        // crew adding time bars that were never stored — and, before the guard above, re-appending
-        // the report. A time bar is data the crew has already recorded; it may not fail in silence.
-        console.error("Auto-save failed", e);
-      }
-    });
+    try { await send(); }
+    catch (e) {
+      // A time bar is data the crew has already recorded. Queueing is local and durable, so the only
+      // way here is a validation refusal — which is a defect, not a network condition.
+      console.error("Auto-save failed", e);
+    }
   };
 
   const displayEvents = useMemo(() => {
@@ -674,46 +497,10 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
         <h1 className="text-xl font-semibold text-ink flex items-center gap-3"><FileText className="text-navy" size={24} />ระบบบันทึก TBM Shift Report</h1>
         <div className="flex w-full sm:w-auto gap-3">
           <button onClick={handleDownloadImage} disabled={isExportingImage} className="flex-1 sm:flex-none bg-navy hover:bg-navy-deepest text-white px-5 py-2.5 rounded-input flex items-center justify-center gap-2 transition-colors shadow-card font-semibold">{isExportingImage ? <Loader2 size={18} className="animate-spin" /> : <Download size={18} />} {isExportingImage ? "Saving..." : "เซฟรูปภาพ"}</button>
-          {!readOnly && (<button onClick={handleSaveToCloud} disabled={isSaving || appendBlocked} className="flex-1 sm:flex-none bg-sgreen-dark hover:bg-sgreen-dark/90 disabled:opacity-60 text-white px-5 py-2.5 rounded-input flex items-center justify-center gap-2 transition-colors shadow-card font-semibold">{isSaving ? <Loader2 size={18} className="animate-spin" /> : <CloudUpload size={18} />} {isSaving ? "Saving..." : "Save to Cloud"}</button>)}
+          {!readOnly && (<button onClick={handleSaveToCloud} disabled={isSaving} className="flex-1 sm:flex-none bg-sgreen-dark hover:bg-sgreen-dark/90 disabled:opacity-60 text-white px-5 py-2.5 rounded-input flex items-center justify-center gap-2 transition-colors shadow-card font-semibold">{isSaving ? <Loader2 size={18} className="animate-spin" /> : <CloudUpload size={18} />} {isSaving ? "Saving..." : "Save to Cloud"}</button>)}
           <button onClick={handlePrint} className="flex-1 sm:flex-none bg-navy hover:bg-navy-dark text-white px-5 py-2.5 rounded-input flex items-center justify-center gap-2 transition-colors shadow-card font-semibold"><Printer size={18} /> Print PDF</button>
         </div>
       </div>
-
-      {appendBlocked && !saveUnresolved && !readOnly && (
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-2 bg-amber-500/10 border border-amber-500/40 text-amber-700 px-4 py-2 rounded-card text-[13px] no-print font-semibold">
-          {/* No spinner: nothing retries on its own, so an endlessly spinning icon would promise a
-              wait that never ends — the fetch may already have failed for good. The button is the
-              way forward, the same one the unknown-outcome notice uses. */}
-          <span>
-            ยังไม่ได้ข้อมูลรายงานกะของเครื่องนี้จากเซิร์ฟเวอร์ — กรอกไว้ก่อนได้ แต่ยังบันทึกไม่ได้ เพื่อกันสร้างรายงานซ้ำกับที่มีอยู่แล้ว
-            {checkFailed && <strong> · ดึงข้อมูลไม่สำเร็จ ลองใหม่อีกครั้ง</strong>}
-          </span>
-          {onRefresh && (
-            <button onClick={checkWithServer} disabled={checking} className="bg-amber-600 hover:bg-amber-700 disabled:opacity-60 text-white px-3 py-1.5 rounded-input font-semibold transition-colors">
-              {checking ? "กำลังโหลด…" : "ดึงข้อมูลจากเซิร์ฟเวอร์"}
-            </button>
-          )}
-        </div>
-      )}
-
-      {saveUnresolved && (
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-2 bg-amber-500/10 border border-amber-500/40 text-amber-700 px-4 py-2 rounded-card text-[13px] no-print font-semibold">
-          {/* Says only what is true, including what the crew must not do: the bars added while this
-              is up are on the device only, so leaving the screen loses them. The button is not a
-              suggestion — it is the only thing that can resume saving, because its fetch is the only
-              one issued after we gave up waiting. */}
-          <span>
-            ไม่ทราบผลการบันทึกล่าสุด (เซิร์ฟเวอร์ไม่ตอบ) — หยุดส่งชั่วคราวเพื่อกันรายงานซ้ำ สิ่งที่กรอกเพิ่มหลังจากนี้อยู่บนเครื่องนี้เท่านั้น <strong>อย่าเพิ่งออกจากหน้านี้</strong>
-            {onRefresh ? " กด “ตรวจสอบกับเซิร์ฟเวอร์” เพื่อบันทึกต่อ" : " เมื่อเชื่อมต่อได้แล้วให้เปิดแอพใหม่และตรวจสอบรายงานกะนี้ก่อนบันทึกซ้ำ"}
-            {checkFailed && <strong> · ตรวจสอบไม่สำเร็จ (ยังติดต่อเซิร์ฟเวอร์ไม่ได้) ลองใหม่อีกครั้ง</strong>}
-          </span>
-          {onRefresh && (
-            <button onClick={checkWithServer} disabled={checking} className="bg-amber-600 hover:bg-amber-700 disabled:opacity-60 text-white px-3 py-1.5 rounded-input font-semibold transition-colors">
-              {checking ? "กำลังตรวจสอบ…" : "ตรวจสอบกับเซิร์ฟเวอร์"}
-            </button>
-          )}
-        </div>
-      )}
 
       {serverCopyPending && (
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2 bg-code-b/10 border border-code-b/30 text-code-b px-4 py-2 rounded-card text-[13px] no-print font-semibold">

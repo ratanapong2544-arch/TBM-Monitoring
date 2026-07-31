@@ -245,107 +245,25 @@ test("a machine switch shows a loading signal instead of the other machine's rin
   app.unmount();
 });
 
-test("a blocked shift report can be unblocked from the app itself", async () => {
-  // Twice now the blocker lived in this seam rather than in either component: the view's own tests
-  // all passed while App fed it the wrong prop. The check button is the ONLY way out of a blocked
-  // report, and nothing else in the app calls `refresh`, so a missing or wrong prop here would be
-  // invisible to every other test.
-  jest.useFakeTimers();
-  const alertSpy = jest.spyOn(window, "alert").mockImplementation(() => {});
-  try {
-    apiCall.mockImplementation(() => new Promise(() => {})); // the save never answers
-    let refreshes = 0;
-    const repository = makeRepository({
-      refresh: async machine => {
-        refreshes += 1;
-        return { data: snapshot(machine), serverPayload: { status: "success", shiftReports: [] }, source: "server", fetchedAt: "2026-07-30T02:15:00.000Z", stale: false };
-      },
-    });
-
-    const app = renderApp(repository);
-    await act(async () => {});
-    const afterHydration = refreshes;
-
-    await act(async () => {
-      [...app.container.querySelectorAll("button")].find(b => /Shift Report/i.test(b.textContent))
-        .dispatchEvent(new MouseEvent("click", { bubbles: true }));
-    });
-    await act(async () => {
-      [...app.container.querySelectorAll("button")].find(b => /Save to Cloud/.test(b.textContent))
-        .dispatchEvent(new MouseEvent("click", { bubbles: true }));
-    });
-    await act(async () => { jest.advanceTimersByTime(SHIFT_SAVE_TIMEOUT_MS); });
-    expect(app.text()).toContain("ไม่ทราบผลการบันทึกล่าสุด");
-
-    await act(async () => {
-      [...app.container.querySelectorAll("button")].find(b => /ตรวจสอบกับเซิร์ฟเวอร์/.test(b.textContent))
-        .dispatchEvent(new MouseEvent("click", { bubbles: true }));
-    });
-
-    expect(refreshes).toBe(afterHydration + 1);            // it reached the repository
-    expect(app.text()).not.toContain("ไม่ทราบผลการบันทึกล่าสุด"); // and the report is saveable again
-    app.unmount();
-  } finally {
-    alertSpy.mockRestore();
-    jest.useRealTimers();
-    apiCall.mockImplementation(async () => ({ status: "success" }));
-  }
-});
-
-test("a cold launch cannot append a second report for a shift that already has one", async () => {
-  // This needs no server fault and no timeout. On a cold cache the splash clears as soon as the
-  // (empty) cache pass settles, so the Shift Report form renders BLANK and editable for as long as
-  // the snapshot takes — up to the 90 s fetch ceiling. A night crew filling in a shift the day crew
-  // already saved would append a second row for the same date and shift, silently.
-  let release;
-  const repository = makeRepository({
-    load: async machine => ({ data: cached(machine), source: "empty", fetchedAt: null, stale: true }),
-    refresh: machine => new Promise(resolve => {
-      release = () => resolve({
-        data: snapshot(machine, { shiftReports: [{ id: "sr_day", date: "2026-07-30", shift: "Day", tbmNo: "TBM1", manpower: {}, result: {}, events: {} }] }),
-        serverPayload: { status: "success", shiftReports: [] },
-        source: "server", fetchedAt: "2026-07-30T02:15:00.000Z", stale: false,
-      });
-    }),
-  });
-
-  const app = renderApp(repository);
-  await act(async () => {});
-  await act(async () => {
-    [...app.container.querySelectorAll("button")].find(b => /Shift Report/i.test(b.textContent))
-      .dispatchEvent(new MouseEvent("click", { bubbles: true }));
-  });
-
-  expect(app.text()).toContain("ยังไม่ได้ข้อมูลรายงานกะของเครื่องนี้จากเซิร์ฟเวอร์");
-  // asserting a click on a disabled button proves nothing — React never dispatches it. The runtime
-  // guard is pinned through the auto-save path in shiftReportMidEdit.test.jsx; here the disabled
-  // state IS the assertion.
-  expect([...app.container.querySelectorAll("button")].find(b => /Save to Cloud/.test(b.textContent)).disabled).toBe(true);
-
-  // once the machine's rows arrive, saving is available again
-  await act(async () => { release(); });
-  expect(app.text()).not.toContain("ยังไม่ได้ข้อมูลรายงานกะของเครื่องนี้จากเซิร์ฟเวอร์");
-  expect([...app.container.querySelectorAll("button")].find(b => /Save to Cloud/.test(b.textContent)).disabled).toBe(false);
-  app.unmount();
-});
-
-test("the real repository hands App everything the create-a-report gate needs", async () => {
+test("the real repository hands App the versions a queued write stamps itself with", async () => {
   // EVERY other test here uses a fake repository, and a fake can hand App a field the real one
-  // drops. That is exactly what happened: `writeServerSnapshot` rebuilds its return value, so
-  // `present` never reached App, the gate was closed on every healthy device, and 847 tests passed
-  // because the fixture fabricated the field. This test uses the real repository over real
-  // (fake-indexeddb) storage, so only the actual production path can satisfy it.
+  // drops. That is exactly what happened once: `writeServerSnapshot` rebuilds its return value, so
+  // a field never reached App and 847 tests passed because the fixture fabricated it. Three of this
+  // project's blockers hid in this seam and nothing else crosses it.
+  //
+  // What crosses it now is `syncMeta`: the version each domain key was last seen at, which every
+  // queued write stamps as `baseVersion`. Lose it and every update silently claims version 0, so the
+  // server accepts an edit made against a row that has since moved on — a lost update with nothing
+  // on screen, which is precisely what `baseVersion` exists to turn into a visible conflict.
   await deleteOfflineDbForTests();
   const repository = createRepository({
     openDb: openOfflineDb,
     now: () => "2026-07-30T02:15:00.000Z",
-    // a date that can never be today: if the row matched the open form, `existingReport` would be
-    // truthy, the save would be an update, and the gate would be irrelevant — the assertions would
-    // pass whatever `present` held
     fetchServerSnapshot: async machine => ({
       status: "success",
       segments: [],
       shiftReports: [{ id: "sr_old", date: "1999-01-01", shift: "Day", tbmNo: machine, manpower: "{}", result: "{}", events: "{}" }],
+      syncMeta: { "shiftReport:TBM1:1999-01-01:Day": { version: 4 } },
     }),
   });
 
@@ -371,103 +289,25 @@ test("the real repository hands App everything the create-a-report gate needs", 
   expect(app.text()).not.toContain("เชื่อมต่อเซิร์ฟเวอร์ไม่ได้");
   expect(app.text()).not.toContain("กำลังโหลดข้อมูลของเครื่องนี้");
 
-  expect(app.text()).not.toContain("ยังไม่ได้ข้อมูลรายงานกะของเครื่องนี้จากเซิร์ฟเวอร์");
-  expect(button(/Save to Cloud/).disabled).toBe(false);
+  // saving that report stamps the version the seam delivered — 0 would mean the snapshot's
+  // `syncMeta` never arrived
+  const mutations = [];
+  repository.mutate = async input => { mutations.push(input); return { optimisticRecord: input.payload }; };
+  await act(async () => {
+    const date = app.container.querySelector('[name="date"]');
+    Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set.call(date, "1999-01-01");
+    date.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await act(async () => { button(/Save to Cloud/).dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+
+  expect(mutations).toHaveLength(1);
+  expect(mutations[0]).toMatchObject({
+    entityType: "shiftReport",
+    domainKey: "shiftReport:TBM1:1999-01-01:Day",
+    baseVersion: 4,
+  });
   app.unmount();
   await deleteOfflineDbForTests();
-});
-
-test("a cached snapshot does not satisfy the create-a-report gate", async () => {
-  // The gate is against creating a second report for a shift that already has one, so only a SERVER
-  // answer settles it. Yesterday's cache does not contain the report the other crew filed at 19:00,
-  // and `source !== "empty"` — the first version of this predicate — accepted it.
-  //
-  // The cached data here deliberately CARRIES `present`, which a real cache read never does. That is
-  // the point: it isolates the `source === "server"` half of the predicate, which otherwise nothing
-  // can fail. Without it the two halves are indistinguishable — every cache read lacks `present`, so
-  // deleting the source check would leave the whole suite green while the gate rests on one clause.
-  const repository = makeRepository({
-    load: async machine => ({ data: { ...cached(machine), present: { shiftReports: true } }, source: "indexeddb", fetchedAt: "2026-07-29T12:00:00.000Z", stale: true }),
-    refresh: async () => { throw new Error("NETWORK"); },
-  });
-
-  const app = renderApp(repository);
-  await act(async () => {});
-  await act(async () => {
-    [...app.container.querySelectorAll("button")].find(b => /Shift Report/i.test(b.textContent))
-      .dispatchEvent(new MouseEvent("click", { bubbles: true }));
-  });
-
-  expect(app.text()).toContain("ยังไม่ได้ข้อมูลรายงานกะของเครื่องนี้จากเซิร์ฟเวอร์");
-  expect([...app.container.querySelectorAll("button")].find(b => /Save to Cloud/.test(b.textContent)).disabled).toBe(true);
-  app.unmount();
-});
-
-test("a response that omits the shift reports does not open the create gate", async () => {
-  // `source === "server"` says a RESPONSE arrived, not that it carried this collection. The
-  // normalizer maps an absent key to [], so an older GAS deployment — or a doGet whose Shift sheet
-  // read failed — would otherwise look like "this shift has no report" and let the crew create a
-  // second one, with a healthy server and nothing on screen.
-  const repository = makeRepository({
-    load: async machine => ({ data: cached(machine), source: "empty", fetchedAt: null, stale: true }),
-    refresh: async machine => ({
-      // normalizeServerData is what App sees; run the real one over a payload with no shiftReports
-      data: normalizeServerData({ status: "success", segments: [] }, machine),
-      serverPayload: { status: "success", segments: [] },
-      source: "server", fetchedAt: "2026-07-30T02:15:00.000Z", stale: false,
-    }),
-  });
-
-  const app = renderApp(repository);
-  await act(async () => {});
-  await act(async () => {
-    [...app.container.querySelectorAll("button")].find(b => /Shift Report/i.test(b.textContent))
-      .dispatchEvent(new MouseEvent("click", { bubbles: true }));
-  });
-
-  expect(app.text()).toContain("ยังไม่ได้ข้อมูลรายงานกะของเครื่องนี้จากเซิร์ฟเวอร์");
-  expect([...app.container.querySelectorAll("button")].find(b => /Save to Cloud/.test(b.textContent)).disabled).toBe(true);
-  app.unmount();
-});
-
-test("a launch whose fetch failed can still be recovered without losing the typed report", async () => {
-  // The gate needs a way out that is not a reload. Nothing re-fetches on its own: `hydrate` runs
-  // once per machine and the sync runner only drains the mutation queue, which shift reports do not
-  // use yet. Without a button in the notice, a crew that filled in a whole shift underground and
-  // then reached the shaft could only regain saving by reloading or switching machine — and both
-  // reload the form, destroying the report they were trying to save.
-  let online = false;
-  const repository = makeRepository({
-    load: async machine => ({ data: cached(machine), source: "empty", fetchedAt: null, stale: true }),
-    refresh: async machine => {
-      if (!online) throw new Error("NETWORK");
-      return { data: snapshot(machine), serverPayload: { status: "success", shiftReports: [] }, source: "server", fetchedAt: "2026-07-30T02:15:00.000Z", stale: false };
-    },
-  });
-
-  const app = renderApp(repository);
-  await act(async () => {});
-  await act(async () => {
-    [...app.container.querySelectorAll("button")].find(b => /Shift Report/i.test(b.textContent))
-      .dispatchEvent(new MouseEvent("click", { bubbles: true }));
-  });
-  const engineer = app.container.querySelector('[name="Engineer"]');
-  act(() => {
-    Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set.call(engineer, "4");
-    engineer.dispatchEvent(new Event("input", { bubbles: true }));
-  });
-  expect([...app.container.querySelectorAll("button")].find(b => /Save to Cloud/.test(b.textContent)).disabled).toBe(true);
-
-  // the link returns at the shaft; the crew presses the button in the notice
-  online = true;
-  await act(async () => {
-    [...app.container.querySelectorAll("button")].find(b => /ดึงข้อมูลจากเซิร์ฟเวอร์/.test(b.textContent))
-      .dispatchEvent(new MouseEvent("click", { bubbles: true }));
-  });
-
-  expect([...app.container.querySelectorAll("button")].find(b => /Save to Cloud/.test(b.textContent)).disabled).toBe(false);
-  expect(app.container.querySelector('[name="Engineer"]').value).toBe("4"); // and the report survived
-  app.unmount();
 });
 
 test("a launch with no snapshot at all still reports the failure", async () => {

@@ -179,12 +179,19 @@ test("posts the complete mutation envelope and returns the typed sync response",
   }));
 });
 
-test("cleans up the 15 second timeout after a successful sync post", async () => {
+test("cleans up the 15 second timeout after a sync post settles", async () => {
+  // named for a success but mocked as a validation_error, so the path it claimed was never the path
+  // it ran; both settle the request, and both must clear the timer
   jest.useFakeTimers();
-  global.fetch = jest.fn().mockResolvedValue({ ok: true, text: async () => JSON.stringify({ status: "validation_error", requestId: "request-1", fields: [], message: "Bad ring" }) });
+  try {
+    global.fetch = jest.fn().mockResolvedValue({ ok: true, text: async () => JSON.stringify({ status: "success", requestId: "request-1", record: { recordId: "segment-1" }, version: 2, updatedAt: "2026-07-29T00:00:00.000Z" }) });
+    await postSyncMutation({ requestId: "request-1" });
+    expect(jest.getTimerCount()).toBe(0);
 
-  await postSyncMutation({ requestId: "request-1" });
-
-  expect(jest.getTimerCount()).toBe(0);
-  jest.useRealTimers();
+    global.fetch = jest.fn().mockResolvedValue({ ok: true, text: async () => JSON.stringify({ status: "validation_error", requestId: "request-1", fields: [], message: "Bad ring" }) });
+    await postSyncMutation({ requestId: "request-1" });
+    expect(jest.getTimerCount()).toBe(0);
+  } finally {
+    jest.useRealTimers();
+  }
 });

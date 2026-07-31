@@ -33,7 +33,8 @@ A systematic sweep of every effect in the view layer established that only `Shif
 | `8d347a9` | fix: close the round-12 blockers and the offline hang |
 | `c3cee78` | fix: decide a queued save's identity when the crew acts, not when it runs |
 | `bfdb203` | fix: stop one dead request from wedging every shift-report save |
-| _(pending)_ | fix: stop a timed-out save from appending a second row |
+| `644e907` | fix: stop a timed-out save from appending a second row |
+| _(pending)_ | fix: release an unknown save outcome only on a real server answer |
 
 ## Round 12 — what both PASSes had missed
 
@@ -81,9 +82,17 @@ The server is what settles the question, so that is what the code now waits for.
 
 Also from that round: the own-write claim now tracks **everything the form displays**, not just typed edits — a ring recorded mid-save rewrites the derived Result without any typing, and claiming the key then let screen and sheet disagree on a report that gets printed. And "saving" is tracked per report, so a stalled save on the 30th no longer disables the button for the 31st.
 
-## Test evidence (at the round-15 commit)
+## Round 16 — "the array changed" is not "the server answered"
 
-- `npm test -- --watchAll=false --runInBand` → 66 suites / 829 tests pass
+**Both axes FAIL, blocker in the same place a fourth consecutive time.** Round 15's block was released by a counter incremented whenever the `shiftReports` prop changed identity — which is not the same fact as the server having answered. App re-mirrors that array on the offline cache pass, on every machine switch, and on this view's own optimistic writes, so **saving a different report released the block**; the counter was also per-mount while the block it guarded is module-scope, so any nav tap released it too. Either route led straight back to the duplicate row. A third: a snapshot fetched *before* the timed-out write reached the sheet proves nothing about where it ended up.
+
+The view now receives when the **server** last answered (`serverSnapshotAt`, non-null only for `source === "server"`), and a block clears only when a snapshot fetched *after* the moment we gave up has arrived. The notice moved into the same module-scope, per-report state as the block itself — held in component state it vanished on a nav tap while writes were still being refused — and it now carries a button that actually re-reads the server, because the previous wording promised a recovery no code performed.
+
+**What this costs, stated plainly** (the previous round recorded only the favourable half, which is the same fault it criticised the round before it for): while a report is blocked, every further time bar is refused and exists only in component state, so a nav tap or reload loses it. Two things bound that. `apiCall` uses plain `fetch` with no signal, which **rejects immediately on a genuinely offline device** — so an offline crew is never blocked; only a connection that completes and then goes quiet arms it. And the block is per report, so the rest of the shift's work continues on any other date or machine. It is still a real cost, and it is the reason Tasks 8 and 9 are gated to ship with this one.
+
+## Test evidence (at the round-16 commit)
+
+- `npm test -- --watchAll=false --runInBand` → 66 suites / 833 tests pass
 - `npm run test:gas-sync` → 92 pass / 0 fail
 - `npm run build` → Compiled successfully (build output restored with `git checkout -- build/`; the build artefact is not committed — Vercel builds from source)
 - `node --check ../gas-live/Code.js` → OK
@@ -115,7 +124,7 @@ Unchanged from Task 6. Nothing has been pushed to Vercel and no `clasp push`/`re
 - **Three files in Task 8's file list were modified** (`SegmentRecordView`, `GroutRecordView`, `ShiftReportView`). Forced by Task 7: hydration now lands two snapshots per load plus one per machine switch, each a fresh array identity, so reset effects keyed on those props fire mid-edit. **No write was routed through the mutation queue** — all three still call `apiCall`, so no Task 8 work was done early (independently verified in round 13: none of the three imports `repository`, `mutate` or `useOffline`). Task 8 Step 4's "preserve their existing form reset behavior" now means preserving the guards listed above.
 - **Files outside Task 7's list that were also modified**, for completeness: `src/offline/repository.js` (the `setSyncMetaValue` passthrough Task 7 Step 3 requires, the `cacheError` branch that keeps a server-fresh payload usable when the cache write fails, and the guarded catch that stops an unopenable database masking a network fault), `src/offline/mutationStore.js`, `src/offline/db.js` (Task 3's file — the `onblocked`/timeout fix), `src/offline/apiTransport.js` (Task 4's file — the snapshot timeout) and `src/offline/syncRunner.js` (Task 5's file — the unhandled-rejection fix on its event trigger). Five new test files were added outside the list as well.
 - **`ShiftReportView` keeps save bookkeeping in module scope** — the draft id, the set of ids known to be on the sheet, and the save chain, keyed per report (`machine|date|shift`), with a test-only reset export. It lives outside the component because a save outlives the form that started it: any nav tap unmounts the view while the request is still travelling, and per-instance state let the remounted form mint a second id for a report the sheet already had. **Task 8 removes this** — the mutation queue is the durable, idempotent version of exactly this bookkeeping, and the module-level state should be deleted when writes move onto it, not carried alongside it.
-- **`ShiftReportView` gained user-facing surface** — the server-copy notice with its two-step discard confirmation, a standing notice when a save's outcome is unknown, and two alerts (a timed-out save, and a save that landed after a machine switch). It follows from the mid-edit hazard Task 7 creates and matches the design's "never silently overwrite" posture, but the discard/confirm pattern overlaps what Task 10's Sync Center will own. **Task 10 should absorb it, not duplicate it.**
+- **`ShiftReportView` gained user-facing surface** — the server-copy notice with its two-step discard confirmation, a standing per-report notice when a save's outcome is unknown (with a button that re-reads the server), and three alerts: a timed-out save, a save refused because an earlier outcome is still unknown, and a save that landed after a machine switch. It follows from the mid-edit hazard Task 7 creates and matches the design's "never silently overwrite" posture, but the discard/confirm pattern overlaps what Task 10's Sync Center will own. **Task 10 should absorb it, not duplicate it.**
 
 ## Deferred follow-ups (task chips filed)
 

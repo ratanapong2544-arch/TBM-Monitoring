@@ -112,7 +112,7 @@ test("an event trigger whose run rejects does not raise an unhandled rejection",
   // Every online/focus/visibility event would otherwise surface a page error on a working screen.
   const windowEvents = new EventTarget();
   const rejections = [];
-  const onRejection = event => { rejections.push(event); event.preventDefault && event.preventDefault(); };
+  const onRejection = reason => { rejections.push(reason); };
   process.on("unhandledRejection", onRejection);
   try {
     const repository = {

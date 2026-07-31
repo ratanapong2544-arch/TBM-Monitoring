@@ -1096,6 +1096,8 @@ Remove direct write calls from the five views. Preserve their existing validatio
 
 Deletes remain visible as pending tombstones to repository reads but disappear from the active UI list with a pending badge available in Sync Center.
 
+**Delete, do not carry, Task 7's interim write bookkeeping** (added after Task 7's review). `ShiftReportView.jsx` currently holds a module-scope `shiftSaveState` map — a draft id, the set of ids known to be on the sheet, and a serialising chain, all keyed `machine|date|shift` — plus `SHIFT_SAVE_TIMEOUT_MS`, the "outcome unknown" block (`unresolvedSince` + `settledByServerSince`) and its notice. Every one of those exists only because the legacy write is not idempotent and cannot be cancelled. The queue's `requestId`, version and per-domain ordering replace all of them; keeping both would leave two sources of truth about whether a row reached the sheet. `__resetShiftSaveStateForTests` and the tests that call it go with it. `SegmentRecordView` and `GroutRecordView` have no equivalent protection today (recorded in `docs/superpowers/task7-completion.md`), so the queue is what closes them.
+
 - [ ] **Step 5: Verify no direct core writes remain**
 
 Run:

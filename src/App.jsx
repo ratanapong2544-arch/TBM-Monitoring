@@ -238,6 +238,10 @@ const PrimaryGroutApp = () => {
   const activeMachineRef = useRef(activeMachine);
   activeMachineRef.current = activeMachine;
   const isCurrentMachine = useCallback((m) => activeMachineRef.current === m, []);
+  // When the SERVER last answered, as distinct from when this array last changed identity. A view
+  // that needs to know "has the server settled this since?" cannot ask the rows: App re-mirrors them
+  // on the cache pass, on every machine switch, and on the views' own optimistic writes.
+  const serverSnapshotAt = offlineData.source === "server" ? offlineData.fetchedAt : null;
   const activeSegments     = rowsReady ? segmentRecords : EMPTY_ROWS;
   const currentRingNum = activeSegments.reduce((mx, s) => Math.max(mx, getRingNumeric(s.ringNo) || 0), 0);
   const activeGrouts       = rowsReady ? groutRecords : EMPTY_ROWS;
@@ -371,7 +375,7 @@ const PrimaryGroutApp = () => {
       {activeTab === "datalog" && currentModule === "grout" && <GroutDashboardView groutRecords={activeGrouts} setGroutRecords={setGroutRecords} secondaryGroutRecords={activeSecondaryGrouts} setSecondaryGroutRecords={setSecondaryGroutRecords} segmentRecords={activeSegments} machine={activeMachine} readOnly={isViewer} />}
       {activeTab === "datalog" && currentModule === "segment" && <SegmentDashboardView segmentRecords={activeSegments} setSegmentRecords={setSegmentRecords} machine={activeMachine} />}
       {activeTab === "report" && <ReportView segmentRecords={activeSegments} groutRecords={activeGrouts} projectInfo={projectInfo} shiftReports={activeShiftReports} onCreateDaily={(draft) => { setPendingRecordForm(draft); setActiveTab("record_daily"); }} />}
-      {activeTab === "shift_report" && <ShiftReportView projectInfo={projectInfo} segmentRecords={activeSegments} shiftReports={activeShiftReports} setShiftReports={setShiftReports} machine={activeMachine} isCurrentMachine={isCurrentMachine} readOnly={isViewer} />}
+      {activeTab === "shift_report" && <ShiftReportView projectInfo={projectInfo} segmentRecords={activeSegments} shiftReports={activeShiftReports} setShiftReports={setShiftReports} machine={activeMachine} isCurrentMachine={isCurrentMachine} serverSnapshotAt={serverSnapshotAt} onRefresh={offlineData.refresh} readOnly={isViewer} />}
       {activeTab === "record_daily" && <RecordDailyView dailyReports={activeDailyReports} onSave={(form) => { handleSaveDailyReport(form); setActiveTab("daily_report"); }} pendingForm={pendingRecordForm} onConsumePendingForm={() => setPendingRecordForm(null)} activeMachine={activeMachine} />}
       {activeTab === "daily_report" && <DailyReportView dailyReports={activeDailyReports} onDelete={handleDeleteDailyReport} onEdit={(formReady) => { setPendingRecordForm(formReady); setActiveTab("record_daily"); }} onGoRecord={() => setActiveTab("record_daily")} />}
       {activeTab === "inst_dashboard" && (

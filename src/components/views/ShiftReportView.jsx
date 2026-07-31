@@ -51,10 +51,17 @@ const withDeadline = (promise) => new Promise((resolve, reject) => {
   );
 });
 
-const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftReports, machine = "TBM1", isCurrentMachine, readOnly = false }) => {
-  // which report is being saved, not merely "a save is running": a save stalled on the 30th used to
-  // leave the button disabled for the 31st too, for as long as the deadline lasts
-  const [savingKey, setSavingKey] = useState(null);
+const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftReports, machine = "TBM1", isCurrentMachine, serverSnapshotAt = null, onRefresh, readOnly = false }) => {
+  // WHICH reports are being saved, not merely "a save is running": a save stalled on the 30th used
+  // to leave the button disabled for the 31st too, for as long as the deadline lasts. A single slot
+  // was not enough either — starting B cleared the indication for A while A was still travelling.
+  const [savingKeys, setSavingKeys] = useState(() => new Set());
+  const markSaving = (key, saving) => setSavingKeys(prev => {
+    if (saving === prev.has(key)) return prev;
+    const next = new Set(prev);
+    if (saving) next.add(key); else next.delete(key);
+    return next;
+  });
   const [isExportingImage, setIsExportingImage] = useState(false);
 
   const defaultManpower = { Engineer: '', Operator: '', Surveyor: '', Machanic: '', Electrician: '', Foreman: '', Worker: '', CraneOp: '' };
@@ -110,7 +117,12 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
     return defaultResult;
   }, [deduplicatedSegments, meta.date, meta.shift]);
 
-  useEffect(() => { setMeta({ date: projectInfo.date, tbmNo: projectInfo.tbmNo, location: projectInfo.location, shift: projectInfo.shift }); }, [projectInfo.date, projectInfo.shift, projectInfo.tbmNo, projectInfo.location]);
+  // location and tbmNo are in the payload, so this rewrite also means the form no longer holds what
+  // an in-flight save sent
+  useEffect(() => {
+    setMeta({ date: projectInfo.date, tbmNo: projectInfo.tbmNo, location: projectInfo.location, shift: projectInfo.shift });
+    formSerialRef.current += 1;
+  }, [projectInfo.date, projectInfo.shift, projectInfo.tbmNo, projectInfo.location]);
 
   // Load the form ONLY when the report being edited changes — its id, or the date/shift that
   // selects it. `existingReport` and `autoResult` are derived from segmentRecords/shiftReports, and
@@ -133,15 +145,18 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
   selectorKeyRef.current = selectorKey;
   // counts snapshots landing from App, so a save whose outcome is unknown can wait for the server to
   // settle the question instead of guessing
-  const snapshotSerialRef = useRef(0);
-  // set when a save timed out with its outcome unknown; cleared once the server has answered again,
-  // because that answer is what says whether the row landed
-  const [saveUnresolved, setSaveUnresolved] = useState(false);
-  useEffect(() => {
-    snapshotSerialRef.current += 1;
-    setSaveUnresolved(false);
-    // eslint-disable-next-line
-  }, [shiftReports]);
+  // WHEN THE SERVER LAST ANSWERED. Counting changes to the `shiftReports` array instead was wrong in
+  // three ways at once: App re-mirrors that array on the offline cache pass, on every machine
+  // switch, and on this view's own optimistic writes — so saving a DIFFERENT report released the
+  // block — and the counter was per-mount while the block it was compared against is module-scope,
+  // so any nav tap released it too. A timestamp fixes both: it only moves when a server snapshot
+  // lands, and it is comparable across mounts.
+  const serverSnapshotAtRef = useRef(serverSnapshotAt);
+  serverSnapshotAtRef.current = serverSnapshotAt;
+  const shiftReportsRef = useRef(shiftReports);
+  shiftReportsRef.current = shiftReports;
+  // bumped when the unresolved state changes, so the notice re-renders off the module-scope map
+  const [, bumpUnresolved] = useState(0);
   const autoResultRef = useRef(autoResult);
   autoResultRef.current = autoResult;
   const existingReportRef = useRef(existingReport);
@@ -227,18 +242,22 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
   // Keep the auto-derived result fields current as rings are recorded during the shift, but never
   // overwrite a field the crew typed into or already saved.
   useEffect(() => {
+    let rewritten = false;
     setResult((prev) => {
       const next = { ...prev };
       let changed = false;
-      // this rewrites the form without the crew touching it, so it counts as the form no longer
-      // holding what an in-flight save sent — see formSerialRef
       Object.keys(autoResult).forEach((key) => {
         if (touchedRef.current[key]) return;
         if (autoResult[key] && autoResult[key] !== prev[key]) { next[key] = autoResult[key]; changed = true; }
       });
-      if (changed) formSerialRef.current += 1;
+      rewritten = changed;
       return changed ? next : prev;
     });
+    // This rewrites the form without the crew touching it, so it counts as the form no longer
+    // holding what an in-flight save sent — see formSerialRef. The bump is here rather than inside
+    // the updater because StrictMode double-invokes updaters, and a counter incremented there
+    // advances differently in development and production.
+    if (rewritten) formSerialRef.current += 1;
   }, [autoResult]);
 
   const handleMetaChange = (e) => {
@@ -265,6 +284,14 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
   // held back the 31st, and both machines with it — one dead request blocking records it has nothing
   // to do with. Ordering only ever mattered within one report anyway: that is where append-versus-
   // update is decided.
+  // A snapshot only answers the question if it was FETCHED after we gave up waiting. One issued
+  // before the timed-out write reached the sheet proves nothing: the row can be absent from it and
+  // still be on the sheet moments later.
+  const settledByServerSince = (since) => {
+    const at = serverSnapshotAtRef.current;
+    return Boolean(at) && Date.parse(at) > since;
+  };
+
   const queueSave = (key, run) => {
     const state = shiftSaveStateFor(key);
     const next = state.chain.then(run, run);
@@ -310,15 +337,22 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
       // prevent, and the auto-save path would do it on the crew's behalf with nothing on screen.
       // The server itself settles the question: once a fresh snapshot has been seen, either the row
       // is there (so this becomes an update) or it never landed (so an append is correct again).
-      if (state.unresolvedAtSnapshot !== undefined) {
-        if (state.unresolvedAtSnapshot === snapshotSerialRef.current) throw new Error("SHIFT_SAVE_UNRESOLVED");
-        state.unresolvedAtSnapshot = undefined;
-        if (existingReportRef.current && existingReportRef.current.id === id) state.savedIds.add(id);
+      if (state.unresolvedSince !== undefined) {
+        if (!settledByServerSince(state.unresolvedSince)) throw new Error("SHIFT_SAVE_UNRESOLVED");
+        state.unresolvedSince = undefined;
+        // Ask about THIS report's row, not whichever report happens to be on screen now — a save
+        // queued for the 30th can run after the crew moved to the 31st.
+        if (shiftReportsRef.current.some(r => r.id === id)) state.savedIds.add(id);
       }
       try {
         await withDeadline(apiCall(existedAtSave || state.savedIds.has(id) ? "updateShiftReport" : "addShiftReport", { ...payload, machine: machineAtSave }));
       } catch (error) {
-        if (error.message === "SHIFT_SAVE_TIMEOUT") state.unresolvedAtSnapshot = snapshotSerialRef.current;
+        if (error.message === "SHIFT_SAVE_TIMEOUT") {
+          // stamp the moment we gave up: only a snapshot fetched AFTER this can say anything about
+          // where the request ended up. An earlier one may have been issued before it landed.
+          state.unresolvedSince = Date.now();
+          bumpUnresolved(n => n + 1);
+        }
         throw error;
       }
       state.savedIds.add(id);
@@ -346,11 +380,17 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
     };
   };
 
-  const isSaving = savingKey === selectorKey;
+  const isSaving = savingKeys.has(selectorKey);
+  // Derived from the module-scope map, not from component state: the block belongs to the report and
+  // outlives this mount, so a notice held in state showed nothing after a nav tap while writes were
+  // still being refused, and cleared on a different report's successful save.
+  const unresolvedState = shiftSaveStateFor(selectorKey);
+  const saveUnresolved = unresolvedState.unresolvedSince !== undefined
+    && !settledByServerSince(unresolvedState.unresolvedSince);
 
   const handleSaveToCloud = () => {
     const keyAtSave = selectorKey;
-    setSavingKey(keyAtSave);
+    markSaving(keyAtSave, true);
     const machineAtSave = machine;
     const send = prepareSave(events);
     return queueSave(keyAtSave, async () => {
@@ -363,12 +403,11 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
         // A timed-out request may still be travelling, so its outcome is genuinely unknown: saving
         // again could append a second row for the shift, because the legacy write is not idempotent
         // (Task 8's queue is what makes a retry safe).
-        if (e.message === "SHIFT_SAVE_TIMEOUT" || e.message === "SHIFT_SAVE_UNRESOLVED") setSaveUnresolved(true);
         alert(e.message === "SHIFT_SAVE_TIMEOUT" ? "หมดเวลารอเซิร์ฟเวอร์ — ไม่ทราบว่าบันทึกสำเร็จหรือไม่ กรุณาตรวจสอบรายงานกะนี้ก่อนบันทึกซ้ำ"
           : e.message === "SHIFT_SAVE_UNRESOLVED" ? "ยังไม่ทราบผลการบันทึกครั้งก่อน — รอข้อมูลจากเซิร์ฟเวอร์ก่อนบันทึกซ้ำ"
           : "บันทึกไม่สำเร็จ: " + e.message);
       }
-      setSavingKey(current => (current === keyAtSave ? null : current));
+      markSaving(keyAtSave, false);
     });
   };
 
@@ -381,7 +420,6 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
         // This path had nothing on screen at all, which is how a timed-out auto-save could leave the
         // crew adding time bars that were never stored — and, before the guard above, re-appending
         // the report. A time bar is data the crew has already recorded; it may not fail in silence.
-        if (e.message === "SHIFT_SAVE_TIMEOUT" || e.message === "SHIFT_SAVE_UNRESOLVED") setSaveUnresolved(true);
         console.error("Auto-save failed", e);
       }
     });
@@ -577,8 +615,16 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
       </div>
 
       {saveUnresolved && (
-        <div className="mb-3 flex items-center gap-2 bg-amber-500/10 border border-amber-500/40 text-amber-700 px-4 py-2 rounded-card text-[13px] no-print font-semibold">
-          <span>ยังไม่ทราบผลการบันทึกล่าสุด (เซิร์ฟเวอร์ไม่ตอบ) — ข้อมูลในหน้านี้ยังอยู่ครบ ระบบจะบันทึกต่อเมื่อได้รับข้อมูลจากเซิร์ฟเวอร์อีกครั้ง</span>
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2 bg-amber-500/10 border border-amber-500/40 text-amber-700 px-4 py-2 rounded-card text-[13px] no-print font-semibold">
+          {/* Says only what is true: the request may or may not have reached the sheet, so nothing
+              more is sent until the server is re-read; what is on screen is on this device only, and
+              nothing is resent automatically — the crew saves again once the check comes back. */}
+          <span>ไม่ทราบผลการบันทึกล่าสุด (เซิร์ฟเวอร์ไม่ตอบ) — หยุดส่งชั่วคราวเพื่อกันข้อมูลซ้ำ ข้อมูลที่เห็นอยู่บนเครื่องนี้เท่านั้น ยังไม่ยืนยันกับเซิร์ฟเวอร์</span>
+          {onRefresh && (
+            <button onClick={() => onRefresh()} className="bg-amber-600 hover:bg-amber-700 text-white px-3 py-1.5 rounded-input font-semibold transition-colors">
+              ตรวจสอบกับเซิร์ฟเวอร์
+            </button>
+          )}
         </div>
       )}
 

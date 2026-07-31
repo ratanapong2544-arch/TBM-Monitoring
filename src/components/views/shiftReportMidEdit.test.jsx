@@ -592,7 +592,7 @@ test("a timed-out save does not let the next one append a second row", async () 
     await act(async () => { jest.advanceTimersByTime(SHIFT_SAVE_TIMEOUT_MS); });
     expect(apiCall.mock.calls[0][0]).toBe("addShiftReport");
     // the crew is told, rather than the failure being swallowed
-    expect(form.container.textContent).toContain("ยังไม่ทราบผลการบันทึกล่าสุด");
+    expect(form.container.textContent).toContain("ไม่ทราบผลการบันทึกล่าสุด");
 
     await addTimeBar("09:00", "10:00");        // routine next bar, same report
 
@@ -622,11 +622,11 @@ test("a report with an unknown outcome saves again once the server has answered"
     await act(async () => { jest.advanceTimersByTime(SHIFT_SAVE_TIMEOUT_MS); });
     const sentId = apiCall.mock.calls[0][1].id;
 
-    // the server answers: the row DID land after all
+    // the server answers, with a snapshot fetched AFTER we gave up: the row DID land after all
     const landed = { id: sentId, date: "2026-07-30", shift: "Day", tbmNo: "TBM1", location: "อุโมงค์", manpower: { Engineer: "3" }, result: {}, events: {} };
     apiCall.mockImplementation(async () => ({ status: "success" }));
-    form.rerender(view({ shiftReports: [landed], setShiftReports }));
-    expect(form.container.textContent).not.toContain("ยังไม่ทราบผลการบันทึกล่าสุด");
+    form.rerender(view({ shiftReports: [landed], setShiftReports, serverSnapshotAt: new Date(Date.now() + 1000).toISOString() }));
+    expect(form.container.textContent).not.toContain("ไม่ทราบผลการบันทึกล่าสุด");
 
     type(form.container, "Surveyor", "2");
     await act(async () => {
@@ -642,6 +642,107 @@ test("a report with an unknown outcome saves again once the server has answered"
     alertSpy.mockRestore();
     jest.useRealTimers();
   }
+});
+
+describe("what may release an unknown outcome", () => {
+  // The block exists because the timed-out request is still travelling and may yet append the row.
+  // Only a server snapshot fetched AFTER we gave up can say where it ended up — and the crew reaches
+  // that state through ordinary actions, so each of these was a live route back to a duplicate row.
+  const armTimeout = async (form) => {
+    apiCall.mockImplementation(() => new Promise(() => {}));
+    type(form.container, "Engineer", "3");
+    await act(async () => {
+      [...form.container.querySelectorAll("button")].find(b => /Save to Cloud/.test(b.textContent))
+        .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await act(async () => { jest.advanceTimersByTime(SHIFT_SAVE_TIMEOUT_MS); });
+  };
+  const saveAgain = async (form) => {
+    apiCall.mockImplementation(async () => ({ status: "success" }));
+    type(form.container, "Surveyor", "2");
+    await act(async () => {
+      [...form.container.querySelectorAll("button")].find(b => /Save to Cloud/.test(b.textContent))
+        .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+  };
+
+  let alertSpy;
+  beforeEach(() => { jest.useFakeTimers(); alertSpy = jest.spyOn(window, "alert").mockImplementation(() => {}); });
+  afterEach(() => { alertSpy.mockRestore(); jest.useRealTimers(); });
+
+  test("another report's successful save does not release it", async () => {
+    let rows = [];
+    const setShiftReports = updater => { rows = typeof updater === "function" ? updater(rows) : updater; };
+    const form = render(view({ shiftReports: rows, setShiftReports }));
+    await armTimeout(form);
+    const sentId = apiCall.mock.calls[0][1].id;
+
+    // save a DIFFERENT report; its commit re-mirrors shiftReports with a new identity
+    apiCall.mockImplementation(async () => ({ status: "success" }));
+    type(form.container, "date", "2026-07-31");
+    await act(async () => {
+      [...form.container.querySelectorAll("button")].find(b => /Save to Cloud/.test(b.textContent))
+        .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    form.rerender(view({ shiftReports: rows, setShiftReports }));
+
+    // back to the 30th: still blocked, because the server has never answered
+    type(form.container, "date", "2026-07-30");
+    await saveAgain(form);
+
+    const idsSent = apiCall.mock.calls.map(c => c[1].id);
+    expect(idsSent.filter(sent => sent === sentId)).toHaveLength(1);
+    expect(apiCall.mock.calls.filter(c => c[0] === "addShiftReport" && c[1].date === "2026-07-30")).toHaveLength(1);
+    form.unmount();
+  });
+
+  test("a remount does not release it", async () => {
+    let rows = [];
+    const setShiftReports = updater => { rows = typeof updater === "function" ? updater(rows) : updater; };
+    const first = render(view({ shiftReports: rows, setShiftReports }));
+    await armTimeout(first);
+    const sentId = apiCall.mock.calls[0][1].id;
+    first.unmount();                         // a nav tap
+
+    const second = render(view({ shiftReports: rows, setShiftReports }));
+    expect(second.container.textContent).toContain("ไม่ทราบผลการบันทึกล่าสุด"); // and the crew still sees why
+    await saveAgain(second);
+
+    expect(apiCall.mock.calls.filter(c => c[1].id === sentId)).toHaveLength(1);
+    second.unmount();
+  });
+
+  test("the offline cache pass does not release it", async () => {
+    let rows = [];
+    const setShiftReports = updater => { rows = typeof updater === "function" ? updater(rows) : updater; };
+    const form = render(view({ shiftReports: rows, setShiftReports, serverSnapshotAt: null }));
+    await armTimeout(form);
+    const sentId = apiCall.mock.calls[0][1].id;
+
+    // a cached snapshot lands: new array identity, but no server answer (serverSnapshotAt stays null)
+    form.rerender(view({ shiftReports: [], setShiftReports, serverSnapshotAt: null }));
+    await saveAgain(form);
+
+    expect(apiCall.mock.calls.filter(c => c[1].id === sentId)).toHaveLength(1);
+    form.unmount();
+  });
+
+  test("a server snapshot fetched BEFORE we gave up does not release it", async () => {
+    // it may have been issued before the timed-out write reached the sheet, so an absent row proves
+    // nothing about where that request ended up
+    const before = new Date(Date.now() - 60000).toISOString();
+    let rows = [];
+    const setShiftReports = updater => { rows = typeof updater === "function" ? updater(rows) : updater; };
+    const form = render(view({ shiftReports: rows, setShiftReports, serverSnapshotAt: before }));
+    await armTimeout(form);
+    const sentId = apiCall.mock.calls[0][1].id;
+
+    form.rerender(view({ shiftReports: [], setShiftReports, serverSnapshotAt: before }));
+    await saveAgain(form);
+
+    expect(apiCall.mock.calls.filter(c => c[1].id === sentId)).toHaveLength(1);
+    form.unmount();
+  });
 });
 
 test("a remounted form does not append a second row for a report already saved", async () => {

@@ -8,6 +8,12 @@ import { act } from "react-dom/test-utils";
 import App from "../App";
 import { OfflineProvider } from "./OfflineProvider";
 import { emptyServerData } from "./normalizeServerData";
+import { apiCall } from "../utils/api";
+import { __resetShiftSaveStateForTests, SHIFT_SAVE_TIMEOUT_MS } from "../components/views/ShiftReportView";
+
+// App's write paths are not what this file tests; stubbing them keeps a save from reaching the
+// network while the shift-report seam below drives a real one
+jest.mock("../utils/api", () => ({ apiCall: jest.fn(async () => ({ status: "success" })) }));
 
 // The App-level mirror effect decides what a snapshot is allowed to overwrite. Nothing used to test
 // this file, which is why two data-loss defects survived two review rounds — every rule below is a
@@ -53,7 +59,11 @@ function makeRepository(overrides = {}) {
   };
 }
 
-beforeEach(() => window.localStorage.clear());
+beforeEach(() => {
+  window.localStorage.clear();
+  apiCall.mockImplementation(async () => ({ status: "success" }));
+  __resetShiftSaveStateForTests();
+});
 afterEach(() => window.localStorage.clear());
 
 test("an offline relaunch keeps unsynced issues that only exist in localStorage", async () => {
@@ -217,6 +227,53 @@ test("a machine switch shows a loading signal instead of the other machine's rin
   expect(app.text()).toContain("กำลังโหลดข้อมูลของเครื่องนี้");
   expect(app.text()).not.toContain("P644");
   app.unmount();
+});
+
+test("a blocked shift report can be unblocked from the app itself", async () => {
+  // Twice now the blocker lived in this seam rather than in either component: the view's own tests
+  // all passed while App fed it the wrong prop. The check button is the ONLY way out of a blocked
+  // report, and nothing else in the app calls `refresh`, so a missing or wrong prop here would be
+  // invisible to every other test.
+  jest.useFakeTimers();
+  const alertSpy = jest.spyOn(window, "alert").mockImplementation(() => {});
+  try {
+    apiCall.mockImplementation(() => new Promise(() => {})); // the save never answers
+    let refreshes = 0;
+    const repository = makeRepository({
+      refresh: async machine => {
+        refreshes += 1;
+        return { data: snapshot(machine), source: "server", fetchedAt: "2026-07-30T02:15:00.000Z", stale: false };
+      },
+    });
+
+    const app = renderApp(repository);
+    await act(async () => {});
+    const afterHydration = refreshes;
+
+    await act(async () => {
+      [...app.container.querySelectorAll("button")].find(b => /Shift Report/i.test(b.textContent))
+        .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await act(async () => {
+      [...app.container.querySelectorAll("button")].find(b => /Save to Cloud/.test(b.textContent))
+        .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await act(async () => { jest.advanceTimersByTime(SHIFT_SAVE_TIMEOUT_MS); });
+    expect(app.text()).toContain("ไม่ทราบผลการบันทึกล่าสุด");
+
+    await act(async () => {
+      [...app.container.querySelectorAll("button")].find(b => /ตรวจสอบกับเซิร์ฟเวอร์/.test(b.textContent))
+        .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(refreshes).toBe(afterHydration + 1);            // it reached the repository
+    expect(app.text()).not.toContain("ไม่ทราบผลการบันทึกล่าสุด"); // and the report is saveable again
+    app.unmount();
+  } finally {
+    alertSpy.mockRestore();
+    jest.useRealTimers();
+    apiCall.mockImplementation(async () => ({ status: "success" }));
+  }
 });
 
 test("a launch with no snapshot at all still reports the failure", async () => {

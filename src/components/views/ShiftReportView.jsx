@@ -51,7 +51,7 @@ const withDeadline = (promise) => new Promise((resolve, reject) => {
   );
 });
 
-const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftReports, machine = "TBM1", isCurrentMachine, serverSnapshotAt = null, onRefresh, readOnly = false }) => {
+const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftReports, machine = "TBM1", isCurrentMachine, onRefresh, readOnly = false }) => {
   // WHICH reports are being saved, not merely "a save is running": a save stalled on the 30th used
   // to leave the button disabled for the 31st too, for as long as the deadline lasts. A single slot
   // was not enough either — starting B cleared the indication for A while A was still travelling.
@@ -145,35 +145,25 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
   selectorKeyRef.current = selectorKey;
   // counts snapshots landing from App, so a save whose outcome is unknown can wait for the server to
   // settle the question instead of guessing
-  // WHEN THE SERVER LAST ANSWERED. Counting changes to the `shiftReports` array instead was wrong in
-  // three ways at once: App re-mirrors that array on the offline cache pass, on every machine
-  // switch, and on this view's own optimistic writes — so saving a DIFFERENT report released the
-  // block — and the counter was per-mount while the block it was compared against is module-scope,
-  // so any nav tap released it too. A timestamp fixes both: it only moves when a server snapshot
-  // lands, and it is comparable across mounts.
-  const serverSnapshotAtRef = useRef(serverSnapshotAt);
-  serverSnapshotAtRef.current = serverSnapshotAt;
-  const shiftReportsRef = useRef(shiftReports);
-  shiftReportsRef.current = shiftReports;
   // bumped when the unresolved state changes, so the notice re-renders off the module-scope map
   const [, bumpUnresolved] = useState(0);
+  const [checking, setChecking] = useState(false);
   const autoResultRef = useRef(autoResult);
   autoResultRef.current = autoResult;
   const existingReportRef = useRef(existingReport);
   existingReportRef.current = existingReport;
   const dirtyRef = useRef(false);
-  // counts edits, so a save can tell whether anything was typed while its request was in flight
-  const editSerialRef = useRef(0);
-  // counts every change to what the form DISPLAYS, whether the crew made it or the ring records did.
+  // Counts every change to what the form DISPLAYS, whether the crew made it or the ring records did.
   // The dirty flag is about the crew's own edits; this is about whether the form still holds what an
   // in-flight save sent. A ring recorded mid-save rewrites the derived Result without any typing, so
-  // an own-write claim based on the edit serial alone would make the view skip loading the row it
-  // just wrote — screen and sheet then disagree on a printed report.
+  // counting only typed edits would let a save claim its own row and make the view skip loading it —
+  // screen and sheet then disagree on a report that gets printed. (There used to be a separate edit
+  // serial as well; every one of its bumps also bumped this one, so it decided nothing.)
   const formSerialRef = useRef(0);
   // counts form loads, so a save can tell whether the form was reloaded from the stored copy while
   // its request was in flight — after which the form no longer holds what that save sent
   const loadGenerationRef = useRef(0);
-  const markDirty = () => { dirtyRef.current = true; editSerialRef.current += 1; formSerialRef.current += 1; };
+  const markDirty = () => { dirtyRef.current = true; formSerialRef.current += 1; };
   // the key of the row this view last wrote, so its own save is never announced as a server copy
   const ownWriteKeyRef = useRef(null);
   // App answers this, because a save can resolve after this view unmounts (any nav tap) and a local
@@ -284,12 +274,29 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
   // held back the 31st, and both machines with it — one dead request blocking records it has nothing
   // to do with. Ordering only ever mattered within one report anyway: that is where append-versus-
   // update is decided.
-  // A snapshot only answers the question if it was FETCHED after we gave up waiting. One issued
-  // before the timed-out write reached the sheet proves nothing: the row can be absent from it and
-  // still be on the sheet moments later.
-  const settledByServerSince = (since) => {
-    const at = serverSnapshotAtRef.current;
-    return Boolean(at) && Date.parse(at) > since;
+  // Releasing this block by INFERENCE has now been wrong three rounds running — a prop identity, a
+  // mount-scoped counter, and a completion timestamp were each a different fact from the one needed.
+  // The question is causal: was the sheet read after our request reached it? Only one fetch in the
+  // app has a knowable answer — one the crew issues from here, after we gave up waiting. Every
+  // ambient snapshot may have read the sheet long before, so an absent row in it proves nothing.
+  const checkWithServer = async () => {
+    if (!onRefresh) return;
+    const key = selectorKey;
+    const state = shiftSaveStateFor(key);
+    const pendingId = state.draftId || (existingReportRef.current && existingReportRef.current.id);
+    setChecking(true);
+    try {
+      const fresh = await onRefresh();
+      if (!fresh || !fresh.data) return; // still unreachable; the block stands
+      const rows = fresh.data.shiftReports || [];
+      if (pendingId && rows.some(r => r.id === pendingId)) state.savedIds.add(pendingId);
+      state.unresolvedSince = undefined;
+      bumpUnresolved(n => n + 1);
+    } catch (error) {
+      /* the block stands; the crew can try again */
+    } finally {
+      setChecking(false);
+    }
   };
 
   const queueSave = (key, run) => {
@@ -318,7 +325,6 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
   // has reached the sheet yet, which is what decides append versus update.
   // `eventsForSave` lets the auto-save send the event set it just produced, which is not in state yet
   const prepareSave = (eventsForSave) => {
-    const serialAtSave = editSerialRef.current;
     const formAtSave = formSerialRef.current;
     const loadAtSave = loadGenerationRef.current;
     const machineAtSave = machine;
@@ -337,13 +343,8 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
       // prevent, and the auto-save path would do it on the crew's behalf with nothing on screen.
       // The server itself settles the question: once a fresh snapshot has been seen, either the row
       // is there (so this becomes an update) or it never landed (so an append is correct again).
-      if (state.unresolvedSince !== undefined) {
-        if (!settledByServerSince(state.unresolvedSince)) throw new Error("SHIFT_SAVE_UNRESOLVED");
-        state.unresolvedSince = undefined;
-        // Ask about THIS report's row, not whichever report happens to be on screen now — a save
-        // queued for the 30th can run after the crew moved to the 31st.
-        if (shiftReportsRef.current.some(r => r.id === id)) state.savedIds.add(id);
-      }
+      // Cleared only by an explicit check against the server (see checkWithServer)
+      if (state.unresolvedSince !== undefined) throw new Error("SHIFT_SAVE_UNRESOLVED");
       try {
         await withDeadline(apiCall(existedAtSave || state.savedIds.has(id) ? "updateShiftReport" : "addShiftReport", { ...payload, machine: machineAtSave }));
       } catch (error) {
@@ -365,7 +366,6 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
       // payload from the stale form and erased the event that had just been recorded.
       const formStillHoldsThisWrite = selectorKeyRef.current === keyAtSave
         && loadGenerationRef.current === loadAtSave
-        && editSerialRef.current === serialAtSave
         && formSerialRef.current === formAtSave;
       if (formStillHoldsThisWrite) {
         // The row that comes back carries this write, so the effect watching for a server copy
@@ -384,9 +384,7 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
   // Derived from the module-scope map, not from component state: the block belongs to the report and
   // outlives this mount, so a notice held in state showed nothing after a nav tap while writes were
   // still being refused, and cleared on a different report's successful save.
-  const unresolvedState = shiftSaveStateFor(selectorKey);
-  const saveUnresolved = unresolvedState.unresolvedSince !== undefined
-    && !settledByServerSince(unresolvedState.unresolvedSince);
+  const saveUnresolved = (shiftSaveState.get(selectorKey) || {}).unresolvedSince !== undefined;
 
   const handleSaveToCloud = () => {
     const keyAtSave = selectorKey;
@@ -616,13 +614,14 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
 
       {saveUnresolved && (
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2 bg-amber-500/10 border border-amber-500/40 text-amber-700 px-4 py-2 rounded-card text-[13px] no-print font-semibold">
-          {/* Says only what is true: the request may or may not have reached the sheet, so nothing
-              more is sent until the server is re-read; what is on screen is on this device only, and
-              nothing is resent automatically — the crew saves again once the check comes back. */}
-          <span>ไม่ทราบผลการบันทึกล่าสุด (เซิร์ฟเวอร์ไม่ตอบ) — หยุดส่งชั่วคราวเพื่อกันข้อมูลซ้ำ ข้อมูลที่เห็นอยู่บนเครื่องนี้เท่านั้น ยังไม่ยืนยันกับเซิร์ฟเวอร์</span>
+          {/* Says only what is true, including what the crew must not do: the bars added while this
+              is up are on the device only, so leaving the screen loses them. The button is not a
+              suggestion — it is the only thing that can resume saving, because its fetch is the only
+              one issued after we gave up waiting. */}
+          <span>ไม่ทราบผลการบันทึกล่าสุด (เซิร์ฟเวอร์ไม่ตอบ) — หยุดส่งชั่วคราวเพื่อกันรายงานซ้ำ สิ่งที่กรอกเพิ่มหลังจากนี้อยู่บนเครื่องนี้เท่านั้น <strong>อย่าเพิ่งออกจากหน้านี้</strong> กด “ตรวจสอบกับเซิร์ฟเวอร์” เพื่อบันทึกต่อ</span>
           {onRefresh && (
-            <button onClick={() => onRefresh()} className="bg-amber-600 hover:bg-amber-700 text-white px-3 py-1.5 rounded-input font-semibold transition-colors">
-              ตรวจสอบกับเซิร์ฟเวอร์
+            <button onClick={checkWithServer} disabled={checking} className="bg-amber-600 hover:bg-amber-700 disabled:opacity-60 text-white px-3 py-1.5 rounded-input font-semibold transition-colors">
+              {checking ? "กำลังตรวจสอบ…" : "ตรวจสอบกับเซิร์ฟเวอร์"}
             </button>
           )}
         </div>

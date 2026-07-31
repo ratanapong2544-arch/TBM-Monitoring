@@ -79,7 +79,11 @@ repository.load(machine)
 repository.refresh(machine, { signal })
 // -> Promise<{ data, source: "server", fetchedAt, stale: false, cacheError?, serverPayload }>
 // `data` is the merged snapshot to render; `serverPayload` is the raw GAS response, for callers
-// asking "is this on the sheet?" (interim, added in Task 7 — Task 8 Step 4 removes it)
+// asking "is this on the sheet?" (interim, added in Task 7 — Task 8 Step 4 removes it).
+// `data.present` flags which collections the response actually CARRIED — the normalizer maps an
+// absent key to [], so without it "the server has none" and "this response omitted them" are the
+// same value. It must be carried across `writeServerSnapshot`, which rebuilds its return object
+// from `emptyServerData` and silently drops anything not copied over.
 
 repository.mutate({
   entityType, operation, machine, recordId, domainKey, baseVersion, payload

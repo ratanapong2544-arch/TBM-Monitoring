@@ -11,6 +11,8 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 import App from "../App";
 import { OfflineProvider } from "./OfflineProvider";
 import { emptyServerData, normalizeServerData } from "./normalizeServerData";
+import { createRepository } from "./repository";
+import { deleteOfflineDbForTests, openOfflineDb } from "./db";
 import { apiCall } from "../utils/api";
 import { __resetShiftSaveStateForTests, SHIFT_SAVE_TIMEOUT_MS } from "../components/views/ShiftReportView";
 
@@ -318,6 +320,37 @@ test("a cold launch cannot append a second report for a shift that already has o
   expect(app.text()).not.toContain("ยังไม่ได้ข้อมูลรายงานกะของเครื่องนี้จากเซิร์ฟเวอร์");
   expect([...app.container.querySelectorAll("button")].find(b => /Save to Cloud/.test(b.textContent)).disabled).toBe(false);
   app.unmount();
+});
+
+test("the real repository hands App everything the create-a-report gate needs", async () => {
+  // EVERY other test here uses a fake repository, and a fake can hand App a field the real one
+  // drops. That is exactly what happened: `writeServerSnapshot` rebuilds its return value, so
+  // `present` never reached App, the gate was closed on every healthy device, and 847 tests passed
+  // because the fixture fabricated the field. This test uses the real repository over real
+  // (fake-indexeddb) storage, so only the actual production path can satisfy it.
+  await deleteOfflineDbForTests();
+  const repository = createRepository({
+    openDb: openOfflineDb,
+    now: () => "2026-07-30T02:15:00.000Z",
+    fetchServerSnapshot: async machine => ({
+      status: "success",
+      segments: [],
+      shiftReports: [{ id: "sr_day", date: "2026-07-30", shift: "Day", tbmNo: machine, manpower: "{}", result: "{}", events: "{}" }],
+    }),
+  });
+
+  const app = renderApp(repository);
+  // real IndexedDB work settles on macrotasks, unlike the instant fake repositories elsewhere here
+  const settle = async () => { for (let i = 0; i < 5; i += 1) await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); }); };
+  await settle();
+  const tab = [...app.container.querySelectorAll("button")].find(b => /Shift Report/i.test(b.textContent));
+  if (!tab) throw new Error(`no Shift Report tab; app shows: ${app.text().slice(0, 300)}`);
+  await act(async () => { tab.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+
+  expect(app.text()).not.toContain("ยังไม่ได้ข้อมูลรายงานกะของเครื่องนี้จากเซิร์ฟเวอร์");
+  expect([...app.container.querySelectorAll("button")].find(b => /Save to Cloud/.test(b.textContent)).disabled).toBe(false);
+  app.unmount();
+  await deleteOfflineDbForTests();
 });
 
 test("a cached snapshot does not satisfy the create-a-report gate", async () => {

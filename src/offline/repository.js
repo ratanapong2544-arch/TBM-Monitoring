@@ -178,7 +178,11 @@ export function createRepository(deps = {}) {
         // response untouched — key-for-key, so a caller can also tell an absent collection from an
         // empty one, which the normalizer collapses. Both branches carry it, so the answer does not
         // depend on whether IndexedDB happened to be writable.
-        const result = { data: stored, source: "server", fetchedAt: stored.fetchedAt, stale: false, serverPayload: raw };
+        // `present` describes THIS response and must reach the caller, but it is not part of the
+        // cached snapshot: `writeServerSnapshot` rebuilds its return value from `emptyServerData`,
+        // so anything not explicitly carried across is dropped here. It was — which closed the
+        // cold-launch gate on every healthy device and opened it only when IndexedDB was broken.
+        const result = { data: { ...stored, present: data.present }, source: "server", fetchedAt: stored.fetchedAt, stale: false, serverPayload: raw };
         emit({ type: "data", machine, result });
         return result;
       } catch (error) {

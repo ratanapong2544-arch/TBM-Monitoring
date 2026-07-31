@@ -9,7 +9,7 @@ import RingVisualizer from "../common/RingVisualizer";
 import { ResponsiveContainer, AreaChart, CartesianGrid, XAxis, YAxis, Tooltip, ReferenceLine, Area } from "recharts";
 import { Badge } from "../../ui-ux-pro-max";
 
-const GroutDashboardView = ({ groutRecords, segmentRecords, setGroutRecords, secondaryGroutRecords = [], setSecondaryGroutRecords, machine = "TBM1", onMutate, syncMeta, readOnly = false }) => {
+const GroutDashboardView = ({ groutRecords, segmentRecords, secondaryGroutRecords = [], machine = "TBM1", onMutate, syncMeta, readOnly = false }) => {
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 50;
   const [groutScope, setGroutScope] = useState("all"); // all | primary | secondary

@@ -7,9 +7,9 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
 import SegmentRecordView from "./SegmentRecordView";
 import GroutRecordView from "./GroutRecordView";
-import { apiCall } from "../../utils/api";
 
-jest.mock("../../utils/api", () => ({ apiCall: jest.fn(async () => ({ status: "success" })) }));
+// no `utils/api` mock: neither form imports `apiCall` since step 5, so mocking it would only
+// describe a path these views no longer have
 
 // Core writes go through the queue, so these forms take `onMutate`. Mounting them without it would
 // exercise a path the app no longer has. `sent` records the envelopes; `onMutateOverride` lets a
@@ -60,8 +60,7 @@ const tbm1Segments = [
 
 test("a segment form drops the previous machine's ring and chainage on a machine switch", () => {
   const view = render(
-    <SegmentRecordView projectInfo={projectInfo} handleProjectInfoChange={() => {}} segmentRecords={tbm1Segments}
-      setSegmentRecords={() => {}} setCurrentModule={() => {}} setActiveTab={() => {}} machine="TBM1" onMutate={onMutate} />
+    <SegmentRecordView projectInfo={projectInfo} handleProjectInfoChange={() => {}} segmentRecords={tbm1Segments} setCurrentModule={() => {}} setActiveTab={() => {}} machine="TBM1" onMutate={onMutate} />
   );
   // prefilled from TBM1's last ring
   expect(view.value("ringNo")).toBe("P644");
@@ -69,8 +68,7 @@ test("a segment form drops the previous machine's ring and chainage on a machine
 
   // switching machine also empties the rows (App gates them), so nothing may re-prefill
   view.rerender(
-    <SegmentRecordView projectInfo={projectInfo} handleProjectInfoChange={() => {}} segmentRecords={[]}
-      setSegmentRecords={() => {}} setCurrentModule={() => {}} setActiveTab={() => {}} machine="TBM2" onMutate={onMutate} />
+    <SegmentRecordView projectInfo={projectInfo} handleProjectInfoChange={() => {}} segmentRecords={[]} setCurrentModule={() => {}} setActiveTab={() => {}} machine="TBM2" onMutate={onMutate} />
   );
 
   expect(view.value("ringNo")).toBe("");
@@ -85,15 +83,13 @@ test("a segment form does not carry ring length or type into the next machine's 
   // an in-progress ring is loaded into the form as-is, so its length becomes the form's length
   const shortRing = [{ id: "s1", ringNo: "P643", typeRing: "C2", keyPos: "16", startCH: "8+010.20", finishCH: "8+009.30", length: "0.90", status: "In Progress", installType: "Permanent", remark: "TBM1 note" }];
   const view = render(
-    <SegmentRecordView projectInfo={projectInfo} handleProjectInfoChange={() => {}} segmentRecords={shortRing}
-      setSegmentRecords={() => {}} setCurrentModule={() => {}} setActiveTab={() => {}} machine="TBM1" onMutate={onMutate} />
+    <SegmentRecordView projectInfo={projectInfo} handleProjectInfoChange={() => {}} segmentRecords={shortRing} setCurrentModule={() => {}} setActiveTab={() => {}} machine="TBM1" onMutate={onMutate} />
   );
   expect(view.value("length")).toBe("0.90");
 
   const tbm2 = [{ id: "s9", ringNo: "P100", typeRing: "C1", keyPos: "16", startCH: "9+499.50", finishCH: "9+498.60", length: "1.40", status: "Completed", installType: "Permanent" }];
   view.rerender(
-    <SegmentRecordView projectInfo={projectInfo} handleProjectInfoChange={() => {}} segmentRecords={tbm2}
-      setSegmentRecords={() => {}} setCurrentModule={() => {}} setActiveTab={() => {}} machine="TBM2" onMutate={onMutate} />
+    <SegmentRecordView projectInfo={projectInfo} handleProjectInfoChange={() => {}} segmentRecords={tbm2} setCurrentModule={() => {}} setActiveTab={() => {}} machine="TBM2" onMutate={onMutate} />
   );
 
   // TBM2's own last ring drives the next one: 9+498.60 − 1.40 = 9+497.20, not 9+497.70
@@ -109,8 +105,7 @@ test("a segment form never overwrites what the crew typed when new records arriv
   // the prefill runs on every segmentRecords change now, so its `prev.ringNo ? prev : …` guard is
   // the only thing stopping a background refresh from reverting a hand-corrected ring and chainage
   const view = render(
-    <SegmentRecordView projectInfo={projectInfo} handleProjectInfoChange={() => {}} segmentRecords={tbm1Segments}
-      setSegmentRecords={() => {}} setCurrentModule={() => {}} setActiveTab={() => {}} machine="TBM1" onMutate={onMutate} />
+    <SegmentRecordView projectInfo={projectInfo} handleProjectInfoChange={() => {}} segmentRecords={tbm1Segments} setCurrentModule={() => {}} setActiveTab={() => {}} machine="TBM1" onMutate={onMutate} />
   );
   expect(view.value("ringNo")).toBe("P644");
 
@@ -123,8 +118,7 @@ test("a segment form never overwrites what the crew typed when new records arriv
 
   // a server refresh re-mirrors the same rows as a NEW array identity
   view.rerender(
-    <SegmentRecordView projectInfo={projectInfo} handleProjectInfoChange={() => {}} segmentRecords={[...tbm1Segments]}
-      setSegmentRecords={() => {}} setCurrentModule={() => {}} setActiveTab={() => {}} machine="TBM1" onMutate={onMutate} />
+    <SegmentRecordView projectInfo={projectInfo} handleProjectInfoChange={() => {}} segmentRecords={[...tbm1Segments]} setCurrentModule={() => {}} setActiveTab={() => {}} machine="TBM1" onMutate={onMutate} />
   );
 
   expect(view.value("ringNo")).toBe("P700");
@@ -136,8 +130,7 @@ test("a grout form drops every carried-over field on a machine switch", () => {
   // ride into the other machine's record
   const segmentsWithKey = [{ id: "s1", ringNo: "P643", keyPos: "4", startCH: "8+010.20", finishCH: "8+008.80", length: "1.40", status: "Completed", installType: "Permanent" }];
   const view = render(
-    <GroutRecordView projectInfo={projectInfo} handleProjectInfoChange={() => {}} groutRecords={[]}
-      setGroutRecords={() => {}} secondaryGroutRecords={[]} setSecondaryGroutRecords={() => {}}
+    <GroutRecordView projectInfo={projectInfo} handleProjectInfoChange={() => {}} groutRecords={[]} secondaryGroutRecords={[]}
       segmentRecords={segmentsWithKey} setCurrentModule={() => {}} setActiveTab={() => {}} machine="TBM1" onMutate={onMutate} />
   );
   // the crew types the ring being grouted; the key segment then syncs from that segment record
@@ -159,8 +152,7 @@ test("a grout form drops every carried-over field on a machine switch", () => {
 
   // TBM2 has no rings yet, so nothing would ever re-sync keyType
   view.rerender(
-    <GroutRecordView projectInfo={projectInfo} handleProjectInfoChange={() => {}} groutRecords={[]}
-      setGroutRecords={() => {}} secondaryGroutRecords={[]} setSecondaryGroutRecords={() => {}}
+    <GroutRecordView projectInfo={projectInfo} handleProjectInfoChange={() => {}} groutRecords={[]} secondaryGroutRecords={[]}
       segmentRecords={[]} setCurrentModule={() => {}} setActiveTab={() => {}} machine="TBM2" onMutate={onMutate} />
   );
 
@@ -180,8 +172,7 @@ test("a grout machine switch clears the injection positions", async () => {
   sent.length = 0;
   const segments = [{ id: "s1", ringNo: "P643", keyPos: "4", startCH: "8+010.20", finishCH: "8+008.80", length: "1.40", status: "Completed", installType: "Permanent" }];
   const view = render(
-    <GroutRecordView projectInfo={projectInfo} handleProjectInfoChange={() => {}} groutRecords={[]}
-      setGroutRecords={() => {}} secondaryGroutRecords={[]} setSecondaryGroutRecords={() => {}}
+    <GroutRecordView projectInfo={projectInfo} handleProjectInfoChange={() => {}} groutRecords={[]} secondaryGroutRecords={[]}
       segmentRecords={segments} setCurrentModule={() => {}} setActiveTab={() => {}} machine="TBM1" onMutate={onMutate} />
   );
   act(() => {
@@ -189,8 +180,7 @@ test("a grout machine switch clears the injection positions", async () => {
   });
 
   view.rerender(
-    <GroutRecordView projectInfo={projectInfo} handleProjectInfoChange={() => {}} groutRecords={[]}
-      setGroutRecords={() => {}} secondaryGroutRecords={[]} setSecondaryGroutRecords={() => {}}
+    <GroutRecordView projectInfo={projectInfo} handleProjectInfoChange={() => {}} groutRecords={[]} secondaryGroutRecords={[]}
       segmentRecords={[]} setCurrentModule={() => {}} setActiveTab={() => {}} machine="TBM2" onMutate={onMutate} />
   );
   type(view.container, "ringNo", "P1");
@@ -206,28 +196,13 @@ test("a grout machine switch clears the injection positions", async () => {
   view.unmount();
 });
 
-test("a grout save writes the record list through App, never itself", async () => {
-  // this used to assert an empty `rows` after an unmount-then-switch. Since the view stopped writing
-  // the list in step 5 it never fills `rows` under any circumstance, so the assertion held whatever
-  // App did — the machine guard it was named for now lives in App and is tested there. What is left
-  // for the view to owe is that it does not write the list at all: two writers for one row is how the
-  // guard gets bypassed in the first place.
-  const setGroutRecords = jest.fn();
-  const view = render(
-    <GroutRecordView projectInfo={projectInfo} handleProjectInfoChange={() => {}} groutRecords={[]}
-      setGroutRecords={setGroutRecords} secondaryGroutRecords={[]} setSecondaryGroutRecords={() => {}}
-      segmentRecords={[]} setCurrentModule={() => {}} setActiveTab={() => {}} machine="TBM1" onMutate={onMutate} />
-  );
-  type(view.container, "ringNo", "P643");
-  type(view.container, "partA", "12.5");
-  await act(async () => {
-    view.container.querySelector("form").dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
-  });
-
-  expect(sent[sent.length - 1].payload.ringNo).toBe("P643"); // the save did happen
-  expect(setGroutRecords).not.toHaveBeenCalled();
-  view.unmount();
-});
+// Two tests stood here, both named for the machine guard and both asserting only that an empty
+// `rows` array stayed empty — against views that had stopped writing the record lists in step 5, so
+// nothing they could do would have filled it. The guard they were named for lives in App now and is
+// tested there (`a save resolving after a machine switch does not land in the other machine`).
+// Asserting "the view does not write the list" is not the replacement either: the setter props are
+// gone from all five views, so there is nothing left to call and any such test would be vacuous for
+// the same reason. The rule is held by construction, which is stronger than a test of it.
 
 test("a grout form never overwrites a hand-corrected ring when new records arrive", () => {
   // the twin of the segment guard: the mirror hands this view a new array identity on every
@@ -235,8 +210,7 @@ test("a grout form never overwrites a hand-corrected ring when new records arriv
   const segments = [{ id: "s1", ringNo: "P643", keyPos: "4", startCH: "8+010.20", finishCH: "8+008.80", length: "1.40", status: "Completed", installType: "Permanent" }];
   const grouts = [{ id: "g1", ringNo: "P640", partA: "1", partB: "1", pressure: "2.5" }];
   const view = render(
-    <GroutRecordView projectInfo={projectInfo} handleProjectInfoChange={() => {}} groutRecords={grouts}
-      setGroutRecords={() => {}} secondaryGroutRecords={[]} setSecondaryGroutRecords={() => {}}
+    <GroutRecordView projectInfo={projectInfo} handleProjectInfoChange={() => {}} groutRecords={grouts} secondaryGroutRecords={[]}
       segmentRecords={segments} setCurrentModule={() => {}} setActiveTab={() => {}} machine="TBM1" onMutate={onMutate} />
   );
   const prefilled = view.value("ringNo");
@@ -244,8 +218,7 @@ test("a grout form never overwrites a hand-corrected ring when new records arriv
 
   type(view.container, "ringNo", "P700");
   view.rerender(
-    <GroutRecordView projectInfo={projectInfo} handleProjectInfoChange={() => {}} groutRecords={[...grouts]}
-      setGroutRecords={() => {}} secondaryGroutRecords={[]} setSecondaryGroutRecords={() => {}}
+    <GroutRecordView projectInfo={projectInfo} handleProjectInfoChange={() => {}} groutRecords={[...grouts]} secondaryGroutRecords={[]}
       segmentRecords={[...segments]} setCurrentModule={() => {}} setActiveTab={() => {}} machine="TBM1" onMutate={onMutate} />
   );
 
@@ -259,15 +232,13 @@ test("a segment form does not carry the other machine's row id into a save", asy
   sent.length = 0;
   const inProgress = [{ id: "seg_tbm1_row", ringNo: "P643", typeRing: "C1", keyPos: "16", startCH: "8+010.20", finishCH: "8+008.80", length: "1.40", status: "In Progress", installType: "Permanent" }];
   const view = render(
-    <SegmentRecordView projectInfo={projectInfo} handleProjectInfoChange={() => {}} segmentRecords={inProgress}
-      setSegmentRecords={() => {}} setCurrentModule={() => {}} setActiveTab={() => {}} machine="TBM1" onMutate={onMutate} />
+    <SegmentRecordView projectInfo={projectInfo} handleProjectInfoChange={() => {}} segmentRecords={inProgress} setCurrentModule={() => {}} setActiveTab={() => {}} machine="TBM1" onMutate={onMutate} />
   );
   // the in-progress ring is loaded for editing, so the form now holds that row's id
   expect(view.value("ringNo")).toBe("P643");
 
   view.rerender(
-    <SegmentRecordView projectInfo={projectInfo} handleProjectInfoChange={() => {}} segmentRecords={[]}
-      setSegmentRecords={() => {}} setCurrentModule={() => {}} setActiveTab={() => {}} machine="TBM2" onMutate={onMutate} />
+    <SegmentRecordView projectInfo={projectInfo} handleProjectInfoChange={() => {}} segmentRecords={[]} setCurrentModule={() => {}} setActiveTab={() => {}} machine="TBM2" onMutate={onMutate} />
   );
   type(view.container, "ringNo", "P1");
   type(view.container, "startCH", "9+499.50");
@@ -291,7 +262,7 @@ test("changing the working shift does not wipe the open segment record", () => {
   // readings and the ring length — which then corrupts the derived chainage and soil volume
   const element = shift => (
     <SegmentRecordView projectInfo={{ ...projectInfo, shift }} handleProjectInfoChange={() => {}}
-      segmentRecords={tbm1Segments} setSegmentRecords={() => {}} setCurrentModule={() => {}}
+      segmentRecords={tbm1Segments} setCurrentModule={() => {}}
       setActiveTab={() => {}} machine="TBM1" onMutate={onMutate} />
   );
   const view = render(element("Day"));
@@ -313,8 +284,7 @@ test("changing the working shift does not wipe the open segment record", () => {
 
 test("a segment machine switch clears the survey and excavation fields too", () => {
   const view = render(
-    <SegmentRecordView projectInfo={projectInfo} handleProjectInfoChange={() => {}} segmentRecords={tbm1Segments}
-      setSegmentRecords={() => {}} setCurrentModule={() => {}} setActiveTab={() => {}} machine="TBM1" onMutate={onMutate} />
+    <SegmentRecordView projectInfo={projectInfo} handleProjectInfoChange={() => {}} segmentRecords={tbm1Segments} setCurrentModule={() => {}} setActiveTab={() => {}} machine="TBM1" onMutate={onMutate} />
   );
   type(view.container, "excavStartTime", "08:15");
   type(view.container, "excavEndTime", "09:40");
@@ -325,8 +295,7 @@ test("a segment machine switch clears the survey and excavation fields too", () 
   type(view.container, "vrt", "0.2");
 
   view.rerender(
-    <SegmentRecordView projectInfo={projectInfo} handleProjectInfoChange={() => {}} segmentRecords={[]}
-      setSegmentRecords={() => {}} setCurrentModule={() => {}} setActiveTab={() => {}} machine="TBM2" onMutate={onMutate} />
+    <SegmentRecordView projectInfo={projectInfo} handleProjectInfoChange={() => {}} segmentRecords={[]} setCurrentModule={() => {}} setActiveTab={() => {}} machine="TBM2" onMutate={onMutate} />
   );
 
   ["excavStartTime", "excavEndTime", "soilType", "headV", "artV", "tailV", "vrt"].forEach(name => {
@@ -344,8 +313,7 @@ test("a segment save resolving after a machine switch does not land in the other
   let rows = [];
   const setSegmentRecords = updater => { rows = typeof updater === "function" ? updater(rows) : updater; };
   const element = machine => (
-    <SegmentRecordView projectInfo={projectInfo} handleProjectInfoChange={() => {}} segmentRecords={rows}
-      setSegmentRecords={setSegmentRecords} setCurrentModule={() => {}} setActiveTab={() => {}} machine={machine} onMutate={onMutate} />
+    <SegmentRecordView projectInfo={projectInfo} handleProjectInfoChange={() => {}} segmentRecords={rows} setCurrentModule={() => {}} setActiveTab={() => {}} machine={machine} onMutate={onMutate} />
   );
   const view = render(element("TBM1"));
   type(view.container, "ringNo", "P644");
@@ -375,33 +343,13 @@ test("a segment save resolving after a machine switch does not land in the other
   view.unmount();
 });
 
-test("a segment save writes the record list through App, never itself", async () => {
-  // twin of the grout case above, and the same history: the assertion this replaces could not fail.
-  const setSegmentRecords = jest.fn();
-  const view = render(
-    <SegmentRecordView projectInfo={projectInfo} handleProjectInfoChange={() => {}} segmentRecords={[]}
-      setSegmentRecords={setSegmentRecords} setCurrentModule={() => {}} setActiveTab={() => {}}
-      machine="TBM1" onMutate={onMutate} />
-  );
-  type(view.container, "ringNo", "P644");
-  type(view.container, "startCH", "8+008.80");
-  await act(async () => {
-    view.container.querySelector("form").dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
-  });
-
-  expect(sent[sent.length - 1].payload.ringNo).toBe("P644");
-  expect(setSegmentRecords).not.toHaveBeenCalled();
-  view.unmount();
-});
-
 test("a grout save resolving after a machine switch does not land in the other machine", async () => {
   let release;
   onMutateOverride = () => new Promise(resolve => { release = () => resolve({}); });
   let rows = [];
   const setGroutRecords = updater => { rows = typeof updater === "function" ? updater(rows) : updater; };
   const element = machine => (
-    <GroutRecordView projectInfo={projectInfo} handleProjectInfoChange={() => {}} groutRecords={rows}
-      setGroutRecords={setGroutRecords} secondaryGroutRecords={[]} setSecondaryGroutRecords={() => {}}
+    <GroutRecordView projectInfo={projectInfo} handleProjectInfoChange={() => {}} groutRecords={rows} secondaryGroutRecords={[]}
       segmentRecords={[]} setCurrentModule={() => {}} setActiveTab={() => {}} machine={machine} onMutate={onMutate} />
   );
   const view = render(element("TBM1"));
@@ -435,8 +383,7 @@ test("a segment form keeps what the crew typed across an unrelated re-render", (
   // prefill (guarded on an empty ringNo) would immediately recompute the same P644. A hand-typed
   // ring is the value that can tell the two apart, because nothing restores it.
   const element = machineProps => (
-    <SegmentRecordView projectInfo={projectInfo} handleProjectInfoChange={() => {}} segmentRecords={tbm1Segments}
-      setSegmentRecords={() => {}} setCurrentModule={() => {}} setActiveTab={() => {}} {...machineProps} />
+    <SegmentRecordView projectInfo={projectInfo} handleProjectInfoChange={() => {}} segmentRecords={tbm1Segments} setCurrentModule={() => {}} setActiveTab={() => {}} {...machineProps} />
   );
   const view = render(element({ machine: "TBM1" }));
   expect(view.value("ringNo")).toBe("P644");
@@ -453,16 +400,14 @@ test("a segment form keeps what the crew typed across an unrelated re-render", (
 test("a grout form drops the previous machine's ring on a machine switch", () => {
   const grouts = [{ id: "g1", ringNo: "P640", partA: "1", partB: "1", pressure: "2.5" }];
   const view = render(
-    <GroutRecordView projectInfo={projectInfo} handleProjectInfoChange={() => {}} groutRecords={grouts}
-      setGroutRecords={() => {}} secondaryGroutRecords={[]} setSecondaryGroutRecords={() => {}}
+    <GroutRecordView projectInfo={projectInfo} handleProjectInfoChange={() => {}} groutRecords={grouts} secondaryGroutRecords={[]}
       segmentRecords={tbm1Segments} setCurrentModule={() => {}} setActiveTab={() => {}} machine="TBM1" onMutate={onMutate} />
   );
   const before = view.value("ringNo");
   expect(before).toBeTruthy();
 
   view.rerender(
-    <GroutRecordView projectInfo={projectInfo} handleProjectInfoChange={() => {}} groutRecords={[]}
-      setGroutRecords={() => {}} secondaryGroutRecords={[]} setSecondaryGroutRecords={() => {}}
+    <GroutRecordView projectInfo={projectInfo} handleProjectInfoChange={() => {}} groutRecords={[]} secondaryGroutRecords={[]}
       segmentRecords={[]} setCurrentModule={() => {}} setActiveTab={() => {}} machine="TBM2" onMutate={onMutate} />
   );
 

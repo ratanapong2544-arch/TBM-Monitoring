@@ -29,7 +29,7 @@ const draftIdFor = (key) => {
 // module state persists across tests in one file, which would make them order-dependent
 export const __resetShiftSaveStateForTests = () => { shiftDraftIds.clear(); };
 
-const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftReports, machine = "TBM1", isCurrentMachine, onMutate, syncMeta, readOnly = false }) => {
+const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, machine = "TBM1", isCurrentMachine, onMutate, syncMeta, readOnly = false }) => {
   const [isSaving, setIsSaving] = useState(false);
   const [isExportingImage, setIsExportingImage] = useState(false);
 
@@ -305,8 +305,13 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
     try { await send(); }
     catch (e) {
       // A time bar is data the crew has already recorded. Queueing is local and durable, so the only
-      // way here is a validation refusal — which is a defect, not a network condition.
+      // way here is a validation refusal or a storage failure (private mode, quota, a corrupted
+      // database) — never the tunnel link. Either way the bar is on screen and in NOTHING else, and
+      // a console line is not a place the crew looks: they would find out at the end of the shift,
+      // from a report missing the hours. Say it where they are, and leave the form dirty so the
+      // manual Save can still carry it.
       console.error("Auto-save failed", e);
+      alert("บันทึกอัตโนมัติไม่สำเร็จ: " + e.message + "\nกรุณากด \"Save to Cloud\" อีกครั้ง");
     }
   };
 

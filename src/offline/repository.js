@@ -191,6 +191,12 @@ export function createRepository(deps = {}) {
         // cached snapshot: `writeServerSnapshot` rebuilds its return value from `emptyServerData`,
         // so anything not explicitly carried across is dropped here. It was — which closed the
         // cold-launch gate on every healthy device and opened it only when IndexedDB was broken.
+        // Both fields were added for Task 7's save gate, and Task 8 deleted that gate: nothing in
+        // the app reads either one today. They stay because they answer a question the merged
+        // snapshot cannot ("is this on the sheet?", "did the server send this collection at all?"),
+        // Task 10's conflict UI is the next caller to need it, and both are pinned by the seam
+        // tests — not because a caller is hiding somewhere. Do not read them from the CACHE branch:
+        // a stored snapshot says nothing about what the server most recently sent.
         const result = { data: { ...stored, present: data.present }, source: "server", fetchedAt: stored.fetchedAt, stale: false, serverPayload: raw };
         emit({ type: "data", machine, result });
         return result;

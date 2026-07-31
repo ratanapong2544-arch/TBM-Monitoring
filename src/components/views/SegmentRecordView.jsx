@@ -6,7 +6,11 @@ import { buildMutationEnvelope } from "../../offline/mutationEnvelope";
 import { SegmentedToggle } from "../../ui-ux-pro-max";
 import StickyActionBar from "../../ui-ux-pro-max/components/StickyActionBar";
 
-const SegmentRecordView = ({ projectInfo, handleProjectInfoChange, segmentRecords, setSegmentRecords, setCurrentModule, setActiveTab, machine = "TBM1", isCurrentMachine, onMutate, syncMeta }) => {
+// no `setSegmentRecords`: since step 5 the record list is App's to write, off the back of the queued
+// mutation. Keeping the setter in the signature is not harmless housekeeping — it is a second writer
+// for one row, and the machine guard that decides whether the row belongs on screen lives on App's
+// side of the call. A view holding the setter can bypass it without anything failing.
+const SegmentRecordView = ({ projectInfo, handleProjectInfoChange, segmentRecords, setCurrentModule, setActiveTab, machine = "TBM1", isCurrentMachine, onMutate, syncMeta }) => {
   const [isSaving, setIsSaving] = useState(false);
   // App answers this, because a save can resolve after this view unmounts (any nav tap) and a local
   // ref would be frozen at the machine selected then. The local fallback is for standalone renders.

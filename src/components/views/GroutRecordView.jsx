@@ -7,7 +7,8 @@ import { buildMutationEnvelope } from "../../offline/mutationEnvelope";
 import { SegmentedToggle } from "../../ui-ux-pro-max";
 import StickyActionBar from "../../ui-ux-pro-max/components/StickyActionBar";
 
-const GroutRecordView = ({ projectInfo, handleProjectInfoChange, groutRecords, setGroutRecords, secondaryGroutRecords = [], setSecondaryGroutRecords, segmentRecords, setCurrentModule, setActiveTab, machine = "TBM1", isCurrentMachine, onMutate, syncMeta }) => {
+// the setters are gone for the reason given in SegmentRecordView: one writer per row, and it is App
+const GroutRecordView = ({ projectInfo, handleProjectInfoChange, groutRecords, secondaryGroutRecords = [], segmentRecords, setCurrentModule, setActiveTab, machine = "TBM1", isCurrentMachine, onMutate, syncMeta }) => {
   const [isSaving, setIsSaving] = useState(false);
   // App answers this, because a save can resolve after this view unmounts (any nav tap) and a local
   // ref would be frozen at the machine selected then. The local fallback is for standalone renders.
@@ -112,10 +113,6 @@ const GroutRecordView = ({ projectInfo, handleProjectInfoChange, groutRecords, s
       const rec = isSecondary
         ? { id: `sgrout_${Date.now()}`, ...base } // ไม่มี ratio/groutPass
         : { id: `grout_${Date.now()}`, ...base, ratio: Number((Number(currentTotal) / THEORETICAL_VOL) * 100), groutPass: "1st Pass" };
-      const local = { ...rec };
-      if (local.imageBase64) local.imageUrl = "Attached";
-      delete local.imageBase64; delete local.imageName;
-
       // App applies the optimistic row when the mutation is queued, so this must not add it too
       await onMutate(buildMutationEnvelope({
         entityType, operation: "create", machine: machineAtSave,

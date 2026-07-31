@@ -73,8 +73,7 @@ const noop = () => {};
 
 test("recording a segment queues a create with the ring's domain key", async () => {
   const view = render(
-    <SegmentRecordView projectInfo={projectInfo} handleProjectInfoChange={noop} segmentRecords={[]}
-      setSegmentRecords={noop} setCurrentModule={noop} setActiveTab={noop} machine="TBM1" onMutate={onMutate} />
+    <SegmentRecordView projectInfo={projectInfo} handleProjectInfoChange={noop} segmentRecords={[]} setCurrentModule={noop} setActiveTab={noop} machine="TBM1" onMutate={onMutate} />
   );
   type(view.container, "ringNo", "P41");
   type(view.container, "startCH", "8+010.20");
@@ -96,8 +95,7 @@ test("saving an in-progress segment queues an update at the version it was read 
   const inProgress = [{ id: "seg_1", ringNo: "P41", typeRing: "C1", keyPos: "16", startCH: "8+010.20", finishCH: "8+008.80", length: "1.40", status: "In Progress", installType: "Permanent" }];
   const syncMeta = { "segment:TBM1:P41:Permanent": { version: 3 } };
   const view = render(
-    <SegmentRecordView projectInfo={projectInfo} handleProjectInfoChange={noop} segmentRecords={inProgress}
-      setSegmentRecords={noop} setCurrentModule={noop} setActiveTab={noop} machine="TBM1"
+    <SegmentRecordView projectInfo={projectInfo} handleProjectInfoChange={noop} segmentRecords={inProgress} setCurrentModule={noop} setActiveTab={noop} machine="TBM1"
       syncMeta={syncMeta} onMutate={onMutate} />
   );
   await submit(view.container);
@@ -117,7 +115,7 @@ test("saving an in-progress segment queues an update at the version it was read 
 test("deleting a segment from the data log queues a delete", async () => {
   const records = [{ id: "seg_1", ringNo: "P41", typeRing: "C1", keyPos: "16", startCH: "8+010.20", finishCH: "8+008.80", length: "1.40", status: "Completed", installType: "Permanent", date: "2026-07-30" }];
   const view = render(
-    <SegmentDashboardView segmentRecords={records} setSegmentRecords={noop} machine="TBM1"
+    <SegmentDashboardView segmentRecords={records} machine="TBM1"
       syncMeta={{ "segment:TBM1:P41:Permanent": { version: 2 } }} onMutate={onMutate} />
   );
   await click(view.container.querySelector("tbody tr"));
@@ -139,7 +137,7 @@ test("deleting a segment from the data log queues a delete", async () => {
 test("editing a segment from the data log queues an update", async () => {
   const records = [{ id: "seg_1", ringNo: "P41", typeRing: "C1", keyPos: "16", startCH: "8+010.20", finishCH: "8+008.80", length: "1.40", status: "Completed", installType: "Permanent", date: "2026-07-30" }];
   const view = render(
-    <SegmentDashboardView segmentRecords={records} setSegmentRecords={noop} machine="TBM1"
+    <SegmentDashboardView segmentRecords={records} machine="TBM1"
       syncMeta={{ "segment:TBM1:P41:Permanent": { version: 2 } }} onMutate={onMutate} />
   );
   await click(view.container.querySelector("tbody tr"));
@@ -161,8 +159,7 @@ test("editing a segment from the data log queues an update", async () => {
 test("recording primary grout queues a create keyed by ring and pass", async () => {
   const segments = [{ id: "s1", ringNo: "P41", keyPos: "4", startCH: "8+010.20", finishCH: "8+008.80", length: "1.40", status: "Completed", installType: "Permanent" }];
   const view = render(
-    <GroutRecordView projectInfo={projectInfo} handleProjectInfoChange={noop} groutRecords={[]}
-      setGroutRecords={noop} secondaryGroutRecords={[]} setSecondaryGroutRecords={noop}
+    <GroutRecordView projectInfo={projectInfo} handleProjectInfoChange={noop} groutRecords={[]} secondaryGroutRecords={[]}
       segmentRecords={segments} setCurrentModule={noop} setActiveTab={noop} machine="TBM1" onMutate={onMutate} />
   );
   type(view.container, "ringNo", "P41");
@@ -183,8 +180,7 @@ test("recording primary grout queues a create keyed by ring and pass", async () 
 
 test("recording secondary grout queues a create keyed by its own record id", async () => {
   const view = render(
-    <GroutRecordView projectInfo={projectInfo} handleProjectInfoChange={noop} groutRecords={[]}
-      setGroutRecords={noop} secondaryGroutRecords={[]} setSecondaryGroutRecords={noop}
+    <GroutRecordView projectInfo={projectInfo} handleProjectInfoChange={noop} groutRecords={[]} secondaryGroutRecords={[]}
       segmentRecords={[]} setCurrentModule={noop} setActiveTab={noop} machine="TBM1" onMutate={onMutate} />
   );
   await click(button(view.container, /Secondary/i));
@@ -210,8 +206,7 @@ test("recording secondary grout queues a create keyed by its own record id", asy
 test("editing primary grout from the data log queues an update", async () => {
   const grouts = [{ id: "g1", ringNo: "P41", partA: "12.5", partB: "6.25", pressure: "3.2", total: 18.75, groutPass: "1st Pass", date: "2026-07-30", positions: {} }];
   const view = render(
-    <GroutDashboardView groutRecords={grouts} setGroutRecords={noop} secondaryGroutRecords={[]}
-      setSecondaryGroutRecords={noop} segmentRecords={[]} machine="TBM1"
+    <GroutDashboardView groutRecords={grouts} secondaryGroutRecords={[]} segmentRecords={[]} machine="TBM1"
       syncMeta={{ "grout:TBM1:P41:1st Pass": { version: 5 } }} onMutate={onMutate} />
   );
   await click(view.container.querySelector("tbody tr"));
@@ -233,8 +228,7 @@ test("editing primary grout from the data log queues an update", async () => {
 test("deleting primary grout from the data log queues a delete", async () => {
   const grouts = [{ id: "g1", ringNo: "P41", partA: "12.5", partB: "6.25", pressure: "3.2", total: 18.75, groutPass: "1st Pass", date: "2026-07-30", positions: {} }];
   const view = render(
-    <GroutDashboardView groutRecords={grouts} setGroutRecords={noop} secondaryGroutRecords={[]}
-      setSecondaryGroutRecords={noop} segmentRecords={[]} machine="TBM1"
+    <GroutDashboardView groutRecords={grouts} secondaryGroutRecords={[]} segmentRecords={[]} machine="TBM1"
       syncMeta={{ "grout:TBM1:P41:1st Pass": { version: 5 } }} onMutate={onMutate} />
   );
   await click(view.container.querySelector("tbody tr"));
@@ -253,10 +247,57 @@ test("deleting primary grout from the data log queues a delete", async () => {
   view.unmount();
 });
 
+// The data log merges primary and secondary into one table and picks the entity type from the row.
+// That branch is the whole risk: a secondary edit filed as a `grout` mutation writes to the primary
+// sheet, and its domain key would collide with the ring's primary record — one blocking the other in
+// the queue. Both operations are covered because the type is chosen separately in each handler.
+const secondaryRow = { id: "sg1", ringNo: "P41", partA: "3.0", partB: "1.5", pressure: "2.0", total: 4.5, date: "2026-07-30", positions: {} };
+
+test("editing secondary grout from the data log queues a secondaryGrout update", async () => {
+  const view = render(
+    <GroutDashboardView groutRecords={[]} secondaryGroutRecords={[secondaryRow]} segmentRecords={[]} machine="TBM1"
+      syncMeta={{ "secondaryGrout:TBM1:P41:sg1": { version: 7 } }} onMutate={onMutate} />
+  );
+  await click(view.container.querySelector("tbody tr"));
+  await click(byTitle(view.container, "Edit"));
+  await click(button(view.container, /Save Changes/));
+
+  expect(onMutate).toHaveBeenCalledWith(expect.objectContaining({
+    entityType: "secondaryGrout",
+    operation: "update",
+    machine: "TBM1",
+    recordId: "sg1",
+    domainKey: "secondaryGrout:TBM1:P41:sg1",
+    baseVersion: 7,
+  }));
+  expect(apiCall).not.toHaveBeenCalled();
+  view.unmount();
+});
+
+test("deleting secondary grout from the data log queues a secondaryGrout delete", async () => {
+  const view = render(
+    <GroutDashboardView groutRecords={[]} secondaryGroutRecords={[secondaryRow]} segmentRecords={[]} machine="TBM1"
+      syncMeta={{ "secondaryGrout:TBM1:P41:sg1": { version: 7 } }} onMutate={onMutate} />
+  );
+  await click(view.container.querySelector("tbody tr"));
+  await click(byTitle(view.container, "Delete"));
+  await click(button(view.container, /^ลบ$/));
+
+  expect(onMutate).toHaveBeenCalledWith(expect.objectContaining({
+    entityType: "secondaryGrout",
+    operation: "delete",
+    machine: "TBM1",
+    recordId: "sg1",
+    domainKey: "secondaryGrout:TBM1:P41:sg1",
+    baseVersion: 7,
+  }));
+  expect(apiCall).not.toHaveBeenCalled();
+  view.unmount();
+});
+
 test("saving a shift report queues a create keyed by its Bangkok date and shift", async () => {
   const view = render(
-    <ShiftReportView projectInfo={projectInfo} segmentRecords={[]} shiftReports={[]}
-      setShiftReports={noop} machine="TBM1" onMutate={onMutate} />
+    <ShiftReportView projectInfo={projectInfo} segmentRecords={[]} shiftReports={[]} machine="TBM1" onMutate={onMutate} />
   );
   type(view.container, "Engineer", "3");
   await click(button(view.container, /Save to Cloud/));
@@ -277,8 +318,7 @@ test("saving a shift report that already exists queues an update at its version"
   // calendar date, or an edit of a loaded report keys differently from the report itself
   const stored = [{ id: "sr1", date: "2026-07-29T17:00:00.000Z", shift: "Day", tbmNo: "TBM1", location: "อุโมงค์", manpower: {}, result: {}, events: {} }];
   const view = render(
-    <ShiftReportView projectInfo={projectInfo} segmentRecords={[]} shiftReports={stored}
-      setShiftReports={noop} machine="TBM1"
+    <ShiftReportView projectInfo={projectInfo} segmentRecords={[]} shiftReports={stored} machine="TBM1"
       syncMeta={{ "shiftReport:TBM1:2026-07-30:Day": { version: 7 } }} onMutate={onMutate} />
   );
   type(view.container, "Engineer", "4");

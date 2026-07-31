@@ -7,7 +7,7 @@ import { act } from "react-dom/test-utils";
 // that would catch a stale read was suppressed in exactly the file that needed it.
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
-import ShiftReportView, { __resetShiftSaveStateForTests, SHIFT_SAVE_TIMEOUT_MS } from "./ShiftReportView";
+import ShiftReportView, { __resetShiftSaveStateForTests } from "./ShiftReportView";
 import { apiCall } from "../../utils/api";
 
 jest.mock("../../utils/api", () => ({ apiCall: jest.fn() }));
@@ -64,8 +64,7 @@ function type(container, name, value) {
 // assigns `onMutateOverride` rather than threading a prop through every render in that test.
 let onMutateOverride = null;
 const view = (props = {}) => (
-  <ShiftReportView projectInfo={projectInfo} segmentRecords={segments} shiftReports={[]}
-    setShiftReports={() => {}} machine="TBM1" onMutate={(...args) => (onMutateOverride ? onMutateOverride(...args) : Promise.resolve({}))} {...props} />
+  <ShiftReportView projectInfo={projectInfo} segmentRecords={segments} shiftReports={[]} machine="TBM1" onMutate={(...args) => (onMutateOverride ? onMutateOverride(...args) : Promise.resolve({}))} {...props} />
 );
 
 test("a snapshot landing mid-edit does not wipe typed manpower", () => {
@@ -149,8 +148,7 @@ test("input typed while a save is in flight is not discarded when it resolves", 
   onMutateOverride = () => new Promise(resolve => { release = () => resolve({}); });
   // mirror the saved row back into the view the way App does, or the arriving copy never lands
   let rows = [];
-  const setShiftReports = updater => { rows = typeof updater === "function" ? updater(rows) : updater; };
-  const form = render(view({ shiftReports: rows, setShiftReports }));
+  const form = render(view({ shiftReports: rows }));
   type(form.container, "Engineer", "6");
 
   await act(async () => {
@@ -160,7 +158,7 @@ test("input typed while a save is in flight is not discarded when it resolves", 
   // the crew keeps typing while the request is in flight
   type(form.container, "Surveyor", "2");
   await act(async () => { release(); });
-  form.rerender(view({ shiftReports: rows, setShiftReports }));
+  form.rerender(view({ shiftReports: rows }));
 
   expect(form.value("Engineer")).toBe("6");
   expect(form.value("Surveyor")).toBe("2");
@@ -203,8 +201,7 @@ test("a time-bar auto-save keeps input typed while it is in flight", async () =>
   let release;
   onMutateOverride = () => new Promise(resolve => { release = () => resolve({}); });
   let rows = [];
-  const setShiftReports = updater => { rows = typeof updater === "function" ? updater(rows) : updater; };
-  const form = render(view({ shiftReports: rows, setShiftReports }));
+  const form = render(view({ shiftReports: rows }));
 
   const click = el => act(() => { el.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
   const setValue = (el, value) => act(() => {
@@ -224,16 +221,84 @@ test("a time-bar auto-save keeps input typed while it is in flight", async () =>
 
   type(form.container, "Engineer", "4"); // typed while the auto-save is still in flight
   await act(async () => { release(); });
-  form.rerender(view({ shiftReports: rows, setShiftReports }));
+  form.rerender(view({ shiftReports: rows }));
   expect(form.value("Engineer")).toBe("4");
 
   // and it is still there when a copy from another device lands afterwards: the auto-save's payload
   // predates the typing, so the form has to stay dirty
   const other = { id: "sr-other", date: "2026-07-30", shift: "Day", tbmNo: "TBM1", location: "อุโมงค์", manpower: { Engineer: "9" }, result: {}, events: {} };
-  form.rerender(view({ shiftReports: [other], setShiftReports }));
+  form.rerender(view({ shiftReports: [other] }));
 
   expect(form.value("Engineer")).toBe("4");
   form.unmount();
+});
+
+test("a remounted form does not file a second row for a report already saved", async () => {
+  // Restored from the pre-queue suite, where the rule was enforced by a save block this branch
+  // deleted. It still holds, by a different mechanism: the crew saves, taps another nav item (this
+  // view unmounts), comes back before the sync confirms — so `shiftReports` is still empty and the
+  // form cannot tell from its props that a row exists. The record id has to survive the remount, or
+  // the second save files a second report for the same shift and the sheet holds two.
+  const sent = [];
+  onMutateOverride = async envelope => { sent.push(envelope); return {}; };
+  const first = render(view());
+  type(first.container, "Engineer", "3");
+  await act(async () => {
+    [...first.container.querySelectorAll("button")].find(b => /Save to Cloud/.test(b.textContent))
+      .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  });
+  first.unmount();
+
+  const second = render(view()); // same date, same shift, same machine, still no server row
+  type(second.container, "Engineer", "5");
+  await act(async () => {
+    [...second.container.querySelectorAll("button")].find(b => /Save to Cloud/.test(b.textContent))
+      .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  });
+
+  expect(sent).toHaveLength(2);
+  expect(sent[1].recordId).toBe(sent[0].recordId);
+  expect(sent[1].domainKey).toBe(sent[0].domainKey);
+  second.unmount();
+  onMutateOverride = null;
+});
+
+test("a time bar the queue refuses is reported to the crew, not to the console", async () => {
+  // the auto-save cannot fail on the tunnel link — queueing is local — so a throw here is a
+  // validation refusal or a storage failure (private mode, quota, a corrupted database). The bar is
+  // then on screen and in nothing else, and a console line is not somewhere the crew looks: they
+  // would find out at the end of the shift, from a report missing the hours.
+  onMutateOverride = async () => { throw new Error("QuotaExceededError"); };
+  const alerts = [];
+  const realAlert = window.alert;
+  window.alert = message => alerts.push(String(message));
+  const errors = [];
+  const realError = console.error;
+  console.error = (...args) => errors.push(args);
+  try {
+    const form = render(view());
+    const click = el => act(() => { el.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+    const setValue = (el, value) => act(() => {
+      Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set.call(el, value);
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    click(form.container.querySelector('[title="เพิ่มเวลาการทำงาน"]'));
+    const times = form.container.querySelectorAll('input[type="time"]');
+    setValue(times[0], "08:00");
+    setValue(times[1], "09:00");
+    await act(async () => {
+      [...form.container.querySelectorAll("button")].find(b => /เพิ่มช่วงเวลาลงกราฟ/.test(b.textContent))
+        .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(alerts.join("\n")).toContain("QuotaExceededError");
+    expect(errors.length).toBeGreaterThan(0); // still logged for diagnosis
+    form.unmount();
+  } finally {
+    window.alert = realAlert;
+    console.error = realError;
+    onMutateOverride = null;
+  }
 });
 
 test("two saves overlapping on a new report describe one row, not two", async () => {
@@ -304,8 +369,7 @@ test("a value typed during a save survives a later snapshot from another device"
   let release;
   onMutateOverride = () => new Promise(resolve => { release = () => resolve({}); });
   let rows = [];
-  const setShiftReports = updater => { rows = typeof updater === "function" ? updater(rows) : updater; };
-  const form = render(view({ shiftReports: rows, setShiftReports }));
+  const form = render(view({ shiftReports: rows }));
 
   await act(async () => {
     const save = [...form.container.querySelectorAll("button")].find(b => /Save to Cloud/.test(b.textContent));
@@ -316,7 +380,7 @@ test("a value typed during a save survives a later snapshot from another device"
 
   // another device's copy of the same shift lands
   const other = { id: "sr-other", date: "2026-07-30", shift: "Day", tbmNo: "TBM1", location: "อุโมงค์", manpower: { Engineer: "9" }, result: {}, events: {} };
-  form.rerender(view({ shiftReports: [other], setShiftReports }));
+  form.rerender(view({ shiftReports: [other] }));
 
   expect(form.value("Engineer")).toBe("6");
   expect(form.container.textContent).toContain("มีรายงานกะนี้จากเซิร์ฟเวอร์");
@@ -331,7 +395,7 @@ test("the crew's own save is not announced as a server copy", async () => {
     // App applies the optimistic row when the mutation resolves — the view no longer writes it
     release = () => { setShiftReports(prev => [...prev.filter(r => r.id !== envelope.recordId), envelope.payload]); resolve({}); };
   });
-  const form = render(view({ shiftReports: rows, setShiftReports }));
+  const form = render(view({ shiftReports: rows }));
   type(form.container, "Engineer", "6");
 
   await act(async () => {
@@ -339,7 +403,7 @@ test("the crew's own save is not announced as a server copy", async () => {
     save.dispatchEvent(new MouseEvent("click", { bubbles: true }));
   });
   await act(async () => { release(); });
-  form.rerender(view({ shiftReports: rows, setShiftReports }));
+  form.rerender(view({ shiftReports: rows }));
 
   expect(form.container.textContent).not.toContain("มีรายงานกะนี้จากเซิร์ฟเวอร์");
   expect(form.value("Engineer")).toBe("6");
@@ -357,7 +421,7 @@ test("a row that arrives without what was typed mid-flight is announced, not sil
   onMutateOverride = envelope => new Promise(resolve => {
     release = () => { setShiftReports(prev => [...prev.filter(r => r.id !== envelope.recordId), envelope.payload]); resolve({}); };
   });
-  const form = render(view({ shiftReports: rows, setShiftReports }));
+  const form = render(view({ shiftReports: rows }));
   type(form.container, "Engineer", "6");
 
   await act(async () => {
@@ -366,7 +430,7 @@ test("a row that arrives without what was typed mid-flight is announced, not sil
   });
   type(form.container, "Surveyor", "2"); // not in the payload already sent
   await act(async () => { release(); });
-  form.rerender(view({ shiftReports: rows, setShiftReports }));
+  form.rerender(view({ shiftReports: rows }));
 
   expect(form.container.textContent).toContain("มีรายงานกะนี้จากเซิร์ฟเวอร์");
   expect(form.value("Surveyor")).toBe("2"); // and what they typed is still there
@@ -387,7 +451,7 @@ test("a time bar recorded while the form was reloaded is not erased by the next 
   onMutateOverride = envelope => new Promise(resolve => {
     release = () => { setShiftReports(prev => prev.map(r => (r.id === envelope.recordId ? envelope.payload : r))); resolve({}); };
   });
-  const form = render(view({ shiftReports: rows, setShiftReports }));
+  const form = render(view({ shiftReports: rows }));
 
   // record a time bar; its auto-save starts travelling
   act(() => { form.container.querySelector('[title="เพิ่มเวลาการทำงาน"]').dispatchEvent(new MouseEvent("click", { bubbles: true })); });
@@ -403,10 +467,10 @@ test("a time bar recorded while the form was reloaded is not erased by the next 
 
   // the crew checks the other machine and comes back while it travels. Nothing is typed, so only
   // the form RELOAD tells this save that the view no longer holds what it sent.
-  form.rerender(view({ machine: "TBM2", segmentRecords: [], shiftReports: [], setShiftReports }));
-  form.rerender(view({ shiftReports: rows, setShiftReports }));
+  form.rerender(view({ machine: "TBM2", segmentRecords: [], shiftReports: [] }));
+  form.rerender(view({ shiftReports: rows }));
   await act(async () => { release(); });
-  form.rerender(view({ shiftReports: rows, setShiftReports }));
+  form.rerender(view({ shiftReports: rows }));
 
   // The form must now be showing the row the save produced. Asserting the stored row alone would
   // pass either way (the optimistic apply runs regardless); what matters is that the NEXT save
@@ -433,11 +497,10 @@ test("a save that resolves after a machine switch does not reach the other machi
   onMutateOverride = () => new Promise(resolve => { release = () => resolve({}); });
   let rows = [];
   let currentMachine = "TBM1";
-  const setShiftReports = updater => { rows = typeof updater === "function" ? updater(rows) : updater; };
   // App answers the machine question, so the guard has to be driven through that prop — a local ref
   // would pass this test while still being frozen for the case below
   const isCurrentMachine = m => m === currentMachine;
-  const form = render(view({ shiftReports: rows, setShiftReports, isCurrentMachine }));
+  const form = render(view({ shiftReports: rows, isCurrentMachine }));
   type(form.container, "Engineer", "6");
 
   await act(async () => {
@@ -445,7 +508,7 @@ test("a save that resolves after a machine switch does not reach the other machi
     save.dispatchEvent(new MouseEvent("click", { bubbles: true }));
   });
   currentMachine = "TBM2";
-  form.rerender(view({ machine: "TBM2", segmentRecords: [], shiftReports: rows, setShiftReports, isCurrentMachine }));
+  form.rerender(view({ machine: "TBM2", segmentRecords: [], shiftReports: rows, isCurrentMachine }));
   await act(async () => { release(); });
 
   expect(rows).toEqual([]); // nothing written back into the other machine's state
@@ -460,8 +523,7 @@ test("a save that resolves after the form unmounts does not reach the other mach
   onMutateOverride = () => new Promise(resolve => { release = () => resolve({}); });
   let rows = [];
   let currentMachine = "TBM1";
-  const setShiftReports = updater => { rows = typeof updater === "function" ? updater(rows) : updater; };
-  const form = render(view({ shiftReports: rows, setShiftReports, isCurrentMachine: m => m === currentMachine }));
+  const form = render(view({ shiftReports: rows, isCurrentMachine: m => m === currentMachine }));
   type(form.container, "Engineer", "6");
   await act(async () => {
     [...form.container.querySelectorAll("button")].find(b => /Save to Cloud/.test(b.textContent))
@@ -521,8 +583,7 @@ test("a queued save does not clear the dirty flag for edits it never carried", a
   const releases = [];
   onMutateOverride = () => new Promise(resolve => { releases.push(() => resolve({})); });
   let rows = [];
-  const setShiftReports = updater => { rows = typeof updater === "function" ? updater(rows) : updater; };
-  const form = render(view({ shiftReports: rows, setShiftReports }));
+  const form = render(view({ shiftReports: rows }));
 
   await act(async () => {
     [...form.container.querySelectorAll("button")].find(b => /Save to Cloud/.test(b.textContent))
@@ -545,7 +606,7 @@ test("a queued save does not clear the dirty flag for edits it never carried", a
 
   // another device's copy of the same shift arrives afterwards
   const other = { id: "sr-other", date: "2026-07-30", shift: "Day", tbmNo: "TBM1", location: "อุโมงค์", manpower: { Foreman: "9" }, result: {}, events: {} };
-  form.rerender(view({ shiftReports: [other], setShiftReports }));
+  form.rerender(view({ shiftReports: [other] }));
 
   expect(form.value("Foreman")).toBe("4");
   form.unmount();

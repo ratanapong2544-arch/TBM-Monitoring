@@ -8,7 +8,7 @@ import { buildMutationEnvelope } from "../../offline/mutationEnvelope";
 import { ResponsiveContainer, ComposedChart, CartesianGrid, XAxis, YAxis, Tooltip, Bar, Line } from "recharts";
 import { Badge } from "../../ui-ux-pro-max";
 
-const SegmentDashboardView = ({ segmentRecords, setSegmentRecords, machine = "TBM1", onMutate, syncMeta }) => {
+const SegmentDashboardView = ({ segmentRecords, machine = "TBM1", onMutate, syncMeta }) => {
   const [filterMode, setFilterMode] = useState("all");
   const [filterDate, setFilterDate] = useState(new Date().toISOString().split("T")[0]);
   const [filterMonth, setFilterMonth] = useState(new Date().toISOString().slice(0, 7));

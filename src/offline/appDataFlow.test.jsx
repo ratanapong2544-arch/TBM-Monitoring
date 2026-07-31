@@ -14,7 +14,7 @@ import { emptyServerData, normalizeServerData } from "./normalizeServerData";
 import { createRepository } from "./repository";
 import { deleteOfflineDbForTests, openOfflineDb } from "./db";
 import { apiCall } from "../utils/api";
-import { __resetShiftSaveStateForTests, SHIFT_SAVE_TIMEOUT_MS } from "../components/views/ShiftReportView";
+import { __resetShiftSaveStateForTests } from "../components/views/ShiftReportView";
 
 // App's write paths are not what this file tests; stubbing them keeps a save from reaching the
 // network while the shift-report seam below drives a real one

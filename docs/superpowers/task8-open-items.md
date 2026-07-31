@@ -103,13 +103,23 @@ written contract, not an oversight.
   mints a new id, which files a second report for one shift. Its three regression tests are in
   `shiftReportMidEdit.test.jsx`.
 
-## 5. Guards that cannot be pinned, and say so where they sit
+## 5. Guards whose failure the tests cannot see
 
-Not defects — recorded so a future reviewer does not mistake them for untested rules:
+Not defects — recorded so a future reviewer does not mistake them for untested rules. **Check the
+claim before trusting it.** An earlier version of this section said the `Date.parse(0)` sentinel in
+`repository.js` could not be pinned; review disproved that in twelve lines (the second launch, not
+the first, is where it bites) and it now has a test. A note that discourages testing a reachable
+data-loss path is worse than no note.
 
-- `repository.js` — the `Date.parse(0)` sentinel and the null-snapshot fallback subsume each other;
-  either alone leaves the suite green.
 - `mutationStore.js` — `patchSnapshotSyncMeta`'s scope bootstrap cannot fire while `patchSnapshotKeys`
   creates the scope first. It earns its place with Task 9's project-wide entities.
 - `App.jsx` — the photo strip on the snapshot mirror is invisible to the DOM: carrying the bytes and
   dropping them render identically. The rule is tested on the reducer in `displayRecord.test.js`.
+- `repository.js` — the null-snapshot fallback in `refresh` (`(overtaken && read) || write`) is
+  unreachable now that a request is only recorded as newest once its write has landed. It stays
+  because the alternative is handing the caller a null it then reads `fetchedAt` off.
+- `snapshotStore.js` — several belt-and-braces guards survive removal: `localForRecord`'s and
+  `localOnly`'s preference for the queued copy over the cached one, `deletePending`'s null-id check
+  (`recordSlot` already makes an empty id unmatchable), the SYNCING lease check, and `>=` versus `>`
+  on the confirmed-after-request comparison (the repository clock is strictly monotonic, so the two
+  stamps are never equal).

@@ -1,9 +1,9 @@
 // How a row in the `entities` store is named, in one place.
 //
-// Two of them exist. A row that came from the server is keyed per SHEET ROW, not per domain — a live
-// sheet legitimately holds two rows sharing a ring identity, and keying by domain alone made one
-// overwrite the other in the cache and then appear twice in the list. A row a queued mutation
-// produced is keyed by its domain, because there is exactly one optimistic copy per record.
+// Two of them exist, and BOTH name one row. A live sheet legitimately holds two rows sharing a ring
+// identity, so keying either shape by domain alone made one overwrite the other in the cache and
+// then appear twice in the list — which is what happened first to the server rows and later, for the
+// same reason, to the queued ones.
 //
 // This lives in its own leaf module because everything from the migration in `db.js` up to the
 // snapshot merge needs it, and a second spelling of a key is not a cosmetic problem: the two halves
@@ -31,19 +31,9 @@ export function serverEntityKey(machine, field, domainKey, rowId) {
   return `entity:${machine}:${field}:${domainKey}:${rowId}`;
 }
 
-// The surrounding colons matter: without the trailing one, a ring whose domain key is a prefix of
-// another's (P64 against P643) would match it. Both key shapes end `:<domainKey>:<something>`, so
-// one test covers a server row and an optimistic one alike.
-export function entityKeyBelongsToDomain(key, domainKey) {
-  return String(key).includes(`:${domainKey}:`);
-}
-
-// Which ROW a server key names. A mutation is about one row, and two rows can share a domain, so
-// anything that edits or removes a single row has to match on this rather than on the domain.
-export function entityKeyHasRecordId(key) {
-  return /:id:[^:]*$/.test(String(key));
-}
-
+// Which ROW a key names. Both shapes end `:id:<recordId>`, so this is the only question anything
+// needs to ask about a key — the by-domain and has-an-id variants that used to live here went with
+// the per-operation special cases that needed them.
 export function entityKeyForRecord(key, recordId) {
   // an absent id names no row, so it must not name every row: `endsWith(":id:")` would be true of a
   // key whose id is empty, and callers pass a record id straight through

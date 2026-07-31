@@ -1,0 +1,4 @@
+# Source is stored with LF. Without this the repo drifts: files written by different tools on
+# Windows landed half CRLF and half LF, which made whole-file diffs out of one-line edits and
+# silently defeated text-matching tools run against them.
+* text=auto eol=lf

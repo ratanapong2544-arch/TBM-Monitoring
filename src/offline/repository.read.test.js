@@ -281,6 +281,75 @@ test("an edit of one row does not cancel the pending delete of another", async (
   expect((await repository.load("TBM1")).data.segments.map(row => row.id)).toEqual(["seg_b"]);
 });
 
+test("a confirmation writes back to the row it confirmed, not to its neighbour", async () => {
+  // `confirmMutation` replaces the optimistic copy with whatever is still queued for that record.
+  // Asked per RING it answered with a neighbouring row's mutation whenever two rows shared one, so
+  // the row that had just synced kept a copy describing a different record — badged รอซิงก์ with a
+  // pre-confirmation payload until the next successful getData, which underground is the next shift.
+  const repository = createRepository({ openDb: openOfflineDb, fetchServerSnapshot: async () => ({ segments: twoRowsOnOneRing }) });
+  await repository.refresh("TBM1");
+  const queued = {};
+  for (const [recordId, length] of [["seg_a", "7.77"], ["seg_b", "9.99"]]) {
+    queued[recordId] = await repository.mutate({
+      entityType: "segment", operation: "update", machine: "TBM1", recordId,
+      payload: { id: recordId, ringNo: "P643", installType: "Permanent", length }, baseVersion: 0,
+      domainKey: "segment:TBM1:P643:Permanent",
+    });
+  }
+  await repository.applySyncSuccess(queued.seg_a.requestId, {
+    requestId: queued.seg_a.requestId, status: "success",
+    record: { id: "seg_a", ringNo: "P643", installType: "Permanent", length: "7.77" },
+    version: 1, updatedAt: "2026-07-30T02:00:00.000Z",
+  });
+
+  await expect(repository.getEntity("segment:TBM1:P643:Permanent", "seg_a")).resolves.toMatchObject({
+    payload: expect.objectContaining({ id: "seg_a", syncStatus: "synced" }),
+  });
+  await expect(repository.getEntity("segment:TBM1:P643:Permanent", "seg_b")).resolves.toMatchObject({
+    payload: expect.objectContaining({ id: "seg_b", length: "9.99", syncStatus: "pending" }),
+  });
+});
+
+test("a row edited and then deleted stays deleted", async () => {
+  // Two mutations of DIFFERENT operations on one record: the merge reads the newest, so the delete
+  // has to win over the edit that preceded it. Reading the oldest instead puts the row the crew
+  // deleted back on screen, badged as ordinary queued work — the same class as an edit of one row
+  // cancelling its neighbour's delete, reached by the most ordinary sequence there is: fix a row,
+  // decide it is the duplicate, delete it.
+  const repository = createRepository({ openDb: openOfflineDb, fetchServerSnapshot: async () => ({ segments: [{ id: "s1", ringNo: "P643", length: "1.40" }] }) });
+  await repository.refresh("TBM1");
+  await repository.mutate({
+    entityType: "segment", operation: "update", machine: "TBM1", recordId: "s1",
+    payload: { id: "s1", ringNo: "P643", installType: "Permanent", length: "9.99" }, baseVersion: 0,
+    domainKey: "segment:TBM1:P643:Permanent",
+  });
+  await repository.mutate({
+    entityType: "segment", operation: "delete", machine: "TBM1", recordId: "s1",
+    payload: { id: "s1", ringNo: "P643", installType: "Permanent" }, baseVersion: 0,
+    domainKey: "segment:TBM1:P643:Permanent",
+  });
+
+  expect((await repository.refresh("TBM1")).data.segments).toEqual([]);
+  expect((await repository.load("TBM1")).data.segments).toEqual([]);
+});
+
+test("a record the server refused says so, whether or not the sheet carries it", async () => {
+  // The badge is read from the mutation, not from the payload: an optimistic payload keeps the
+  // status it was born with, so a record created offline and then REFUSED would go on claiming to be
+  // on its way. That row is never in the response — it does not exist on the sheet — so it takes the
+  // appended path, which is the half of this rule that nothing covered.
+  const repository = createRepository({ openDb: openOfflineDb, fetchServerSnapshot: async () => ({ segments: [] }) });
+  await repository.refresh("TBM1");
+  const queued = await repository.mutate({
+    entityType: "segment", operation: "create", machine: "TBM1", recordId: "s_new",
+    payload: { id: "s_new", ringNo: "P644" }, baseVersion: 0, domainKey: "segment:TBM1:P644:Permanent",
+  });
+  await repository.updateMutation(queued.requestId, { status: "validation_error", lastError: { code: "SYNC_FIELD_TOO_LARGE" } });
+
+  const rows = (await repository.refresh("TBM1")).data.segments;
+  expect(rows.map(row => row.syncStatus)).toEqual(["validation_error"]);
+});
+
 test("an edit whose row another device removed does not displace a row that is still there", async () => {
   // Two rows share ring P643. The crew edits seg_b offline; meanwhile another device removes seg_b
   // from the sheet. The next answer carries only seg_a — and painting the crew's edit onto it would
@@ -782,6 +851,43 @@ test("a phone whose clock has never been set still builds its offline snapshot",
 
   expect(refreshed.data.segments.map(row => row.ringNo)).toEqual(["P644"]);
   expect((await repository.load("TBM1")).data.segments.map(row => row.ringNo)).toEqual(["P644"]);
+});
+
+test("two sheet rows carrying one id are both kept, with their own values", async () => {
+  // The cache keys a server row by its id, so two rows sharing one collapsed into a single entry:
+  // one row's values overwritten, the other listed twice, and the refresh and the relaunch
+  // disagreeing about which. This is not hypothetical — the open-items record has GAS itself
+  // appending a duplicate id, and imported rows are outside this app's control.
+  const repository = createRepository({
+    openDb: openOfflineDb,
+    fetchServerSnapshot: async () => ({ segments: [{ id: "s1", ringNo: "P643", length: "1.40" }, { id: "s1", ringNo: "P643", length: "2.40" }] }),
+  });
+
+  const refreshed = (await repository.refresh("TBM1")).data.segments;
+  const relaunched = (await repository.load("TBM1")).data.segments;
+
+  expect(refreshed.map(row => row.length)).toEqual(["1.40", "2.40"]);
+  expect(relaunched.map(row => row.length)).toEqual(["1.40", "2.40"]);
+});
+
+test("a phone whose clock has never been set keeps seeing new rows, launch after launch", async () => {
+  // The first launch was covered; the SECOND is where the sentinel bites. `lastCompletedRequest` is
+  // per repository instance, so every launch starts with an empty map — and with `Date.parse(0)` as
+  // the "no previous request" value (the string "0", i.e. the year 2000) every refresh on a phone
+  // whose clock predates that looks overtaken. It then serves its own first cache and never writes
+  // again: rows another device adds are silently discarded from both the answer and the cache, on
+  // every launch, for the life of that device.
+  let tick = 0;
+  const clock = () => new Date(Date.parse("1998-01-01T00:00:00.000Z") + (tick++ * 1000)).toISOString();
+  let sheet = [{ id: "s1", ringNo: "P644" }];
+  await createRepository({ openDb: openOfflineDb, now: clock, fetchServerSnapshot: async () => ({ segments: sheet }) }).refresh("TBM1");
+
+  sheet = [{ id: "s1", ringNo: "P644" }, { id: "s2", ringNo: "P645" }];
+  const relaunched = createRepository({ openDb: openOfflineDb, now: clock, fetchServerSnapshot: async () => ({ segments: sheet }) });
+  const refreshed = await relaunched.refresh("TBM1");
+
+  expect(refreshed.data.segments.map(row => row.ringNo)).toEqual(["P644", "P645"]);
+  expect((await relaunched.load("TBM1")).data.segments.map(row => row.ringNo)).toEqual(["P644", "P645"]);
 });
 
 test("an overtaking refresh that could not write its cache does not leave the earlier one with nothing", async () => {

@@ -313,7 +313,7 @@ export function createRepository(deps = {}) {
       return mutation;
     },
     async getMutation(requestId) { return getMutation(await openDb(), requestId); },
-    async getEntity(domainKey) { return getEntity(await openDb(), domainKey); },
+    async getEntity(domainKey, recordId) { return getEntity(await openDb(), domainKey, recordId); },
     async getConflict(conflictId) { return getConflict(await openDb(), conflictId); },
     async getDueMutations(at) { return listDueMutations(await openDb(), at); },
     async claimDueMutations(options) { return claimDueMutations(await openDb(), options); },

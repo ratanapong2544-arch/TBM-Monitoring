@@ -189,6 +189,73 @@ test("upgrading re-keys records written under the earlier domain-key format", as
   expect(await read("conflicts", "c1")).toMatchObject({ domainKey: canonical });
 });
 
+// The v2→v3 step, which every already-installed device runs exactly once — and the one the whole
+// per-record key change depends on. Every other migration test opens at version 1, so this path had
+// no coverage at all: the migration could be deleted outright and the suite stayed green.
+test("upgrading from v2 gives each record its own optimistic row", async () => {
+  const domainKey = "segment:TBM1:P643:Permanent";
+  await seedAtVersion(2, {
+    mutations: [
+      { requestId: "m-a", status: "pending", entityType: "segment", machine: "TBM1", recordId: "seg_a", domainKey, payload: { id: "seg_a" } },
+      { requestId: "m-b", status: "pending", entityType: "segment", machine: "TBM1", recordId: "seg_b", domainKey, payload: { id: "seg_b" } },
+    ],
+    // v2 held ONE optimistic row for the ring — which is the defect: the second queued write had
+    // overwritten the first, so only the last one's payload survives to be re-keyed
+    entities: [
+      { key: `entity:optimistic:${domainKey}`, entityType: "segment", machine: "TBM1", domainKey, payload: { id: "seg_b", recordId: "seg_b", length: "9.99" } },
+      { key: `entity:TBM1:segments:${domainKey}:id:seg_a`, entityType: "segment", machine: "TBM1", domainKey, payload: { id: "seg_a", length: "1.40" } },
+    ],
+    snapshots: [{ scopeKey: "getData:TBM1", machine: "TBM1", entityKeys: { segments: [`entity:optimistic:${domainKey}`] } }],
+  });
+
+  const db = await openOfflineDb();
+  const keys = (await readAllStore(db, "entities")).map(row => row.key);
+
+  expect(keys).toEqual([`entity:optimistic:${domainKey}:id:seg_b`]); // re-keyed by the record it names
+  // the cached server row goes: its key list named the old shape, so the cache is rebuilt on refresh
+  expect(await readAllStore(db, "snapshots")).toHaveLength(0);
+  // and both mutations are untouched — neither crew edit is lost, they simply drain and rewrite
+  expect((await readAllStore(db, "mutations")).map(row => row.requestId).sort()).toEqual(["m-a", "m-b"]);
+});
+
+test("upgrading from v2 keeps a row whose payload names its record only by recordId", async () => {
+  // `optimisticEntity` injects `recordId` into the payload; older rows may carry that and no `id`
+  const domainKey = "issue:GLOBAL:i1";
+  await seedAtVersion(2, {
+    mutations: [{ requestId: "m1", status: "pending", entityType: "issue", machine: null, recordId: "i1", domainKey, payload: { id: "i1" } }],
+    entities: [{ key: `entity:optimistic:${domainKey}`, entityType: "issue", machine: "GLOBAL", domainKey, payload: { recordId: "i1", title: "offline" } }],
+    snapshots: [],
+  });
+
+  const db = await openOfflineDb();
+  expect((await readAllStore(db, "entities")).map(row => row.key)).toEqual([`entity:optimistic:${domainKey}:id:i1`]);
+});
+
+function seedAtVersion(version, records) {
+  const { DB_NAME, STORES } = require("./schema");
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(DB_NAME, version);
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      Object.values(STORES).forEach(name => {
+        if (db.objectStoreNames.contains(name)) return;
+        const keyPath = { entities: "key", snapshots: "scopeKey", mutations: "requestId", conflicts: "conflictId", syncMeta: "key", deviceMeta: "key" }[name];
+        db.createObjectStore(name, { keyPath });
+      });
+    };
+    request.onsuccess = () => {
+      const db = request.result;
+      const transaction = db.transaction(["mutations", "entities", "snapshots"], "readwrite");
+      (records.mutations || []).forEach(row => transaction.objectStore("mutations").put(row));
+      (records.entities || []).forEach(row => transaction.objectStore("entities").put(row));
+      (records.snapshots || []).forEach(row => transaction.objectStore("snapshots").put(row));
+      transaction.oncomplete = () => { db.close(); resolve(); };
+      transaction.onerror = () => reject(transaction.error);
+    };
+    request.onerror = () => reject(request.error);
+  });
+}
+
 function seedV1(records) {
   const { DB_NAME } = require("./schema");
   return new Promise((resolve, reject) => {

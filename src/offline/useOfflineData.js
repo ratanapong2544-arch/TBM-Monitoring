@@ -114,6 +114,8 @@ export function useOfflineData(machine, deps = {}) {
       // on its splash screen forever.
       applyIfCurrent(token, { data: fresh.data, source: fresh.source, fetchedAt: fresh.fetchedAt, stale: Boolean(fresh.stale), refreshing: false, loading: false, error: null, cacheError: fresh.cacheError || null });
       syncAfterRefresh();
+      // returned whole, including `serverPayload`: a caller asking "did my write reach the sheet?"
+      // must read the server's own answer, not the merged snapshot the app renders
       return fresh;
     } catch (error) {
       applyIfCurrent(token, { refreshing: false, loading: false, stale: true, error });

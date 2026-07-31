@@ -35,7 +35,10 @@ A systematic sweep of every effect in the view layer established that only `Shif
 | `bfdb203` | fix: stop one dead request from wedging every shift-report save |
 | `644e907` | fix: stop a timed-out save from appending a second row |
 | `9b5cc10` | fix: release an unknown save outcome only on a real server answer |
-| _(pending)_ | fix: make the release causal and delete the machinery that inferred it |
+| `ca7c30d` | fix: make the release causal and delete the machinery that inferred it |
+| _(pending)_ | fix: gate a cold launch and read the server's own answer |
+
+The last row is always the commit that carries this file; `git log --oneline` on the branch is authoritative for its SHA.
 
 ## Round 12 — what both PASSes had missed
 
@@ -103,9 +106,20 @@ Both reviewers reached the same conclusion independently, and it is the right on
 
 **The seam that hid two of these blockers is now tested.** `serverSnapshotAt` and `onRefresh` existed only between App and this view, every view test hand-fed them, and nothing asserted App supplied them — the same shape as the round-16 defect, where the view's tests all passed while App fed it the wrong fact. `appDataFlow.test.jsx` now drives the real App: it arms a block, asserts the notice, clicks the check, and asserts it reached the repository and unblocked the report. Removing the prop from App fails it.
 
-## Test evidence (at the round-17 commit)
+## Round 18 — the hazard that needed no server fault
 
-- `npm test -- --watchAll=false --runInBand` → 66 suites / 835 tests pass
+Round 17's blocker was confirmed closed by both reviewers, and no new one was introduced. What they found instead was larger than the path everyone had been staring at:
+
+- **A cold launch could append a duplicate with a perfectly healthy server and no timeout at all.** On a cold cache the splash clears as soon as the empty cache pass settles — that is Task 7's whole point — so the Shift Report renders a **blank, editable** form for as long as the snapshot takes, up to the 90 s ceiling. A night crew filling in a shift the day crew had already saved would append a second row, silently, because `existingReport` was null. Saving is now gated on that machine's rows having actually arrived (`snapshotReady`), with a notice saying so. Nothing is lost offline: `apiCall` fails immediately without a connection anyway.
+- **The check consumed a snapshot the repository deliberately contaminates.** `writeServerSnapshot` re-injects unsynced local records and overlays optimistic payloads, so the row confirming "it landed" could be this device's own echo of the write being asked about — which would release the block and send `updateShiftReport` for a row GAS never had, no-opping silently. That is the same proxy-signal mistake as rounds 15–17, one layer down. `repository.refresh` now also returns `serverPayload`, the GAS response untouched, and the check reads only that.
+- **An absent collection was read as an empty one.** The normalizer maps a missing key to `[]`, so an older GAS deployment or a partial `doGet` looked exactly like "the row never landed" and released the block — the very ambiguity `App.jsx` refuses to act on when mirroring collections. Two parts of one task applied opposite rules to the same signal; the check now treats an absent key as inconclusive.
+- **The three test files carrying this task's regression suite ran outside a React act environment**, so React never warned when an update escaped an act scope — in the files whose every test turns on async flush ordering. One line each.
+
+Smaller: the block is a boolean rather than a dead timestamp (a stored time invites the `Date.parse` comparison this task deleted twice), a failed check now says so on the notice instead of looking inert, the check resolves the row by date and shift rather than by an id this device chose, and the alert no longer tells the crew to wait for something that never arrives.
+
+## Test evidence (at the round-18 commit)
+
+- `npm test -- --watchAll=false --runInBand` → 66 suites / 838 tests pass
 - `npm run test:gas-sync` → 92 pass / 0 fail
 - `npm run build` → Compiled successfully (build output restored with `git checkout -- build/`; the build artefact is not committed — Vercel builds from source)
 - `node --check ../gas-live/Code.js` → OK
@@ -120,7 +134,7 @@ No GAS change was made during Task 7 — the backend is untouched since Task 6 c
 
 - `useOfflineData(machine)` hydrates from the IndexedDB snapshot first and then from the server, with a `serverSettled` ordering guard so a slow cache read cannot overwrite fresher server data, and a request token so a machine switch mid-fetch discards the superseded response.
 - `App.jsx` consumes the hook, gates rows behind `rowsMachine`/`rowsReady` so no view is ever handed the previous machine's records, keeps localStorage-primary collections server-only, and shows an `offlineNotice` strip describing provenance and staleness.
-- Because the app is now interactive during the server fetch, the three record forms were hardened against snapshots landing mid-edit: content-keyed report loading, a dirty flag with an edit serial, an own-write key, one draft id per report being composed, and a machine comparison at both the synchronous reset and the asynchronous save resolve.
+- Because the app is now interactive during the server fetch, the three record forms were hardened against snapshots landing mid-edit: content-keyed report loading, a dirty flag and a form serial, an own-write key, one draft id per report being composed, and a machine comparison at both the synchronous reset and the asynchronous save resolve.
 
 ## Mutation-testing note
 
@@ -158,6 +172,6 @@ Shipping Task 7 on its own would therefore contradict the design's "offline writ
 - The Shift Report `Result` block intentionally prefers the ring-derived figure over a stored one (owner-confirmed). A correction has to be made against the ring records; typing over the total does not survive the next form load, and the code comment at `ShiftReportView.jsx` says so.
 - `App.jsx` gates rows on `rowsMachine`; any new machine-scoped collection added later must join that gate or it will leak across a switch.
 - **The 90 s snapshot ceiling is reasoned, not measured.** It comes from the 463 KB payload in this worktree and an assumed ~100 kbps floor. Task 12's matrix measures POST latency on a slow network but has no row for the GET, so nobody has yet timed a real `getData` from underground. Measure it there and adjust; a deadline that resets on progress would be strictly better than any fixed number.
-- **A timed-out save is genuinely ambiguous, and the app now says so instead of guessing.** The legacy `addShiftReport` is not idempotent and the request cannot be cancelled, so a save that gives up may still land. Further writes to that report are refused until the crew presses "ตรวจสอบกับเซิร์ฟเวอร์"; that fetch is issued after the give-up, so what it shows is causally meaningful, unlike any snapshot the app fetched on its own. **A residual window remains and cannot be closed here:** a write still in flight can land after the check has read the sheet, so a check that finds no row and an append that follows can still produce a duplicate. Nothing available to Task 7 can rule that out — the write is neither idempotent nor cancellable. Task 8's queue removes the ambiguity outright (a resubmitted `requestId` returns the original result), and when it lands, the block, the notice and the check should all be deleted rather than kept alongside it.
+- **A timed-out save is genuinely ambiguous, and the app now says so instead of guessing.** The legacy `addShiftReport` is not idempotent and the request cannot be cancelled, so a save that gives up may still land. Further writes to that report are refused until the crew presses "ตรวจสอบกับเซิร์ฟเวอร์"; that fetch is issued after the give-up, so what it shows is causally meaningful, unlike any snapshot the app fetched on its own. **A residual window remains and cannot be closed here**, and it cuts both ways. A write still in flight can land after the check has read the sheet, so a check that finds no row followed by an append can still produce a duplicate — and the mirror image is worse because it is silent: an in-flight `updateShiftReport` carrying an older payload can land *after* the crew has resumed and saved again, rewriting the row and erasing the time bars recorded in between. A page reload also disarms the block outright, since it lives in module memory. None of these can be fixed while the write is neither idempotent nor cancellable. Nothing available to Task 7 can rule that out — the write is neither idempotent nor cancellable. Task 8's queue removes the ambiguity outright (a resubmitted `requestId` returns the original result), and when it lands, the block, the notice and the check should all be deleted rather than kept alongside it.
 - **Three wire deadlines now exist and only one is measured**: 15 s sync POST, 45 s shift save, 90 s snapshot GET. Task 12's matrix has a row for timing the last two on a real underground link.
 - **`SegmentRecordView` and `GroutRecordView` have no deadline at all.** The same never-answering request leaves their submit button reading "Saving…" for the rest of the mount, and the excavation times, soil type and head-level readings are lost if the crew navigates away. Pre-existing and untouched by Task 7 — adding a deadline there is riskier than it looks, because those submits carry base64 photographs and a duplicate ring would be appended the same way — but it is the identical fault the shift-report deadline was added for, and Task 8's queue should cover all three together.

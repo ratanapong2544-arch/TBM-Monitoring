@@ -51,7 +51,7 @@ const withDeadline = (promise) => new Promise((resolve, reject) => {
   );
 });
 
-const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftReports, machine = "TBM1", isCurrentMachine, onRefresh, readOnly = false }) => {
+const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftReports, machine = "TBM1", isCurrentMachine, onRefresh, snapshotReady = true, readOnly = false }) => {
   // WHICH reports are being saved, not merely "a save is running": a save stalled on the 30th used
   // to leave the button disabled for the 31st too, for as long as the deadline lasts. A single slot
   // was not enough either — starting B cleared the indication for A while A was still travelling.
@@ -143,11 +143,14 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
   // started from is still the one being edited
   const selectorKeyRef = useRef(selectorKey);
   selectorKeyRef.current = selectorKey;
-  // counts snapshots landing from App, so a save whose outcome is unknown can wait for the server to
-  // settle the question instead of guessing
-  // bumped when the unresolved state changes, so the notice re-renders off the module-scope map
+  // The block lives in module scope so it survives a nav tap, and module state cannot trigger a
+  // render on its own — this does.
   const [, bumpUnresolved] = useState(0);
   const [checking, setChecking] = useState(false);
+  const [checkFailed, setCheckFailed] = useState(false);
+  // read at execution time, not capture time: a queued save should use whatever is true when it runs
+  const snapshotReadyRef = useRef(snapshotReady);
+  snapshotReadyRef.current = snapshotReady;
   const autoResultRef = useRef(autoResult);
   autoResultRef.current = autoResult;
   const existingReportRef = useRef(existingReport);
@@ -283,17 +286,33 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
     if (!onRefresh) return;
     const key = selectorKey;
     const state = shiftSaveStateFor(key);
-    const pendingId = state.draftId || (existingReportRef.current && existingReportRef.current.id);
+    const dateAtCheck = meta.date;
+    const shiftAtCheck = meta.shift;
     setChecking(true);
+    setCheckFailed(false);
     try {
       const fresh = await onRefresh();
-      if (!fresh || !fresh.data) return; // still unreachable; the block stands
-      const rows = fresh.data.shiftReports || [];
-      if (pendingId && rows.some(r => r.id === pendingId)) state.savedIds.add(pendingId);
-      state.unresolvedSince = undefined;
+      // still unreachable; the block stands. Say so on the notice itself — a button that looks
+      // unchanged reads as broken, and the crew's next move would be a reload, which drops the
+      // block along with everything they have typed since.
+      if (!fresh || !fresh.serverPayload) { setCheckFailed(true); return; }
+      // The SERVER's own answer, not the snapshot the app renders: that one re-injects unsynced
+      // local records and overlays optimistic payloads, so a row could be our own echo of the very
+      // write we are asking about.
+      const payload = fresh.serverPayload;
+      // An absent collection is not an empty one. The normalizer maps a missing key to [], so an
+      // older GAS deployment or a partial doGet would otherwise read as "the row never landed" and
+      // release the block — the same ambiguity App refuses to act on when mirroring collections.
+      if (!Object.prototype.hasOwnProperty.call(payload, "shiftReports")) { setCheckFailed(true); return; }
+      // Ask the question that matters — "does this shift have a row?" — rather than matching an id
+      // this device chose. An update-path block may have no draft id at all.
+      const rows = Array.isArray(payload.shiftReports) ? payload.shiftReports : [];
+      const landed = rows.find(r => formatDisplayDate(r.date) === dateAtCheck && String(r.shift) === String(shiftAtCheck));
+      if (landed && landed.id) state.savedIds.add(landed.id);
+      state.blocked = false;
       bumpUnresolved(n => n + 1);
     } catch (error) {
-      /* the block stands; the crew can try again */
+      setCheckFailed(true);
     } finally {
       setChecking(false);
     }
@@ -341,17 +360,21 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
       // travelling and may yet append the row. Sending again before that is resolved would append a
       // SECOND row for the same date and shift, which is the defect the whole queue exists to
       // prevent, and the auto-save path would do it on the crew's behalf with nothing on screen.
-      // The server itself settles the question: once a fresh snapshot has been seen, either the row
-      // is there (so this becomes an update) or it never landed (so an append is correct again).
-      // Cleared only by an explicit check against the server (see checkWithServer)
-      if (state.unresolvedSince !== undefined) throw new Error("SHIFT_SAVE_UNRESOLVED");
+      // Cleared only by an explicit check against the server (see checkWithServer).
+      if (state.blocked) throw new Error("SHIFT_SAVE_UNRESOLVED");
+      // No snapshot for this machine yet. This needs no server fault at all and is the wider hazard:
+      // a cold launch (fresh install, cleared storage, private mode, blocked IndexedDB) renders an
+      // editable BLANK form for as long as the snapshot takes — up to the 90 s fetch ceiling — so a
+      // crew filling in a shift that already has a row would append a second one. `existingReport`
+      // cannot be trusted until this machine's rows have actually arrived.
+      if (!snapshotReadyRef.current) throw new Error("SHIFT_SAVE_NO_SNAPSHOT");
       try {
         await withDeadline(apiCall(existedAtSave || state.savedIds.has(id) ? "updateShiftReport" : "addShiftReport", { ...payload, machine: machineAtSave }));
       } catch (error) {
+        // A flag, deliberately not a timestamp. Nothing compares times any more, and storing one
+        // advertises an ordering comparison that was wrong in three separate rounds.
         if (error.message === "SHIFT_SAVE_TIMEOUT") {
-          // stamp the moment we gave up: only a snapshot fetched AFTER this can say anything about
-          // where the request ended up. An earlier one may have been issued before it landed.
-          state.unresolvedSince = Date.now();
+          state.blocked = true;
           bumpUnresolved(n => n + 1);
         }
         throw error;
@@ -384,7 +407,7 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
   // Derived from the module-scope map, not from component state: the block belongs to the report and
   // outlives this mount, so a notice held in state showed nothing after a nav tap while writes were
   // still being refused, and cleared on a different report's successful save.
-  const saveUnresolved = (shiftSaveState.get(selectorKey) || {}).unresolvedSince !== undefined;
+  const saveUnresolved = Boolean((shiftSaveState.get(selectorKey) || {}).blocked);
 
   const handleSaveToCloud = () => {
     const keyAtSave = selectorKey;
@@ -401,8 +424,9 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
         // A timed-out request may still be travelling, so its outcome is genuinely unknown: saving
         // again could append a second row for the shift, because the legacy write is not idempotent
         // (Task 8's queue is what makes a retry safe).
-        alert(e.message === "SHIFT_SAVE_TIMEOUT" ? "หมดเวลารอเซิร์ฟเวอร์ — ไม่ทราบว่าบันทึกสำเร็จหรือไม่ กรุณาตรวจสอบรายงานกะนี้ก่อนบันทึกซ้ำ"
-          : e.message === "SHIFT_SAVE_UNRESOLVED" ? "ยังไม่ทราบผลการบันทึกครั้งก่อน — รอข้อมูลจากเซิร์ฟเวอร์ก่อนบันทึกซ้ำ"
+        alert(e.message === "SHIFT_SAVE_NO_SNAPSHOT" ? "ยังไม่ได้ข้อมูลรายงานกะของเครื่องนี้จากเซิร์ฟเวอร์ — รอสักครู่ก่อนบันทึก มิฉะนั้นอาจสร้างรายงานซ้ำกับที่มีอยู่แล้ว"
+          : e.message === "SHIFT_SAVE_TIMEOUT" ? "หมดเวลารอเซิร์ฟเวอร์ — ไม่ทราบว่าบันทึกสำเร็จหรือไม่ กรุณาตรวจสอบรายงานกะนี้ก่อนบันทึกซ้ำ"
+          : e.message === "SHIFT_SAVE_UNRESOLVED" ? "ยังไม่ทราบผลการบันทึกครั้งก่อน — กดปุ่ม “ตรวจสอบกับเซิร์ฟเวอร์” ในแถบเตือนด้านบนก่อน จึงจะบันทึกต่อได้"
           : "บันทึกไม่สำเร็จ: " + e.message);
       }
       markSaving(keyAtSave, false);
@@ -607,10 +631,17 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
         <h1 className="text-xl font-semibold text-ink flex items-center gap-3"><FileText className="text-navy" size={24} />ระบบบันทึก TBM Shift Report</h1>
         <div className="flex w-full sm:w-auto gap-3">
           <button onClick={handleDownloadImage} disabled={isExportingImage} className="flex-1 sm:flex-none bg-navy hover:bg-navy-deepest text-white px-5 py-2.5 rounded-input flex items-center justify-center gap-2 transition-colors shadow-card font-semibold">{isExportingImage ? <Loader2 size={18} className="animate-spin" /> : <Download size={18} />} {isExportingImage ? "Saving..." : "เซฟรูปภาพ"}</button>
-          {!readOnly && (<button onClick={handleSaveToCloud} disabled={isSaving} className="flex-1 sm:flex-none bg-sgreen-dark hover:bg-sgreen-dark/90 text-white px-5 py-2.5 rounded-input flex items-center justify-center gap-2 transition-colors shadow-card font-semibold">{isSaving ? <Loader2 size={18} className="animate-spin" /> : <CloudUpload size={18} />} {isSaving ? "Saving..." : "Save to Cloud"}</button>)}
+          {!readOnly && (<button onClick={handleSaveToCloud} disabled={isSaving || !snapshotReady} className="flex-1 sm:flex-none bg-sgreen-dark hover:bg-sgreen-dark/90 disabled:opacity-60 text-white px-5 py-2.5 rounded-input flex items-center justify-center gap-2 transition-colors shadow-card font-semibold">{isSaving ? <Loader2 size={18} className="animate-spin" /> : <CloudUpload size={18} />} {isSaving ? "Saving..." : "Save to Cloud"}</button>)}
           <button onClick={handlePrint} className="flex-1 sm:flex-none bg-navy hover:bg-navy-dark text-white px-5 py-2.5 rounded-input flex items-center justify-center gap-2 transition-colors shadow-card font-semibold"><Printer size={18} /> Print PDF</button>
         </div>
       </div>
+
+      {!snapshotReady && !saveUnresolved && (
+        <div className="mb-3 flex items-center gap-2 bg-amber-500/10 border border-amber-500/40 text-amber-700 px-4 py-2 rounded-card text-[13px] no-print font-semibold">
+          <Loader2 className="w-4 h-4 animate-spin" />
+          <span>ยังไม่ได้ข้อมูลรายงานกะของเครื่องนี้จากเซิร์ฟเวอร์ — กรอกไว้ก่อนได้ แต่ยังบันทึกไม่ได้ เพื่อกันสร้างรายงานซ้ำกับที่มีอยู่แล้ว</span>
+        </div>
+      )}
 
       {saveUnresolved && (
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2 bg-amber-500/10 border border-amber-500/40 text-amber-700 px-4 py-2 rounded-card text-[13px] no-print font-semibold">
@@ -618,7 +649,11 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, setShiftRe
               is up are on the device only, so leaving the screen loses them. The button is not a
               suggestion — it is the only thing that can resume saving, because its fetch is the only
               one issued after we gave up waiting. */}
-          <span>ไม่ทราบผลการบันทึกล่าสุด (เซิร์ฟเวอร์ไม่ตอบ) — หยุดส่งชั่วคราวเพื่อกันรายงานซ้ำ สิ่งที่กรอกเพิ่มหลังจากนี้อยู่บนเครื่องนี้เท่านั้น <strong>อย่าเพิ่งออกจากหน้านี้</strong> กด “ตรวจสอบกับเซิร์ฟเวอร์” เพื่อบันทึกต่อ</span>
+          <span>
+            ไม่ทราบผลการบันทึกล่าสุด (เซิร์ฟเวอร์ไม่ตอบ) — หยุดส่งชั่วคราวเพื่อกันรายงานซ้ำ สิ่งที่กรอกเพิ่มหลังจากนี้อยู่บนเครื่องนี้เท่านั้น <strong>อย่าเพิ่งออกจากหน้านี้</strong>
+            {onRefresh ? " กด “ตรวจสอบกับเซิร์ฟเวอร์” เพื่อบันทึกต่อ" : " เมื่อเชื่อมต่อได้แล้วให้เปิดแอพใหม่และตรวจสอบรายงานกะนี้ก่อนบันทึกซ้ำ"}
+            {checkFailed && <strong> · ตรวจสอบไม่สำเร็จ (ยังติดต่อเซิร์ฟเวอร์ไม่ได้) ลองใหม่อีกครั้ง</strong>}
+          </span>
           {onRefresh && (
             <button onClick={checkWithServer} disabled={checking} className="bg-amber-600 hover:bg-amber-700 disabled:opacity-60 text-white px-3 py-1.5 rounded-input font-semibold transition-colors">
               {checking ? "กำลังตรวจสอบ…" : "ตรวจสอบกับเซิร์ฟเวอร์"}

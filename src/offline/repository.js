@@ -168,11 +168,17 @@ export function createRepository(deps = {}) {
           // whose payload arrived fine, just because the cache could not be written (quota, private
           // browsing, blocked upgrade). The payload is server-fresh, so `stale` stays false per the
           // documented contract; `cacheError` reports that it could not be persisted.
-          const result = { data: { ...data, fetchedAt }, source: "server", fetchedAt, stale: false, cacheError: writeError };
+          const result = { data: { ...data, fetchedAt }, source: "server", fetchedAt, stale: false, cacheError: writeError, serverPayload: raw };
           emit({ type: "data", machine, result });
           return result;
         }
-        const result = { data: stored, source: "server", fetchedAt: stored.fetchedAt, stale: false };
+        // `data` is what the app should render: `writeServerSnapshot` re-injects unsynced local
+        // records and overlays optimistic payloads onto incoming rows, which is right for display and
+        // wrong for any question of the form "is this on the sheet?". `serverPayload` is the GAS
+        // response untouched — key-for-key, so a caller can also tell an absent collection from an
+        // empty one, which the normalizer collapses. Both branches carry it, so the answer does not
+        // depend on whether IndexedDB happened to be writable.
+        const result = { data: stored, source: "server", fetchedAt: stored.fetchedAt, stale: false, serverPayload: raw };
         emit({ type: "data", machine, result });
         return result;
       } catch (error) {

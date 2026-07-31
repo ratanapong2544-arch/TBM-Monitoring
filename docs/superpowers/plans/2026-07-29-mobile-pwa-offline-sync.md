@@ -1096,17 +1096,25 @@ Remove direct write calls from the five views. Preserve their existing validatio
 
 Deletes remain visible as pending tombstones to repository reads but disappear from the active UI list with a pending badge available in Sync Center.
 
-**Delete, do not carry, Task 7's interim write bookkeeping** (added after Task 7's review). In `ShiftReportView.jsx`: the module-scope `shiftSaveState` map — a draft id, the set of ids known to be on the sheet, and a serialising chain, all keyed `machine|date|shift` — plus `SHIFT_SAVE_TIMEOUT_MS` and `withDeadline`, the "outcome unknown" block (`unresolvedSince`), the `checkWithServer` handler and its notice, the `checking` and `bumpUnresolved` state, and `savingKeys`/`markSaving` (a per-report saving set exists only because a save could stall). In `App.jsx` — which is in this task's file list — the `onRefresh={offlineData.refresh}` prop passed to `ShiftReportView`, whose only purpose is that check. Every one of those exists only because the legacy write is not idempotent and cannot be cancelled. The queue's `requestId`, version and per-domain ordering replace all of them; keeping both would leave two sources of truth about whether a row reached the sheet. `__resetShiftSaveStateForTests` and the tests that call it go with it. `SegmentRecordView` and `GroutRecordView` have no equivalent protection today (recorded in `docs/superpowers/task7-completion.md`), so the queue is what closes them.
+**Delete, do not carry, Task 7's interim write bookkeeping** (added after Task 7's review). In `ShiftReportView.jsx`: the module-scope `shiftSaveState` map — a draft id, the set of ids known to be on the sheet, and a serialising chain, all keyed `machine|date|shift` — plus `SHIFT_SAVE_TIMEOUT_MS` and `withDeadline`, the "outcome unknown" block (`unresolvedSince`), the `checkWithServer` handler and its notice, the `checking` and `bumpUnresolved` state, and `savingKeys`/`markSaving` (a per-report saving set exists only because a save could stall). In `App.jsx` — which is in this task's file list — the `onRefresh={offlineData.refresh}` and `snapshotReady={…}` props passed to `ShiftReportView`, whose only purpose is that check and the cold-launch gate. `repository.refresh`'s `serverPayload` field exists only for that check; remove it once nothing reads it.
+
+Delete only the **tests of that bookkeeping** — in `shiftReportMidEdit.test.jsx` the `describe("what may release an unknown outcome")` block and the tests naming the deadline, the check and the unknown outcome; in `appDataFlow.test.jsx` the "blocked shift report can be unblocked" and "cold launch" tests and the `__resetShiftSaveStateForTests()` call in its `beforeEach`. **Keep everything else in both files**: they pin the mid-edit guards and App's mirror rules, which Task 7 needs and this task must not regress.
+
+**Keep these Task 7 guards** — they are not interim, and nothing in this step touches them: content-keyed report loading (`stableKey`/`reportKey`), `dirtyRef`, `formSerialRef`, `loadGenerationRef`, `ownWriteKeyRef` and the server-copy notice, the machine reset in all three record views, and the machine comparison at each save's resolve (`isCurrentMachine`). Every one of those exists only because the legacy write is not idempotent and cannot be cancelled. The queue's `requestId`, version and per-domain ordering replace all of them; keeping both would leave two sources of truth about whether a row reached the sheet. `__resetShiftSaveStateForTests` and the tests that call it go with it. `SegmentRecordView` and `GroutRecordView` have no equivalent protection today (recorded in `docs/superpowers/task7-completion.md`), so the queue is what closes them.
 
 - [ ] **Step 5: Verify no direct core writes remain**
 
 Run:
 
 ```powershell
-rg -n 'apiCall\("(add|update|delete)(Segment|Grout|SecondaryGrout|ShiftReport)' src
+rg -n 'apiCall\(' src/components/views src/App.jsx
 ```
 
-Expected: no matches.
+Expected: only online-only reads/proxies (Drive images, Gemini). The narrower pattern below is not sufficient on its own — `ShiftReportView` selects its action with a ternary (`apiCall(existed ? "updateShiftReport" : "addShiftReport", …)`), so an action-name search reports a false "no matches" for the one file with the most intricate migration.
+
+```powershell
+rg -n 'apiCall\("(add|update|delete)(Segment|Grout|SecondaryGrout|ShiftReport)' src
+```
 
 - [ ] **Step 6: Run tests**
 

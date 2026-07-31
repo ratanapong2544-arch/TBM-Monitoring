@@ -74,7 +74,10 @@ export async function fetchServerSnapshot(machine, { signal } = {}) {
   }
   try {
     let response;
-    try { response = await fetch(`${GAS_URL}?action=getData&machine=${encodeURIComponent(machine)}`, { redirect: "follow", signal: controller.signal }); }
+    // `no-store`: the shift report's "check with the server" relies on this fetch reading the sheet
+    // AFTER it is issued. The service worker already excludes cross-origin requests, but the browser
+    // HTTP cache does not, and a cached body would be a read from before the question was asked.
+    try { response = await fetch(`${GAS_URL}?action=getData&machine=${encodeURIComponent(machine)}`, { redirect: "follow", cache: "no-store", signal: controller.signal }); }
     catch (error) { throw timedOutFailure(timedOut, error); }
     if (!response.ok) throw classifyHttpFailure(response.status);
     // the body read is inside the deadline too: a captive portal that returns headers and then

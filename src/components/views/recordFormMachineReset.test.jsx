@@ -2,6 +2,9 @@ import React from "react";
 import { createRoot } from "react-dom/client";
 import { act } from "react-dom/test-utils";
 
+// so React warns when an update escapes an act scope; these tests turn on async save resolution
+globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+
 import SegmentRecordView from "./SegmentRecordView";
 import GroutRecordView from "./GroutRecordView";
 import { apiCall } from "../../utils/api";

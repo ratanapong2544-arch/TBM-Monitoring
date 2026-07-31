@@ -5,6 +5,9 @@ import React from "react";
 import { createRoot } from "react-dom/client";
 import { act } from "react-dom/test-utils";
 
+// so React warns when an update escapes an act scope; this file drives the whole App asynchronously
+globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+
 import App from "../App";
 import { OfflineProvider } from "./OfflineProvider";
 import { emptyServerData } from "./normalizeServerData";
@@ -51,7 +54,9 @@ function renderApp(repository) {
 function makeRepository(overrides = {}) {
   return {
     load: async machine => ({ data: snapshot(machine), source: "indexeddb", fetchedAt: "2026-07-01T00:00:00.000Z", stale: true }),
-    refresh: async machine => ({ data: snapshot(machine), source: "server", fetchedAt: "2026-07-30T00:00:00.000Z", stale: false }),
+    // `serverPayload` mirrors the real repository: the GAS response untouched, which is what a
+    // caller asking "is this on the sheet?" must read rather than the merged snapshot
+    refresh: async machine => ({ data: snapshot(machine), serverPayload: { status: "success", shiftReports: [] }, source: "server", fetchedAt: "2026-07-30T00:00:00.000Z", stale: false }),
     subscribe: () => () => {},
     getSyncSummary: async () => ({ online: true, pending: 0, syncing: 0, conflicts: 0, errors: 0, lastSyncedAt: null }),
     setSyncMetaValue: async () => {},
@@ -242,7 +247,7 @@ test("a blocked shift report can be unblocked from the app itself", async () => 
     const repository = makeRepository({
       refresh: async machine => {
         refreshes += 1;
-        return { data: snapshot(machine), source: "server", fetchedAt: "2026-07-30T02:15:00.000Z", stale: false };
+        return { data: snapshot(machine), serverPayload: { status: "success", shiftReports: [] }, source: "server", fetchedAt: "2026-07-30T02:15:00.000Z", stale: false };
       },
     });
 
@@ -274,6 +279,43 @@ test("a blocked shift report can be unblocked from the app itself", async () => 
     jest.useRealTimers();
     apiCall.mockImplementation(async () => ({ status: "success" }));
   }
+});
+
+test("a cold launch cannot append a second report for a shift that already has one", async () => {
+  // This needs no server fault and no timeout. On a cold cache the splash clears as soon as the
+  // (empty) cache pass settles, so the Shift Report form renders BLANK and editable for as long as
+  // the snapshot takes — up to the 90 s fetch ceiling. A night crew filling in a shift the day crew
+  // already saved would append a second row for the same date and shift, silently.
+  let release;
+  const repository = makeRepository({
+    load: async machine => ({ data: snapshot(machine), source: "empty", fetchedAt: null, stale: true }),
+    refresh: machine => new Promise(resolve => {
+      release = () => resolve({
+        data: snapshot(machine, { shiftReports: [{ id: "sr_day", date: "2026-07-30", shift: "Day", tbmNo: "TBM1", manpower: {}, result: {}, events: {} }] }),
+        serverPayload: { status: "success", shiftReports: [] },
+        source: "server", fetchedAt: "2026-07-30T02:15:00.000Z", stale: false,
+      });
+    }),
+  });
+
+  const app = renderApp(repository);
+  await act(async () => {});
+  await act(async () => {
+    [...app.container.querySelectorAll("button")].find(b => /Shift Report/i.test(b.textContent))
+      .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  });
+
+  expect(app.text()).toContain("ยังไม่ได้ข้อมูลรายงานกะของเครื่องนี้จากเซิร์ฟเวอร์");
+  const save = [...app.container.querySelectorAll("button")].find(b => /Save to Cloud/.test(b.textContent));
+  expect(save.disabled).toBe(true);
+  await act(async () => { save.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+  expect(apiCall).not.toHaveBeenCalled();
+
+  // once the machine's rows arrive, saving is available again
+  await act(async () => { release(); });
+  expect(app.text()).not.toContain("ยังไม่ได้ข้อมูลรายงานกะของเครื่องนี้จากเซิร์ฟเวอร์");
+  expect([...app.container.querySelectorAll("button")].find(b => /Save to Cloud/.test(b.textContent)).disabled).toBe(false);
+  app.unmount();
 });
 
 test("a launch with no snapshot at all still reports the failure", async () => {

@@ -2,6 +2,11 @@ import React from "react";
 import { createRoot } from "react-dom/client";
 import { act } from "react-dom/test-utils";
 
+// Without this React does not warn when a state update escapes an act scope — and every test here
+// turns on the flush ordering of async saves, queued chain runs and passive effects. The one warning
+// that would catch a stale read was suppressed in exactly the file that needed it.
+globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+
 import ShiftReportView, { __resetShiftSaveStateForTests, SHIFT_SAVE_TIMEOUT_MS } from "./ShiftReportView";
 import { apiCall } from "../../utils/api";
 
@@ -615,7 +620,9 @@ test("the crew's own check against the server is what resumes saving", async () 
     apiCall.mockImplementation(() => new Promise(() => {}));
     let rows = [];
     const setShiftReports = updater => { rows = typeof updater === "function" ? updater(rows) : updater; };
-    let onRefresh = async () => ({ data: { shiftReports: [] } });
+    // `serverPayload` is the GAS response untouched — the only shape that answers "is it on the
+    // sheet?", since `data` carries this device's own unsynced records merged back in
+    let onRefresh = async () => ({ serverPayload: { status: "success", shiftReports: [] } });
     const form = render(view({ shiftReports: rows, setShiftReports, onRefresh: () => onRefresh() }));
     type(form.container, "Engineer", "3");
     await act(async () => {
@@ -627,7 +634,7 @@ test("the crew's own check against the server is what resumes saving", async () 
 
     // the check comes back: the row DID land after all
     const landed = { id: sentId, date: "2026-07-30", shift: "Day", tbmNo: "TBM1", location: "อุโมงค์", manpower: { Engineer: "3" }, result: {}, events: {} };
-    onRefresh = async () => ({ data: { shiftReports: [landed] } });
+    onRefresh = async () => ({ serverPayload: { status: "success", shiftReports: [landed] } });
     apiCall.mockImplementation(async () => ({ status: "success" }));
     await act(async () => {
       [...form.container.querySelectorAll("button")].find(b => /ตรวจสอบกับเซิร์ฟเวอร์/.test(b.textContent))
@@ -658,7 +665,7 @@ test("a check that finds no row lets the next save append, once", async () => {
     apiCall.mockImplementation(() => new Promise(() => {}));
     let rows = [];
     const setShiftReports = updater => { rows = typeof updater === "function" ? updater(rows) : updater; };
-    const form = render(view({ shiftReports: rows, setShiftReports, onRefresh: async () => ({ data: { shiftReports: [] } }) }));
+    const form = render(view({ shiftReports: rows, setShiftReports, onRefresh: async () => ({ serverPayload: { status: "success", shiftReports: [] } }) }));
     type(form.container, "Engineer", "3");
     await act(async () => {
       [...form.container.querySelectorAll("button")].find(b => /Save to Cloud/.test(b.textContent))
@@ -681,6 +688,91 @@ test("a check that finds no row lets the next save append, once", async () => {
     // the same draft id, so a later refresh cannot mistake it for a second report
     expect(apiCall.mock.calls[1][0]).toBe("addShiftReport");
     expect(apiCall.mock.calls[1][1].id).toBe(sentId);
+    form.unmount();
+  } finally {
+    alertSpy.mockRestore();
+    jest.useRealTimers();
+  }
+});
+
+test("a check ignores the app's own merged snapshot and reads the server's answer", async () => {
+  // `repository.refresh().data` re-injects unsynced local records and overlays optimistic payloads,
+  // so the row it shows can be this device's echo of the very write being asked about. Counting that
+  // as confirmation would release the block and send `updateShiftReport` for a row GAS never had —
+  // which no-ops silently, losing the report. Only `serverPayload` answers the question.
+  jest.useFakeTimers();
+  const alertSpy = jest.spyOn(window, "alert").mockImplementation(() => {});
+  try {
+    apiCall.mockImplementation(() => new Promise(() => {}));
+    // the merged view echoes back OUR OWN unsynced record — same id we sent — while the sheet has
+    // nothing for this shift. That is what `writeServerSnapshot` does with a retained local record.
+    let mergedRows = [];
+    const form = render(view({
+      shiftReports: [], setShiftReports: () => {},
+      onRefresh: async () => ({
+        data: { shiftReports: mergedRows },
+        serverPayload: { status: "success", shiftReports: [] },
+      }),
+    }));
+    type(form.container, "Engineer", "3");
+    await act(async () => {
+      [...form.container.querySelectorAll("button")].find(b => /Save to Cloud/.test(b.textContent))
+        .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await act(async () => { jest.advanceTimersByTime(SHIFT_SAVE_TIMEOUT_MS); });
+    const sentId = apiCall.mock.calls[0][1].id;
+    mergedRows = [{ id: sentId, date: "2026-07-30", shift: "Day", tbmNo: "TBM1", manpower: {}, result: {}, events: {} }];
+
+    apiCall.mockImplementation(async () => ({ status: "success" }));
+    await act(async () => {
+      [...form.container.querySelectorAll("button")].find(b => /ตรวจสอบกับเซิร์ฟเวอร์/.test(b.textContent))
+        .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await act(async () => {
+      [...form.container.querySelectorAll("button")].find(b => /Save to Cloud/.test(b.textContent))
+        .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    // the sheet had no row, so appending is correct — an update would have been written nowhere
+    expect(apiCall.mock.calls[1][0]).toBe("addShiftReport");
+    expect(apiCall.mock.calls[1][1].id).toBe(sentId);
+    form.unmount();
+  } finally {
+    alertSpy.mockRestore();
+    jest.useRealTimers();
+  }
+});
+
+test("a response that omits the shift reports entirely is not read as 'no row'", async () => {
+  // the normalizer maps an absent key to [], so an older GAS deployment or a partial doGet looks
+  // exactly like an empty sheet — the same ambiguity App refuses to act on when mirroring
+  jest.useFakeTimers();
+  const alertSpy = jest.spyOn(window, "alert").mockImplementation(() => {});
+  try {
+    apiCall.mockImplementation(() => new Promise(() => {}));
+    const form = render(view({
+      shiftReports: [], setShiftReports: () => {},
+      onRefresh: async () => ({ serverPayload: { status: "success", segments: [] } }), // no shiftReports key
+    }));
+    type(form.container, "Engineer", "3");
+    await act(async () => {
+      [...form.container.querySelectorAll("button")].find(b => /Save to Cloud/.test(b.textContent))
+        .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await act(async () => { jest.advanceTimersByTime(SHIFT_SAVE_TIMEOUT_MS); });
+
+    apiCall.mockImplementation(async () => ({ status: "success" }));
+    await act(async () => {
+      [...form.container.querySelectorAll("button")].find(b => /ตรวจสอบกับเซิร์ฟเวอร์/.test(b.textContent))
+        .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(form.container.textContent).toContain("ตรวจสอบไม่สำเร็จ");
+    await act(async () => {
+      [...form.container.querySelectorAll("button")].find(b => /Save to Cloud/.test(b.textContent))
+        .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(apiCall).toHaveBeenCalledTimes(1); // still blocked
     form.unmount();
   } finally {
     alertSpy.mockRestore();

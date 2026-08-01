@@ -411,6 +411,10 @@ stores `payload: { ...response.record }`. Executed: `primaryPositions` and `prim
 before the confirmation and `undefined` after it. **The sheet keeps them** (`updateRow` maps by the
 sheet's own headers, and the live Grouts sheet has those columns), so this is the device's copy only.
 
+The mechanism is per-header-list, not grout-specific: `SECONDARY_GROUT_HEADERS` omits the same keys,
+so `secondaryGrout` strips identically. The captured payload holds zero secondary rows, so it cannot
+be measured today — and widening the echo closes both at once.
+
 Not measured: whether the stripped copy reaches the screen or survives an offline relaunch — that
 depends on how the merge treats a `SYNCED` entity. Predates Task 8 and is identical either side of
 it, but it is the same class as the defects this task spent several rounds closing, and it should be

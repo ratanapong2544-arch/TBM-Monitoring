@@ -266,8 +266,9 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, machine = 
     // sheet, refused as a conflict that parks at the head of its domain. The deferred read below is
     // `composedCreateFor`, which is a global fact about a key rather than a fact about this mount.
     const existedAtCompose = Boolean(existingReportRef.current);
-    // `id` came from `reportIdForSave()` two lines up, which reads this same ref in this same
-    // synchronous block, so comparing them again could only ever be true — it read as a guard
+    // `id` came from `reportIdForSave()` above, which reads this same ref in this same synchronous
+    // block — with no await between them, so `operation` and `recordId` cannot disagree about which
+    // report this save is. Comparing them again could only ever be true; it read as a guard
     // against a stale id, which is the one thing it cannot be
     // Objects, not JSON strings. The one-shot write stringified these because GAS wanted text, but
     // the queue serializes the payload itself on the way out (`serializeSyncRowValues_` encodes each

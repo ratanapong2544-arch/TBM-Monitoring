@@ -1,4 +1,4 @@
-import { MUTATION_STATUS, STORES } from "./schema";
+import { isTerminalStatus, MUTATION_STATUS, STORES } from "./schema";
 import { entityKeyForRecord, isOptimisticKey, optimisticEntityKey } from "./entityKeys";
 import { toSyncVersion } from "./syncVersion";
 import { FIELD_FOR_ENTITY_TYPE, isMachineScopedEntityType, snapshotScopeKey } from "./snapshotStore";
@@ -69,7 +69,11 @@ function patchSnapshotKeys(snapshots, entities, stored, mutation) {
       const slot = keys.findIndex(key => mine(key) || key === optimisticKey);
       next = slot === -1 ? keys.concat(optimisticKey) : keys.map((key, index) => (index === slot ? optimisticKey : key));
     }
-    keys.forEach(key => { if (key !== optimisticKey && !next.includes(key)) dropped.add(key); });
+    // a Set, because this runs on every queued write over the whole collection's key list: with 373
+    // segments an `includes` inside the loop is ~139k comparisons per ring saved, and it grows with
+    // the sheet
+    const surviving = new Set(next);
+    keys.forEach(key => { if (key !== optimisticKey && !surviving.has(key)) dropped.add(key); });
     survivingKeys.set(snapshot.scopeKey, next);
     // an unchanged list is not worth a write, and the second save of one record produces exactly that
     if (next.length === keys.length && next.every((key, index) => key === keys[index])) return;
@@ -193,7 +197,7 @@ export async function listDueMutations(db, now) {
 }
 
 function isTerminal(mutation) {
-  return mutation.status === MUTATION_STATUS.SYNCED || mutation.status === MUTATION_STATUS.RESOLVED;
+  return isTerminalStatus(mutation.status);
 }
 
 function domainHeads(mutations) {

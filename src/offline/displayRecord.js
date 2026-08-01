@@ -23,10 +23,12 @@ const PHOTOS = [
 // touched into copies of the one they saved, the moment they pressed it — and a delete removed all
 // four. A record built by the queue carries the domain key it was filed under, and for a ring that
 // key IS the identity; a record without one (a caller outside the queue) falls back to the id.
+// `""` counts here, unlike `entityKeys.rowIdOf`: a blank id on both sides names a row WITHIN its
+// domain, which is what the merge's `claimWithinDomain` matches. Only an absent id names nothing.
+const idOf = value => value.id ?? value.recordId;
+
 function namesRow(record, entityType, row) {
-  const rowId = row.id ?? row.recordId;
-  const recordId = record.id ?? record.recordId;
-  if (rowId !== recordId) return false;
+  if (idOf(row) !== idOf(record)) return false;
   if (!record.domainKey) {
     // Unreachable through the queue: `optimisticEntity` always injects the key. Reachable from a
     // caller that builds a record by hand — and falling back to the id alone is the rule the
@@ -37,11 +39,13 @@ function namesRow(record, entityType, row) {
   return domainKeyForRow(entityType, row, record.machine) === record.domainKey;
 }
 
+// How a queued write lands in the list the crew is looking at: it changes exactly ONE row, the same
+// one `writeServerSnapshot` will change at the next refresh.
 export function applyOptimisticRow(rows, operation, incoming) {
   const record = stripQueuedPhotos(incoming);
   if (!record) return rows;
   const entityType = record.entityType;
-  const recordId = record.id ?? record.recordId;
+  const recordId = idOf(record);
   // An ABSENT id names nothing, and matching on it would claim the first row that also has none.
   // A BLANK one does name a row — within its domain, which is what the merge's `claimWithinDomain`
   // matches and what `namesRow` asks. Every type Task 8 queues sets `id` to its own record id;

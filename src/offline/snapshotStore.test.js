@@ -380,3 +380,21 @@ test("does not preserve a resolved mutation's optimistic payload during refresh"
 
   await expect(readServerSnapshot(db, "TBM1")).resolves.toEqual(expect.objectContaining({ segments: [expect.objectContaining({ status: "server" })] }));
 });
+
+test.each([
+  ["the same value", "R1"],
+  ["different values", "X1"],
+])("a queued edit overlays its own row when payload.id and recordId hold %s", async (unused, payloadId) => {
+  // An OPTIMISTIC row's identity is the record id its key was built from — `optimisticEntity` injects
+  // it, and GAS resolves the write by it — not whatever `id` the payload happens to carry. Reading a
+  // queued row the way a sheet row is read slotted it under the payload's id, so it matched no
+  // incoming row and the crew's edit was APPENDED beside the row it was meant to replace. The two
+  // agree for every write Task 8 queues; Task 9 adds the first types where they need not.
+  const db = await openOfflineDb();
+  const mutation = { requestId: "m1", entityType: "segment", operation: "update", machine: "TBM1", recordId: "R1", domainKey: "segment:TBM1:P1:Permanent", baseVersion: 1, deviceId: "device", createdAtLocal: "2026-07-29T00:00:00.000Z", payload: { id: payloadId, ringNo: "P1", installType: "Permanent", status: "crew edit" } };
+  await putOptimisticMutation(db, mutation);
+
+  await writeServerSnapshot(db, "TBM1", normalizeServerData({ segments: [{ id: "R1", ringNo: "P1", installType: "Permanent", status: "on the sheet" }] }, "TBM1"), "refresh");
+
+  expect((await readServerSnapshot(db, "TBM1")).segments.map(row => row.status)).toEqual(["crew edit"]);
+});

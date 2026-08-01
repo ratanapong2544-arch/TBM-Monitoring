@@ -84,8 +84,8 @@ function withoutQueuedPhotoMarker(payload) {
 //   - taken by a live record: 0, so the server answers `conflict`. Claiming the version it knows
 //     would tell GAS this is a post-conflict successor and MERGE the record onto the row already
 //     holding that ring — the other shift's record overwritten, and the response a success. Two rows
-//     on one ring is a state this app supports, and its data logs dedupe for it; collapsing them
-//     silently is not the app's call.
+//     on one ring is a state this app supports (the segment data logs dedupe for it; grout and shift
+//     reports do not — open item 3a); collapsing them silently is not the app's call.
 //   - vacated by a delete: the tombstone's own version, which lifts it. A tombstone is not inert —
 //     `checkSyncVersion_` compares against it like any other version, so a create at 0 is refused
 //     for a ring whose only record was deleted. That is the ordinary "delete the bad row and record

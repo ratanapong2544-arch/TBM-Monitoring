@@ -1,7 +1,7 @@
-import { domainKeyForRow, isOptimisticKey, rowIdOf as recordIdOfPayload, serverEntityKey } from "./entityKeys";
+import { domainKeyForRow, isOptimisticKey, optimisticRecordIdOf, rowIdOf, serverEntityKey } from "./entityKeys";
 import { toSyncVersion } from "./syncVersion";
 import { emptyServerData } from "./normalizeServerData";
-import { MUTATION_STATUS, STORES } from "./schema";
+import { isTerminalStatus, MUTATION_STATUS, STORES } from "./schema";
 
 const collections = [
   ["segments", "segment"], ["grouts", "grout"], ["secondaryGrouts", "secondaryGrout"], ["shiftReports", "shiftReport"],
@@ -35,10 +35,13 @@ export const snapshotScopeKey = scopeKey;
 export const FIELD_FOR_ENTITY_TYPE = new Map(collections.map(([field, entityType]) => [entityType, field]));
 export function isMachineScopedEntityType(entityType) { return MACHINE_SCOPED_COLLECTIONS.has(entityType); }
 // The store key must be unique per server ROW, not per domain: live sheets legitimately hold two
-// rows sharing a ring identity (the views run deduplicateRecords over them), and keying by domain
-// alone made one row overwrite the other in the cache and appear twice in the list.
+// rows sharing a ring identity, and keying by domain alone made one row overwrite the other in the
+// cache and appear twice in the list. (Four views run `deduplicateRecords` over segments; grout and
+// shift reports dedupe nowhere — open item 3a. The cache has to hold what the sheet holds either
+// way; what the views then do with it is their own question.)
 function recordFor(machine, field, entityType, payload, index, seenIds) {
   const domainKey = domainKeyForRow(entityType, payload, machine);
+  const recordId = rowIdOf(payload); // the same read `domainKeyForRow` just made, not a second one
   // A sheet can hand back two rows carrying one id — GAS appends a duplicate in at least one path,
   // and imported rows are outside this app's control. Keying both as `id:<id>` made them one cache
   // entry: one row's values overwritten, the other listed twice, and the refresh and the relaunch
@@ -48,7 +51,7 @@ function recordFor(machine, field, entityType, payload, index, seenIds) {
   // A row is demoted to a positional key only when it collides on its RECORD — the same id on the
   // same domain. Keyed by the bare id, every later row sharing an id with an earlier one lost its
   // `:id:` key, and the production sheet spreads seven ids over sixteen rows on sixteen rings.
-  const id = payload.id != null && payload.id !== "" ? String(payload.id) : null;
+  const id = recordId == null ? null : String(recordId);
   const slot = id === null ? null : recordSlot(domainKey, id);
   const duplicate = slot !== null && seenIds && seenIds.has(slot);
   if (slot !== null && seenIds) seenIds.add(slot);
@@ -131,16 +134,21 @@ export async function writeServerSnapshot(db, machine, data, fetchedAt, requeste
   const unresolvedByRecord = newestUnresolvedByRecord(allMutations, mutation => mutation.domainKey, Date.now());
   // which records have a mutation that already finished, in either direction — only the fact is
   // read, so a Map of statuses implied a significance the value never had
-  const terminalRecords = new Set(allMutations
-    .filter(mutation => mutation.status === MUTATION_STATUS.SYNCED || mutation.status === MUTATION_STATUS.RESOLVED)
-    .map(slotOf));
+  const terminalRecords = new Set(allMutations.filter(mutation => isTerminalStatus(mutation.status)).map(slotOf));
   // A blank Id cell reaches here as "", not as an absent key: `getSheetDataAsJson` assigns every
   // header key from the row's values, and an empty Google Sheets cell reads as the empty string. So
   // "no id" has to mean both, or the id-less matching path below is simply never entered for the
   // shape the server actually sends — which is what `recordFor` and `deletePending` already say and
   // this said differently.
-  const rowIdOf = record => recordIdOfPayload(record.payload);
-  const slotForRow = record => recordSlot(record.domainKey, rowIdOf(record));
+  // Which record a STORED row names, asked by where the row came from. A server row is named by the
+  // sheet's id column; an OPTIMISTIC row is named by the record id its key was built from, which
+  // `optimisticEntity` injects. Reading both the same way made this compare a payload's `id` against
+  // a mutation's `recordId` — identical for every write Task 8 queues, and on the first Task 9 type
+  // where they differ the queued row matches nothing: a deleted ring stays on every screen.
+  const rowIdOfRecord = record => (isOptimisticKey(record.key)
+    ? optimisticRecordIdOf(record.payload)
+    : rowIdOf(record.payload));
+  const slotForRow = record => recordSlot(record.domainKey, rowIdOfRecord(record));
   const unresolvedStatus = record => {
     const mutation = unresolvedByRecord.get(slotForRow(record));
     return mutation && mutation.status;
@@ -153,7 +161,7 @@ export async function writeServerSnapshot(db, machine, data, fetchedAt, requeste
   // may be the next shift. Anything confirmed after the request went out is newer than the answer,
   // so it is kept exactly as a pending write would be.
   const confirmedAfterRequest = new Map(allMutations
-    .filter(mutation => (mutation.status === MUTATION_STATUS.SYNCED || mutation.status === MUTATION_STATUS.RESOLVED)
+    .filter(mutation => isTerminalStatus(mutation.status)
       // this device's own reading of both instants; `syncedAt` is the server's clock and comparing
       // the two would turn ordinary clock skew into either lost rows or stale ones
       && requestedAt && mutation.confirmedAtLocal && Date.parse(mutation.confirmedAtLocal) >= Date.parse(requestedAt))
@@ -202,7 +210,7 @@ export async function writeServerSnapshot(db, machine, data, fetchedAt, requeste
   existing.forEach(record => {
     const ofType = existingByType.get(record.entityType);
     if (ofType) ofType.push(record); else existingByType.set(record.entityType, [record]);
-    const rowId = rowIdOf(record);
+    const rowId = rowIdOfRecord(record);
     if (rowId == null) return;
     const slot = recordSlot(record.domainKey, rowId); // every domain key starts with its entity type
     const held = localByRecord.get(slot);
@@ -234,7 +242,7 @@ export async function writeServerSnapshot(db, machine, data, fetchedAt, requeste
     // or may not show it any more (another device removed it), and dropping it would take the crew's
     // own unsynced work off screen.
     // only rows that NAME a record reserve its place; an id-less row claims one below instead
-    const carried = new Set(incoming.filter(record => rowIdOf(record) != null).map(slotForRow));
+    const carried = new Set(incoming.filter(record => rowIdOfRecord(record) != null).map(slotForRow));
     // Local copies this response does not carry: recorded offline and not on the sheet yet, or on
     // the sheet no longer. The store can hold both a cached server copy and a queued one for the
     // same row; the crew's is the one to keep, and only one of them may stand.
@@ -242,7 +250,7 @@ export async function writeServerSnapshot(db, machine, data, fetchedAt, requeste
     (existingByType.get(entityType) || []).forEach(record => {
       const slot = slotForRow(record);
       if (!inScope(record, entityType) || !preserveLocal(record)) return;
-      if (carried.has(slot) || deletePending(record.domainKey, rowIdOf(record))) return;
+      if (carried.has(slot) || deletePending(record.domainKey, rowIdOfRecord(record))) return;
       const held = localOnly.get(slot);
       if (!held || isOptimisticKey(record.key)) localOnly.set(slot, record);
     });
@@ -254,7 +262,7 @@ export async function writeServerSnapshot(db, machine, data, fetchedAt, requeste
     // full scan per incoming row in a function whose point was removing them.
     const idLessByDomain = new Map();
     localOnly.forEach((record, slot) => {
-      if (rowIdOf(record) != null) return;
+      if (rowIdOfRecord(record) != null) return;
       const waiting = idLessByDomain.get(record.domainKey);
       if (waiting) waiting.push(slot); else idLessByDomain.set(record.domainKey, [slot]);
     });
@@ -289,16 +297,16 @@ export async function writeServerSnapshot(db, machine, data, fetchedAt, requeste
     // first.
     const hiddenByDelete = record => {
       const slot = slotForRow(record);
-      if (!deletePending(record.domainKey, rowIdOf(record)) || claimed.has(slot)) return false;
+      if (!deletePending(record.domainKey, rowIdOfRecord(record)) || claimed.has(slot)) return false;
       claimed.add(slot);
       return true;
     };
     const fromServer = incoming
       .filter(record => !hiddenByDelete(record))
       .map(record => {
-        const local = rowIdOf(record) == null
+        const local = rowIdOfRecord(record) == null
           ? claimWithinDomain(record.domainKey)
-          : claimOnce(record.domainKey, rowIdOf(record), () => localForRecord(record.domainKey, rowIdOf(record)));
+          : claimOnce(record.domainKey, rowIdOfRecord(record), () => localForRecord(record.domainKey, rowIdOfRecord(record)));
         if (!local || !preserveLocal(local)) return record;
         return preserve(local, unresolvedStatus(local) || local.payload.syncStatus);
       });
@@ -368,7 +376,7 @@ function overlayConfigSingletons({ snapshot, committed, existing, machine, prese
 // safety note 5).
 function pruneConfirmedMutations(mutations, allMutations) {
   allMutations
-    .filter(mutation => mutation.status === MUTATION_STATUS.SYNCED || mutation.status === MUTATION_STATUS.RESOLVED)
+    .filter(mutation => isTerminalStatus(mutation.status))
     .sort((left, right) => (right.queueSequence || 0) - (left.queueSequence || 0))
     .slice(CONFIRMED_MUTATION_RETENTION)
     .forEach(mutation => mutations.delete(mutation.requestId));

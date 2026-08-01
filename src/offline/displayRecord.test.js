@@ -20,21 +20,35 @@ test("a queued row reaches the list without its photo bytes", () => {
 });
 
 test("a second save of one record replaces its row instead of adding another", () => {
-  const first = applyOptimisticRow([], "create", { id: "s1", ringNo: "P643", status: "In Progress" });
-  const second = applyOptimisticRow(first, "update", { id: "s1", ringNo: "P643", status: "Completed" });
+  // the shape the queue really sends, so the plain update path is not tested through a fallback
+  // production cannot produce
+  const queued = status => ({ id: "s1", ringNo: "P643", installType: "Permanent", status, recordId: "s1", entityType: "segment", machine: "TBM1", domainKey: "segment:TBM1:P643:Permanent" });
+  const first = applyOptimisticRow([], "create", queued("In Progress"));
+  const second = applyOptimisticRow(first, "update", queued("Completed"));
 
   expect(second).toHaveLength(1);
   expect(second[0].status).toBe("Completed");
-  // a hand-built record carries no domain key, so it took the fallback and said so
+  expect(warnedAboutMissingDomainKey()).toBe(false);
+});
+
+test("a record with no domain key matches on the id alone, and says so", () => {
+  // the fallback exists for a caller outside the queue, and it must not degrade quietly: matching on
+  // the id alone is the rule the cross-ring duplicates disproved
+  const rows = applyOptimisticRow([{ id: "s1", ringNo: "P643", status: "In Progress" }], "update", { id: "s1", ringNo: "P643", status: "Completed" });
+
+  expect(rows.map(row => row.status)).toEqual(["Completed"]);
   expect(warnedAboutMissingDomainKey()).toBe(true);
 });
 
 test("a queued delete takes the row off the list", () => {
   // if it stays, the crew press Delete again and a second delete queues on a record the first one
   // already removed
-  const rows = applyOptimisticRow([{ id: "s1", ringNo: "P643" }, { id: "s2", ringNo: "P644" }], "delete", { id: "s1" });
+  const onScreen = [{ id: "s1", ringNo: "P643", installType: "Permanent" }, { id: "s2", ringNo: "P644", installType: "Permanent" }];
+  const queued = { id: "s1", ringNo: "P643", installType: "Permanent", recordId: "s1", entityType: "segment", machine: "TBM1", domainKey: "segment:TBM1:P643:Permanent" };
+  const rows = applyOptimisticRow(onScreen, "delete", queued);
 
   expect(rows.map(row => row.id)).toEqual(["s2"]);
+  expect(warnedAboutMissingDomainKey()).toBe(false);
 });
 
 test("a queued photo leaves the row on screen carrying a marker, not the bytes", () => {

@@ -60,11 +60,13 @@ export function rowIdOf(row) {
 
 // Which record an OPTIMISTIC ROW was keyed under. Deliberately the other field order, and the two
 // are not one rule: `optimisticEntity` injects `recordId` into every queued payload, so that is the
-// value the runtime built the key from and the value a migration has to recover — while `rowIdOf`
-// above answers what a row from the sheet calls itself. They agree for every write Task 8 queues
-// (all eight call sites pass `recordId: <payload>.id`) and Task 9 adds types where they need not,
-// which is exactly when recovering the wrong one would strand a re-keyed row under a key nothing
-// looks up. Consolidating them into one function was tried, and this comment is why it was undone.
+// value the runtime built the key from — while `rowIdOf` above answers what a row from the sheet
+// calls itself. Which to call is decided by the row's PROVENANCE, not by the caller: the migrations
+// in `db.js` recover a queued row's key, and `writeServerSnapshot` picks between the two on
+// `isOptimisticKey(record.key)`. They agree for every write Task 8 queues (all eight call sites pass
+// `recordId: <payload>.id`) and Task 9 adds types where they need not — which is when reading a
+// queued row the wrong way strands it under a key nothing looks up, or slots it beside the row it
+// was meant to replace. Consolidating them into one function was tried; this is why it was undone.
 export function optimisticRecordIdOf(payload) {
   const id = payload && (payload.recordId ?? payload.id);
   return id == null || id === "" ? null : id;

@@ -296,6 +296,21 @@ would put a number in the status strip that no screen can resolve until Task 10.
 untouched by it; recorded because it is the one piece of production code on this branch with no
 caller, and a future reader should know it was parked rather than missed.
 
+## 3l. A daily report with a blank machine has a different identity on each machine (Task 9)
+
+`dailyReport` and `prepTask` are machine-keyed in `makeDomainKey` but returned project-wide by
+getData, and they carry a `machine` column. `normalizeReport` writes `machine: ""` for any report
+whose stored machine is not one of the known ones, and `domainKeyForRow` reads a blank machine as
+"no machine of its own" and falls back to the ACTIVE one — so the same sheet row is
+`dailyReport:TBM1:d3` on TBM1 and `dailyReport:TBM2:d3` on TBM2. A copy queued on one machine is
+then appended beside the server row on the other rather than replacing it.
+
+Unreachable in Task 8: neither type is queued, so nothing builds an optimistic copy of one. It is
+not a regression either — `recordFor` has always read `payload.machine || machine`. Task 9 queues
+both types, and has to decide what a blank machine cell means before it does: either it is data (and
+the row belongs to no machine, which `makeDomainKey` spells GLOBAL) or it is missing (and the row
+belongs to whoever is looking at it, which is what happens now).
+
 ## 4. Deliberate deviations from the plan
 
 - **"บันทึกในเครื่องแล้ว" is only in the shift report.** Step 3 asks for it on every core write. The
@@ -343,18 +358,6 @@ data-loss path is worse than no note.
 - `App.jsx` — `applyOptimisticRecord`'s dev-time warning for an entity type with no setter has no
   test: it fires on a state Task 8 cannot reach (every type it queues has one) and pinning a
   `console.warn` string would break on any rewording. It exists for Task 9, which adds the types.
-- `entityKeys.js` — `rowIdOf` reducing a blank id to `null` is a spelling, not a rule: the three
-  places that asked "does this row name a record" disagreed on whether `""` counts, and every
-  combination reaches the same answer anyway (`recordSlot` maps `null` and `""` to one slot, and the
-  id-less path claims within the domain either way). Reverting it leaves the suite green, as it
-  should — re-measured after it moved from `snapshotStore.js` into `entityKeys.js`, where the
-  migration and the merge now share one copy of it. What the fixtures now do carry is the shape GAS really sends — `{ id: "" }`, since
-  `getSheetDataAsJson` assigns every header from the row values and a blank cell reads as `""`.
-- `PerformanceView.jsx` — a delay bar wholly inside one already counted names no Pareto theme, since
-  it has no minutes to show on a chart of minutes; which of two overlapping bars keeps its cause is
-  array order. Not testable as a rule (attributing it zero minutes is the same thing), so it is
-  written down instead. The invariant that the themes DO add up to their category is testable — the
-  Pareto renders nothing in jsdom, so `shiftMinutesByCategory` is exported and tested directly.
 - `repository.js` — the null-snapshot fallback in `refresh` (`(overtaken && read) || write`) is
   unreachable now that a request is only recorded as newest once its write has landed. It stays
   because the alternative is handing the caller a null it then reads `fetchedAt` off.

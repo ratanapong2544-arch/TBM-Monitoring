@@ -30,3 +30,10 @@ export const LEGACY_KEYS = [
   "tbmRouteConfig", "tbmRouteConfig__TBM2",
   "instLocations", "instInstruments", "instThresholds", "instReadings", "instSchedules"
 ];
+
+// A mutation that has finished, in either direction. Its complement `UNRESOLVED_STATUSES` lives in
+// one place for the reason this does: the merge, the prune and the queue's own ordering all ask it,
+// and three inline copies of one rule can be changed one at a time with the suite green.
+export function isTerminalStatus(status) {
+  return status === MUTATION_STATUS.SYNCED || status === MUTATION_STATUS.RESOLVED;
+}

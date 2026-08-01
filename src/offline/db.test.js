@@ -452,6 +452,22 @@ test("both key shapes for one record are named once", async () => {
   expect(loaded.issues).toHaveLength(1);
 });
 
+test("a v2 row is re-keyed by the record id its key was built from, not the payload's id", async () => {
+  // `optimisticEntity` injects `recordId`, and the runtime built the key from it — so that is what a
+  // migration has to recover. Reading the payload's `id` first recovers the view's field instead,
+  // which is right only while the two coincide: they do for every write Task 8 queues, and Task 9
+  // adds the first types where they need not. Recovering the wrong one strands the row under a key
+  // the queue never looks up, and the record then shows twice once its write confirms.
+  const domainKey = "instReading:GLOBAL:R1";
+  await seedAtVersion(2, {
+    mutations: [{ requestId: "m1", status: "pending", entityType: "instReading", machine: null, recordId: "R1", domainKey, payload: { id: "sheet-row-7" } }],
+    entities: [{ key: `entity:optimistic:${domainKey}`, entityType: "instReading", machine: "GLOBAL", domainKey, payload: { id: "sheet-row-7", recordId: "R1" } }],
+    snapshots: [],
+  });
+
+  expect((await readAllStore(await openOfflineDb(), "entities")).map(row => row.key)).toEqual([`entity:optimistic:${domainKey}:id:R1`]);
+});
+
 test("a queued config edit is not rebuilt into any collection list", async () => {
   // The config entities are singletons overlaid from the entities store, not rows in a collection.
   // Naming one in a list makes `load` hand a plan-config body back as a ring, and the data log and

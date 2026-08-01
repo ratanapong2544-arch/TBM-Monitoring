@@ -31,6 +31,7 @@ import { upsertDailyReport, removeDailyReport } from "./utils/dailyReports";
 import { getMachineConfig } from "./utils/machineConfig";
 import { isViewerMode, VIEWER_TABS } from "./utils/viewerMode";
 import { useOfflineData } from "./offline/useOfflineData";
+import { applyServerRows } from "./offline/serverDeletions";
 import { useOffline } from "./offline/OfflineProvider";
 import { toSyncVersion } from "./offline/syncVersion";
 import { applyOptimisticRow, stripQueuedPhotos } from "./offline/displayRecord";
@@ -190,8 +191,11 @@ const PrimaryGroutApp = () => {
     // prepTasks still goes to localStorage below: `PrepGanttView` reads it from there, and moving
     // that view onto props is its own unit of work.
     const serverAuthoritative = offlineData.source === "server";
-    if (data.issues.length) setIssues(data.issues);
-    if (data.dailyReports.length) setDailyReports(data.dailyReports);
+    // Step 5b: an empty collection removes only what the server has tombstoned. `applyServerRows`
+    // carries the whole rule and the reason it cannot be emptiness alone.
+    const serverMeta = data.syncMeta;
+    setIssues((previous) => applyServerRows("issue", data.issues, previous, serverMeta, activeMachine));
+    setDailyReports((previous) => applyServerRows("dailyReport", data.dailyReports, previous, serverMeta, activeMachine));
     if (serverAuthoritative) {
       if (data.prepTasks.length) {
         // only machines the payload actually carries: a machine absent from it keeps its own rows,
@@ -201,6 +205,8 @@ const PrimaryGroutApp = () => {
           ...previous.filter((t) => !carried.has(t.machine || "TBM1")),
           ...data.prepTasks,
         ]);
+      } else {
+        setPrepTasks((previous) => applyServerRows("prepTask", [], previous, data.syncMeta, activeMachine));
       }
     }
 
@@ -215,12 +221,15 @@ const PrimaryGroutApp = () => {
     if (data.machineProgress) setMachineProgress(data.machineProgress);
     if (data.routeProjectTotal != null) setRouteProjectTotal(data.routeProjectTotal);
     // Instrument module: project-wide (ไม่ขึ้นกับ activeMachine). Server-only, same rule as above.
-    const mirrorInst = (rows, setter) => { if (rows.length) setter(rows); };
-    mirrorInst(data.instLocations, setInstLocations);
-    mirrorInst(data.instInstruments, setInstInstruments);
-    mirrorInst(data.instThresholds, setInstThresholds);
-    mirrorInst(data.instReadings, setInstReadings);
-    mirrorInst(data.instSchedules, setInstSchedules);
+    // instLocation/instThreshold have no sync entity, so they have no tombstone to read and an
+    // empty response leaves them alone — the same conservative end the guard always had.
+    const mirrorInst = (entityType, rows, setter) =>
+      setter((previous) => applyServerRows(entityType, rows, previous, data.syncMeta, activeMachine));
+    mirrorInst("instLocation", data.instLocations, setInstLocations);
+    mirrorInst("instrument", data.instInstruments, setInstInstruments);
+    mirrorInst("instThreshold", data.instThresholds, setInstThresholds);
+    mirrorInst("instReading", data.instReadings, setInstReadings);
+    mirrorInst("instSchedule", data.instSchedules, setInstSchedules);
   }, [offlineData.data, offlineData.source, activeMachine]);
 
   useEffect(() => {

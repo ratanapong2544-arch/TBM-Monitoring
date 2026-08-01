@@ -878,3 +878,36 @@ test("a launch with no snapshot at all still reports the failure", async () => {
   expect(app.text()).toContain("ไม่สามารถดึงข้อมูลได้");
   app.unmount();
 });
+
+test("a record another device deleted leaves this screen; an empty collection with no tombstone does not", async () => {
+  // Step 5b. `normalizeServerData` maps an absent key to [], and `getSheetDataAsJson` returns [] for
+  // a sheet that does not exist, so "the server sent none" cannot be told from "the server has none"
+  // by emptiness — not even with `present`. The discriminator is the tombstone GAS already ships:
+  // `syncMeta[recordKey].deleted`. A row named by one goes; everything else stays.
+  let answer;
+  const repository = makeRepository({
+    load: async machine => ({
+      data: cached(machine, { issues: [
+        { id: "iss_gone", machine: "TBM1", title: "ลบจากเครื่องอื่น", status: "open" },
+        { id: "iss_stay", machine: "TBM1", title: "ยังอยู่", status: "open" },
+      ] }),
+      source: "indexeddb", fetchedAt: "x", stale: true,
+    }),
+    refresh: machine => new Promise(resolve => {
+      answer = () => resolve({
+        data: snapshot(machine, { issues: [], syncMeta: { "issue:GLOBAL:iss_gone": { version: 3, deleted: true } } }),
+        source: "server", fetchedAt: "x", stale: false,
+      });
+    }),
+  });
+
+  const app = renderApp(repository);
+  await act(async () => {});
+  expect(app.text()).toContain("ลบจากเครื่องอื่น");
+
+  await act(async () => { answer(); });
+
+  expect(app.text()).not.toContain("ลบจากเครื่องอื่น"); // the tombstone took it off
+  expect(app.text()).toContain("ยังอยู่");              // an empty list alone takes nothing off
+  app.unmount();
+});

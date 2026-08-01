@@ -41,7 +41,7 @@ export function isMachineScopedEntityType(entityType) { return MACHINE_SCOPED_CO
 // way; what the views then do with it is their own question.)
 function recordFor(machine, field, entityType, payload, index, seenIds) {
   const domainKey = domainKeyForRow(entityType, payload, machine);
-  const recordId = rowIdOf(payload); // the same read `domainKeyForRow` just made, not a second one
+  const recordId = rowIdOf(payload); // one rule about what a sheet row names, asked once here
   // A sheet can hand back two rows carrying one id — GAS appends a duplicate in at least one path,
   // and imported rows are outside this app's control. Keying both as `id:<id>` made them one cache
   // entry: one row's values overwritten, the other listed twice, and the refresh and the relaunch
@@ -248,9 +248,10 @@ export async function writeServerSnapshot(db, machine, data, fetchedAt, requeste
     // same row; the crew's is the one to keep, and only one of them may stand.
     const localOnly = new Map();
     (existingByType.get(entityType) || []).forEach(record => {
-      const slot = slotForRow(record);
+      const rowId = rowIdOfRecord(record);
+      const slot = recordSlot(record.domainKey, rowId);
       if (!inScope(record, entityType) || !preserveLocal(record)) return;
-      if (carried.has(slot) || deletePending(record.domainKey, rowIdOfRecord(record))) return;
+      if (carried.has(slot) || deletePending(record.domainKey, rowId)) return;
       const held = localOnly.get(slot);
       if (!held || isOptimisticKey(record.key)) localOnly.set(slot, record);
     });
@@ -296,17 +297,19 @@ export async function writeServerSnapshot(db, machine, data, fetchedAt, requeste
     // fields. The filter runs over every incoming row before the map does, so the delete claims
     // first.
     const hiddenByDelete = record => {
-      const slot = slotForRow(record);
-      if (!deletePending(record.domainKey, rowIdOfRecord(record)) || claimed.has(slot)) return false;
+      const rowId = rowIdOfRecord(record);
+      const slot = recordSlot(record.domainKey, rowId);
+      if (!deletePending(record.domainKey, rowId) || claimed.has(slot)) return false;
       claimed.add(slot);
       return true;
     };
     const fromServer = incoming
       .filter(record => !hiddenByDelete(record))
       .map(record => {
-        const local = rowIdOfRecord(record) == null
+        const rowId = rowIdOfRecord(record);
+        const local = rowId == null
           ? claimWithinDomain(record.domainKey)
-          : claimOnce(record.domainKey, rowIdOfRecord(record), () => localForRecord(record.domainKey, rowIdOfRecord(record)));
+          : claimOnce(record.domainKey, rowId, () => localForRecord(record.domainKey, rowId));
         if (!local || !preserveLocal(local)) return record;
         return preserve(local, unresolvedStatus(local) || local.payload.syncStatus);
       });

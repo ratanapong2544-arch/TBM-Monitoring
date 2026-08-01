@@ -376,6 +376,12 @@ data-loss path is worse than no note.
     first in every path that reaches it), `deletePending`'s null-id check (`recordSlot` already makes
     an empty id unmatchable), and `>=` versus `>` on the confirmed-after-request comparison (the
     repository clock is strictly monotonic, so the two stamps are never equal).
+  - **Half pinned** — `localByRecord`'s preference is pinned against FIRST-wins (1 test) and not
+    against LAST-wins, and a fixture cannot close the gap: for the two copies to compete,
+    `patchSnapshotKeys`' orphan pass would have to leave the cached row in the store, and it deletes
+    it the moment the write is queued. A review proposed pinning it with a machine id that sorts
+    after `optimistic` so the store hands them back the other way round; the test passes with the
+    guard removed, because the cached row is not there to win.
   - **No longer a guard** — `claimWithinDomain`'s "only within this ring" test survived removal too,
     so it was replaced by a Map keyed on the domain: the rule is the shape of the lookup now, and
     there is no predicate left to drop.

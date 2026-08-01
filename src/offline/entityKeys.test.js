@@ -60,21 +60,19 @@ test("a v2 key is recognised as one to re-key, and a v3 key is not", () => {
 });
 
 test("a sheet row and a queued row are asked DIFFERENT questions about their id", () => {
-  // Not one rule with two spellings — two rules. `rowIdOf` answers what a row from the sheet calls
-  // itself, so it reads `id`. `optimisticRecordIdOf` recovers the value the runtime built a queued
-  // row's KEY from, which `optimisticEntity` injects as `recordId`. They agree for every write Task 8
-  // queues; a migration that recovered the wrong one would re-key a row under a key nothing looks up.
+  // Not one rule with two spellings — two rules. `rowIdOf` answers what a row FROM THE SHEET calls
+  // itself, and a sheet has no `recordId` header, so it reads the id column and nothing else.
+  // `optimisticRecordIdOf` recovers the value the runtime built a queued row's KEY from, which
+  // `optimisticEntity` injects as `recordId` and GAS resolves the write by — falling through to `id`
+  // for a row that never went through the queue. They agree for every write Task 8 queues; a
+  // migration or a merge that recovered the wrong one would name a record nothing else names.
   const both = { id: "IDX", recordId: "RECY" };
   expect(rowIdOf(both)).toBe("IDX");
   expect(optimisticRecordIdOf(both)).toBe("RECY");
-  // each falls through to the other only when its own field is ABSENT — a BLANK one is an answer,
-  // and the answer is "names no record". A sheet row whose Id cell is empty does not secretly mean
-  // some other field, and a queued row keyed under a blank record id could not have been queued.
-  expect(rowIdOf({ recordId: "R" })).toBe("R");
-  expect(rowIdOf({ id: "", recordId: "R" })).toBeNull();
-  expect(optimisticRecordIdOf({ id: "A" })).toBe("A");
-  expect(optimisticRecordIdOf({ recordId: "", id: "A" })).toBeNull();
-  // and "names no record" is the same answer from both
+  expect(rowIdOf({ recordId: "R" })).toBeNull();      // a sheet row cannot have one
+  expect(optimisticRecordIdOf({ id: "A" })).toBe("A"); // a row that never went through the queue
+  // and "names no record" is the same answer from both — a blank id is an answer, not a reason to
+  // go looking elsewhere
   [rowIdOf, optimisticRecordIdOf].forEach(read => {
     expect(read({})).toBeNull();
     expect(read({ id: "", recordId: "" })).toBeNull();

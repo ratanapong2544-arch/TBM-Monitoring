@@ -70,8 +70,8 @@ function patchSnapshotKeys(snapshots, entities, stored, mutation) {
       next = slot === -1 ? keys.concat(optimisticKey) : keys.map((key, index) => (index === slot ? optimisticKey : key));
     }
     // a Set, because this runs on every queued write over the whole collection's key list: with 373
-    // segments an `includes` inside the loop is ~139k comparisons per ring saved, and it grows with
-    // the sheet
+    // segments the `includes` it replaced cost ~70k comparisons per ring saved (each key short-
+    // circuits at its own index, so n(n+1)/2, not n²), and it grows with the sheet
     const surviving = new Set(next);
     keys.forEach(key => { if (key !== optimisticKey && !surviving.has(key)) dropped.add(key); });
     survivingKeys.set(snapshot.scopeKey, next);

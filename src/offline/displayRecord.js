@@ -1,4 +1,4 @@
-import { domainKeyForRow } from "./entityKeys";
+import { domainKeyForRow, optimisticRecordIdOf } from "./entityKeys";
 // What goes on screen is not what goes on the wire.
 //
 // A photo travels as base64 inside the mutation payload, and the queue needs it there until GAS
@@ -14,29 +14,13 @@ const PHOTOS = [
   ["excavImageBase64", "excavImageName", "excavImageUrl"],
 ];
 
-// How a queued write lands in the list the crew is looking at. It lives here, next to the photo
-// rule, because every caller needs both and because the alternative — inlining it in App — left the
-// rule with nothing that could test it: the difference between carrying the photo bytes and not is
-// invisible in the DOM, so only a direct test of the reducer can see it at all.
 // Which row of the list a queued write is about. The id alone is not it: the production sheet
 // carries one id across four rings, so matching on `row.id` turned three rings the crew never
 // touched into copies of the one they saved, the moment they pressed it — and a delete removed all
 // four. A record built by the queue carries the domain key it was filed under, and for a ring that
 // key IS the identity; a record without one (a caller outside the queue) falls back to the id.
-// Which record a row or a queued record names, `recordId` FIRST — the same order the merge reads a
-// queued row in, and for the same reason: `optimisticEntity` injects `recordId`, GAS resolves the
-// write by it and stamps the sheet's id column from it, so that is the record's identity. A row that
-// came from the sheet carries no `recordId` and falls through to its `id`; a row this reducer put on
-// screen earlier carries one, and it is then the same value the merge will use. Reading `id` first
-// made the screen and the merge name different records whenever the two differ, so a save showed
-// twice and the next refresh collapsed it.
-//
-// `""` counts here, unlike `entityKeys.rowIdOf`: a blank id on both sides names a row WITHIN its
-// domain, which is what the merge's `claimWithinDomain` matches. Only an absent id names nothing.
-const idOf = value => value.recordId ?? value.id;
-
 function namesRow(record, entityType, row) {
-  if (idOf(row) !== idOf(record)) return false;
+  if (optimisticRecordIdOf(row) !== optimisticRecordIdOf(record)) return false;
   if (!record.domainKey) {
     // Unreachable through the queue: `optimisticEntity` always injects the key. Reachable from a
     // caller that builds a record by hand — and falling back to the id alone is the rule the
@@ -48,12 +32,14 @@ function namesRow(record, entityType, row) {
 }
 
 // How a queued write lands in the list the crew is looking at: it changes exactly ONE row, the same
-// one `writeServerSnapshot` will change at the next refresh.
+// one `writeServerSnapshot` will change at the next refresh. It lives here, next to the photo rule,
+// because every caller needs both and because the alternative — inlining it in App — left the photo
+// rule with nothing that could test it: carrying the bytes and not renders identically in the DOM.
 export function applyOptimisticRow(rows, operation, incoming) {
   const record = stripQueuedPhotos(incoming);
   if (!record) return rows;
   const entityType = record.entityType;
-  const recordId = idOf(record);
+  const recordId = optimisticRecordIdOf(record);
   // An ABSENT id names nothing, and matching on it would claim the first row that also has none.
   // A BLANK one does name a row — within its domain, which is what the merge's `claimWithinDomain`
   // matches and what `namesRow` asks. Every type Task 8 queues sets `id` to its own record id;

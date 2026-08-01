@@ -87,24 +87,20 @@ test("a row with no photo is handed back untouched", () => {
   expect(stripQueuedPhotos(null)).toBe(null);
 });
 
-test("an id names a row when it is blank on both sides, and nothing when it is absent", () => {
-  // The sheet sends `id: ""` for a blank Id cell, and the merge matches a blank-id record to a
-  // blank-id ROW WITHIN ONE DOMAIN (`claimWithinDomain`). Treating `""` as "names no row" here made
-  // the screen append where the following refresh overlaid — the two halves of one rule disagreeing,
-  // which is the state this whole seam exists to prevent. An ABSENT id is the different case: it
-  // names nothing, and matching on it would overwrite the first row that also has none.
+test("a record always names a record, and never claims a row that names none", () => {
+  // A blank Id cell is real on the sheet — one grout row has one — but a blank record id is not:
+  // `requireMutationEnvelope` refuses it, and `optimisticEntity` injects `recordId` on every queued
+  // row. So a record that names nothing can only come from outside the queue, and it is appended
+  // rather than painted over the first row that also names nothing.
   const rows = [
     { id: "", ringNo: "P641", installType: "Permanent", length: "1.41" },
-    { id: "", ringNo: "P642", installType: "Permanent", length: "1.42" },
+    { id: "s2", ringNo: "P642", installType: "Permanent", length: "1.42" },
   ];
-  const named = ring => ({ id: "", ringNo: ring, installType: "Permanent", length: "9.99", entityType: "segment", machine: "TBM1", domainKey: `segment:TBM1:${ring}:Permanent` });
+  const queued = { id: "s2", recordId: "s2", ringNo: "P642", installType: "Permanent", length: "9.99", entityType: "segment", machine: "TBM1", domainKey: "segment:TBM1:P642:Permanent" };
 
-  expect(applyOptimisticRow(rows, "update", named("P642")).map(row => `${row.ringNo}/${row.length}`))
-    .toEqual(["P641/1.41", "P642/9.99"]);
-  expect(applyOptimisticRow(rows, "delete", named("P642")).map(row => row.ringNo)).toEqual(["P641"]);
-  expect(applyOptimisticRow(rows, "update", named("P900")).map(row => row.ringNo)).toEqual(["P641", "P642", "P900"]);
-
-  // no id at all: appended, and a delete removes nothing
+  expect(applyOptimisticRow(rows, "update", queued).map(row => row.length)).toEqual(["1.41", "9.99"]);
+  expect(applyOptimisticRow(rows, "delete", queued).map(row => row.ringNo)).toEqual(["P641"]);
+  // a record naming nothing is added, and its delete removes nothing
   expect(applyOptimisticRow(rows, "update", { ringNo: "P900" })).toEqual([...rows, { ringNo: "P900" }]);
   expect(applyOptimisticRow(rows, "delete", { ringNo: "P641" })).toEqual(rows);
 });

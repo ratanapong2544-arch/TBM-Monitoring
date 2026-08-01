@@ -1,6 +1,8 @@
 import { makeDomainKey } from "./domainKey";
 
-// How a row in the `entities` store is named, in one place.
+// How a row is named — the `entities` store's keys, and the two readers that answer "which record
+// is this row", in one place. Everything that has to agree about a row's identity — the migrations,
+// the snapshot merge and the on-screen list — imports from here rather than spelling it out.
 //
 // Two of them exist, and BOTH name one row. A live sheet legitimately holds two rows sharing a ring
 // identity, so keying either shape by domain alone made one overwrite the other in the cache and
@@ -50,11 +52,12 @@ export function entityKeyForRecord(key, domainKey, recordId) {
   return String(key).endsWith(`:${domainKey}:id:${recordId}`);
 }
 
-// Which record a SHEET ROW names — the id column, since that is what the sheet knows about itself.
-// `""` and an absent id both mean "names no record": a blank Id cell reaches the client as the empty
-// string, because `getSheetDataAsJson` assigns every header key from the row's values.
+// Which record a SHEET ROW names — the id column, and only that: a sheet has no `recordId` header,
+// so a fallback here would only ever fire for a row that did not come from a sheet. `""` and an
+// absent id both mean "names no record"; a blank Id cell reaches the client as the empty string,
+// because `getSheetDataAsJson` assigns every header key from the row's values.
 export function rowIdOf(row) {
-  const id = row && (row.id ?? row.recordId);
+  const id = row && row.id;
   return id == null || id === "" ? null : id;
 }
 
@@ -79,5 +82,10 @@ export function optimisticRecordIdOf(payload) {
 // Shared for the same reason: the cache and the on-screen list have to agree on which row is which.
 export function domainKeyForRow(entityType, row, fallbackMachine) {
   const source = row || {};
-  return makeDomainKey({ entityType, machine: source.machine || fallbackMachine, recordId: source.id ?? source.recordId, payload: source });
+  // `recordId` first, like `optimisticRecordIdOf` and for the same reason: `secondaryGrout` and every
+  // `default`-branch type EMBED the record id in their domain key, and the key was built from the
+  // mutation's `recordId`. A row this app put on screen from the queue carries both fields — reading
+  // its `id` rebuilt a different domain than the mutation names, so the next save was appended
+  // beside it. A row from the sheet carries only `id` and falls through to it.
+  return makeDomainKey({ entityType, machine: source.machine || fallbackMachine, recordId: source.recordId ?? source.id, payload: source });
 }

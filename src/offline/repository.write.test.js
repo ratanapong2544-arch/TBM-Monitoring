@@ -465,3 +465,22 @@ test("the screen names a queued row the way the merge does, when the two ids dif
   expect(applyOptimisticRow(rows, "update", optimisticRecord).map(row => row.status)).toEqual(["crew edit"]);
   expect(applyOptimisticRow(rows, "delete", optimisticRecord)).toEqual([]);
 });
+
+test("a second save of a record whose domain key embeds its id still replaces its row", async () => {
+  // `namesRow` asks two questions, and the last fix moved only one of them. `idOf` reads `recordId`
+  // first; `domainKeyForRow` still read `id` first — so for every type whose domain key EMBEDS the
+  // record id (secondaryGrout, issue, dailyReport, prepTask, every inst*), a row this reducer had
+  // itself put on screen rebuilt to a different domain than the mutation names, and the second save
+  // was appended beside the first. Segments cannot see it: their key is the ring and install type.
+  const repository = makeRepository({ createRequestId: (() => { let n = 0; return () => `request-${n += 1}`; })() });
+  const save = async title => (await repository.mutate({
+    entityType: "issue", operation: "update", recordId: "i1", baseVersion: 1,
+    payload: { id: "SHEET-7", title },
+  })).optimisticRecord;
+
+  const first = applyOptimisticRow([], "create", await save("first"));
+  const second = applyOptimisticRow(first, "update", await save("second"));
+
+  expect(second.map(row => row.title)).toEqual(["second"]);
+  expect(applyOptimisticRow(second, "delete", await save("second"))).toEqual([]);
+});

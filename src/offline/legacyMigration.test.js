@@ -250,3 +250,33 @@ test("reconciling twice leaves one conflict, and does not reopen one already res
   expect(conflicts).toHaveLength(1);
   expect(conflicts[0].status).toBe("resolved");
 });
+
+test("a collection this response did not carry is left staged rather than conflicted", async () => {
+  // `normalizeServerData` maps an absent key to `[]`, so without the `present` flags a partial
+  // `doGet` — or an older GAS deployment that predates a collection — is indistinguishable from
+  // "the server has none of these", and every legacy record would be raised as a difference.
+  const db = await openOfflineDb();
+  const storage = window.localStorage;
+  storage.setItem("tbmIssues", JSON.stringify([{ id: "issue-1", title: "Local" }]));
+  await stageLegacyLocalStorage(db, storage);
+
+  await reconcileLegacyStage(db, { issues: [], present: { issues: false } });
+
+  expect(await readAll(db, "conflicts")).toEqual([]);
+  const staged = await readRecord(db, "syncMeta", "legacy:tbmIssues");
+  expect(staged.confirmed).toBeUndefined();
+  expect(staged.reconciledAt).toBeUndefined(); // nothing was compared, so nothing is claimed
+});
+
+test("a collection the response carried empty is a real absence, and conflicts", async () => {
+  const db = await openOfflineDb();
+  const storage = window.localStorage;
+  storage.setItem("tbmIssues", JSON.stringify([{ id: "issue-1", title: "Local" }]));
+  await stageLegacyLocalStorage(db, storage);
+
+  await reconcileLegacyStage(db, { issues: [], present: { issues: true } });
+
+  expect(await readAll(db, "conflicts")).toEqual([expect.objectContaining({
+    reason: "legacy_local_difference", domainKey: "issue:GLOBAL:issue-1", server: null,
+  })]);
+});

@@ -1,6 +1,7 @@
 import { fetchServerSnapshot as defaultFetchServerSnapshot } from "./apiTransport";
 import { openOfflineDb as defaultOpenDb } from "./db";
 import { getOrCreateDeviceId as defaultGetDeviceId } from "./device";
+import { reconcileLegacyStage as defaultReconcileLegacy } from "./legacyMigration";
 import { MACHINE_ENTITY_TYPES, makeDomainKey } from "./domainKey";
 import { claimDueMutations, confirmMutation, getConflict, getEntity, getMutation, getSyncCounts, listDueMutations, putOptimisticMutation, resolveConflictAndEnqueue, resolveStoredConflict, retryMutationAsSuccessor, saveConflict, setLastSyncedAt, setSyncMetaValue, updateMutation } from "./mutationStore";
 import { MUTATION_STATUS } from "./schema";
@@ -33,6 +34,11 @@ export function createRepository(deps = {}) {
   const readServerSnapshot = deps.readServerSnapshot || defaultReadServerSnapshot;
   const writeServerSnapshot = deps.writeServerSnapshot || defaultWriteServerSnapshot;
   const getDeviceId = deps.getDeviceId || defaultGetDeviceId;
+  // `OfflineProvider` stages the legacy caches at boot; reconciling them needs a server payload to
+  // compare against, and this is the first place one exists. Once per repository — the pass is
+  // idempotent, but re-running it every refresh would re-read every staged family for nothing.
+  const reconcileLegacy = deps.reconcileLegacy || defaultReconcileLegacy;
+  let legacyReconciled = false;
   const wallClock = deps.now || (() => new Date().toISOString());
   // Monotonic, because two of this module's rules are ORDERINGS between a request going out and a
   // write being confirmed, and both stamps come from here. A device clock can step backwards — an
@@ -225,6 +231,20 @@ export function createRepository(deps = {}) {
         const raw = await fetchServerSnapshot(machine, { signal });
         const data = normalizeServerData(raw, machine);
         const fetchedAt = now();
+        // `data`, not `stored`: `writeServerSnapshot` re-injects this device's unsynced records into
+        // what it returns, so reconciling against that would let a queued local record confirm
+        // itself as already on the sheet — the exact record reconciliation exists to protect. Its
+        // failure is never the crew's problem: the payload is already in hand.
+        // Latched only by a pass that found something: `OfflineProvider` stages at boot and
+        // `useOfflineData` refreshes from its own effect, neither waiting for the other, so a
+        // refresh can win the race and see an empty stage — and latching there would spend the
+        // upgrade launch, the one that matters, on a database with nothing in it yet.
+        if (!legacyReconciled) {
+          try {
+            const outcome = await reconcileLegacy(await openDb(), data);
+            legacyReconciled = Boolean(outcome && outcome.reconciled);
+          } catch (error) { /* best-effort, like staging */ }
+        }
         // A later request may already have finished while this one was still out — a quick machine
         // switch back and forth is enough. Its answer is the newer description of the sheet, and
         // writing this one over it would put the older one in the cache, where a relaunch would find

@@ -292,17 +292,32 @@ and 9 to ship together, so no device holds a snapshot from any of these commits.
 free the moment anything here is deployed ahead of Task 9** — bump `DB_VERSION` first if that
 happens, since the migration already rebuilds the key lists from the surviving rows.
 
-## 3k. `reconcileLegacyStage` is written, tested and wired to nothing
+## 3k. Legacy reconciliation is wired now, and its conflicts have no screen (Task 9)
 
-`legacyMigration.js` exports it, its own tests call it eight times, and no production path does:
-`OfflineProvider` wires `stageLegacyLocalStorage` and stops there. It is a Task 7 plan deliverable
-that was built and not connected.
+Written and tested since Task 7, connected to nothing until Task 9: `repository.refresh` now runs it
+once, against the normalized server payload — not the snapshot, which re-injects this device's own
+unsynced records and would let a queued local record confirm itself as already on the sheet.
 
-It is not inert if it is ever connected: it writes `conflicts` rows with
-`reason: "legacy_local_difference"`, and `getSyncCounts` counts every open conflict — so wiring it
-would put a number in the status strip that no screen can resolve until Task 10. Predates Task 8 and
-untouched by it; recorded because it is the one piece of production code on this branch with no
-caller, and a future reader should know it was parked rather than missed.
+The consequence open item 3k predicted is now real, and it is not inert. A reconciled difference is
+written to `conflicts` with `status: "open"`, `getSyncCounts` counts every open conflict, and
+`App.jsx` adds that count into **"N รายการติดค้าง ยังไม่ขึ้นเซิร์ฟเวอร์ — แจ้งผู้ดูแลระบบ"**. So a
+device upgrading with legacy data that differs from the sheet gets a permanent notice, on every
+launch, that nothing in the app can clear — the Sync Center that resolves it is Task 10.
+
+The text is not wrong: a legacy difference genuinely is a local record the sheet does not have. But
+it is unclearable, and the crew is told to call the admin with no way to say what about. **Either
+Task 10 ships with Tasks 7-9, or the pilot devices need their legacy state checked first.** That is
+a decision for whoever schedules the pilot; it is recorded here rather than made here.
+
+Two behaviours were added to make the wiring safe, both pinned:
+
+- A family the response did not carry is left staged rather than conflicted (`responseCarried`).
+  `normalizeServerData` maps an absent key to `[]`, so without `present` an older GAS deployment or
+  a partial `doGet` would raise every legacy record as a difference.
+- The pass latches only when it found something. `OfflineProvider` stages at boot and
+  `useOfflineData` refreshes from its own effect, neither waiting for the other, so a refresh can
+  win the race and see an empty stage — latching there would spend the upgrade launch on a database
+  with nothing in it yet.
 
 ## 3l. A daily report with a blank machine has a different identity on each machine (Task 9)
 

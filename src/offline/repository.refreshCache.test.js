@@ -88,3 +88,47 @@ test("a fetch failure reports the fetch failure even when the database is unusab
   expect(errors[0].error.message).toBe("GAS_PERMISSION_HTML");
   expect(errors[0].result).toBeNull();
 });
+
+test("a server refresh reconciles the staged legacy caches, once, against the payload the server sent", async () => {
+  // The payload, not the snapshot: `writeServerSnapshot` re-injects this device's unsynced records
+  // into what it returns, so reconciling against it would let a queued local record confirm itself
+  // as already on the sheet — the exact record reconciliation exists to protect.
+  const reconcileLegacy = jest.fn(async () => ({ reconciled: 1 }));
+  const repository = makeRepository({
+    reconcileLegacy,
+    fetchServerSnapshot: async machine => ({ status: "success", issues: [{ id: "issue-1", title: "Server" }], segments: [{ id: "s1", ringNo: "P1", machine }] }),
+    writeServerSnapshot: async () => ({ issues: [], segments: [{ id: "local-only", ringNo: "P9" }], fetchedAt: "2026-07-30T00:00:00.000Z" }),
+  });
+
+  await repository.refresh("TBM1");
+  await repository.refresh("TBM1");
+
+  expect(reconcileLegacy).toHaveBeenCalledTimes(1); // once per session, not once per refresh
+  const [, serverData] = reconcileLegacy.mock.calls[0];
+  expect(serverData.issues).toEqual([{ id: "issue-1", title: "Server" }]);
+  expect(serverData.present).toMatchObject({ issues: true, prepTasks: false });
+});
+
+test("a reconciliation that throws does not cost the crew the refresh", async () => {
+  const repository = makeRepository({ reconcileLegacy: async () => { throw new Error("blocked upgrade"); } });
+
+  const result = await repository.refresh("TBM1");
+
+  expect(result.source).toBe("server");
+  expect(result.data.segments).toHaveLength(1);
+});
+
+test("a refresh that beat the legacy staging does not consume the one reconciliation pass", async () => {
+  // `OfflineProvider` stages at boot and `useOfflineData` refreshes from its own effect; neither
+  // waits for the other. Latching on an empty pass would spend the upgrade launch — the one that
+  // matters — on a database that had nothing staged in it yet.
+  const reconcileLegacy = jest.fn(async () => ({ reconciled: 0 }));
+  const repository = makeRepository({ reconcileLegacy });
+
+  await repository.refresh("TBM1");
+  reconcileLegacy.mockResolvedValueOnce({ reconciled: 2 });
+  await repository.refresh("TBM1");
+  await repository.refresh("TBM1");
+
+  expect(reconcileLegacy).toHaveBeenCalledTimes(2); // retried after the empty pass, latched after the real one
+});

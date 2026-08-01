@@ -71,6 +71,19 @@ function serverRecords(serverData, definition) {
   });
 }
 
+// `normalizeServerData` maps an absent key to `[]`, so an older GAS deployment or a partial `doGet`
+// reads exactly like "the server has none of these" — and every legacy record of that family would
+// be raised as a difference against a server that never spoke about it. `present` is what tells the
+// two apart, so a family the response did not carry is left staged, to be reconciled by a response
+// that does carry it. Config entities are not in `present` at all (they are not collections), and
+// an unflagged family is treated as carried, which keeps every caller without `present` working.
+function responseCarried(serverData, definition) {
+  const present = serverData && serverData.present;
+  if (!present) return true;
+  const flags = definition.serverKeys.map(key => present[key]).filter(flag => flag !== undefined);
+  return flags.length === 0 || flags.some(Boolean);
+}
+
 function keyFor(record, definition) {
   if (CONFIG_ENTITY_TYPES.has(definition.entityType)) {
     return `domain:${makeDomainKey({ entityType: definition.entityType, machine: record && record.machine || definition.machine, recordId: record && record.id, payload: record })}`;
@@ -117,10 +130,12 @@ export async function reconcileLegacyStage(db, serverData) {
   const metaStore = transaction.objectStore(STORES.syncMeta);
   const conflictStore = transaction.objectStore(STORES.conflicts);
 
+  let reconciled = 0;
   stagedEntries.filter(entry => entry.key.startsWith("legacy:") && !entry.parseError).forEach(entry => {
     const legacyKey = entry.key.slice("legacy:".length);
     const definition = LEGACY_TYPES[legacyKey];
     if (!definition) return;
+    if (!responseCarried(serverData, definition)) return;
     const remote = serverRecords(serverData, definition);
     const remoteByKey = new Map(remote.map(record => [keyFor(record, definition), record]));
     let allConfirmed = true;
@@ -151,7 +166,10 @@ export async function reconcileLegacyStage(db, serverData) {
         createdAtLocal: (existing && existing.createdAtLocal) || new Date().toISOString(),
       });
     });
+    reconciled += 1;
     metaStore.put({ ...entry, confirmed: allConfirmed, reconciledAt: new Date().toISOString() });
   });
   await complete(transaction);
+  // how many staged families this pass actually compared — the caller latches on it
+  return { reconciled };
 }

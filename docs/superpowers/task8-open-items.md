@@ -311,6 +311,36 @@ both types, and has to decide what a blank machine cell means before it does: ei
 the row belongs to no machine, which `makeDomainKey` spells GLOBAL) or it is missing (and the row
 belongs to whoever is looking at it, which is what happens now).
 
+## 3m. The screen infers a row's provenance; the merge knows it
+
+The merge decides how to read a stored row's id from its KEY — `isOptimisticKey` picks
+`optimisticRecordIdOf` for a queued row and `rowIdOf` for a cached server row. The on-screen list has
+no key to look at, so it infers the same thing from the row's fields: `recordId` first, because only
+a row that went through the queue carries one.
+
+A sheet row carrying a stray `recordId` COLUMN would break that inference — the screen would read it,
+the merge would not, and a queued edit of that row would be appended on screen and overlaid on the
+next refresh. No sheet has such a column: checked against all seventeen canonical header lists in
+`gas-live/Code.js`, and `ensureHeaders_` only ever adds from those same lists. It would take someone
+adding the column by hand.
+
+Recorded because the two halves genuinely ask the question differently, and the reason that is safe
+is a property of the sheets rather than of this code.
+
+## 3n. Task 9's JSON-blob entities will persist the queue's own metadata into the sheet
+
+`SYNC_JSON_BLOB_ENTITIES` is `{ dailyReport, prepTask }`, and `gas-live/Code.js` stores those two by
+copying EVERY key of the payload into one `json` cell — no header list filters them. The record views
+already re-post the on-screen row as the next save's payload, and for a queued row that row is the
+optimistic payload, which carries `recordId`, `entityType`, `machine`, `domainKey`, `version` and
+`syncStatus`.
+
+Harmless today: neither type is queued, and the four core sheets are header-mapped so GAS drops the
+extra keys. The moment Task 9 queues `prepTask`, they land in the `json` cell and echo back through
+`getJsonRows_` unfiltered — `normalizeServerData` whitelists `dailyReports` and not `prepTasks`.
+`snapshotStore.INJECTED_PAYLOAD_KEYS` already solves exactly this for the config singletons and is
+the pattern to reuse, on the write side.
+
 ## 4. Deliberate deviations from the plan
 
 - **"บันทึกในเครื่องแล้ว" is only in the shift report.** Step 3 asks for it on every core write. The

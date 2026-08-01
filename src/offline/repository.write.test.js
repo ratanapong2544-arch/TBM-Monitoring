@@ -472,6 +472,8 @@ test("a second save of a record whose domain key embeds its id still replaces it
   // record id (secondaryGrout, issue, dailyReport, prepTask, every inst*), a row this reducer had
   // itself put on screen rebuilt to a different domain than the mutation names, and the second save
   // was appended beside the first. Segments cannot see it: their key is the ring and install type.
+  // Reachable only where `recordId` and `payload.id` differ, which no Task 8 call site produces —
+  // all eight pass `recordId: <payload>.id`. This is the shape Task 9 introduces.
   const repository = makeRepository({ createRequestId: (() => { let n = 0; return () => `request-${n += 1}`; })() });
   const save = async title => (await repository.mutate({
     entityType: "issue", operation: "update", recordId: "i1", baseVersion: 1,

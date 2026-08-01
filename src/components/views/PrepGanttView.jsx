@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import { Plus } from "lucide-react";
 import {
-  loadPrepTasks, savePrepTasks, upsertPrepTask, removePrepTask,
+  upsertPrepTask, removePrepTask,
   todayBKK, taskStatus, prepSummary,
   TH_MONTHS, addDays, computePxPerDay, ganttTicks,
 } from "../../utils/prepGantt";
@@ -36,13 +36,19 @@ const _d = (s) => new Date(s + "T00:00:00");
 const dayDiff = (a, b) => Math.round((_d(b) - _d(a)) / 86400000);
 const fmtTH = (s) => { const x = _d(s); return `${x.getDate()} ${TH_MONTHS[x.getMonth()]}`; };
 
-const PrepGanttView = ({ machine = "TBM1", readOnly = false, onMutate, syncMeta }) => {
-  const [tasks, setTasks] = useState(() => loadPrepTasks(machine));
+const PrepGanttView = ({ machine = "TBM1", readOnly = false, onMutate, syncMeta, tasks: tasksProp }) => {
+  const [tasks, setTasks] = useState(() => tasksProp || []);
   const [modal, setModal] = useState({ open: false, editing: null });
   const [availW, setAvailW] = useState(0);
   const wrapRef = useRef(null);
   const rowRefs = useRef({});
-  useEffect(() => { setTasks(loadPrepTasks(machine)); }, [machine]);
+  // The list arrives from the snapshot, scoped to the machine on screen — a machine switch swaps the
+  // prop, which is what this used to re-read localStorage for. Not while the task modal is open: a
+  // refresh mid-edit would pull the row out from under it.
+  useEffect(() => {
+    if (!modal.open) setTasks(tasksProp || []);
+    // eslint-disable-next-line
+  }, [tasksProp, machine]);
 
   const hasTasks = tasks.length > 0;
   useLayoutEffect(() => {
@@ -103,7 +109,8 @@ const PrepGanttView = ({ machine = "TBM1", readOnly = false, onMutate, syncMeta 
     return rollupAll(vTasks, forecast.byId, isRedLeaf);
   }, [vTasks, forecast, viewDate]); // isRedLeaf เป็น inline fn — deps ครบผ่าน vTasks/forecast/viewDate
 
-  const persist = (next) => { setTasks(next); savePrepTasks(machine, next); };
+  // durability is the queue's now — `savePrepTasks` was the last localStorage business write
+  const persist = (next) => setTasks(next);
   // `machine` comes from the view, not from the row: `prepTask` is machine-keyed AND returned
   // project-wide, so one list holds both machines' rows and the key has to name the one on screen.
   const queueTask = (row, operation) => {

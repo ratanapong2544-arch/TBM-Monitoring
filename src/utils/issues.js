@@ -1,3 +1,5 @@
+// MIGRATION ONLY for loadIssues/persistIssues: no active React path calls them. App holds these collections from
+// the snapshot (Task 9 Step 5); they remain for legacy staging and for pre-change devices.
 // Issue domain logic + localStorage persistence (Phase 1)
 export const STORAGE_KEY = "tbmIssues";
 

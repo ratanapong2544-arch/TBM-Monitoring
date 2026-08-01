@@ -1,4 +1,7 @@
-// Preparation Gantt tasks — per-machine localStorage + pure helpers. (localStorage-only; GAS = future)
+// Preparation Gantt tasks — pure helpers, plus the per-machine localStorage accessors that are now
+// MIGRATION ONLY. No active React path calls `loadPrepTasks`/`savePrepTasks`: App holds the rows
+// from the snapshot and hands `PrepGanttView` the slice for the machine on screen (Task 9 Step 5).
+// They stay for `legacyMigration` staging and for reading a device that predates the change.
 const STORAGE_PREFIX = "tbmPrepTasks_";
 const keyFor = (machine) => `${STORAGE_PREFIX}${machine}`;
 

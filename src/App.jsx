@@ -29,7 +29,6 @@ import { useFilterState } from "./hooks/useGlobalFilter";
 import { upsertIssue, setIssueStatus, removeIssue, forMachine } from "./utils/issues";
 import { upsertDailyReport, removeDailyReport } from "./utils/dailyReports";
 import { getMachineConfig } from "./utils/machineConfig";
-import { savePrepTasks } from "./utils/prepGantt";
 import { isViewerMode, VIEWER_TABS } from "./utils/viewerMode";
 import { useOfflineData } from "./offline/useOfflineData";
 import { useOffline } from "./offline/OfflineProvider";
@@ -90,6 +89,9 @@ const PrimaryGroutApp = () => {
   const [planConfig, setPlanConfig] = useState(null);
   const [distPlanConfig, setDistPlanConfig] = useState(null);
   const [routeConfigs, setRouteConfigs] = useState(null);
+  // Project-wide, like the payload that carries it: one list holds both machines' rows, and the
+  // view is handed the slice for the machine on screen.
+  const [prepTasks, setPrepTasks] = useState([]);
   const handleSaveDailyReport = (report) => {
     const next = upsertDailyReport(dailyReports, report);
     setDailyReports(next);
@@ -192,10 +194,13 @@ const PrimaryGroutApp = () => {
     if (data.dailyReports.length) setDailyReports(data.dailyReports);
     if (serverAuthoritative) {
       if (data.prepTasks.length) {
-        const byM = {};
-        data.prepTasks.forEach((t) => { const m = t.machine || "TBM1"; (byM[m] = byM[m] || []).push(t); });
-        // only machines the payload actually carries: a machine absent from it keeps its local tasks
-        Object.keys(byM).forEach((m) => savePrepTasks(m, byM[m]));
+        // only machines the payload actually carries: a machine absent from it keeps its own rows,
+        // the same rule the per-machine localStorage keys used to give for free
+        const carried = new Set(data.prepTasks.map((t) => t.machine || "TBM1"));
+        setPrepTasks((previous) => [
+          ...previous.filter((t) => !carried.has(t.machine || "TBM1")),
+          ...data.prepTasks,
+        ]);
       }
     }
 
@@ -252,6 +257,7 @@ const PrimaryGroutApp = () => {
   const activeSecondaryGrouts = rowsReady ? secondaryGroutRecords : EMPTY_ROWS;
   const activeShiftReports = rowsReady ? shiftReports : EMPTY_ROWS;
   const activeDailyReports = dailyReports.filter((r) => (r.machine || "TBM1") === activeMachine);
+  const activePrepTasks = useMemo(() => prepTasks.filter((t) => (t.machine || "TBM1") === activeMachine), [prepTasks, activeMachine]);
   const activeIssues = forMachine(issues, activeMachine);
   const dashFilter = useFilterState();
 
@@ -485,7 +491,7 @@ const PrimaryGroutApp = () => {
       {activeTab === "analysis" && currentModule === "route" && <RouteScheduleView segmentRecords={activeSegments} projectInfo={projectInfo} machine={activeMachine} machineProgress={machineProgress} routeProjectTotal={routeProjectTotal} filterState={dashFilter.state} readOnly={isViewer} onMutate={mutateBusinessRecord} syncMeta={syncMeta}  routeConfigs={routeConfigs} distPlanConfig={distPlanConfig} />}
       {activeTab === "head_level" && <HeadLevelView segmentRecords={activeSegments} machine={activeMachine} readOnly={isViewer} />}
       {activeTab === "performance" && <PerformanceView segmentRecords={activeSegments} shiftReports={activeShiftReports} filterState={dashFilter.state} />}
-      {activeTab === "prep_gantt" && <PrepGanttView machine={activeMachine} readOnly={isViewer} onMutate={mutateBusinessRecord} syncMeta={syncMeta} />}
+      {activeTab === "prep_gantt" && <PrepGanttView machine={activeMachine} readOnly={isViewer} onMutate={mutateBusinessRecord} syncMeta={syncMeta} tasks={activePrepTasks} />}
       {activeTab === "datalog" && currentModule === "grout" && <GroutDashboardView groutRecords={activeGrouts} secondaryGroutRecords={activeSecondaryGrouts} segmentRecords={activeSegments} machine={activeMachine} onMutate={mutateBusinessRecord} syncMeta={syncMeta} readOnly={isViewer} />}
       {activeTab === "datalog" && currentModule === "segment" && <SegmentDashboardView segmentRecords={activeSegments} machine={activeMachine} onMutate={mutateBusinessRecord} syncMeta={syncMeta} planConfig={planConfig} />}
       {activeTab === "report" && <ReportView segmentRecords={activeSegments} groutRecords={activeGrouts} projectInfo={projectInfo} shiftReports={activeShiftReports} onCreateDaily={(draft) => { setPendingRecordForm(draft); setActiveTab("record_daily"); }} />}

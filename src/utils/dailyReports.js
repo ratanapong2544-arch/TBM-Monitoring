@@ -1,3 +1,5 @@
+// MIGRATION ONLY for loadDailyReports/persistDailyReports: no active React path calls them. App holds these collections from
+// the snapshot (Task 9 Step 5); they remain for legacy staging and for pre-change devices.
 // Daily-report domain logic + localStorage (localStorage-first; PDF gen = SP2/SP3)
 import { EQUIPMENT, LABOR, WEATHER_SLOTS } from "./dailyReportSchema";
 

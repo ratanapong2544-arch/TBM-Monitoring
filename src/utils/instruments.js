@@ -1,3 +1,5 @@
+// MIGRATION ONLY for loadCache/persistCache: no active React path calls them. App holds these collections from
+// the snapshot (Task 9 Step 5); they remain for legacy staging and for pre-change devices.
 // src/utils/instruments.js
 export const STORE = {
   locations: "instLocations", instruments: "instInstruments",

@@ -173,16 +173,34 @@ test("a server response with an absent collection does not erase local business 
 });
 
 test("a server response only rewrites the machines it actually carries", async () => {
-  window.localStorage.setItem("tbmPrepTasks_TBM2", JSON.stringify([{ id: "pt_tbm2_local", title: "Local TBM2" }]));
+  // The per-machine localStorage keys used to give this for free — one key per machine, so a
+  // payload naming only TBM1 could not touch TBM2's. One list in state can, hence the `carried`
+  // set. Asserted through the Work Plan page for each machine, since that is where the rows show.
+  let carriesBoth = true;
   const repository = makeRepository({
-    refresh: async machine => ({ data: snapshot(machine, { prepTasks: [{ id: "pt_tbm1", machine: "TBM1", title: "Server TBM1" }] }), source: "server", fetchedAt: "x", stale: false }),
+    refresh: async machine => ({
+      data: snapshot(machine, {
+        prepTasks: carriesBoth
+          ? [{ id: "pt_tbm1", machine: "TBM1", name: "งานเตรียม TBM1", start: "2026-08-01", end: "2026-08-05", progress: 0, deps: [] },
+             { id: "pt_tbm2", machine: "TBM2", name: "งานเตรียม TBM2", start: "2026-08-01", end: "2026-08-05", progress: 0, deps: [] }]
+          : [{ id: "pt_tbm1", machine: "TBM1", name: "งานเตรียม TBM1 แก้แล้ว", start: "2026-08-01", end: "2026-08-05", progress: 0, deps: [] }],
+      }),
+      source: "server", fetchedAt: "x", stale: false,
+    }),
   });
 
   const app = renderApp(repository);
   await act(async () => {});
+  const button = pattern => [...app.container.querySelectorAll("button")].find(b => pattern.test(b.textContent));
+  await act(async () => { button(/Work Plan/).dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+  expect(app.text()).toContain("งานเตรียม TBM1");
 
-  expect(JSON.parse(window.localStorage.getItem("tbmPrepTasks_TBM1"))).toEqual([{ id: "pt_tbm1", machine: "TBM1", title: "Server TBM1" }]);
-  expect(JSON.parse(window.localStorage.getItem("tbmPrepTasks_TBM2"))).toEqual([{ id: "pt_tbm2_local", title: "Local TBM2" }]);
+  // a second response that names TBM1 only
+  carriesBoth = false;
+  await act(async () => { button(/^TBM2$/).dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+  await act(async () => {});
+
+  expect(app.text()).toContain("งานเตรียม TBM2"); // TBM2's row survived a payload that never mentioned it
   app.unmount();
 });
 

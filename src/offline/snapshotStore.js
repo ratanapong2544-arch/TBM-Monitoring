@@ -76,6 +76,37 @@ function configValue(payload, entityType) {
   return body;
 }
 
+// Which record a mutation or a cached row belongs to.
+// `||` because a domain key is colon-separated and a record id can contain anything the sheet holds:
+// without a separator that cannot occur in a domain key, ("segment:TBM1:P64", "3x") and
+// ("segment:TBM1:P643", "x") would name the same slot and the merge would confuse two rings.
+export const recordSlot = (domainKey, recordId) => `${domainKey}||${recordId == null ? "" : recordId}`;
+
+// The newest mutation still unresolved FOR EACH RECORD — the one that speaks for that row.
+//
+// Per record, not per ring: two sheet rows legitimately share a ring identity, and a per-ring answer
+// to a per-row question is what destroyed a queued write on the next refresh (one local copy per
+// ring, so the other row's edit was dropped and its row deleted) and what let an ordinary edit of
+// one row cancel the tombstone of its neighbour's pending delete.
+//
+// Exported because the migration in `db.js` has to answer the same question about the same rows: a
+// device state where the upgrade hides a row that the first refresh shows is one rule disagreeing
+// with itself, which is how a row flickers off on one path and back on the other. Sharing
+// `UNRESOLVED_STATUSES` alone was not enough — the lease test and the newest-wins ordering were
+// written twice, and either copy could be changed with the other half's tests still green.
+//
+// A SYNCING claim whose lease has expired is NOT in flight; it is abandoned, and whatever it was
+// doing has to be visible again.
+export function newestUnresolvedByRecord(mutations, canonicalDomainKey, now) {
+  const newest = new Map();
+  (mutations || [])
+    .filter(mutation => UNRESOLVED_STATUSES.has(mutation.status)
+      && (mutation.status !== MUTATION_STATUS.SYNCING || !mutation.leaseExpiresAt || Date.parse(mutation.leaseExpiresAt) > now))
+    .sort((left, right) => (left.queueSequence || 0) - (right.queueSequence || 0))
+    .forEach(mutation => newest.set(recordSlot(canonicalDomainKey(mutation), mutation.recordId), mutation));
+  return newest;
+}
+
 // `requestedAt` is when the getData request went OUT, not when it came back. The difference is the
 // whole window this function has to reason about: the queue drains in parallel with the fetch, so a
 // response can be older than a write this device has since had confirmed.
@@ -100,18 +131,22 @@ export async function writeServerSnapshot(db, machine, data, fetchedAt, requeste
   // `||` because a domain key is colon-separated and a record id can contain anything the sheet
   // holds: without a separator that cannot occur in a domain key, ("segment:TBM1:P64", "3x") and
   // ("segment:TBM1:P643", "x") would name the same slot and the merge would confuse two rings.
-  const recordSlot = (domainKey, recordId) => `${domainKey}||${recordId == null ? "" : recordId}`;
   const slotOf = mutation => recordSlot(mutation.domainKey, mutation.recordId);
   const byQueueOrder = (left, right) => (left.queueSequence || 0) - (right.queueSequence || 0);
-  const unresolvedByRecord = new Map(pendingMutations
-    .filter(mutation => UNRESOLVED_STATUSES.has(mutation.status) && (mutation.status !== MUTATION_STATUS.SYNCING || !mutation.leaseExpiresAt || Date.parse(mutation.leaseExpiresAt) > Date.now()))
-    .sort(byQueueOrder)
-    .map(mutation => [slotOf(mutation), mutation]));
+  const unresolvedByRecord = newestUnresolvedByRecord(pendingMutations, mutation => mutation.domainKey, Date.now());
   const terminalByRecord = new Map(pendingMutations
     .filter(mutation => mutation.status === MUTATION_STATUS.SYNCED || mutation.status === MUTATION_STATUS.RESOLVED)
     .sort(byQueueOrder)
     .map(mutation => [slotOf(mutation), mutation.status]));
-  const rowIdOf = record => (record.payload && record.payload.id) ?? (record.payload && record.payload.recordId);
+  // A blank Id cell reaches here as "", not as an absent key: `getSheetDataAsJson` assigns every
+  // header key from the row's values, and an empty Google Sheets cell reads as the empty string. So
+  // "no id" has to mean both, or the id-less matching path below is simply never entered for the
+  // shape the server actually sends — which is what `recordFor` and `deletePending` already say and
+  // this said differently.
+  const rowIdOf = record => {
+    const id = (record.payload && record.payload.id) ?? (record.payload && record.payload.recordId);
+    return id == null || id === "" ? null : id;
+  };
   const slotForRow = record => recordSlot(record.domainKey, rowIdOf(record));
   const unresolvedStatus = record => {
     const mutation = unresolvedByRecord.get(slotForRow(record));
@@ -131,20 +166,14 @@ export async function writeServerSnapshot(db, machine, data, fetchedAt, requeste
       && requestedAt && mutation.confirmedAtLocal && Date.parse(mutation.confirmedAtLocal) >= Date.parse(requestedAt))
     .sort(byQueueOrder)
     .map(mutation => [slotOf(mutation), mutation]));
-  // a delete still in the queue is a tombstone: the server has not seen it yet, so it keeps
+  // A delete still in the queue is a tombstone: the server has not seen it yet, so it keeps
   // returning the row, and overlaying the optimistic copy would put the deleted ring back on screen
-  // at the next refresh. Hide it until the mutation leaves the queue one way or the other.
-  // The tombstone lasts exactly as long as the delete is still on its way. A delete the server
-  // refused or flagged as a conflict is not on its way to anything: keeping the row hidden takes it
-  // off this device's every screen while it sits on the sheet, permanently, with nothing to see and
-  // nothing to press — there is no conflict UI until Task 10. In flight it hides; stuck it shows.
+  // at the next refresh.
   // It hides ONE row, not the ring. Two sheet rows can share a ring identity, and a delete names the
-  // row it is deleting: filtering by domain took the other one off screen as well, on a device whose
-  // crew had asked for neither.
-  // A delete hides ONE row. It is looked up by that row, so a later edit of a neighbour sharing the
-  // ring cannot take its place — one slot per ring meant exactly that, and the deleted row came back
-  // into the data log, the dashboards and the shift report's ring count, badged as ordinary data,
-  // until the queue drained and removed it again.
+  // row it is deleting: filtering by domain took the other row off screen too, and looking the
+  // mutation up per ring let a later edit of the neighbour take the tombstone's place, which put the
+  // deleted row back into the data log, the dashboards and the shift report's ring count, badged as
+  // ordinary data.
   const deletePending = (domainKey, recordId) => {
     if (recordId == null || recordId === "") return false; // a row with no id names no mutation
     const slot = recordSlot(domainKey, recordId);
@@ -168,11 +197,20 @@ export async function writeServerSnapshot(db, machine, data, fetchedAt, requeste
   // The local copy of ONE record: its queued copy if it has one, else whatever the last refresh
   // cached for it. Answering this per ring gave every row of a ring the same copy, so the rest were
   // dropped from the merge and their keys — and their queued rows — deleted with them.
-  const localForRecord = (domainKey, entityType, recordId) => {
-    const mine = existing.filter(record => record.entityType === entityType
-      && record.domainKey === domainKey && String(rowIdOf(record)) === String(recordId));
-    return mine.find(record => isOptimisticKey(record.key)) || mine[0];
-  };
+  // Built in ONE pass rather than scanned per incoming row: this ran over the whole entities store
+  // for every row of every collection, which is quadratic in a store that already holds ~640 rings
+  // and grows with every task that adds a collection to the loop. The queued copy wins over the
+  // cached one, so it is written last and only if nothing optimistic is already there.
+  const localByRecord = new Map();
+  existing.forEach(record => {
+    const rowId = rowIdOf(record);
+    if (rowId == null) return;
+    const slot = `${record.entityType}||${recordSlot(record.domainKey, rowId)}`;
+    const held = localByRecord.get(slot);
+    if (!held || (isOptimisticKey(record.key) && !isOptimisticKey(held.key))) localByRecord.set(slot, record);
+  });
+  const localForRecord = (domainKey, entityType, recordId) =>
+    localByRecord.get(`${entityType}||${recordSlot(domainKey, recordId)}`);
   const preserve = (record, status) => ({ ...record, payload: { ...record.payload, syncStatus: status } });
   // An optimistic record is stamped with its mutation's machine ("GLOBAL" for a project-wide
   // entity, or another machine's id), while a server-derived record is stamped with the active

@@ -1,4 +1,5 @@
-import { ApiFailure, classifyHttpFailure, fetchServerSnapshot, parseGasResponse, postSyncMutation, SNAPSHOT_FETCH_TIMEOUT_MS, toApiFailure } from "./apiTransport";
+import { ApiFailure, classifyHttpFailure, fetchServerSnapshot, parseGasResponse, postSyncMutation, SNAPSHOT_FETCH_TIMEOUT_MS, SYNC_POST_TIMEOUT_MS, toApiFailure } from "./apiTransport";
+import { SYNC_LEASE_MS } from "./syncRunner";
 
 // the stalled-body case advances timers while a promise chain is mid-flight; this just flushes it
 const act = async run => { run(); await Promise.resolve(); await Promise.resolve(); };
@@ -204,4 +205,39 @@ test("cleans up the 15 second timeout after a sync post settles", async () => {
   } finally {
     jest.useRealTimers();
   }
+});
+
+test("a write is given the time the payload it carries needs", async () => {
+  // The write is the LARGER payload: every other field is bounded by GAS's 50 000-character cell
+  // limit, and `imageBase64` is exempt from it because it goes to Drive — a phone photo is read
+  // whole and rides inside the envelope. The 15 s that used to be here could carry about 190 KB at
+  // the link speed the read ceiling is argued from, so a save with a photo timed out every time,
+  // was classified retryable, and blocked its ring's domain while the strip called it on its way.
+  jest.useFakeTimers();
+  try {
+    global.fetch = jest.fn((url, options) => new Promise((resolve, reject) => {
+      options.signal.addEventListener("abort", () => reject(Object.assign(new Error("aborted"), { name: "AbortError" })));
+    }));
+    const pending = postSyncMutation({ requestId: "r1", entityType: "segment", operation: "create", payload: {} });
+    const settled = jest.fn();
+    pending.then(settled, settled);
+    await Promise.resolve();
+
+    jest.advanceTimersByTime(30000); // where a 15 s ceiling would already have given up
+    await Promise.resolve();
+    expect(settled).not.toHaveBeenCalled();
+
+    jest.advanceTimersByTime(SYNC_POST_TIMEOUT_MS - 30000);
+    await expect(pending).rejects.toMatchObject({ kind: "retryable", code: "TIMEOUT" });
+  } finally {
+    jest.useRealTimers();
+  }
+});
+
+test("the claim lease outlives the write deadline", async () => {
+  // A lease shorter than the deadline lets a second runner claim and re-post a mutation still in
+  // flight. Nothing is written twice — GAS takes a script lock and replays the stored response for a
+  // repeated requestId — but the second post spends the crew's link again on the payload that was
+  // already too slow for it. Raising one of these two without the other is the mistake this catches.
+  expect(SYNC_LEASE_MS).toBeGreaterThan(SYNC_POST_TIMEOUT_MS);
 });

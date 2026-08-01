@@ -74,9 +74,11 @@ export async function fetchServerSnapshot(machine, { signal } = {}) {
   }
   try {
     let response;
-    // `no-store`: the shift report's "check with the server" relies on this fetch reading the sheet
-    // AFTER it is issued. The service worker already excludes cross-origin requests, but the browser
-    // HTTP cache does not, and a cached body would be a read from before the question was asked.
+    // `no-store`: a refresh has to read the sheet as it is NOW. The service worker already excludes
+    // cross-origin requests, but the browser HTTP cache does not, and a cached body would describe
+    // the sheet from before the request — which the merge would then treat as newer than the rows it
+    // holds. (The caller that first needed this, the shift report's "check with the server", is gone;
+    // the flag is not, because every refresh has the same requirement.)
     try { response = await fetch(`${GAS_URL}?action=getData&machine=${encodeURIComponent(machine)}`, { redirect: "follow", cache: "no-store", signal: controller.signal }); }
     catch (error) { throw timedOutFailure(timedOut, error); }
     if (!response.ok) throw classifyHttpFailure(response.status);
@@ -114,11 +116,32 @@ export function assertSyncResponse(mutation, result) {
   return result;
 }
 
+// The write ceiling, argued the same way as the read one above and from the same link speed.
+//
+// Every field of an envelope except `imageBase64` is bounded by GAS's own 50 000-character cell
+// limit (`syncSizeRefusal_`), so an ordinary ring or shift report is a few tens of kilobytes — about
+// four seconds at 100 kbps. `imageBase64` is the exception, and it is exempt precisely because it
+// does not go in a cell: `handleFileUpload` reads the file whole with `readAsDataURL` and never
+// resizes, so a phone photo rides inside the envelope at some megabytes. The 15 s that used to be
+// here — unnamed, and a sixth of the read's — could carry about 190 KB, so on a tunnel link a save
+// with a photo timed out every time, was classified retryable, and sat at the head of its ring's
+// domain retrying forever while the strip reported it as still on its way. Before Task 8 the same
+// save went through `apiCall` with no deadline at all, so the queue is what introduced the ceiling.
+//
+// 90 s carries about 1.1 MB at that speed and every payload on an ordinary link. It does NOT carry a
+// full-size phone photo underground; nothing bounded would, and the fix for that is resizing at
+// capture (see `task8-open-items.md`). It EXCEEDS the sync runner's claim lease, which is deliberate
+// and why `SYNC_LEASE_MS` is set from this constant rather than independently: a lease shorter than
+// the deadline lets a second claim re-post a mutation still in flight — safe, because GAS takes a
+// script lock and replays the stored response for a duplicate requestId, but it spends the crew's
+// link a second time on the payload that was already too slow for it.
+export const SYNC_POST_TIMEOUT_MS = 90000;
+
 export async function postSyncMutation(mutation) {
   const envelope = mutation;
   const controller = new AbortController();
   let timedOut = false;
-  const timeout = setTimeout(() => { timedOut = true; controller.abort(); }, 15000);
+  const timeout = setTimeout(() => { timedOut = true; controller.abort(); }, SYNC_POST_TIMEOUT_MS);
   try {
     const response = await fetch(GAS_URL, {
       method: "POST",

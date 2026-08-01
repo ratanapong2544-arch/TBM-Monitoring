@@ -59,26 +59,9 @@ export function buildMutationEnvelope({ entityType, operation, machine, recordId
   };
 }
 
-// KNOWN LIMITATION, deliberately not worked around here.
-//
-// GAS tombstones the whole ring KEY on a delete, not the row: `applySyncMutation_` then answers
-// SYNC_RECORD_DELETED to every later UPDATE on that key. A ring legitimately carries two rows, so
-// deleting one makes every later edit of the OTHER terminal — it parks at the head of the ring's
-// domain and blocks what is behind it. That worked before this task, because the legacy write
-// merged the row and cleared the flag.
-//
-// This file briefly rewrote such an update into a create, on the strength of the server's own
-// message ("recreate it instead of updating"). That was worse, and the review that caught it ran
-// the real `handleSyncMutation_`: a create merges onto an existing row only when the metadata is
-// ALIVE, and a tombstone is exactly what makes it not. So the create appended a second row carrying
-// the same record id and none of the fields the payload did not mention — the sheet kept the old
-// value, the photo link was blanked, and `readRowById_` thereafter matched whichever duplicate came
-// first. Silent duplication is worse than a visible refusal, and the refusal is at least counted in
-// the status strip.
-//
-// The fix belongs in `gas-live/Code.js` — tombstone the ROW, or revive on a create with a matching
-// base — which is a server change on a deployment this task is gated from making. Recorded in the
-// completion notes for whoever opens that gate.
+// DO NOT rewrite an update into a create here to get around GAS tombstoning the ring KEY rather
+// than the row. It was tried, it appended a duplicate row with blank fields, and it was reverted.
+// The whole account, and where the fix belongs, is item 1 of `docs/superpowers/task8-open-items.md`.
 
 // `"Attached"` is a marker this app puts on a row whose photo has not synced yet — it means "there
 // is a photo, no link for it yet". It is not a value, and GAS merges every payload key onto the

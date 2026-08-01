@@ -1,7 +1,7 @@
 import { fetchServerSnapshot as defaultFetchServerSnapshot } from "./apiTransport";
 import { openOfflineDb as defaultOpenDb } from "./db";
 import { getOrCreateDeviceId as defaultGetDeviceId } from "./device";
-import { makeDomainKey } from "./domainKey";
+import { MACHINE_ENTITY_TYPES, makeDomainKey } from "./domainKey";
 import { claimDueMutations, confirmMutation, getConflict, getEntity, getMutation, getSyncCounts, listDueMutations, putOptimisticMutation, resolveConflictAndEnqueue, resolveStoredConflict, retryMutationAsSuccessor, saveConflict, setLastSyncedAt, setSyncMetaValue, updateMutation } from "./mutationStore";
 import { MUTATION_STATUS } from "./schema";
 import { emptyServerData, normalizeServerData as defaultNormalizeServerData } from "./normalizeServerData";
@@ -76,7 +76,11 @@ export function createRepository(deps = {}) {
     // dailyReport/prepTask are machine-scoped domain keys, so GAS refuses machineless envelopes
     // (SYNC_MACHINE_ENTITIES in gas-live/Code.js); reject them here instead of queueing a
     // mutation that can only fail validation on the server.
-    if (["segment", "grout", "secondaryGrout", "shiftReport", "planConfig", "distPlanConfig", "routeConfig", "dailyReport", "prepTask"].includes(input.entityType) && !input.machine) throw new Error("Mutation requires machine");
+    // the same list `makeDomainKey` keys by, imported rather than repeated: a type added there and
+    // not here would queue a machineless envelope that only GAS could refuse. (Not the same set as
+    // `MACHINE_SCOPED_COLLECTIONS` in `snapshotStore.js`, which is about which collections getData
+    // returns per machine.)
+    if (MACHINE_ENTITY_TYPES.has(input.entityType) && !input.machine) throw new Error("Mutation requires machine");
     if (["segment", "grout", "secondaryGrout"].includes(input.entityType) && !input.payload.ringNo) throw new Error("Mutation requires ringNo");
     if (input.entityType === "shiftReport") {
       if (!input.payload.date) throw new Error("Mutation requires date");

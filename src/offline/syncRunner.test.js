@@ -3,7 +3,7 @@ if (!global.structuredClone) global.structuredClone = value => JSON.parse(JSON.s
 import { ApiFailure } from "./apiTransport";
 import { closeOfflineDb, deleteOfflineDbForTests, openOfflineDb } from "./db";
 import { createRepository } from "./repository";
-import { createSyncRunner } from "./syncRunner";
+import { createSyncRunner, SYNC_LEASE_MS } from "./syncRunner";
 
 beforeEach(async () => { await deleteOfflineDbForTests(); });
 afterEach(async () => { await deleteOfflineDbForTests(); });
@@ -202,7 +202,9 @@ test("reclaims a durable in-flight mutation after reopening and retries its orig
   await expect(repository.getMutation(queued.requestId)).resolves.toMatchObject({ status: "syncing" });
   closeOfflineDb();
   const reopened = createRepository({ openDb: openOfflineDb, now: () => "2026-07-29T00:00:00.000Z", getDeviceId: async () => "device-1" });
-  const runner = createSyncRunner({ repository: reopened, transport: { postSyncMutation }, clock: { now: () => Date.parse("2026-07-29T00:00:31.000Z") }, jitter: () => 0, online: () => true });
+  const runner = createSyncRunner({ repository: reopened, transport: { postSyncMutation }, // one second past the claim lease, whatever the lease is — the rule is "the lease expired",
+    // not "31 seconds passed", and hard-coding the number tied this test to the old ceiling
+    clock: { now: () => Date.parse("2026-07-29T00:00:00.000Z") + SYNC_LEASE_MS + 1000 }, jitter: () => 0, online: () => true });
 
   await runner.runNow();
 
@@ -315,7 +317,9 @@ test("allows a second runner to take an expired lease but rejects a stale first-
 });
 
 test("stop invalidates a queued start before it can claim or post", async () => {
-  const repository = { claimDueMutations: jest.fn().mockResolvedValue([]), reclaimSyncingMutations: jest.fn().mockResolvedValue(0), getDueMutations: jest.fn().mockResolvedValue([]) };
+  // only methods the real repository has: a fake with a surface the real object lacks is what lets a
+  // rename pass green, since nothing calls the extra one on either side
+  const repository = { claimDueMutations: jest.fn().mockResolvedValue([]), getDueMutations: jest.fn().mockResolvedValue([]) };
   const runner = createSyncRunner({ repository, transport: { postSyncMutation: jest.fn() }, online: () => true, owner: "runner-a" });
 
   const started = runner.start();

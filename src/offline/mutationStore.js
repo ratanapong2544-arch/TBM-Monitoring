@@ -178,6 +178,9 @@ export async function getConflict(db, conflictId) {
   return result || null;
 }
 
+// The same selection `claimDueMutations` makes, without claiming it. Nothing in the app reads it —
+// the runner claims — so it exists to let a test (and Task 10's Sync Center) ask what the queue would
+// post next without changing the queue by asking.
 export async function listDueMutations(db, now) {
   const transaction = db.transaction(STORES.mutations, "readonly");
   const mutations = await requestResult(transaction.objectStore(STORES.mutations).getAll());

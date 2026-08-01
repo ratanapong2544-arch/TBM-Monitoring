@@ -1,7 +1,7 @@
 // entities whose key carries a machine; everything else is GLOBAL even when a caller passes a
 // machine, because GAS always bumps the GLOBAL key for them and two version streams over one row
 // would let a stale edit win. Mirrors SYNC_MACHINE_ENTITIES/SYNC_CONFIG_ENTITIES in gas-live/Code.js.
-const MACHINE_ENTITY_TYPES = new Set([
+export const MACHINE_ENTITY_TYPES = new Set([
   "segment", "grout", "secondaryGrout", "shiftReport", "dailyReport", "prepTask",
   "planConfig", "distPlanConfig", "routeConfig",
 ]);
@@ -14,8 +14,11 @@ const BANGKOK_OFFSET_MS = 7 * 60 * 60 * 1000;
 const pad2 = n => String(n).padStart(2, "0");
 
 export function syncDateKey(value) {
-  // a Date reduces by its own calendar fields, matching how GAS reads a sheet date cell; adding an
-  // offset first would shift the day for any device east of UTC+7
+  // A Date reduces by its own calendar fields, matching how GAS reads a sheet date cell under a
+  // Bangkok script timezone. Unreachable on the client — `normalizeServerData` yields JSON strings,
+  // never Dates — and it would be WRONG here if it were reachable, since a browser east of UTC+7
+  // reads its own local fields. It exists so this function and `syncDateKey_` stay one function in
+  // two files, which is what the shared vector file checks.
   if (value instanceof Date) return `${value.getFullYear()}-${pad2(value.getMonth() + 1)}-${pad2(value.getDate())}`;
   const text = String(value == null ? "" : value);
   if (!text.includes("T")) return text;

@@ -1,4 +1,4 @@
-import { assertSyncResponse, toApiFailure } from "./apiTransport";
+import { assertSyncResponse, SYNC_POST_TIMEOUT_MS, toApiFailure } from "./apiTransport";
 import { MUTATION_STATUS } from "./schema";
 
 function currentTime(clock) {
@@ -14,7 +14,15 @@ function createOwner() {
   return globalThis.crypto && typeof globalThis.crypto.randomUUID === "function" ? `sync-${globalThis.crypto.randomUUID()}` : `sync-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
-export function createSyncRunner({ repository, transport, clock = Date, jitter = () => 0, online = () => typeof navigator === "undefined" || navigator.onLine !== false, events, windowEvents = events || (typeof window === "undefined" ? null : window), document: documentSource = typeof document === "undefined" ? null : document, owner = createOwner(), leaseMs = 30000 } = {}) {
+// How long a claim holds a mutation before another runner may take it. Derived from the POST
+// deadline, not chosen independently: a lease shorter than the deadline lets a second claim re-post
+// a mutation still in flight. GAS takes a script lock and replays the stored response for a repeated
+// requestId, so nothing is written twice — but the second post spends the crew's link again on a
+// payload that was already too slow for it, which is the one link they have. The margin is what a
+// timed-out attempt needs to finish failing and record itself.
+export const SYNC_LEASE_MS = SYNC_POST_TIMEOUT_MS + 30000;
+
+export function createSyncRunner({ repository, transport, clock = Date, jitter = () => 0, online = () => typeof navigator === "undefined" || navigator.onLine !== false, events, windowEvents = events || (typeof window === "undefined" ? null : window), document: documentSource = typeof document === "undefined" ? null : document, owner = createOwner(), leaseMs = SYNC_LEASE_MS } = {}) {
   if (!repository || !transport || typeof transport.postSyncMutation !== "function") throw new Error("Sync runner requires a repository and postSyncMutation transport");
   let running = null;
   let started = false;

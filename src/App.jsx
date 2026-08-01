@@ -307,7 +307,14 @@ const PrimaryGroutApp = () => {
       secondaryGrout: setSecondaryGroutRecords,
       shiftReport: setShiftReports,
     }[entityType];
-    if (!setter || !record) return;
+    if (!record) return;
+    // Task 9 routes the remaining entities through this same call. One that arrives without a setter
+    // queues correctly and then simply never appears, until a refresh — a save the crew watched
+    // succeed and cannot see, which is the failure this whole task exists to prevent. Say so.
+    if (!setter) {
+      if (process.env.NODE_ENV !== "production") console.warn(`applyOptimisticRecord has no setter for ${entityType}; the queued write will not show until the next refresh`);
+      return;
+    }
     setter(prev => applyOptimisticRow(prev, operation, record));
   }, []);
 

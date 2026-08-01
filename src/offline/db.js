@@ -1,7 +1,7 @@
 import { makeDomainKey } from "./domainKey";
 import { isLegacyOptimisticKey, isOptimisticKey, optimisticEntityKey } from "./entityKeys";
 import { DB_NAME, DB_VERSION, MUTATION_STATUS, STORES } from "./schema";
-import { FIELD_FOR_ENTITY_TYPE, isMachineScopedEntityType, UNRESOLVED_STATUSES } from "./snapshotStore";
+import { FIELD_FOR_ENTITY_TYPE, isMachineScopedEntityType, newestUnresolvedByRecord } from "./snapshotStore";
 
 let openDbPromise;
 let openDb;
@@ -11,23 +11,6 @@ function createStore(db, name, options, indexes) {
   indexes.forEach(([indexName, keyPath]) => store.createIndex(indexName, keyPath));
 }
 
-// Version 2 re-keys records written under an earlier domain-key format (shift-report dates were
-// stored as a round-tripped UTC ISO string; project-wide entities carried a machine instead of
-// GLOBAL). GAS refuses any envelope whose key is not the canonical one, so a stale key would strand
-// its mutation. Runs inside the upgrade transaction and drops no mutation or conflict.
-//
-// The passes are STRICTLY SEQUENCED: the entity and conflict passes must see the fully-built
-// remap, so they are requested only from inside the mutations getAll() callback. Concurrent
-// cursors would interleave and read a half-built remap, silently stranding ~half the records.
-// Renames use put(), not add(): two v1 records can re-key onto one canonical key (the same record
-// edited under two machines, or two shift edits on one day), and add() would throw ConstraintError
-// and abort the whole upgrade, bricking the database. put() keeps the last writer — the losing
-// mutation is still in the queue, so its edit is not lost, only its stale optimistic snapshot.
-//
-// Durable records are re-keyed in place; the server-snapshot CACHE ROWS are discarded, because the
-// keys they were stored under are the ones being rewritten. The cache rebuilds on the first refresh
-// (spec §7 empty-state until then); the pending mutations, conflicts and their optimistic rows all
-// survive re-keyed — and, since the snapshot is rebuilt rather than cleared, stay on screen.
 // v3: the optimistic entity key gained the record id, so one ring can hold a queued copy of each of
 // its rows. Existing rows are re-keyed from the record id their own payload already carries; a row
 // without one cannot be placed and is dropped, which costs only its on-screen copy — its mutation is
@@ -70,23 +53,16 @@ export function recordScopeOptimisticKeys(transaction) {
 // `patchSnapshotKeys` that takes the key out of the list. So a rebuild that reads the store puts the
 // deleted ring back into the data log, the dashboards and the shift report's ring count, badged as
 // ordinary pending work, until the next successful getData — which underground is the next shift.
-// It asks `deletePending`'s question, not a simpler one: is the NEWEST unresolved mutation for this
-// record a delete, and is it still on its way? Any device state where the migration hides a row the
-// first refresh shows is a defect — the two halves of one rule disagreeing is how a row flickers off
-// on one path and back on the other. So the lease matters (a SYNCING claim whose lease has expired
-// is not in flight, it is abandoned), a later edit of the same record supersedes the delete, and
-// PENDING/SYNCING is the whole of "on its way": in flight it hides, stuck it shows. A delete the
-// server refused is not travelling anywhere, and hiding its row would take a record off every screen
-// on this device while it sits on the sheet, with nothing to see and nothing to press before Task 10.
+// It asks `deletePending`'s question, and asks it through `deletePending`'s own code — the newest
+// unresolved mutation for the RECORD, which is where the lease test and the newest-wins ordering
+// live. Written out separately here, either copy could be changed with the other half's tests still
+// green, and a device state where the upgrade hides a row the first refresh shows is one rule
+// disagreeing with itself. What is left here is the only part that differs: PENDING/SYNCING is the
+// whole of "on its way", so in flight it hides and stuck it shows. A delete the server refused is
+// not travelling anywhere, and hiding its row would take a record off every screen on this device
+// while it sits on the sheet, with nothing to see and nothing to press before Task 10.
 function tombstonedKeys(mutations, canonicalDomainKey, now) {
-  const slot = mutation => `${canonicalDomainKey(mutation)}||${mutation.recordId}`;
-  const newestPerRecord = new Map();
-  (mutations || [])
-    .filter(mutation => UNRESOLVED_STATUSES.has(mutation.status)
-      && (mutation.status !== MUTATION_STATUS.SYNCING || !mutation.leaseExpiresAt || Date.parse(mutation.leaseExpiresAt) > now))
-    .sort((left, right) => (left.queueSequence || 0) - (right.queueSequence || 0))
-    .forEach(mutation => newestPerRecord.set(slot(mutation), mutation));
-  return new Set([...newestPerRecord.values()]
+  return new Set([...newestUnresolvedByRecord(mutations, canonicalDomainKey, now).values()]
     .filter(mutation => mutation.operation === "delete"
       && (mutation.status === MUTATION_STATUS.PENDING || mutation.status === MUTATION_STATUS.SYNCING))
     .map(mutation => optimisticEntityKey(canonicalDomainKey(mutation), mutation.recordId)));
@@ -134,6 +110,23 @@ function rebuildSnapshotRows(snapshots, stored, kept, hidden) {
   });
 }
 
+// Version 2 re-keys records written under an earlier domain-key format (shift-report dates were
+// stored as a round-tripped UTC ISO string; project-wide entities carried a machine instead of
+// GLOBAL). GAS refuses any envelope whose key is not the canonical one, so a stale key would strand
+// its mutation. Runs inside the upgrade transaction and drops no mutation or conflict.
+//
+// The passes are STRICTLY SEQUENCED: the entity and conflict passes must see the fully-built
+// remap, so they are requested only from inside the mutations getAll() callback. Concurrent
+// cursors would interleave and read a half-built remap, silently stranding ~half the records.
+// Renames use put(), not add(): two v1 records can re-key onto one canonical key (the same record
+// edited under two machines, or two shift edits on one day), and add() would throw ConstraintError
+// and abort the whole upgrade, bricking the database. put() keeps the last writer — the losing
+// mutation is still in the queue, so its edit is not lost, only its stale optimistic snapshot.
+//
+// Durable records are re-keyed in place; the server-snapshot CACHE ROWS are discarded, because the
+// keys they were stored under are the ones being rewritten. The cache rebuilds on the first refresh
+// (spec §7 empty-state until then); the pending mutations, conflicts and their optimistic rows all
+// survive re-keyed — and, since the snapshot is rebuilt rather than cleared, stay on screen.
 export function recanonicalizeDomainKeys(transaction) {
   const mutations = transaction.objectStore(STORES.mutations);
   const entities = transaction.objectStore(STORES.entities);

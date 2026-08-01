@@ -183,6 +183,22 @@ Dropping `machineProgress` instead would report a machine that has bored nothing
 from the truth, and the strip already says "แสดงข้อมูลที่บันทึกไว้" with no timestamp, because
 `fetchedAt` is null. Recorded because it is a state no screen names explicitly.
 
+## 3f. A full-size photo still cannot reach the sheet over a tunnel link
+
+`SYNC_POST_TIMEOUT_MS` is 90 s, argued from the same 100 kbps the read ceiling uses — about 1.1 MB.
+Every field of an envelope except `imageBase64` is bounded by GAS's own 50 000-character cell limit,
+so an ordinary ring or shift report is a few tens of kilobytes and lands comfortably. `imageBase64`
+is not bounded, because it goes to Drive rather than into a cell: `handleFileUpload` reads the file
+whole with `readAsDataURL` and never resizes, so a phone photo rides inside the envelope at some
+megabytes and takes minutes on that link.
+
+It times out, is classified retryable, and retries forever at the head of its ring's domain while the
+strip reports it as still on its way. Raising the ceiling further does not fix it — nothing bounded
+would, and the lease has to stay above whatever the ceiling is. **The fix is resizing at capture**
+(`utils/helpers.js`, `handleFileUpload`), which is outside Task 8's file list and changes a form the
+plan says to preserve. Before Task 8 the same save went through `apiCall` with no deadline at all,
+so the queue is what made the failure deterministic rather than merely slow.
+
 ## 4. Deliberate deviations from the plan
 
 - **"บันทึกในเครื่องแล้ว" is only in the shift report.** Step 3 asks for it on every core write. The
@@ -220,6 +236,15 @@ data-loss path is worse than no note.
   machineless scope has no scope key to be created under, which is a design question that task owns.
 - `App.jsx` — the photo strip on the snapshot mirror is invisible to the DOM: carrying the bytes and
   dropping them render identically. The rule is tested on the reducer in `displayRecord.test.js`.
+- `App.jsx` — `applyOptimisticRecord`'s dev-time warning for an entity type with no setter has no
+  test: it fires on a state Task 8 cannot reach (every type it queues has one) and pinning a
+  `console.warn` string would break on any rewording. It exists for Task 9, which adds the types.
+- `snapshotStore.js` — `rowIdOf` reducing a blank id to `null` is a spelling, not a rule: the three
+  places that asked "does this row name a record" disagreed on whether `""` counts, and every
+  combination reaches the same answer anyway (`recordSlot` maps `null` and `""` to one slot, and the
+  id-less path claims within the domain either way). Reverting it leaves the suite green, as it
+  should. What the fixtures now do carry is the shape GAS really sends — `{ id: "" }`, since
+  `getSheetDataAsJson` assigns every header from the row values and a blank cell reads as `""`.
 - `PerformanceView.jsx` — a delay bar wholly inside one already counted names no Pareto theme, since
   it has no minutes to show on a chart of minutes; which of two overlapping bars keeps its cause is
   array order. Not testable as a rule (attributing it zero minutes is the same thing), so it is
@@ -228,7 +253,7 @@ data-loss path is worse than no note.
 - `repository.js` — the null-snapshot fallback in `refresh` (`(overtaken && read) || write`) is
   unreachable now that a request is only recorded as newest once its write has landed. It stays
   because the alternative is handing the caller a null it then reads `fetchedAt` off.
-- `snapshotStore.js` — several belt-and-braces guards survive removal: `localForRecord`'s and
+- `snapshotStore.js` — several belt-and-braces guards survive removal: `localByRecord`'s and
   `localOnly`'s preference for the queued copy over the cached one, `deletePending`'s null-id check
   (`recordSlot` already makes an empty id unmatchable), the SYNCING lease check, and `>=` versus `>`
   on the confirmed-after-request comparison (the repository clock is strictly monotonic, so the two

@@ -336,6 +336,26 @@ test.each(["syncing", "validation_error", "conflict"])("preserves a %s optimisti
   await expect(readServerSnapshot(db, "TBM1")).resolves.toEqual(expect.objectContaining({ segments: [expect.objectContaining({ status: "local", syncStatus: status })] }));
 });
 
+test.each([
+  ["2099-07-29T01:00:00.000Z", []],
+  ["2020-01-01T00:00:00.000Z", ["segment-1"]],
+])("a delete claimed with a lease expiring %s hides its row: %s", async (leaseExpiresAt, visible) => {
+  // A SYNCING claim is a post in flight, and its row stays hidden while it travels. A claim whose
+  // lease has EXPIRED is not in flight — the device was killed mid-post — and hiding the row would
+  // take a record off every screen here while it sits on the sheet. The migration in `db.js` reads
+  // the same rule through the same function; before they shared one, either copy could be changed
+  // with the other half's tests green, and then an upgrade hid a row the next refresh showed.
+  const db = await openOfflineDb();
+  const mutation = { requestId: "m-del", entityType: "segment", operation: "delete", machine: "TBM1", recordId: "segment-1", domainKey: "segment:TBM1:P1:Permanent", baseVersion: 1, deviceId: "device", createdAtLocal: "2026-07-29T00:00:00.000Z", payload: { id: "segment-1", ringNo: "P1", installType: "Permanent" } };
+  await putOptimisticMutation(db, mutation);
+  await updateMutation(db, mutation.requestId, { status: "syncing", syncOwner: "runner", leaseExpiresAt });
+
+  await writeServerSnapshot(db, "TBM1", normalizeServerData({ segments: [{ id: "segment-1", ringNo: "P1" }] }, "TBM1"), "refresh");
+
+  const stored = await readServerSnapshot(db, "TBM1");
+  expect(stored.segments.map(row => row.id)).toEqual(visible);
+});
+
 test.each(["validation_error", "conflict"])("keeps newer %s local state after confirming an older mutation then refreshing", async status => {
   const db = await openOfflineDb();
   const first = { requestId: "m-first", entityType: "segment", operation: "update", machine: "TBM1", recordId: "segment-1", domainKey: "segment:TBM1:P1:Permanent", baseVersion: 1, deviceId: "device", createdAtLocal: "2026-07-29T00:00:00.000Z", payload: { id: "segment-1", ringNo: "P1", installType: "Permanent", status: "first" } };

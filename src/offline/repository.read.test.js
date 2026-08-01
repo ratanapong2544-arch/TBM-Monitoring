@@ -376,7 +376,10 @@ test("an edit of a row the sheet returned without an id reads the same before an
   // they have to decide the same way. The patch used to hand an update a row that carried no id —
   // the only row it could not possibly have named — while the overlay refused to. One record then
   // showed as one row on a relaunch and two after a refresh: the flicker both rules exist to stop.
-  const sheet = [{ ringNo: "P643", length: "1.40" }]; // a legacy row, no id
+  // `id: ""`, not an absent key: `getSheetDataAsJson` assigns every header from the row values and
+  // a blank Google Sheets cell reads as the empty string, so this is the shape the server sends. An
+  // absent `id` only happens on a sheet with no Id column at all.
+  const sheet = [{ id: "", ringNo: "P643", length: "1.40" }]; // a legacy row, no id
   const repository = createRepository({ openDb: openOfflineDb, fetchServerSnapshot: async () => ({ segments: sheet }) });
   await repository.refresh("TBM1");
   await repository.mutate({
@@ -494,7 +497,7 @@ test("a delete does not take away a row the sheet returned without an id", async
   // reason — and a delete that names a record cannot be matched to one. Removing it anyway takes a
   // record off screen nobody asked to delete, and the two halves of the rule disagreed about it:
   // the relaunch kept the row and the refresh dropped it, so it flickered away and came back.
-  const sheet = [{ id: "seg_a", ringNo: "P643" }, { ringNo: "P643", length: "9.9" }];
+  const sheet = [{ id: "seg_a", ringNo: "P643" }, { id: "", ringNo: "P643", length: "9.9" }];
   const repository = createRepository({ openDb: openOfflineDb, fetchServerSnapshot: async () => ({ segments: sheet }) });
   await repository.refresh("TBM1");
   await repository.mutate({

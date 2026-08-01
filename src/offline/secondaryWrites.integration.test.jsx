@@ -14,6 +14,7 @@ import App from "../App";
 import { OfflineProvider } from "./OfflineProvider";
 import { emptyServerData } from "./normalizeServerData";
 import { apiCall } from "../utils/api";
+import { normalize as normalizeDailyReports } from "../utils/dailyReports";
 
 // Task 9 moves the remaining business writes onto the same queue Task 8 built for the core five.
 // These assert the ENVELOPE — one mutation per affected record, with the domain key the record's own
@@ -251,7 +252,9 @@ function renderApp(serverData = {}, { mutate }) {
 }
 
 const issue = (id, title, extra = {}) => ({
-  id, title, status: "open", machine: "TBM1", priority: "medium", createdAt: "2026-08-01T00:00:00.000Z", ...extra,
+  // `severity`, not `priority`: `validateForm` refuses a form without one, so an edit of a record
+  // fixtured with the wrong field silently saves nothing
+  id, title, status: "open", machine: "TBM1", severity: "delay", createdAt: "2026-08-01T00:00:00.000Z", ...extra,
 });
 
 test("closing an issue queues one update for that issue", async () => {
@@ -273,8 +276,11 @@ test("closing an issue queues one update for that issue", async () => {
 
 // --- daily reports -----------------------------------------------------------------------------
 
+// Built through the app's own normaliser: the detail panel reads `weather`/`equipment`/`labor` as
+// objects, and a hand-written literal without them crashes the page rather than failing an
+// assertion — the fixture has to be the shape the server path actually produces.
 const dailyReport = (id, extra = {}) => ({
-  id, date: "2026-07-30", area: "IS2", machine: "TBM1", kind: "itemized", workLogText: "ติดตั้งราง", ...extra,
+  ...normalizeDailyReports([{ id, date: "2026-07-30", area: "IS2", machine: "TBM1", kind: "itemized", workLogText: "ติดตั้งราง", ...extra }])[0],
 });
 
 const settle = async (view) => { for (let pass = 0; pass < 4; pass += 1) await act(async () => {}); return view; };
@@ -432,5 +438,99 @@ test("no business collection is written to localStorage any more", async () => {
   expect(window.localStorage.getItem("tbmDailyReports")).toBeNull();
   expect(window.localStorage.getItem("instInstruments")).toBeNull();
   expect(mutate).toHaveBeenCalledTimes(1); // the write still happened — through the queue
+  view.unmount();
+});
+
+test("adding an issue queues one create that claims no version", async () => {
+  const mutate = jest.fn(async () => ({ optimisticRecord: {} }));
+  const view = await settle(renderApp({}, { mutate }));
+
+  await click(button(view.container, /เพิ่ม/));
+  type(view.container, 'input[placeholder^="เช่น ติดตั้ง"]', "รอ Platform ทางเดิน");
+  await click(button(view.container, /^เพิ่ม$/));
+
+  expect(mutate).toHaveBeenCalledTimes(1);
+  const [envelope] = mutate.mock.calls[0];
+  expect(envelope).toEqual(expect.objectContaining({ entityType: "issue", operation: "create", baseVersion: 0 }));
+  expect(envelope.domainKey).toBe(`issue:GLOBAL:${envelope.recordId}`);
+  expect(envelope.payload.title).toBe("รอ Platform ทางเดิน");
+  expect(apiCall).not.toHaveBeenCalled();
+  view.unmount();
+});
+
+test("editing an issue queues one update against the version it was loaded with", async () => {
+  const mutate = jest.fn(async () => ({ optimisticRecord: {} }));
+  const view = await settle(renderApp({
+    issues: [issue("iss_1", "รอ Platform")],
+    syncMeta: { "issue:GLOBAL:iss_1": { version: 5 } },
+  }, { mutate }));
+
+  await click(byTitle(view.container, "แก้ไข"));
+  type(view.container, 'input[placeholder^="เช่น ติดตั้ง"]', "รอ Platform ทางเดิน (แก้ไข)");
+  await click(button(view.container, /^บันทึก$/));
+
+  expect(mutate).toHaveBeenCalledTimes(1);
+  expect(mutate).toHaveBeenCalledWith(expect.objectContaining({
+    entityType: "issue", operation: "update", recordId: "iss_1", domainKey: "issue:GLOBAL:iss_1", baseVersion: 5,
+  }));
+  expect(apiCall).not.toHaveBeenCalled();
+  view.unmount();
+});
+
+test("deleting an issue queues one delete for that issue", async () => {
+  const mutate = jest.fn(async () => ({ optimisticRecord: {} }));
+  const view = await settle(renderApp({
+    issues: [issue("iss_1", "รอ Platform"), issue("iss_2", "รอไฟฟ้า")],
+    syncMeta: { "issue:GLOBAL:iss_2": { version: 2 } },
+  }, { mutate }));
+
+  const cards = [...view.container.querySelectorAll('[title="ลบ"]')];
+  await click(cards[1]);
+
+  expect(mutate).toHaveBeenCalledTimes(1);
+  expect(mutate).toHaveBeenCalledWith(expect.objectContaining({
+    entityType: "issue", operation: "delete", recordId: "iss_2", domainKey: "issue:GLOBAL:iss_2", baseVersion: 2,
+  }));
+  expect(apiCall).not.toHaveBeenCalled();
+  view.unmount();
+});
+
+test("saving a daily report queues one create keyed to the machine on screen", async () => {
+  const mutate = jest.fn(async () => ({ optimisticRecord: {} }));
+  const view = await settle(renderApp({}, { mutate }));
+
+  await navigate(view.container, /Record Daily/);
+  type(view.container, 'input[placeholder^="เช่น AOB"]', "IS2 ปากบ่อ");
+  await click(button(view.container, /บันทึก$/));
+
+  expect(mutate).toHaveBeenCalledTimes(1);
+  const [envelope] = mutate.mock.calls[0];
+  expect(envelope).toEqual(expect.objectContaining({ entityType: "dailyReport", operation: "create", machine: "TBM1", baseVersion: 0 }));
+  expect(envelope.domainKey).toBe(`dailyReport:TBM1:${envelope.recordId}`);
+  expect(envelope.payload.area).toBe("IS2 ปากบ่อ");
+  expect(apiCall).not.toHaveBeenCalled();
+  view.unmount();
+});
+
+test("editing a daily report queues an update against the version it was loaded with", async () => {
+  const mutate = jest.fn(async () => ({ optimisticRecord: {} }));
+  const view = await settle(renderApp({
+    dailyReports: [dailyReport("dr_1")],
+    syncMeta: { "dailyReport:TBM1:dr_1": { version: 7 } },
+  }, { mutate }));
+
+  await navigate(view.container, /Daily Report/);
+  await click(byTitle(view.container, "แก้ไข")); // the card's pencil opens the detail panel
+  await click(button(view.container, /แก้ไข/));   // the detail's own edit is what reaches the form
+  await settle(view);
+  type(view.container, 'input[placeholder^="เช่น AOB"]', "IS2 ปากบ่อ (แก้ไข)");
+  await click(button(view.container, /บันทึก$/));
+
+  expect(mutate).toHaveBeenCalledTimes(1);
+  expect(mutate).toHaveBeenCalledWith(expect.objectContaining({
+    entityType: "dailyReport", operation: "update", machine: "TBM1",
+    recordId: "dr_1", domainKey: "dailyReport:TBM1:dr_1", baseVersion: 7,
+  }));
+  expect(apiCall).not.toHaveBeenCalled();
   view.unmount();
 });

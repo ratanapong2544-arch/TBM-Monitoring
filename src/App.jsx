@@ -32,13 +32,13 @@ import { getMachineConfig } from "./utils/machineConfig";
 import { isViewerMode, VIEWER_TABS } from "./utils/viewerMode";
 import { useOfflineData } from "./offline/useOfflineData";
 import { applyServerRows } from "./offline/serverDeletions";
+import { businessEnvelope } from "./offline/businessWrites";
 import { useOffline } from "./offline/OfflineProvider";
 import { toSyncVersion } from "./offline/syncVersion";
 import { applyOptimisticRow, stripQueuedPhotos } from "./offline/displayRecord";
 
 import { Shell, NAV_GROUPS } from "./ui-ux-pro-max";
 import "./styles/globals.css";
-import { buildMutationEnvelope } from "./offline/mutationEnvelope";
 
 // stable empty array so the machine-switch gate does not remount every consumer each render
 const EMPTY_ROWS = [];
@@ -111,9 +111,8 @@ const PrimaryGroutApp = () => {
   // GLOBAL — the caller does not, which is why `machine` is passed through untouched and only the
   // machine-keyed families supply one. The `.catch(console.warn)` these replaced meant a failed
   // write was a line in a console nobody reads.
-  const queueRecord = (entityType, operation, record, machine) => mutateBusinessRecord(buildMutationEnvelope({
-    entityType, operation, machine, recordId: record.id, payload: record, syncMeta,
-  }));
+  const queueRecord = (entityType, operation, record, machine) =>
+    mutateBusinessRecord(businessEnvelope({ entityType, operation, record, machine, syncMeta }));
   const queueIssue = (record, operation) => queueRecord("issue", operation, record);
 
   const handleSaveIssue = (form) => {
@@ -180,44 +179,45 @@ const PrimaryGroutApp = () => {
     // the rows on screen now belong to this machine (see rowsReady below)
     setRowsMachine(activeMachine);
     // Task 9 Step 5 retired localStorage for these collections, and that changed what this block
-    // has to be. Reason 1 for the server-only rule is gone: writes go through the queue, and the
-    // snapshot re-injects whatever has not synced, so the cached read now CARRIES the crew's
-    // offline records instead of destroying them. Keeping the rule would have been the regression —
-    // nothing seeds these lists at mount any more, so an offline launch would show none of them.
-    //   Reason 2 stands and is why the `.length` guards remain: normalizeServerData maps an absent
-    // key to [], so an older GAS deployment or a partial doGet looks exactly like a real deletion.
-    // Propagating a genuine server-side deletion of the last record is Step 5b's job, with
-    // `present` to tell the two apart — the same flag reconciliation uses.
-    // prepTasks still goes to localStorage below: `PrepGanttView` reads it from there, and moving
-    // that view onto props is its own unit of work.
-    const serverAuthoritative = offlineData.source === "server";
+    // has to be. The server-only rule existed because a cached read could put a snapshot into state
+    // over a record that lived only in localStorage. Writes go through the queue now and the
+    // snapshot re-injects whatever has not synced, so the cached read CARRIES the crew's offline
+    // records instead of destroying them — and since nothing seeds these lists at mount any more,
+    // keeping the rule would have meant an offline launch showing none of them. For the route and
+    // plan configs it would have been worse than blank: `routeConfigFor` falls back to
+    // `DEFAULT_ROUTE_LEGS`, so the crew would have been shown factory distances in place of the
+    // route they saved.
+    //   The `.length` guards stay, for a different reason: `normalizeServerData` maps an absent key
+    // to [], and GAS's own `getSheetDataAsJson` returns [] for a sheet that does not exist, so an
+    // empty list cannot mean "deleted". What removes a record is the server naming it —
+    // `applyServerRows` and the SyncMeta tombstone behind it (Step 5b, `serverDeletions.js`).
     // Step 5b: an empty collection removes only what the server has tombstoned. `applyServerRows`
     // carries the whole rule and the reason it cannot be emptiness alone.
     const serverMeta = data.syncMeta;
     setIssues((previous) => applyServerRows("issue", data.issues, previous, serverMeta, activeMachine));
     setDailyReports((previous) => applyServerRows("dailyReport", data.dailyReports, previous, serverMeta, activeMachine));
-    if (serverAuthoritative) {
-      if (data.prepTasks.length) {
-        // only machines the payload actually carries: a machine absent from it keeps its own rows,
-        // the same rule the per-machine localStorage keys used to give for free
-        const carried = new Set(data.prepTasks.map((t) => t.machine || "TBM1"));
-        setPrepTasks((previous) => [
-          ...previous.filter((t) => !carried.has(t.machine || "TBM1")),
-          ...data.prepTasks,
-        ]);
-      } else {
-        setPrepTasks((previous) => applyServerRows("prepTask", [], previous, data.syncMeta, activeMachine));
-      }
+    if (data.prepTasks.length) {
+      // Only machines the payload actually carries: a machine absent from it keeps its own rows,
+      // the same rule the per-machine localStorage keys used to give for free. A tombstone still
+      // outranks that — a payload naming only TBM1 can still say TBM2's last task was deleted, and
+      // keeping "its own rows" must not mean keeping a row the server named.
+      const carried = new Set(data.prepTasks.map((t) => t.machine || "TBM1"));
+      setPrepTasks((previous) => [
+        ...applyServerRows("prepTask", [], previous.filter((t) => !carried.has(t.machine || "TBM1")), serverMeta, activeMachine),
+        ...data.prepTasks,
+      ]);
+    } else {
+      setPrepTasks((previous) => applyServerRows("prepTask", [], previous, serverMeta, activeMachine));
     }
 
-    // configs are localStorage-primary too: an offline plan or route edit lives only there until
-    // Tasks 8-9, so a cache read must not write over it
-    if (serverAuthoritative) {
-      if (data.planConfig) setPlanConfig(data.planConfig);
-      if (data.distPlanConfig) setDistPlanConfig(data.distPlanConfig);
-      // both machines' route configs — the distance table shows them side by side
-      if (data.routeConfigs && typeof data.routeConfigs === "object") setRouteConfigs(data.routeConfigs);
-    }
+    // Configs are singletons: there is no collection to empty, so no tombstone question. A null is
+    // "this response did not carry one", which must not blank a config the crew is looking at.
+    if (data.planConfig) setPlanConfig(data.planConfig);
+    if (data.distPlanConfig) setDistPlanConfig(data.distPlanConfig);
+    // both machines' route configs — the distance table shows them side by side
+    if (data.routeConfigs && typeof data.routeConfigs === "object") setRouteConfigs(data.routeConfigs);
+    // `machineProgress` is exempt from Step 5b by construction: GAS computes it on every response
+    // rather than reading a sheet, so it has no records, no deletions and nothing to tombstone.
     if (data.machineProgress) setMachineProgress(data.machineProgress);
     if (data.routeProjectTotal != null) setRouteProjectTotal(data.routeProjectTotal);
     // Instrument module: project-wide (ไม่ขึ้นกับ activeMachine). Server-only, same rule as above.

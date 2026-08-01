@@ -141,12 +141,11 @@ test("an offline relaunch does not write the configs back to localStorage", asyn
 });
 
 test("a server response with an absent collection does not erase local business data", async () => {
-  // normalizeServerData maps an absent key to [], so an older GAS deployment or a partial doGet is
-  // indistinguishable from a real deletion. Every gated collection must survive it — asserting only
-  // prepTasks was vacuous, because an empty list produces no per-machine writes either way.
-  // Step 5 changed where "local" lives for most of these: the cached snapshot, not localStorage.
-  // prepTasks is the exception and still reads its own key — `PrepGanttView` has not moved yet.
-  window.localStorage.setItem("tbmPrepTasks_TBM2", JSON.stringify([{ id: "pt_local", title: "Local prep" }]));
+  // normalizeServerData maps an absent key to [], and GAS's own getSheetDataAsJson returns [] for a
+  // sheet that does not exist, so an older deployment, a partial doGet and a missing tab all look
+  // like a real deletion. Only a tombstone removes anything (Step 5b) — an empty list never does.
+  // Asserted on the screen: since Step 5 nothing writes these to localStorage, so a localStorage
+  // assertion here would pass no matter what the app did.
   let answer;
   const repository = makeRepository({
     load: async machine => ({
@@ -168,7 +167,6 @@ test("a server response with an absent collection does not erase local business 
   await act(async () => { answer(); });
 
   expect(app.text()).toContain("ปัญหาที่มีอยู่"); // and the empty response did not take it off
-  expect(JSON.parse(window.localStorage.getItem("tbmPrepTasks_TBM2"))).toEqual([{ id: "pt_local", title: "Local prep" }]);
   app.unmount();
 });
 
@@ -909,5 +907,64 @@ test("a record another device deleted leaves this screen; an empty collection wi
 
   expect(app.text()).not.toContain("ลบจากเครื่องอื่น"); // the tombstone took it off
   expect(app.text()).toContain("ยังอยู่");              // an empty list alone takes nothing off
+  app.unmount();
+});
+
+test("an offline launch shows the cached prep tasks and route config, not factory seeds", async () => {
+  // Step 5 removed the localStorage seed these two rendered from. Their state was still gated on
+  // `source === "server"`, so an offline launch showed an empty Work Plan and — worse than blank —
+  // a Route page filled with `DEFAULT_ROUTE_LEGS`, i.e. factory distances standing in for the
+  // crew's saved route.
+  const repository = makeRepository({
+    load: async machine => ({
+      data: cached(machine, {
+        prepTasks: [{ id: "pt_1", machine: "TBM1", name: "งานเตรียมจาก snapshot", start: "2026-08-01", end: "2026-08-05", progress: 0, deps: [] }],
+        routeConfigs: { TBM1: { legs: [{ order: "1.1", level: 2, name: "ช่วงที่ทีมบันทึกไว้", plannedDistance: 4321, remark: "" }] } },
+      }),
+      source: "indexeddb", fetchedAt: "x", stale: true,
+    }),
+    refresh: async () => { throw new Error("NETWORK"); },
+  });
+
+  const app = renderApp(repository);
+  await act(async () => {});
+  const button = pattern => [...app.container.querySelectorAll("button")].find(b => pattern.test(b.textContent));
+
+  await act(async () => { button(/Work Plan/).dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+  expect(app.text()).toContain("งานเตรียมจาก snapshot");
+
+  await act(async () => { button(/Route & Schedule/).dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+  expect(app.text()).toContain("ช่วงที่ทีมบันทึกไว้");
+  expect(app.text()).not.toContain("Main Shaft รัชดา"); // a DEFAULT_ROUTE_LEGS name — the seed must not stand in
+  app.unmount();
+});
+
+test("a prep task tombstoned on the machine the payload does not carry still leaves the screen", async () => {
+  // The `carried` rule keeps the rows of a machine the payload never mentions. A tombstone outranks
+  // it: the server named that row deleted, and "keeping its own rows" must not mean keeping it.
+  let carriesBoth = true;
+  const both = [
+    { id: "pt_tbm1", machine: "TBM1", name: "งานเตรียม TBM1", start: "2026-08-01", end: "2026-08-05", progress: 0, deps: [] },
+    { id: "pt_tbm2", machine: "TBM2", name: "งานเตรียม TBM2", start: "2026-08-01", end: "2026-08-05", progress: 0, deps: [] },
+  ];
+  const repository = makeRepository({
+    refresh: async machine => ({
+      data: snapshot(machine, carriesBoth
+        ? { prepTasks: both }
+        : { prepTasks: [both[0]], syncMeta: { "prepTask:TBM2:pt_tbm2": { version: 4, deleted: true } } }),
+      source: "server", fetchedAt: "x", stale: false,
+    }),
+  });
+
+  const app = renderApp(repository);
+  await act(async () => {});
+  const button = pattern => [...app.container.querySelectorAll("button")].find(b => pattern.test(b.textContent));
+  await act(async () => { button(/Work Plan/).dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+
+  carriesBoth = false;
+  await act(async () => { button(/^TBM2$/).dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+  await act(async () => {});
+
+  expect(app.text()).not.toContain("งานเตรียม TBM2");
   app.unmount();
 });

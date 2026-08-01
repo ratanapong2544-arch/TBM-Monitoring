@@ -445,10 +445,14 @@ copy.
 and entering a reading are R4/R5 of the instrument rebuild, which has not landed.
 
 Task 9 routed both onto the queue anyway, because leaving one family on `apiCall` would have left a
-second write path to maintain. But they are the two families with no App-level envelope test, and
-the reason is not oversight: there is no UI path to drive, and a test that calls the handler
-directly would pin the shape of code no crew can reach. The moment a view is wired, that test is
-owed — the write is unexercised until then, not proven.
+second write path to maintain.
+
+Their envelope IS pinned, at `src/offline/businessWrites.js` — the function App's `queueRecord`
+builds every envelope with, extracted so the two unreachable families could be tested through the
+code they actually use rather than a fixture imitating it. What that test cannot do is notice the
+call site disappearing: with no caller, removing `queueRecord("instrument", …)` from `App.jsx`
+breaks nothing and no test goes red. **The write is correct in shape and unexercised in practice.**
+The moment a view is wired, an App-level test is owed.
 
 ## 4. Deliberate deviations from the plan
 

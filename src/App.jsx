@@ -44,11 +44,16 @@ import "./styles/globals.css";
 const EMPTY_ROWS = [];
 const EMPTY_SYNC_META = {};
 
-// Families that render from their own state rather than from App's mirror: each updates its list
-// before it queues, so there is nothing for `applyOptimisticRecord` to do and nothing wrong.
+// Families whose durable on-screen copy is App's own state, updated by the handler before the write
+// is queued — so there is nothing for `applyOptimisticRecord` to do and nothing wrong.
+//
+// `prepTask` and the three configs are NOT in here, and the difference is where the state lives. A
+// view's own `useState` dies on unmount, and App's copy of these is only ever set from
+// `offlineData`, which re-reads on mount, machine change or an explicit refresh — none of which a
+// queued write triggers. Left exempt, a prep task added offline was queued, shown, and gone the
+// moment the crew opened another page, with the warning that exists to catch exactly that silenced.
 const SELF_RENDERED_ENTITY_TYPES = new Set([
-  "issue", "dailyReport", "prepTask", "planConfig", "distPlanConfig", "routeConfig",
-  "instrument", "instReading", "instSchedule",
+  "issue", "dailyReport", "instrument", "instReading", "instSchedule",
 ]);
 
 const PrimaryGroutApp = () => {
@@ -315,13 +320,25 @@ const PrimaryGroutApp = () => {
   // that one writer owns each list — the machine guard below decides whether the row belongs on
   // screen at all, and a second writer could step past it without anything failing.
   const applyOptimisticRecord = useCallback((entityType, operation, record) => {
+    if (!record) return;
+    // A config is a singleton, not a row in a list, so it is mirrored by replacing the value rather
+    // than by `applyOptimisticRow`. The payload carries the config under its own entity name, the
+    // same shape `configValue` reads on the snapshot side.
+    if (entityType === "planConfig") return setPlanConfig(record.planConfig ?? record);
+    if (entityType === "distPlanConfig") return setDistPlanConfig(record.distPlanConfig ?? record);
+    if (entityType === "routeConfig") {
+      const machine = record.machine || activeMachineRef.current;
+      setRouteConfigs((previous) => ({ ...(previous || {}), [machine]: record.routeConfig ?? record }));
+      if (record.routeProjectTotal !== undefined) setRouteProjectTotal(record.routeProjectTotal);
+      return;
+    }
     const setter = {
       segment: setSegmentRecords,
       grout: setGroutRecords,
       secondaryGrout: setSecondaryGroutRecords,
       shiftReport: setShiftReports,
+      prepTask: setPrepTasks,
     }[entityType];
-    if (!record) return;
     // Task 9 routes the remaining entities through this same call. One that arrives without a setter
     // queues correctly and then simply never appears, until a refresh — a save the crew watched
     // succeed and cannot see, which is the failure this whole task exists to prevent. Say so.

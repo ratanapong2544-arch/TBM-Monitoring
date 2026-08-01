@@ -534,3 +534,44 @@ test("editing a daily report queues an update against the version it was loaded 
   expect(apiCall).not.toHaveBeenCalled();
   view.unmount();
 });
+
+test("a prep task added offline is still on Work Plan after leaving the page and coming back", async () => {
+  // `PrepGanttView` keeps its rows in component state, which dies on unmount, and App's own list is
+  // only ever set from `offlineData` — which re-reads on mount, machine change or an explicit
+  // refresh, none of which a queued write triggers. So the task was queued, shown, and gone the
+  // moment the crew looked at another page.
+  const mutate = jest.fn(async input => ({ optimisticRecord: { ...input.payload, id: input.recordId } }));
+  const view = await settle(renderApp({}, { mutate }));
+
+  await navigate(view.container, /Work Plan/);
+  await click(button(view.container, /เพิ่มงาน/));
+  type(view.container, 'input[placeholder^="เช่น"]', "เทฐานราก");
+  type(view.container, 'input[type="date"]', "2026-08-10");
+  await click(button(view.container, /^เพิ่ม$/));
+  expect(view.container.textContent).toContain("เทฐานราก");
+
+  await navigate(view.container, /Performance/);
+  await navigate(view.container, /Work Plan/);
+
+  expect(view.container.textContent).toContain("เทฐานราก");
+  view.unmount();
+});
+
+test("a route config edited offline is still on the page after leaving and coming back", async () => {
+  const mutate = jest.fn(async input => ({ optimisticRecord: { ...input.payload, id: input.recordId } }));
+  const view = await settle(renderApp({
+    routeConfigs: { TBM1: { legs: [{ order: "1.1", level: 2, name: "ช่วงเดิม", plannedDistance: 100, remark: "" }] } },
+  }, { mutate }));
+
+  await navigate(view.container, /Route & Schedule/);
+  await click(button(view.container, /แก้ไขเส้นทาง/));
+  type(view.container, 'input[placeholder="ชื่อช่วง"]', "ช่วงที่แก้ตอนออฟไลน์");
+  await click(button(view.container, /บันทึก$/));
+  expect(view.container.textContent).toContain("ช่วงที่แก้ตอนออฟไลน์");
+
+  await navigate(view.container, /Performance/);
+  await navigate(view.container, /Route & Schedule/);
+
+  expect(view.container.textContent).toContain("ช่วงที่แก้ตอนออฟไลน์");
+  view.unmount();
+});

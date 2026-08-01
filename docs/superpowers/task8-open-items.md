@@ -369,19 +369,23 @@ extra keys. The moment Task 9 queues `prepTask`, they land in the `json` cell an
 `snapshotStore.INJECTED_PAYLOAD_KEYS` already solves exactly this for the config singletons and is
 the pattern to reuse, on the write side.
 
-## 3o. A config edit made offline is invisible after a relaunch (Task 9)
+## 3o. CLOSED by Task 9 — a config edited offline is now in the stored snapshot
 
-`patchSnapshotKeys` returns early when the entity type has no collection field, which is the case for
-`planConfig`, `distPlanConfig` and `routeConfig`. So a queued config edit reaches the entities store
-and nothing else: `readServerSnapshot` rebuilds the singletons from `snapshot[key]`, and
-`overlayConfigSingletons` runs only inside `writeServerSnapshot`. The edit is on screen until the app
-is closed, and gone when it reopens, until a `getData` succeeds.
+Was: a queued config edit reached the mutation log and never the snapshot, so the next launch showed
+the server's old config. Task 9 made it reachable and had to close it, and the outcome was worse
+than the item predicted: with no server route config at all, `routeConfigFor` falls back to
+`DEFAULT_ROUTE_LEGS`, so the Route page showed factory distances standing in for the route the crew
+had saved.
 
-It is the same shape as the collection bug this branch calls routine data loss — a whole shift's work
-invisible after a relaunch — and it is unreachable today only because no view queues a config type
-(grepped: no `entityType: "planConfig"|"distPlanConfig"|"routeConfig"` outside the offline module and
-its tests). Task 9 wires the plan and route editors to the queue, and has to carry the singletons
-into the stored snapshot when it does.
+`patchSnapshotKeys` keys off `FIELD_FOR_ENTITY_TYPE`, which is built from the collections and holds
+no config type, so it early-returned. A config is a singleton, not a row in a list: there is no
+entity key to add, and the value has to go into the snapshot's own field. It does now, through
+`applyConfigToSnapshot` — the one function `writeServerSnapshot`'s overlay and this patch both use,
+because the rule was already in one place and adding a second copy is how six rounds of Task 8 went.
+
+Pinned by "a config edited offline is still there after a relaunch" (`repository.write.test.js`),
+which queues all three config families against a real repository and reads them back through a
+second one.
 
 ## 3p. Lint is off, so two `eslint-disable-next-line` comments are decorative
 

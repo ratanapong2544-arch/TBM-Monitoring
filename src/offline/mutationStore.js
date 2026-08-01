@@ -1,7 +1,7 @@
 import { isTerminalStatus, MUTATION_STATUS, STORES } from "./schema";
 import { entityKeyForRecord, isOptimisticKey, optimisticEntityKey } from "./entityKeys";
 import { toSyncVersion } from "./syncVersion";
-import { FIELD_FOR_ENTITY_TYPE, isMachineScopedEntityType, snapshotScopeKey } from "./snapshotStore";
+import { applyConfigToSnapshot, CONFIG_FIELD_FOR_ENTITY_TYPE, FIELD_FOR_ENTITY_TYPE, isMachineScopedEntityType, snapshotScopeKey } from "./snapshotStore";
 
 function complete(transaction) {
   return new Promise((resolve, reject) => {
@@ -37,7 +37,20 @@ function scopesFor(stored, mutation) {
   return [{ scopeKey: snapshotScopeKey(mutation.machine), machine: mutation.machine, fetchedAt: null, entityKeys: {} }];
 }
 
+// A config is a singleton, not a row: there is no entity key to add to a list, so the value goes
+// straight into the snapshot's own field. Without this a config edited offline reached the mutation
+// log and nothing else, and the next launch showed the server's old config — or, with no server
+// config at all, `DEFAULT_ROUTE_LEGS` standing in for the route the crew had saved (open item 3o).
+function patchSnapshotConfig(snapshots, stored, mutation) {
+  const recordMachine = String(mutation.domainKey).split(":")[1];
+  stored.forEach(snapshot => {
+    const applied = applyConfigToSnapshot(snapshot, mutation.entityType, mutation.payload, recordMachine, snapshot.machine);
+    if (applied) snapshots.put(snapshot);
+  });
+}
+
 function patchSnapshotKeys(snapshots, entities, stored, mutation) {
+  if (CONFIG_FIELD_FOR_ENTITY_TYPE.has(mutation.entityType)) return patchSnapshotConfig(snapshots, stored, mutation);
   const field = FIELD_FOR_ENTITY_TYPE.get(mutation.entityType);
   if (!field) return;
   // Keys this patch takes OUT of a list, so their rows can be taken out of the entities store too.

@@ -357,22 +357,44 @@ function mergeSyncMeta(previous, data) {
 // A pending config edit must not be erased by server data either. These arrive as singletons rather
 // than collection rows, so they need the same optimistic overlay: without it an offline plan edit
 // disappeared on the next refresh and was re-entered, conflicting with itself.
+export const CONFIG_FIELD_FOR_ENTITY_TYPE = new Map(CONFIG_ENTITY_TYPES);
+
+/**
+ * Write one config mutation's value into a stored snapshot.
+ *
+ * The single place that knows how a config payload becomes a snapshot field, because there are two
+ * callers and they used to be one: `writeServerSnapshot` overlays the queue onto an incoming server
+ * payload, and `patchSnapshotKeys` puts a freshly queued edit into the snapshot as it is stored.
+ * Only the second makes an offline config edit survive a relaunch — `readServerSnapshot` rebuilds
+ * singletons from the snapshot alone and never looks at the mutation log (open item 3o).
+ *
+ * Returns the fields it touched so a caller keeping a parallel record of them can follow.
+ */
+export function applyConfigToSnapshot(snapshot, entityType, payload, recordMachine, machine) {
+  const field = CONFIG_FIELD_FOR_ENTITY_TYPE.get(entityType);
+  if (!field) return null;
+  const value = configValue(payload, entityType);
+  if (field === "routeConfigs") {
+    snapshot[field] = { ...(snapshot[field] || {}), [recordMachine]: value };
+    // routeProjectTotal is a sibling singleton, edited through the same routeConfig mutation
+    const total = payload && payload.routeProjectTotal;
+    if (total !== undefined) snapshot.routeProjectTotal = total;
+    return { field, total };
+  }
+  // a machine's own plan is not another machine's
+  if (recordMachine !== machine) return null;
+  snapshot[field] = value;
+  return { field };
+}
+
 function overlayConfigSingletons({ snapshot, committed, existing, machine, preserveLocal }) {
-  CONFIG_ENTITY_TYPES.forEach(([entityType, field]) => {
+  CONFIG_ENTITY_TYPES.forEach(([entityType]) => {
     existing.filter(record => record.entityType === entityType && preserveLocal(record)).forEach(record => {
-      const value = configValue(record.payload, entityType);
       const recordMachine = record.domainKey.split(":")[1];
-      if (field === "routeConfigs") {
-        snapshot[field] = { ...(snapshot[field] || {}), [recordMachine]: value };
-        // routeProjectTotal is a sibling singleton, edited through the same routeConfig mutation
-        const total = record.payload && record.payload.routeProjectTotal;
-        if (total !== undefined) { snapshot.routeProjectTotal = total; committed.routeProjectTotal = total; }
-      } else if (recordMachine === machine) {
-        snapshot[field] = value;
-      } else {
-        return;
-      }
-      committed[field] = snapshot[field];
+      const applied = applyConfigToSnapshot(snapshot, entityType, record.payload, recordMachine, machine);
+      if (!applied) return;
+      if (applied.total !== undefined) committed.routeProjectTotal = applied.total;
+      committed[applied.field] = snapshot[applied.field];
     });
   });
 }

@@ -486,3 +486,44 @@ test("a second save of a record whose domain key embeds its id still replaces it
   expect(second.map(row => row.title)).toEqual(["second"]);
   expect(applyOptimisticRow(second, "delete", await save("second"))).toEqual([]);
 });
+
+test("a config edited offline is still there after a relaunch", async () => {
+  // Open item 3o, assigned to Task 9. `patchSnapshotKeys` keys off `FIELD_FOR_ENTITY_TYPE`, which is
+  // built from the collections — no config type is in it — so a queued config edit reached the
+  // mutation log and never the stored snapshot. `readServerSnapshot` rebuilds singletons from the
+  // snapshot alone, so the next launch showed the server's old config; with none at all, the Route
+  // page fell back to `DEFAULT_ROUTE_LEGS` and showed factory distances as the crew's own route.
+  const fetched = {
+    status: "success", segments: [],
+    routeConfigs: { TBM1: { legs: [{ order: "1.1", level: 2, name: "ช่วงเดิม", plannedDistance: 100 }] } },
+    planConfig: { basePlanAcc: 1, ranges: [] },
+    distPlanConfig: { ranges: [] },
+  };
+  const online = makeRepository({ fetchServerSnapshot: async () => fetched, createRequestId: () => "request-cfg" });
+  await online.refresh("TBM1");
+
+  await online.mutate(buildMutationEnvelope({
+    entityType: "routeConfig", operation: "update", machine: "TBM1", recordId: "TBM1",
+    payload: { routeConfig: { legs: [{ order: "1.1", level: 2, name: "ช่วงที่ทีมแก้ตอนออฟไลน์", plannedDistance: 4321 }] }, routeProjectTotal: 13600 },
+    syncMeta: {},
+  }));
+  await online.mutate(buildMutationEnvelope({
+    entityType: "planConfig", operation: "update", machine: "TBM1", recordId: "TBM1",
+    payload: { planConfig: { basePlanAcc: 240, ranges: [{ start: "2026-08-01", end: "2026-08-31", dailyPlan: 6 }] } },
+    syncMeta: {},
+  }));
+  await online.mutate(buildMutationEnvelope({
+    entityType: "distPlanConfig", operation: "update", machine: "TBM1", recordId: "TBM1",
+    payload: { distPlanConfig: { ranges: [{ start: "2026-08", end: "2026-12", monthlyPlan: 180 }] } },
+    syncMeta: {},
+  }));
+
+  // a new repository over the same database: the relaunch
+  const relaunched = makeRepository({ fetchServerSnapshot: async () => { throw new Error("offline"); } });
+  const { data } = await relaunched.load("TBM1");
+
+  expect(data.routeConfigs.TBM1.legs[0].name).toBe("ช่วงที่ทีมแก้ตอนออฟไลน์");
+  expect(data.routeProjectTotal).toBe(13600); // the sibling singleton rides the same mutation
+  expect(data.planConfig.basePlanAcc).toBe(240);
+  expect(data.distPlanConfig.ranges).toEqual([{ start: "2026-08", end: "2026-12", monthlyPlan: 180 }]);
+});

@@ -120,6 +120,10 @@ const SegmentRecordView = ({ projectInfo, handleProjectInfoChange, segmentRecord
       // nothing is queued. (The form prefills the LAST of them, so the re-identification guard used
       // to compare two different rings and refuse a save that renamed nothing — telling the crew to
       // delete and re-record a ring, which per open item 1 would brick that ring number.)
+      // It refuses every duplicate, including the case where the row the form loaded happens to be
+      // the first match and GAS would resolve correctly. Narrowing it means deciding which of two
+      // indistinguishable rows the crew meant, from sheet order — and the sheet is the thing that
+      // cannot tell them apart. A refusal an admin can act on beats a guess nobody can audit.
       const sharing = isUpdate ? segmentRecords.filter(row => row.id === recordData.id) : [];
       if (sharing.length > 1) throw new AmbiguousRecordError(recordData.id, sharing.length);
       // The queue owns durability and ordering: the record is on this device before this resolves,

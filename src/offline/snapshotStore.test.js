@@ -398,3 +398,27 @@ test.each([
 
   expect((await readServerSnapshot(db, "TBM1")).segments.map(row => row.status)).toEqual(["crew edit"]);
 });
+
+test("a permanently refused row stays on screen when its stored status finally says so", async () => {
+  // `permanent_error` was in neither status set — not "unresolved", not "terminal" — so a row the
+  // server had refused for good survived the merge only through `preserveLocal`'s third disjunct
+  // reading the STORED `syncStatus`, which still says "pending" (open item 3d). This fixture is 3d
+  // closed: the stored status corrected to the truth. Without `PERMANENT_ERROR` in the set, both
+  // disjuncts that could keep the row now answer false and the crew's refused work disappears from
+  // every screen — the opposite of what a refusal should do, and silently.
+  const db = await openOfflineDb();
+  const domainKey = "segment:TBM1:P1:Permanent";
+  const mutation = { requestId: "m1", entityType: "segment", operation: "update", machine: "TBM1", recordId: "s1", domainKey, baseVersion: 1, deviceId: "device", createdAtLocal: "2026-07-29T00:00:00.000Z", payload: { id: "s1", ringNo: "P1", installType: "Permanent", status: "crew edit" } };
+  await putOptimisticMutation(db, mutation);
+  await updateMutation(db, "m1", { status: "permanent_error" });
+  await new Promise((resolve, reject) => {
+    const store = db.transaction("entities", "readwrite").objectStore("entities");
+    const read = store.get(`entity:optimistic:${domainKey}:id:s1`);
+    read.onsuccess = () => { store.put({ ...read.result, payload: { ...read.result.payload, syncStatus: "permanent_error" } }).onsuccess = resolve; };
+    read.onerror = () => reject(read.error);
+  });
+
+  await writeServerSnapshot(db, "TBM1", normalizeServerData({ segments: [{ id: "s1", ringNo: "P1", installType: "Permanent", status: "on the sheet" }] }, "TBM1"), "refresh");
+
+  expect((await readServerSnapshot(db, "TBM1")).segments.map(row => row.status)).toEqual(["crew edit"]);
+});

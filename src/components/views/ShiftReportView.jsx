@@ -254,9 +254,11 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, machine = 
     // synchronous block, so comparing them again could only ever be true — it read as a guard
     // against a stale id, which is the one thing it cannot be
     // ...or a create for this report was already composed and is still on its way. Recorded on the
-    // next line, synchronously, so the save that follows this one within the same tick sees it.
+    // next line, synchronously, so the save that follows this one within the same tick sees it —
+    // and RELEASED below if this one never reached the queue.
     const existedAtSave = Boolean(existingReportRef.current) || composedCreateFor.has(keyAtSave);
-    if (!existedAtSave) composedCreateFor.add(keyAtSave);
+    const composedCreate = !existedAtSave;
+    if (composedCreate) composedCreateFor.add(keyAtSave);
     // Objects, not JSON strings. The one-shot write stringified these because GAS wanted text, but
     // the queue serializes the payload itself on the way out (`serializeSyncRowValues_` encodes each
     // cell once), and the SAME payload is what the snapshot store overlays and the app then renders.
@@ -269,10 +271,20 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, machine = 
     const ownKey = stableKey([savedRecord.id, savedRecord.location, savedRecord.manpower, savedRecord.result, savedRecord.events]);
 
     return async () => {
-      await onMutate(buildMutationEnvelope({
-        entityType: "shiftReport", operation: existedAtSave ? "update" : "create",
-        machine: machineAtSave, recordId: id, payload, syncMeta,
-      }));
+      try {
+        await onMutate(buildMutationEnvelope({
+          entityType: "shiftReport", operation: existedAtSave ? "update" : "create",
+          machine: machineAtSave, recordId: id, payload, syncMeta,
+        }));
+      } catch (error) {
+        // Nothing was queued, so nothing is on its way: leave the key clean or the retry this app's
+        // own message asks for composes an UPDATE for a row that does not exist. GAS answers that
+        // with a terminal `SYNC_RECORD_NOT_FOUND`, which takes the head of this report's domain and
+        // never yields — no retry, no re-type and no reload gets past it, and `shiftReport` has no
+        // delete to recover with. A storage hiccup on a new report would cost the whole shift.
+        if (composedCreate) composedCreateFor.delete(keyAtSave);
+        throw error;
+      }
       // Only speak for the form if it is still showing this report AND still holding what was sent.
       // Both conditions matter. The crew may have moved to another date, shift or machine, where
       // clearing the dirty flag would invite the next snapshot to load over what they typed there.

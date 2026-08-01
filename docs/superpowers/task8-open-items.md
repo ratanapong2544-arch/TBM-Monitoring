@@ -83,6 +83,12 @@ why prod is clean today. It is not an invariant:
 A repaired sheet is a moment, not a guarantee. The client no longer relies on one; the server still
 does. Belongs with item 1 on the deployment that opens the gate.
 
+**The client refuses this in ONE view.** `SegmentRecordView` now refuses a save whose record id names
+more than one row, because it would land on a ring the crew is not looking at. `SegmentDashboardView`
+queues its edits and deletes by record id with no such check — and those are the paths that can reach
+all sixteen duplicate-id rows on the captured sheet today. The deployment that closes this item
+should know both call sites exist.
+
 ## 3. Two rows of one ring cannot both hold a queued edit — CLOSED
 
 The optimistic entity was keyed per DOMAIN, so two records sharing a ring shared one local copy: the
@@ -384,6 +390,13 @@ into the stored snapshot when it does.
 - **`__resetShiftSaveStateForTests` survived Step 4's delete list** along with the draft-id map it
   now exists to clear. The name still says "shift save state", which is the bookkeeping the step
   deleted; what it resets is the map the same step's exception keeps.
+- **The shift-report "create already composed" set survives too** — the second of the three things
+  Step 4's delete list names. The step's rationale for deleting it, that "the per-domain ordering
+  makes a second send an update rather than an append", is wrong: ordering decides when a send goes,
+  never what it is, and `operation` is frozen when a save is composed. Two saves started before the
+  first one's row comes back both filed a create, the second posted base 0 against a row that by then
+  existed, and it parked at `conflict` — head of that report's domain, unresolvable before Task 10.
+  It is released when a save fails, since nothing was queued then and the retry has to be a create.
 - **The shift-report draft-id map survives**, against Step 4's delete list. Without it a remount
   mints a new id, which files a second report for one shift. Its three regression tests are in
   `shiftReportMidEdit.test.jsx`.

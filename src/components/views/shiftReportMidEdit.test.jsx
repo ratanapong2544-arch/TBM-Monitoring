@@ -754,3 +754,38 @@ test("switching to a different shift loads that shift's own report", () => {
   expect(form.value("Engineer")).toBe("");
   form.unmount();
 });
+
+test("a save that never reached the queue leaves the next one free to create the report", async () => {
+  // The in-flight marker that stops two overlapping saves both filing a create is added BEFORE the
+  // await, which is the point — but a save that throws never queued anything, and leaving the key
+  // marked made every later save compose an UPDATE for a row that does not exist. GAS answers that
+  // with a terminal SYNC_RECORD_NOT_FOUND; it takes the head of this report's domain and never
+  // yields, and `shiftReport` has no delete to recover with. One storage hiccup on a new report
+  // would cost the whole shift — and this app's own message asks the crew to press Save again.
+  const sent = [];
+  let failNext = true;
+  onMutateOverride = envelope => {
+    sent.push(envelope);
+    if (failNext) { failNext = false; return Promise.reject(new Error("QuotaExceededError")); }
+    return Promise.resolve({});
+  };
+  const alerted = jest.spyOn(window, "alert").mockImplementation(() => {});
+  try {
+    const form = render(view());
+    const save = async () => act(async () => {
+      [...form.container.querySelectorAll("button")].find(b => /Save to Cloud/.test(b.textContent))
+        .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    type(form.container, "Engineer", "3");
+    await save();
+    type(form.container, "Engineer", "4");
+    await save();
+
+    expect(sent.map(envelope => envelope.operation)).toEqual(["create", "create"]);
+    expect(sent[1].recordId).toBe(sent[0].recordId); // still the same report, not a second one
+    form.unmount();
+  } finally {
+    alerted.mockRestore();
+  }
+});

@@ -1,5 +1,6 @@
 import { domainKeyForRow, isOptimisticKey, optimisticRecordIdOf, QUEUE_STAMPED_KEYS, rowIdOf, serverEntityKey } from "./entityKeys";
 import { toSyncVersion } from "./syncVersion";
+import { applyServerRows } from "./serverDeletions";
 import { emptyServerData } from "./normalizeServerData";
 import { isTerminalStatus, MUTATION_STATUS, STORES } from "./schema";
 
@@ -14,6 +15,11 @@ const singletonKeys = ["planConfig", "distPlanConfig", "routeConfigs", "routePro
 // entities whose sheet (and therefore whose getData payload) is per machine; everything else is
 // returned project-wide, so an unsynced record of any machine belongs in the list
 const MACHINE_SCOPED_COLLECTIONS = new Set(["segment", "grout", "secondaryGrout", "shiftReport"]);
+// The collections whose emptiness App refuses to read as a deletion (`applyServerRows`). The stored
+// snapshot has to refuse it too: since Task 9 Step 5 retired their localStorage copies this IS the
+// durable one, and a rule enforced on the screen but not on the cache lasts until the next launch.
+// The four machine-scoped collections are not here — they are server-authoritative wholesale.
+const GUARDED_COLLECTIONS = new Set(["issue", "dailyReport", "prepTask", "instLocation", "instrument", "instThreshold", "instReading", "instSchedule"]);
 // Every status that is not finished. `PERMANENT_ERROR` was missing, so a permanently-refused row
 // stayed on screen only through `preserveLocal`'s third disjunct, which reads the STORED
 // `syncStatus` — and that still says "pending" (open item 3d). Closing 3d would then have deleted
@@ -249,9 +255,20 @@ export async function writeServerSnapshot(db, machine, data, fetchedAt, requeste
   const entityKeys = {};
   const committed = emptyServerData(machine);
 
+  // What the previous snapshot held for a field, as payloads — the "previous" side of the same
+  // `applyServerRows` rule App applies to its state.
+  const cachedByKey = new Map(existing.map(record => [record.key, record]));
+  const cachedPayloads = field => ((previous && previous.entityKeys && previous.entityKeys[field]) || [])
+    .map(key => cachedByKey.get(key)).filter(Boolean).map(record => record.payload);
+
   collections.forEach(([field, entityType]) => {
     const seenIds = new Set();
-    const incoming = (data[field] || []).map((payload, index) => recordFor(machine, field, entityType, payload, index, seenIds));
+    // One rule, one function, both sides of the seam: an empty collection removes only what the
+    // server has tombstoned. Anything else it carries is authoritative.
+    const rows = GUARDED_COLLECTIONS.has(entityType)
+      ? applyServerRows(entityType, data[field] || [], cachedPayloads(field), data.syncMeta, machine)
+      : (data[field] || []);
+    const incoming = rows.map((payload, index) => recordFor(machine, field, entityType, payload, index, seenIds));
     // One rule, applied per ROW. Every incoming row keeps its place unless this device holds a
     // queued copy OF THAT ROW, in which case the crew's copy is shown; and every local copy the
     // response does not carry is appended, because the sheet may not show it yet (recorded offline)
@@ -338,7 +355,17 @@ export async function writeServerSnapshot(db, machine, data, fetchedAt, requeste
   });
 
   const snapshot = { scopeKey: scopeKey(machine), machine, fetchedAt, entityKeys };
-  singletonKeys.forEach(key => { snapshot[key] = data[key]; committed[key] = data[key]; });
+  // A config singleton is the same question with no collection to count: a response that did not
+  // carry one must not blank the one the crew has. `routeProjectTotal`, `machineProgress` and
+  // `syncMeta` follow the same rule for the same reason — `syncMeta` is overwritten just below by
+  // the merge that keeps the higher version of each key.
+  singletonKeys.forEach(key => {
+    const value = data[key] == null || (key === "routeConfigs" && !Object.keys(data[key]).length)
+      ? (previous ? previous[key] : data[key])
+      : data[key];
+    snapshot[key] = value;
+    committed[key] = value;
+  });
   const mergedSyncMeta = mergeSyncMeta(previous, data);
   snapshot.syncMeta = mergedSyncMeta;
   committed.syncMeta = mergedSyncMeta;

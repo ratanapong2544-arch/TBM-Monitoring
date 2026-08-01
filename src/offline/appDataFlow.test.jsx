@@ -969,3 +969,35 @@ test("a prep task tombstoned on the machine the payload does not carry still lea
   expect(app.text()).not.toContain("งานเตรียม TBM2");
   app.unmount();
 });
+
+test("an instrument family the server tombstones leaves the screen, and an empty one does not", async () => {
+  // `mirrorInst` is five call sites of one rule, and all five were unasserted: replacing them with a
+  // wholesale set stayed green. The instrument module is 245 instruments and 731 readings.
+  let answer;
+  const repository = makeRepository({
+    load: async machine => ({
+      data: cached(machine, {
+        instLocations: [{ id: "L1", name: "IS2 Shaft" }, { id: "L2", name: "IS1 Shaft" }],
+      }),
+      source: "indexeddb", fetchedAt: "x", stale: true,
+    }),
+    refresh: machine => new Promise(resolve => {
+      answer = () => resolve({
+        data: snapshot(machine, { instLocations: [], syncMeta: { "instLocation:GLOBAL:L2": { version: 3, deleted: true } } }),
+        source: "server", fetchedAt: "x", stale: false,
+      });
+    }),
+  });
+
+  const app = renderApp(repository);
+  await act(async () => {});
+  const button = pattern => [...app.container.querySelectorAll("button")].find(b => pattern.test(b.textContent));
+  await act(async () => { button(/Instrument/).dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+  expect(app.text()).toContain("IS2 Shaft");
+
+  await act(async () => { answer(); });
+
+  expect(app.text()).toContain("IS2 Shaft"); // an empty response takes nothing off
+  expect(app.text()).not.toContain("IS1 Shaft"); // the tombstoned one goes
+  app.unmount();
+});

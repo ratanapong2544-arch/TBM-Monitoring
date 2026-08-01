@@ -683,3 +683,51 @@ test("refreshing one machine does not take a confirmed project-wide record off t
 
   expect((await repository.load("TBM2")).data.issues.map(row => row.id)).toEqual(["iss_x"]);
 });
+
+test("a response that carries no rows for a collection does not empty the stored snapshot", async () => {
+  // App refuses to let an empty list take a record off screen — `applyServerRows`, the tombstone
+  // rule. `writeServerSnapshot` had no such rule and replaced each collection wholesale, so the
+  // DURABLE copy was emptied while the screen kept the rows, and the next launch read the empty one.
+  // Both mechanisms are real: `getSheetDataAsJson` returns [] for a sheet that does not exist, and
+  // doGet calls `ensureSheet_` for none of the five Inst_* sheets; an older deployment omits the key
+  // entirely and `normalizeServerData` maps that to [] too.
+  let carried = true;
+  const repository = makeRepository({
+    fetchServerSnapshot: async machine => (carried
+      ? {
+        status: "success", segments: [], machine,
+        issues: [{ id: "iss_1", title: "รอ Platform", machine: "TBM1" }],
+        instLocations: [{ id: "L1", name: "IS2 Shaft" }],
+        routeConfigs: { TBM1: { legs: [{ order: "1.1", level: 2, name: "ช่วงที่บันทึกไว้", plannedDistance: 100 }] } },
+      }
+      : { status: "success", segments: [], machine }),
+  });
+  await repository.refresh("TBM1");
+
+  carried = false;
+  await repository.refresh("TBM1");
+
+  const relaunched = makeRepository({ fetchServerSnapshot: async () => { throw new Error("offline"); } });
+  const { data } = await relaunched.load("TBM1");
+  expect(data.issues.map(row => row.id)).toEqual(["iss_1"]);
+  expect(data.instLocations.map(row => row.id)).toEqual(["L1"]);
+  expect(data.routeConfigs.TBM1.legs[0].name).toBe("ช่วงที่บันทึกไว้");
+});
+
+test("a row the server tombstones is dropped from the stored snapshot", async () => {
+  // The other half: the guard must not become "nothing is ever removed". A tombstone is what says
+  // the row is gone, and it has to reach the durable copy too.
+  let tombstoned = false;
+  const repository = makeRepository({
+    fetchServerSnapshot: async machine => (tombstoned
+      ? { status: "success", segments: [], machine, issues: [], syncMeta: { "issue:GLOBAL:iss_1": { version: 2, deleted: true } } }
+      : { status: "success", segments: [], machine, issues: [{ id: "iss_1", title: "รอ Platform", machine: "TBM1" }] }),
+  });
+  await repository.refresh("TBM1");
+
+  tombstoned = true;
+  await repository.refresh("TBM1");
+
+  const relaunched = makeRepository({ fetchServerSnapshot: async () => { throw new Error("offline"); } });
+  expect((await relaunched.load("TBM1")).data.issues).toEqual([]);
+});

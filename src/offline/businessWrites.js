@@ -5,9 +5,12 @@ import { buildMutationEnvelope } from "./mutationEnvelope";
  * instrument readings and instrument schedules.
  *
  * `makeDomainKey` decides whether the key carries a machine or GLOBAL, so the caller does not:
- * `machine` is passed through untouched and only the machine-keyed families supply one. Passing a
- * machine for a project-wide family is harmless; withholding one from `dailyReport` is not, which
- * is why the daily-report call sites read it off the record itself.
+ * `machine` is passed through untouched. EVERY caller supplies one — `queueRecord` defaults to the
+ * machine on screen — and for a project-wide family that is not decoration but a SCOPE HINT: it is
+ * what lets `scopesFor` file the write into the snapshot of the machine the crew is looking at, and
+ * without it a record raised before that machine ever fetched is in the queue and on no screen.
+ * The key is unaffected — `makeDomainKey` still spells it GLOBAL for those families — and the
+ * record's own `machine` column is unaffected too, because `optimisticEntity` prefers it.
  *
  * It exists as its own function because two of its callers cannot be reached from the screen:
  * `handleUpdateInstrument` and `handleSaveInstReading` are wired to no view (open item 3s), so no UI

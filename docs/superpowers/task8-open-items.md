@@ -460,8 +460,9 @@ The moment a view is wired, an App-level test is owed.
 
 ## 3t. A machine with only a queued config says it is "showing saved data"
 
-`patchSnapshotConfig` synthesises a snapshot for a machine that has never refreshed, so a config
-written there survives a relaunch (that is the point). The synthesised scope has `entityKeys: {}`,
+Three paths now synthesise a snapshot for a machine that has never refreshed, so what is written
+there survives a relaunch (that is the point): `patchSnapshotConfig` for a config, `scopesFor` for
+any record, and `patchSnapshotSyncMeta` for a confirmed version (§5). The synthesised scope has `entityKeys: {}`,
 so `readServerSnapshot` returns non-null, `repository.load` reports `source: "indexeddb"`, App
 suppresses the load error and shows "ออฟไลน์ — แสดงข้อมูลที่บันทึกไว้" over empty lists.
 
@@ -500,8 +501,10 @@ list of reasons rather than a number, and the reasons are what matter.
   Same rule as the collection `.length` guards, whose reasoning is in `serverDeletions.js`; a config
   has no tombstone, so a real absence cannot be told from a partial response and the conservative
   direction is all there is.
-- `planConfigFor`'s defaults and `distancePlanFor`'s `ranges` normalisation reduced to identity, and
-  `PrepGanttView`'s batch-failure count. Cosmetic if wrong.
+- `planConfigFor`'s defaults, `distancePlanFor`'s `ranges` normalisation and `routeConfigFor`'s
+  `Array.isArray(cfg.legs)` shape check reduced to identity, and `PrepGanttView`'s batch-failure
+  count. All three shape helpers were extracted together and none is pinned; a malformed stored
+  route config renders an empty table rather than the seed, which degrades rather than crashes.
 
 **Was unpinned, now pinned** (kept so the next reviewer does not re-derive them): App's
 `machine = activeMachine` scope default, App's per-machine `distPlanConfig` into `RouteScheduleView`,
@@ -567,12 +570,15 @@ claim before trusting it.** An earlier version of this section said the `Date.pa
 the first, is where it bites) and it now has a test. A note that discourages testing a reachable
 data-loss path is worse than no note.
 
-- `mutationStore.js` — `patchSnapshotSyncMeta`'s scope bootstrap cannot fire while `patchSnapshotKeys`
-  creates the scope first. **It will not earn its place with Task 9's project-wide entities either**,
-  and the earlier claim that it would was wrong: `scopesFor` returns early on `!machineScoped`, so
-  for a project-wide entity on a device holding no snapshot the bootstrap is unreachable by
-  construction and the confirmed version is simply dropped. Task 9 needs a different change — a
-  machineless scope has no scope key to be created under, which is a design question that task owns.
+- `mutationStore.js` — `patchSnapshotSyncMeta`'s scope bootstrap. **Reachable as of Task 9, and the
+  note that said otherwise was measured wrong twice.** It cannot fire while `patchSnapshotKeys`
+  creates the scope first — still true — and the claim that a project-wide entity could never reach
+  it rested on `scopesFor` returning early on `!machineScoped`, which Task 9 deleted: it now asks
+  whether THIS machine has a snapshot and synthesises one if not. The path that reaches the
+  bootstrap is a project-wide DELETE on a machine that has never fetched: `patchSnapshotKeys` skips
+  its `put` when the delete removes nothing from an empty list, so the confirmation is what creates
+  `getData:<machine>` — `entityKeys: {}`, `fetchedAt: null`, and the tombstoned version kept rather
+  than dropped. The change this note said Task 9 would need is the change Task 9 made.
 - `App.jsx` — the photo strip on the snapshot mirror is invisible to the DOM: carrying the bytes and
   dropping them render identically. The rule is tested on the reducer in `displayRecord.test.js`.
 - `OfflineProvider.jsx` — the shallow-equal bail in `refreshSummary` keeps the previous summary

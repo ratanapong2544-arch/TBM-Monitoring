@@ -575,3 +575,38 @@ test("a route config edited offline is still on the page after leaving and comin
   expect(view.container.textContent).toContain("ช่วงที่แก้ตอนออฟไลน์");
   view.unmount();
 });
+
+test("a plan config saved offline is still on the page after leaving and coming back", async () => {
+  const mutate = jest.fn(async input => ({ optimisticRecord: { ...input.payload, id: input.recordId } }));
+  const view = await settle(renderApp({ planConfig: { basePlanAcc: 1, ranges: [] } }, { mutate }));
+
+  await navigate(view.container, /Segment Trend/);
+  await click(byTitle(view.container, "Plan Settings"));
+  type(view.container, 'input[type="number"]', "987");
+  await click(button(view.container, /บันทึกการตั้งค่า/));
+
+  await navigate(view.container, /Performance/);
+  await navigate(view.container, /Segment Trend/);
+  await click(byTitle(view.container, "Plan Settings"));
+
+  expect([...view.container.querySelectorAll('input[type="number"]')].some(i => i.value === "987")).toBe(true);
+  view.unmount();
+});
+
+test("a distance plan saved offline is still on the page after leaving and coming back", async () => {
+  const mutate = jest.fn(async input => ({ optimisticRecord: { ...input.payload, id: input.recordId } }));
+  const view = await settle(renderApp({ distPlanConfig: { ranges: [] } }, { mutate }));
+
+  await navigate(view.container, /Route & Schedule/);
+  await click(byTitle(view.container, "Distance Plan Settings"));
+  await click(button(view.container, /เพิ่มช่วง/));
+  type(view.container, 'input[type="month"]', "2026-09");
+  await click(button(view.container, /บันทึกการตั้งค่า/));
+
+  await navigate(view.container, /Performance/);
+  await navigate(view.container, /Route & Schedule/);
+  await click(byTitle(view.container, "Distance Plan Settings"));
+
+  expect([...view.container.querySelectorAll('input[type="month"]')].some(i => i.value === "2026-09")).toBe(true);
+  view.unmount();
+});

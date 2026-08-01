@@ -527,3 +527,30 @@ test("a config edited offline is still there after a relaunch", async () => {
   expect(data.planConfig.basePlanAcc).toBe(240);
   expect(data.distPlanConfig.ranges).toEqual([{ start: "2026-08", end: "2026-12", monthlyPlan: 180 }]);
 });
+
+test("a config edited on a machine that has never been online is still there after a relaunch", async () => {
+  // `scopesFor` synthesises a snapshot for a machine-scoped COLLECTION written before that machine
+  // has ever refreshed; the config types are not machine-scoped collections, so the config patch
+  // iterated an empty list and wrote nowhere. The crew can reach the Route page on a machine that
+  // has never loaded — the load-failure banner is additive, every view still renders under it — and
+  // with no snapshot `routeConfigFor` falls back to `DEFAULT_ROUTE_LEGS`, showing factory distances
+  // as their saved route.
+  const offline = makeRepository({ fetchServerSnapshot: async () => { throw new Error("offline"); } });
+
+  await offline.mutate(buildMutationEnvelope({
+    entityType: "routeConfig", operation: "update", machine: "TBM2", recordId: "TBM2",
+    payload: { routeConfig: { legs: [{ order: "2.1", level: 2, name: "ช่วงของ TBM2", plannedDistance: 4700 }] } },
+    syncMeta: {},
+  }));
+  await offline.mutate(buildMutationEnvelope({
+    entityType: "planConfig", operation: "update", machine: "TBM2", recordId: "TBM2",
+    payload: { planConfig: { basePlanAcc: 55, ranges: [] } },
+    syncMeta: {},
+  }));
+
+  const relaunched = makeRepository({ fetchServerSnapshot: async () => { throw new Error("offline"); } });
+  const { data } = await relaunched.load("TBM2");
+
+  expect(data.routeConfigs.TBM2.legs[0].name).toBe("ช่วงของ TBM2");
+  expect(data.planConfig.basePlanAcc).toBe(55);
+});

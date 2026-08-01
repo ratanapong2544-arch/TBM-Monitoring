@@ -43,7 +43,15 @@ function scopesFor(stored, mutation) {
 // config at all, `DEFAULT_ROUTE_LEGS` standing in for the route the crew had saved (open item 3o).
 function patchSnapshotConfig(snapshots, stored, mutation) {
   const recordMachine = String(mutation.domainKey).split(":")[1];
-  stored.forEach(snapshot => {
+  // A machine whose first refresh has not happened has no snapshot, and a config written to it would
+  // land nowhere — `scopesFor` synthesises a scope for a machine-scoped COLLECTION in that state,
+  // but the config types are not collections, so they fell through it. The crew can reach the Route
+  // page on such a machine (the load-failure banner is additive, every view renders under it), and
+  // with no snapshot `routeConfigFor` shows `DEFAULT_ROUTE_LEGS` in place of what they saved.
+  const scopes = recordMachine && !stored.some(snapshot => snapshot.machine === recordMachine)
+    ? [...stored, { scopeKey: snapshotScopeKey(recordMachine), machine: recordMachine, fetchedAt: null, entityKeys: {} }]
+    : stored;
+  scopes.forEach(snapshot => {
     const applied = applyConfigToSnapshot(snapshot, mutation.entityType, mutation.payload, recordMachine, snapshot.machine);
     if (applied) snapshots.put(snapshot);
   });

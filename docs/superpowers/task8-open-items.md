@@ -328,7 +328,7 @@ whose stored machine is not one of the known ones, and `domainKeyForRow` reads a
 `dailyReport:TBM1:d3` on TBM1 and `dailyReport:TBM2:d3` on TBM2. A copy queued on one machine is
 then appended beside the server row on the other rather than replacing it.
 
-Unreachable in Task 8: neither type is queued, so nothing builds an optimistic copy of one. It is
+The WRITE side is closed by Task 9 — `PrepGanttView` stamps the machine it is showing (pinned) and the daily-report handlers stamp `saved.machine || activeMachine`. The READ-side decision this item asks for (what a blank `machine` cell means when the sheet already holds one) was NOT made and is still open. Originally: unreachable because neither type was queued, so nothing builds an optimistic copy of one. It is
 not a regression either — `recordFor` has always read `payload.machine || machine`. Task 9 queues
 both types, and has to decide what a blank machine cell means before it does: either it is data (and
 the row belongs to no machine, which `makeDomainKey` spells GLOBAL) or it is missing (and the row
@@ -349,7 +349,7 @@ fourteen `*_HEADERS` lists in `gas-live/Code.js`, and `ensureHeaders_` only ever
 
 **But a header column is not the only way in: see 3n.** The two JSON-blob entities store the whole
 payload in one cell, so a `recordId` the queue injected comes back as a row-level field with no
-column involved. 3m is safe today because neither of those types is queued yet; 3n is the same trap
+column involved. 3m is safe now for a different reason than it was written with: the write side strips `recordId`, and the `recordId` a confirmed payload carries is read the same way by the screen (`optimisticRecordIdOf`) and by the merge, because the key is the optimistic one. That is what the round-2 quality fix bought — before it, a confirmed config had no id and no slot at all; 3n is the same trap
 seen from the other end.
 
 Recorded because the two halves genuinely ask the question differently, and the reason that is safe
@@ -363,7 +363,7 @@ already re-post the on-screen row as the next save's payload, and for a queued r
 optimistic payload, which carries `recordId`, `entityType`, `machine`, `domainKey`, `version` and
 `syncStatus`.
 
-Harmless today: neither type is queued, and the four core sheets are header-mapped so GAS drops the
+CLOSED by Task 9 for the five keys `optimisticEntity` stamps — `buildMutationEnvelope` strips them for every family through `withoutQueueStamps`. `confirmMutation` also stamps `updatedAt` and `updatedByDevice`, which are NOT stripped: `updatedAt` is genuine business data for `issue`, and nothing on the read side reads either (`preserveLocal`, `normalizeServerData`, `domainKeyForRow`, `applyOptimisticRow` were each checked). Recorded so the next person does not have to re-derive that. Originally: harmless because neither type was queued, and the four core sheets are header-mapped so GAS drops the
 extra keys. The moment Task 9 queues `prepTask`, they land in the `json` cell and echo back through
 `getJsonRows_` unfiltered — `normalizeServerData` whitelists `dailyReports` and not `prepTasks`.
 `snapshotStore.INJECTED_PAYLOAD_KEYS` already solves exactly this for the config singletons and is
@@ -470,15 +470,30 @@ crew cannot tell it from a machine whose data is genuinely cached. Telling them 
 snapshot to carry "never fetched" — `fetchedAt: null` already says it, and nothing reads it that way
 — which belongs with Task 10's status work rather than here. Same family as 3e.
 
-## 3u. Two rules on this branch cannot be pinned, and both are unreachable rather than untested
+## 3u. Four rules on this branch are not pinned, and each for its own reason
 
-- **`RouteScheduleView`'s `if (!routeEditing)` guard.** The editor renders `routeDraft`, a separate
-  state the guard does not touch, so a config arriving mid-edit is invisible either way. The guard
-  is kept because it stops the table behind the editor jumping, and that is not observable in jsdom.
-  A test asserting the draft survives passes with the guard removed — it was written, found vacuous,
-  and deleted rather than left green.
-- **`applyOptimisticRecord`'s `record.machine || activeMachineRef.current`.** A config envelope is
-  always built by the view showing that machine, so the two are equal in every reachable path.
+- **`RouteScheduleView`'s `if (!routeEditing)` guard** — unpinnable. The editor renders `routeDraft`,
+  separate state the guard never touches, so a config arriving mid-edit is invisible either way. A
+  test asserting the draft survives passes with the guard removed; it was written, found vacuous and
+  deleted rather than left green. The guard stays because it stops the table behind the editor
+  jumping, which jsdom cannot see.
+- **`applyOptimisticRecord`'s `record.machine || activeMachineRef.current`** — unreachable. A config
+  envelope is always built by the view showing that machine, so the two are equal on every path.
+- **`mutateBusinessRecord`'s `!input.machine ||` disjunct** — unreachable today. Every family with a
+  setter supplies a machine; the disjunct exists so a future project-wide family that needs a mirror
+  is not skipped in silence.
+- **App's wiring of `distPlanConfig` into `ExecutiveDashboardView`** — pinnable in principle, not
+  pinned at App level. The rule itself IS pinned at the view
+  (`ExecutiveDashboardView.planVariance.test.jsx`: the figure appears with the prop and goes when it
+  is null), but an App-level test has to render the Executive page, which lazily imports the 3D
+  alignment map — WebGL, `URL.createObjectURL`, `TextDecoder` — and mocking the map inside the App
+  harness would change what every other test in that file exercises. What is unasserted is the one
+  line handing the prop over.
+
+The two `if (data.planConfig)` / `if (data.distPlanConfig)` null-blanking guards in `App.jsx` are
+also unpinned; they are the same rule as the collection `.length` guards, whose reasoning is in
+`serverDeletions.js`, and a config has no tombstone to distinguish a real absence from a partial
+response. Left as the conservative direction.
 
 ## 4. Deliberate deviations from the plan
 

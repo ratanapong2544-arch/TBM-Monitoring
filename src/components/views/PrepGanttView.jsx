@@ -115,13 +115,28 @@ const PrepGanttView = ({ machine = "TBM1", readOnly = false, onMutate, syncMeta,
   const showRows = (next) => setTasks(next);
   // `machine` comes from the view, not from the row: `prepTask` is machine-keyed AND returned
   // project-wide, so one list holds both machines' rows and the key has to name the one on screen.
+  // Returns a promise so a batch can be reported ONCE. Set Baseline queues one write per leaf, and
+  // alerting per rejection put one blocking modal per task on the phone — after an IndexedDB-blocked
+  // upgrade, which is the case the catch was written for, the crew dismisses the whole plan one at
+  // a time and it reads as a hang.
   const queueTask = (row, operation) => {
-    if (!onMutate) return;
-    // caught, not dropped: the queue is the only durable copy since Task 9 Step 5, so a rejection
-    // that says nothing is a task the crew watched appear and that exists nowhere
-    Promise.resolve(onMutate(buildMutationEnvelope({
+    if (!onMutate) return Promise.resolve();
+    return Promise.resolve(onMutate(buildMutationEnvelope({
       entityType: "prepTask", operation, machine, recordId: row.id, payload: { ...row, machine }, syncMeta,
-    }))).catch((error) => { alert("บันทึกงานเตรียมลงคิวไม่สำเร็จ: " + (error && error.message ? error.message : error)); });
+    })));
+  };
+  // caught, not dropped: the queue is the only durable copy since Task 9 Step 5, so a rejection that
+  // says nothing is a task the crew watched appear and that exists nowhere
+  const queueTasks = (rows, operation) => {
+    Promise.allSettled(rows.map((row) => queueTask(row, operation))).then((results) => {
+      const failed = results.filter((result) => result.status === "rejected");
+      if (!failed.length) return;
+      const reason = failed[0].reason;
+      const detail = reason && reason.message ? reason.message : reason;
+      alert(failed.length === 1
+        ? `บันทึกงานเตรียมลงคิวไม่สำเร็จ: ${detail}`
+        : `บันทึกงานเตรียมลงคิวไม่สำเร็จ ${failed.length} งาน: ${detail}`);
+    });
   };
   const submit = (form) => {
     // จด plog ด้วยวันจริงเสมอ (ไม่ใช่ viewDate) — การเขียนข้อมูลใช้ tasks จริง
@@ -131,13 +146,13 @@ const PrepGanttView = ({ machine = "TBM1", readOnly = false, onMutate, syncMeta,
     // The queue owns durability now: the task is on this device before this resolves, and
     // `baseVersion` lets the server refuse an edit made against a row that has since moved on. The
     // `.catch(console.warn)` this replaced meant a failed write was a line in a console nobody reads.
-    if (saved) queueTask(saved, form.id ? "update" : "create");
+    if (saved) queueTasks([saved], form.id ? "update" : "create");
     setModal({ open: false, editing: null });
   };
   const del = (id) => {
     const removed = tasks.find((t) => t.id === id);
     showRows(removePrepTask(tasks, id));
-    if (removed) queueTask(removed, "delete");
+    if (removed) queueTasks([removed], "delete");
     setModal({ open: false, editing: null });
   };
 
@@ -148,12 +163,11 @@ const PrepGanttView = ({ machine = "TBM1", readOnly = false, onMutate, syncMeta,
     const baselined = new Map(setBaseline(leaves).map((t) => [t.id, t]));
     const next = tasks.map((t) => baselined.get(t.id) || t);
     showRows(next);
-    // One mutation per CHANGED task — not one batch, and not one per row on the page. The queue
-    // orders per record, so a task the server refuses strands only itself; a batch would make every
-    // task one record, and queueing the untouched parents (their baseline is derived from their
-    // children at render) would fill a link that sends one request at a time with writes that
-    // change nothing.
-    baselined.forEach((t) => queueTask(t, "update"));
+    // One mutation per LEAF — not one batch, and not one per row on the page. The queue orders per
+    // record, so a task the server refuses strands only itself; a batch would make every task one
+    // record, and queueing the parents (whose baseline is derived from their children at render)
+    // would fill a link that sends one request at a time with writes that change nothing.
+    queueTasks([...baselined.values()], "update");
   };
 
   const axisStart = bounds ? addDays(bounds.minDate, -2) : today;

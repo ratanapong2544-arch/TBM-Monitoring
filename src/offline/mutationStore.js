@@ -125,7 +125,7 @@ function patchSnapshotSyncMeta(snapshots, stored, mutation, version, deleted) {
   });
 }
 
-function optimisticEntity(mutation, status = mutation.status) {
+export function optimisticEntity(mutation, status = mutation.status) {
   return {
     key: optimisticEntityKey(mutation.domainKey, mutation.recordId),
     entityType: mutation.entityType,
@@ -135,7 +135,12 @@ function optimisticEntity(mutation, status = mutation.status) {
       ...mutation.payload,
       recordId: mutation.recordId,
       entityType: mutation.entityType,
-      machine: mutation.machine,
+      // The record's own tag wins when the envelope carries none. A project-wide family — `issue`
+      // most of all — is queued with no machine on purpose, because its key is GLOBAL; stamping that
+      // absence over the row's own `machine` column erased it, and `forMachine` reads a missing
+      // machine as TBM1. An issue tagged TBM2 or ทั้งโครงการ, edited underground, moved onto TBM1
+      // on the next relaunch and could be re-tagged there for good.
+      machine: mutation.machine ?? (mutation.payload && mutation.payload.machine),
       domainKey: mutation.domainKey,
       version: mutation.baseVersion,
       syncStatus: status,

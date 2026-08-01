@@ -1,5 +1,8 @@
 import "fake-indexeddb/auto";
 if (!global.structuredClone) global.structuredClone = value => JSON.parse(JSON.stringify(value));
+// jsdom has no TextDecoder/TextEncoder, and the Executive Dashboard lazily imports maplibre-gl,
+// which needs them the moment that page renders.
+if (!global.TextDecoder) { const util = require("util"); global.TextDecoder = util.TextDecoder; global.TextEncoder = util.TextEncoder; }
 
 import React from "react";
 import { createRoot } from "react-dom/client";
@@ -747,4 +750,48 @@ test("Set Baseline writes the tasks it actually changed, not every row on the pa
   } finally {
     confirmed.mockRestore();
   }
+});
+
+test("a prep task the queue refuses is said out loud, once for a batch", async () => {
+  // The sibling of App's queue-failure alert, and the one the round-1 fix left unpinned. Set
+  // Baseline queues one write per leaf, so a per-rejection alert is one blocking modal per task on
+  // a phone — after exactly the failure the catch exists for.
+  const alerted = jest.spyOn(window, "alert").mockImplementation(() => {});
+  const rejecting = jest.fn(async () => { throw new Error("IndexedDB upgrade blocked by another tab"); });
+  const confirmed = jest.spyOn(window, "confirm").mockReturnValue(true);
+  try {
+    seedTasks([
+      task("prep_1", "ลูกที่หนึ่ง", { machine: "TBM1" }),
+      task("prep_2", "ลูกที่สอง", { machine: "TBM1" }),
+    ]);
+    const view = render(<PrepGanttView machine="TBM1" tasks={machineTasks("TBM1")} onMutate={rejecting} syncMeta={{}} />);
+
+    await click(button(view.container, /Set Baseline/));
+    await act(async () => {});
+
+    expect(rejecting).toHaveBeenCalledTimes(2);
+    expect(alerted).toHaveBeenCalledTimes(1);
+    expect(alerted).toHaveBeenCalledWith(expect.stringContaining("IndexedDB upgrade blocked by another tab"));
+    view.unmount();
+  } finally {
+    alerted.mockRestore();
+    confirmed.mockRestore();
+  }
+});
+
+test("a distance plan arriving while its modal is open does not take the draft away", async () => {
+  // The sibling guard of the plan-settings one, and the only mid-edit guard on this branch that is
+  // both real and pinnable — the route-editor guard is neither (open item 3u).
+  const view = render(<RouteScheduleView segmentRecords={[]} projectInfo={projectInfo} machine="TBM1"
+    distPlanConfig={{ ranges: [] }} onMutate={onMutate} syncMeta={{}} />);
+
+  await click(byTitle(view.container, "Distance Plan Settings"));
+  await click(button(view.container, /เพิ่มช่วง/));
+  type(view.container, 'input[type="month"]', "2026-09");
+  view.rerender(<RouteScheduleView segmentRecords={[]} projectInfo={projectInfo} machine="TBM1"
+    distPlanConfig={{ ranges: [{ start: "2020-01", end: "2020-02", monthlyPlan: 1 }] }} onMutate={onMutate} syncMeta={{}} />);
+
+  expect([...view.container.querySelectorAll('input[type="month"]')].some(i => i.value === "2026-09")).toBe(true);
+  expect([...view.container.querySelectorAll('input[type="month"]')].some(i => i.value === "2020-01")).toBe(false);
+  view.unmount();
 });

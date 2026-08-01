@@ -4,6 +4,7 @@ import { deleteOfflineDbForTests, openOfflineDb } from "./db";
 import { buildMutationEnvelope } from "./mutationEnvelope";
 import { applyOptimisticRow } from "./displayRecord";
 import { createRepository } from "./repository";
+import { optimisticEntity } from "./mutationStore";
 
 beforeEach(async () => { await deleteOfflineDbForTests(); });
 afterEach(async () => { await deleteOfflineDbForTests(); });
@@ -587,4 +588,19 @@ test("a config confirmed while a refresh is in flight is not reverted by the old
   const { data } = await inFlight;
 
   expect(data.planConfig.basePlanAcc).toBe(240);
+});
+
+test("a project-wide record keeps its own machine tag when it is queued", () => {
+  // `optimisticEntity` stamps `machine: mutation.machine`, and an `issue` envelope deliberately
+  // carries none — the key is GLOBAL. The stamp then ERASED the record's own tag, and
+  // `forMachine` reads `i.machine || "TBM1"`: an issue tagged TBM2 or ทั้งโครงการ, edited
+  // underground, moves onto TBM1 on the next relaunch. Edit it from there and the form posts
+  // `machine: "TBM1"` into the sheet's own column, permanently, for every device.
+  const optimistic = optimisticEntity({
+    entityType: "issue", operation: "update", machine: undefined,
+    recordId: "iss_1", domainKey: "issue:GLOBAL:iss_1",
+    payload: { id: "iss_1", title: "รอ Platform", machine: "TBM2" },
+  });
+
+  expect(optimistic.payload.machine).toBe("TBM2");
 });

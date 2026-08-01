@@ -20,17 +20,27 @@ const stableKey = (value) => {
 // view while its mutation is still queued, and a remounted form minting a fresh id would file a
 // second report for one shift. The queue owns everything else that used to live here — a deadline,
 // an unknown-outcome block, a per-report chain — because `requestId` makes a retry safe and the
-// per-domain ordering makes a second send an update rather than an append.
+// per-domain ordering keeps a second send BEHIND the first. It does not change what the second send
+// IS: `operation` is frozen when the save is composed, so two saves composed before either has come
+// back both say `create`, and `confirmMutation` deliberately never rebases a create — the second
+// posts base 0 against a row that now exists, parks at `conflict`, and blocks that report's domain
+// with no way to resolve it before Task 10. `composedCreateFor` below is what stops that.
 // The key is in the id because a clock reading alone is not unique enough to be an identity: two
 // reports first touched in the same millisecond — a different date or shift, so genuinely two rows —
 // would take the same id, and everything downstream that matches rows by id would fold them into one.
 const shiftDraftIds = new Map();
+// Report keys a create has already been COMPOSED for. `existingReportRef` only turns true once the
+// previous save's row has come back through App and re-rendered, and two saves can start inside that
+// window — Save to Cloud racing a time-bar auto-save, or two quick taps on a time bar, neither of
+// which is gated on `isSaving`. This is recorded synchronously, before the first await, so the
+// second save sees it however fast it follows.
+const composedCreateFor = new Set();
 const draftIdFor = (key) => {
   if (!shiftDraftIds.has(key)) shiftDraftIds.set(key, `shift_${Date.now()}_${String(key).replace(/[^\w-]+/g, "_")}`);
   return shiftDraftIds.get(key);
 };
 // module state persists across tests in one file, which would make them order-dependent
-export const __resetShiftSaveStateForTests = () => { shiftDraftIds.clear(); };
+export const __resetShiftSaveStateForTests = () => { shiftDraftIds.clear(); composedCreateFor.clear(); };
 
 const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, machine = "TBM1", isCurrentMachine, onMutate, syncMeta, readOnly = false }) => {
   const [isSaving, setIsSaving] = useState(false);
@@ -243,7 +253,10 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, machine = 
     // `id` came from `reportIdForSave()` two lines up, which reads this same ref in this same
     // synchronous block, so comparing them again could only ever be true — it read as a guard
     // against a stale id, which is the one thing it cannot be
-    const existedAtSave = Boolean(existingReportRef.current);
+    // ...or a create for this report was already composed and is still on its way. Recorded on the
+    // next line, synchronously, so the save that follows this one within the same tick sees it.
+    const existedAtSave = Boolean(existingReportRef.current) || composedCreateFor.has(keyAtSave);
+    if (!existedAtSave) composedCreateFor.add(keyAtSave);
     // Objects, not JSON strings. The one-shot write stringified these because GAS wanted text, but
     // the queue serializes the payload itself on the way out (`serializeSyncRowValues_` encodes each
     // cell once), and the SAME payload is what the snapshot store overlays and the app then renders.

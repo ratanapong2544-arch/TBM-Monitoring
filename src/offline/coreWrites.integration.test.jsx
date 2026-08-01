@@ -458,6 +458,47 @@ test("re-saving the open ring under a different number is refused", async () => 
   view.unmount();
 });
 
+test("re-saving the open ring is queued when its id names one row, and refused when it names four", async () => {
+  // The production sheet spreads one record id over four rings — `seg_1a2b3c4d5e6f` sits on P37,
+  // P41, P71 and P81. The form prefills the ring still In Progress, which is the LAST of them, and
+  // the identity lookup used to answer with the FIRST: the guard then compared two different rings
+  // and refused a save that renamed nothing, telling the crew to delete and re-record a ring — which
+  // per open item 1 would brick that ring number. The identity is the row the form loaded now.
+  //
+  // The save is still refused, for the real reason: GAS resolves by record id and takes the first
+  // match, so this write would land on a ring the crew is not looking at. The message says that.
+  const row = (ringNo, status) => ({ id: "seg_dup", ringNo, typeRing: "C1", keyPos: "16", startCH: "8+010.20", finishCH: "8+008.80", length: "1.40", status, installType: "Permanent" });
+  const alerts = [];
+  const alerted = jest.spyOn(window, "alert").mockImplementation(message => alerts.push(message));
+  try {
+    const unique = render(
+      <SegmentRecordView projectInfo={projectInfo} handleProjectInfoChange={noop} segmentRecords={[row("P81", "In Progress")]}
+        setCurrentModule={noop} setActiveTab={noop} machine="TBM1"
+        syncMeta={{ "segment:TBM1:P81:Permanent": { version: 3 } }} onMutate={onMutate} />
+    );
+    await submit(unique.container);
+    expect(onMutate).toHaveBeenCalledWith(expect.objectContaining({ domainKey: "segment:TBM1:P81:Permanent", operation: "update" }));
+    expect(alerts).toEqual([]);
+    unique.unmount();
+
+    onMutate.mockClear();
+    const shared = render(
+      <SegmentRecordView projectInfo={projectInfo} handleProjectInfoChange={noop}
+        segmentRecords={[row("P37", "Completed"), row("P41", "Completed"), row("P71", "Completed"), row("P81", "In Progress")]}
+        setCurrentModule={noop} setActiveTab={noop} machine="TBM1"
+        syncMeta={{ "segment:TBM1:P81:Permanent": { version: 3 } }} onMutate={onMutate} />
+    );
+    await submit(shared.container);
+    expect(onMutate).not.toHaveBeenCalled();
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0]).toContain("ซ้ำกันอยู่ 4 แถว");   // the real cause
+    expect(alerts[0]).not.toContain("แก้เลขริง");        // not "you renamed it"
+    shared.unmount();
+  } finally {
+    alerted.mockRestore();
+  }
+});
+
 // A test stood here driving the grout data log's ring field to prove the save refused a changed
 // ring. The field is gone — a control that can only ever be refused is worse than no control — so
 // the rule is pinned where it still applies: the field's absence, above, and the envelope builder's

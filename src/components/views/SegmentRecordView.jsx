@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect, useRef } from "react";
 import { Layers, ChevronRight, Save, Loader2, Camera, Clock } from "lucide-react";
 import { parseCH, formatCH } from "../../utils/formatters";
 import { offsetRingNo, calculateSoilVolume, handleFileUpload } from "../../utils/helpers";
-import { buildMutationEnvelope } from "../../offline/mutationEnvelope";
+import { AmbiguousRecordError, buildMutationEnvelope } from "../../offline/mutationEnvelope";
 import { SegmentedToggle } from "../../ui-ux-pro-max";
 import StickyActionBar from "../../ui-ux-pro-max/components/StickyActionBar";
 
@@ -113,6 +113,15 @@ const SegmentRecordView = ({ projectInfo, handleProjectInfoChange, segmentRecord
 
     try {
       recordData.id = isUpdate ? formData.id : `seg_${Date.now()}`;
+      // The rows this record id names. GAS resolves a write by id and takes the FIRST match, so an
+      // id the sheet holds twice would land this save on a row the crew is not looking at — the
+      // production sheet spreads one id over four rings. Refusing is the safe direction, and it also
+      // settles which row `identity` is: with one match there is no question, and with more than one
+      // nothing is queued. (The form prefills the LAST of them, so the re-identification guard used
+      // to compare two different rings and refuse a save that renamed nothing — telling the crew to
+      // delete and re-record a ring, which per open item 1 would brick that ring number.)
+      const sharing = isUpdate ? segmentRecords.filter(row => row.id === recordData.id) : [];
+      if (sharing.length > 1) throw new AmbiguousRecordError(recordData.id, sharing.length);
       // The queue owns durability and ordering: the record is on this device before this resolves,
       // and `baseVersion` lets the server refuse an edit made against a row that has since moved on.
       await onMutate(buildMutationEnvelope({
@@ -121,7 +130,7 @@ const SegmentRecordView = ({ projectInfo, handleProjectInfoChange, segmentRecord
         // re-saving the open ring: the crew can correct its number before saving, and a T-prefix
         // even flips installType on its own — both change the key, so the stored row goes along to
         // say whether this save re-identifies the record
-        identity: isUpdate ? segmentRecords.find(row => row.id === recordData.id) : null,
+        identity: isUpdate ? sharing[0] : null,
       }));
       // A save resolves seconds later, and the crew may have switched machine in between. The row is
       // App's to place and App withholds it; what this guard protects is the FORM, which by then
@@ -138,7 +147,7 @@ const SegmentRecordView = ({ projectInfo, handleProjectInfoChange, segmentRecord
           excavShift: projectInfo.shift, installShift: projectInfo.shift
         };
       });
-    } catch (err) { alert(err.code === "SYNC_REIDENTIFIED_RECORD" ? err.message : "บันทึกข้อมูลไม่สำเร็จ: " + err.message); }
+    } catch (err) { alert(err.code === "SYNC_REIDENTIFIED_RECORD" || err.code === "SYNC_AMBIGUOUS_RECORD" ? err.message : "บันทึกข้อมูลไม่สำเร็จ: " + err.message); }
     setIsSaving(false);
   };
 

@@ -286,7 +286,7 @@ happens, since the migration already rebuilds the key lists from the surviving r
 
 ## 3k. `reconcileLegacyStage` is written, tested and wired to nothing
 
-`legacyMigration.js` exports it, its own tests call it nine times, and no production path does:
+`legacyMigration.js` exports it, its own tests call it eight times, and no production path does:
 `OfflineProvider` wires `stageLegacyLocalStorage` and stops there. It is a Task 7 plan deliverable
 that was built and not connected.
 
@@ -318,11 +318,16 @@ The merge decides how to read a stored row's id from its KEY — `isOptimisticKe
 no key to look at, so it infers the same thing from the row's fields: `recordId` first, because only
 a row that went through the queue carries one.
 
-A sheet row carrying a stray `recordId` COLUMN would break that inference — the screen would read it,
-the merge would not, and a queued edit of that row would be appended on screen and overlaid on the
-next refresh. No sheet has such a column: checked against all seventeen canonical header lists in
-`gas-live/Code.js`, and `ensureHeaders_` only ever adds from those same lists. It would take someone
-adding the column by hand.
+A row carrying a stray `recordId` FIELD would break that inference — the screen would read it, the
+merge would not, and a queued edit of that row would be appended on screen and overlaid on the next
+refresh. No sheet whose rows reach a getData collection has such a column: checked against the
+fourteen `*_HEADERS` lists in `gas-live/Code.js`, and `ensureHeaders_` only ever adds from those.
+`SYNC_META_HEADERS` does carry one — SyncMeta is the exception, and it never reaches a collection.
+
+**But a header column is not the only way in: see 3n.** The two JSON-blob entities store the whole
+payload in one cell, so a `recordId` the queue injected comes back as a row-level field with no
+column involved. 3m is safe today because neither of those types is queued yet; 3n is the same trap
+seen from the other end.
 
 Recorded because the two halves genuinely ask the question differently, and the reason that is safe
 is a property of the sheets rather than of this code.
@@ -340,6 +345,20 @@ extra keys. The moment Task 9 queues `prepTask`, they land in the `json` cell an
 `getJsonRows_` unfiltered — `normalizeServerData` whitelists `dailyReports` and not `prepTasks`.
 `snapshotStore.INJECTED_PAYLOAD_KEYS` already solves exactly this for the config singletons and is
 the pattern to reuse, on the write side.
+
+## 3o. A config edit made offline is invisible after a relaunch (Task 9)
+
+`patchSnapshotKeys` returns early when the entity type has no collection field, which is the case for
+`planConfig`, `distPlanConfig` and `routeConfig`. So a queued config edit reaches the entities store
+and nothing else: `readServerSnapshot` rebuilds the singletons from `snapshot[key]`, and
+`overlayConfigSingletons` runs only inside `writeServerSnapshot`. The edit is on screen until the app
+is closed, and gone when it reopens, until a `getData` succeeds.
+
+It is the same shape as the collection bug this branch calls routine data loss — a whole shift's work
+invisible after a relaunch — and it is unreachable today only because no view queues a config type
+(grepped: no `entityType: "planConfig"|"distPlanConfig"|"routeConfig"` outside the offline module and
+its tests). Task 9 wires the plan and route editors to the queue, and has to carry the singletons
+into the stored snapshot when it does.
 
 ## 4. Deliberate deviations from the plan
 

@@ -31,7 +31,8 @@ export const LEGACY_KEYS = [
   "instLocations", "instInstruments", "instThresholds", "instReadings", "instSchedules"
 ];
 
-// A mutation that has finished, in either direction. Its complement `UNRESOLVED_STATUSES` lives in
+// A mutation that has finished, in either direction — the complement of `UNRESOLVED_STATUSES`, and
+// the two together cover every status. It lives in
 // one place for the reason this does: the merge, the confirmed-after-request window, the prune and
 // the queue's own ordering all ask it, and four inline copies of one rule can be changed one at a
 // time with the suite green.

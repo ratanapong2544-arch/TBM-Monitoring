@@ -14,7 +14,11 @@ const singletonKeys = ["planConfig", "distPlanConfig", "routeConfigs", "routePro
 // entities whose sheet (and therefore whose getData payload) is per machine; everything else is
 // returned project-wide, so an unsynced record of any machine belongs in the list
 const MACHINE_SCOPED_COLLECTIONS = new Set(["segment", "grout", "secondaryGrout", "shiftReport"]);
-const UNRESOLVED_STATUSES = new Set([MUTATION_STATUS.PENDING, MUTATION_STATUS.SYNCING, MUTATION_STATUS.VALIDATION_ERROR, MUTATION_STATUS.CONFLICT]);
+// Every status that is not finished. `PERMANENT_ERROR` was missing, so a permanently-refused row
+// stayed on screen only through `preserveLocal`'s third disjunct, which reads the STORED
+// `syncStatus` — and that still says "pending" (open item 3d). Closing 3d would then have deleted
+// those rows from every merge, silently, which is the opposite of what a refusal should do.
+const UNRESOLVED_STATUSES = new Set([MUTATION_STATUS.PENDING, MUTATION_STATUS.SYNCING, MUTATION_STATUS.VALIDATION_ERROR, MUTATION_STATUS.CONFLICT, MUTATION_STATUS.PERMANENT_ERROR]);
 // Confirmed mutations kept for the recent list Task 10's Sync Center is specified to show. The plan
 // says 50; this keeps 200 deliberately, so a crew who drains a whole offline shift can still see the
 // start of it, and so Task 10 can widen its window without a second migration.

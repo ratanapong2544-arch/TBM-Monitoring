@@ -98,6 +98,21 @@ function createBaseVersion(known) {
 // A refusal, not a failure: nothing was attempted and nothing is queued, so the views must not
 // announce it as a save that went wrong. The `code` is there so Task 10's Sync Center can tell this
 // apart from a storage fault without matching on the message.
+// The sheet holds more than one row under this record id, and GAS resolves a write by id and takes
+// the FIRST match (`readRowById_`) — so this save would land on a row the crew is not looking at.
+// Refusing is the safe direction: before the queue, the same save went through and silently rewrote
+// the other ring. The remedy is on the sheet (`dedupSegmentIds`), not in the form, so the message
+// says so instead of asking the crew to re-record a ring they never renamed.
+export class AmbiguousRecordError extends Error {
+  constructor(recordId, count) {
+    super(`รหัสรายการนี้ (${recordId}) ซ้ำกันอยู่ ${count} แถว — เซิร์ฟเวอร์แยกไม่ออกว่าจะบันทึกลงแถวไหน แจ้งผู้ดูแลระบบให้แก้รหัสซ้ำก่อน`);
+    this.name = "AmbiguousRecordError";
+    this.code = "SYNC_AMBIGUOUS_RECORD";
+    this.recordId = recordId;
+    this.count = count;
+  }
+}
+
 export class ReidentifiedRecordError extends Error {
   constructor(previousKey, nextKey) {
     super("แก้เลขริง/ชนิดการติดตั้งของรายการที่บันทึกไว้แล้วไม่ได้ — ให้ลบรายการนี้ แล้วบันทึกใหม่ด้วยเลขที่ถูกต้อง");

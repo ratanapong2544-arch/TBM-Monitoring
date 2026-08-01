@@ -562,6 +562,13 @@ test("a save queued before the crew changed date still writes its own report", a
   expect(second.payload.date).toBe("2026-07-30");   // the queued save still belongs to the 30th
   expect(second.domainKey).toBe("shiftReport:TBM1:2026-07-30:Day");
   expect(second.recordId).toBe(first.recordId);     // and to the row the first one created
+  // ...and it is an UPDATE of that row. `operation` is frozen when a save is composed and the queue
+  // never changes it: two saves composed before either came back both said `create`, the second
+  // posted base 0 against a row that by then existed, and it parked at `conflict` — head of that
+  // report's domain, unclaimable and unresolvable before Task 10, with the time bar it carried never
+  // reaching the sheet. Per-domain ordering decides WHEN a send goes, never WHAT it is.
+  expect(first.operation).toBe("create");
+  expect(second.operation).toBe("update");
   form.unmount();
 });
 

@@ -124,7 +124,8 @@ test("a queued write lands on the ring it names, not on every ring sharing its i
 });
 
 test("a record named only by recordId still finds the row it already put on screen", () => {
-  // The store names a row by `payload.id ?? payload.recordId`; this matched on `id` alone. For the
+  // The store names a queued row by its `recordId` and a sheet row by its `id`; this matched on
+  // `id` alone. For the
   // four types Task 8 queues they are the same value, so nothing showed. Task 9 adds types whose
   // payload carries no `id` — `optimisticEntity` injects `recordId` regardless, so the row this
   // reducer put on screen last time is named by that and only that. Matching on `id` would leave

@@ -110,8 +110,12 @@ The reasoning "two rows on one ring is a state the data logs dedupe for" is true
   2026-04-04 Night  delay 1020 min = 17.0 h
   ```
 
-  It never prints above 100% because the finest filter is a DATE (`useGlobalFilter`'s `daily`), which
-  is two shifts, so the percentage divides by 1440 rather than 720. A per-shift view would surface it.
+  It does not print above 100% on today's data — the worst group across every filter state of the
+  captured payload is 85.4% (`daily 2026-03-30`, 1230 min over two shifts). **That is a measurement,
+  not a bound.** The mechanism usually saving it is that the finest filter is a DATE
+  (`useGlobalFilter`'s `daily`), which is normally two shifts and so divides by 1440 — but 3 of the
+  payload's 49 dates carry only one shift (2026-02-25 Day, 2026-03-02 Night, 2026-04-25 Day), and
+  those divide by 720. A lone shift with 2026-04-04 Night's pattern prints `141.7% ของเวลาทั้งหมด`.
   Nothing else dedupes shift reports.
   - **Latent:** a row with a blank `date` keys as `__<shift>`, so every undated row of one shift name
     collapses into one. The captured payload holds none, and `filterByState` does not filter them out
@@ -192,8 +196,10 @@ from the truth, and the strip already says "แสดงข้อมูลที
 - **The shift report and the Performance page now count one shift's minutes differently.**
   `ShiftReportView`'s `getTotalMinutes` sums per bar; `PerformanceView` counts the minutes occupied.
   For 2026-03-07 Day the report prints 319 minutes of `Other 1` and the Performance page counts 259.
-  Both are in the 18-page print set. They answer different questions — what was written down, and
-  how long the machine stood still — but nothing on either page says so.
+  They answer different questions — what was written down, and how long the machine stood still —
+  but nothing on either page says so. It matters more after the merge than it does here: this branch
+  has no print path at all (`utils/printPages.js` does not exist on it), while `origin/main` prints
+  both pages in one 18-page set.
 - **The shift-report draft-id map survives**, against Step 4's delete list. Without it a remount
   mints a new id, which files a second report for one shift. Its three regression tests are in
   `shiftReportMidEdit.test.jsx`.

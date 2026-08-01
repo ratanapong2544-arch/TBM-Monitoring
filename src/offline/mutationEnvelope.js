@@ -1,4 +1,5 @@
 import { makeDomainKey } from "./domainKey";
+import { withoutQueueStamps } from "./entityKeys";
 import { toSyncVersion } from "./syncVersion";
 
 /**
@@ -53,7 +54,9 @@ export function buildMutationEnvelope({ entityType, operation, machine, recordId
     operation,
     machine,
     recordId,
-    payload: withoutQueuedPhotoMarker(payload),
+    // Stripped here, once, for every family: the caller reads the record back out of state,
+    // and state is where `optimisticEntity` stamped the queue's own fields onto it.
+    payload: withoutQueueStamps(withoutQueuedPhotoMarker(payload)),
     domainKey,
     baseVersion: operation === "create" ? createBaseVersion(known) : toSyncVersion(known && known.version),
   };

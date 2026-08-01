@@ -2,7 +2,7 @@ import "fake-indexeddb/auto";
 if (!global.structuredClone) global.structuredClone = value => JSON.parse(JSON.stringify(value));
 import { deleteOfflineDbForTests, openOfflineDb } from "./db";
 import { confirmMutation, putOptimisticMutation, updateMutation } from "./mutationStore";
-import { readServerSnapshot, writeServerSnapshot } from "./snapshotStore";
+import { readServerSnapshot, writeServerSnapshot, applyConfigToSnapshot } from "./snapshotStore";
 import { normalizeServerData } from "./normalizeServerData";
 
 beforeEach(async () => { await deleteOfflineDbForTests(); });
@@ -421,4 +421,27 @@ test("a permanently refused row stays on screen when its stored status finally s
   await writeServerSnapshot(db, "TBM1", normalizeServerData({ segments: [{ id: "s1", ringNo: "P1", installType: "Permanent", status: "on the sheet" }] }, "TBM1"), "refresh");
 
   expect((await readServerSnapshot(db, "TBM1")).segments.map(row => row.status)).toEqual(["crew edit"]);
+});
+
+test("one machine's plan config never lands in the other machine's snapshot", async () => {
+  // `applyConfigToSnapshot` is called from two places — the server-write overlay and the queued
+  // patch — and both hand it every stored snapshot. Without the machine check a TBM1 plan edit is
+  // written into TBM2's snapshot as well, and TBM2 then shows a plan nobody set for it.
+  const snapshot = { scopeKey: "snapshot:TBM2", machine: "TBM2", entityKeys: {} };
+
+  const applied = applyConfigToSnapshot(snapshot, "planConfig", { planConfig: { basePlanAcc: 777 } }, "TBM1", "TBM2");
+
+  expect(applied).toBeNull();
+  expect(snapshot.planConfig).toBeUndefined();
+});
+
+test("a route config is project-wide and reaches every machine's snapshot", () => {
+  // routeConfigs holds both machines side by side — the distance table shows them together — so the
+  // machine check must NOT apply to it.
+  const snapshot = { scopeKey: "snapshot:TBM2", machine: "TBM2", entityKeys: {} };
+
+  applyConfigToSnapshot(snapshot, "routeConfig", { routeConfig: { legs: [] }, routeProjectTotal: 13600 }, "TBM1", "TBM2");
+
+  expect(snapshot.routeConfigs).toEqual({ TBM1: { legs: [] } });
+  expect(snapshot.routeProjectTotal).toBe(13600);
 });

@@ -1,4 +1,4 @@
-import { domainKeyForRow, isOptimisticKey, optimisticRecordIdOf, rowIdOf, serverEntityKey } from "./entityKeys";
+import { domainKeyForRow, isOptimisticKey, optimisticRecordIdOf, QUEUE_STAMPED_KEYS, rowIdOf, serverEntityKey } from "./entityKeys";
 import { toSyncVersion } from "./syncVersion";
 import { emptyServerData } from "./normalizeServerData";
 import { isTerminalStatus, MUTATION_STATUS, STORES } from "./schema";
@@ -67,7 +67,8 @@ function recordFor(machine, field, entityType, payload, index, seenIds) {
 // exactly as a collection record does
 const CONFIG_ENTITY_TYPES = [["planConfig", "planConfig"], ["distPlanConfig", "distPlanConfig"], ["routeConfig", "routeConfigs"]];
 // keys optimisticEntity injects into a mutation payload; they are not part of the stored config body
-const INJECTED_PAYLOAD_KEYS = new Set(["recordId", "entityType", "machine", "domainKey", "version", "syncStatus"]);
+// one list, in `entityKeys`; `machine` is a stored field here, so it is dropped separately
+const INJECTED_PAYLOAD_KEYS = new Set([...QUEUE_STAMPED_KEYS, "machine"]);
 // mirror gas-live canonicalConfigPayload_: the config body is the wrapped field if present, else the
 // payload with the injected metadata stripped. routeProjectTotal is a routeConfig sibling stored in
 // its own singleton, so it is stripped from a routeConfig body only — a plan/dist body that

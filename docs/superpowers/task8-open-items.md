@@ -458,6 +458,28 @@ call site disappearing: with no caller, removing `queueRecord("instrument", …)
 breaks nothing and no test goes red. **The write is correct in shape and unexercised in practice.**
 The moment a view is wired, an App-level test is owed.
 
+## 3t. A machine with only a queued config says it is "showing saved data"
+
+`patchSnapshotConfig` synthesises a snapshot for a machine that has never refreshed, so a config
+written there survives a relaunch (that is the point). The synthesised scope has `entityKeys: {}`,
+so `readServerSnapshot` returns non-null, `repository.load` reports `source: "indexeddb"`, App
+suppresses the load error and shows "ออฟไลน์ — แสดงข้อมูลที่บันทึกไว้" over empty lists.
+
+Nothing is false: the lists are empty and the config is saved. But it reads as reassurance, and the
+crew cannot tell it from a machine whose data is genuinely cached. Telling them apart needs the
+snapshot to carry "never fetched" — `fetchedAt: null` already says it, and nothing reads it that way
+— which belongs with Task 10's status work rather than here. Same family as 3e.
+
+## 3u. Two rules on this branch cannot be pinned, and both are unreachable rather than untested
+
+- **`RouteScheduleView`'s `if (!routeEditing)` guard.** The editor renders `routeDraft`, a separate
+  state the guard does not touch, so a config arriving mid-edit is invisible either way. The guard
+  is kept because it stops the table behind the editor jumping, and that is not observable in jsdom.
+  A test asserting the draft survives passes with the guard removed — it was written, found vacuous,
+  and deleted rather than left green.
+- **`applyOptimisticRecord`'s `record.machine || activeMachineRef.current`.** A config envelope is
+  always built by the view showing that machine, so the two are equal in every reachable path.
+
 ## 4. Deliberate deviations from the plan
 
 - **"บันทึกในเครื่องแล้ว" is only in the shift report.** Step 3 asks for it on every core write. The

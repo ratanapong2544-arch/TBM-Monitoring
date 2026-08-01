@@ -92,8 +92,12 @@ const PrimaryGroutApp = () => {
   const [pendingRecordForm, setPendingRecordForm] = useState(null);
   // Per machine, from the snapshot. It used to live in one localStorage key for both machines, so
   // whichever machine was active last wrote over the other one's plan.
-  const [planConfig, setPlanConfig] = useState(null);
-  const [distPlanConfig, setDistPlanConfig] = useState(null);
+  // Keyed by machine, like `routeConfigs`. `planConfig_<machine>` and `distPlanConfig_<machine>` are
+  // separate rows on the sheet, and TBM2 has neither — so one untagged slot meant a switch to TBM2
+  // kept TBM1's plan on screen, fed it to the executive plan-variance figure and the plan lines, and
+  // wrote it to TBM2's own row the moment anyone pressed save.
+  const [planConfigs, setPlanConfigs] = useState({});
+  const [distPlanConfigs, setDistPlanConfigs] = useState({});
   const [routeConfigs, setRouteConfigs] = useState(null);
   // Project-wide, like the payload that carries it: one list holds both machines' rows, and the
   // view is handed the slice for the machine on screen.
@@ -116,8 +120,15 @@ const PrimaryGroutApp = () => {
   // GLOBAL — the caller does not, which is why `machine` is passed through untouched and only the
   // machine-keyed families supply one. The `.catch(console.warn)` these replaced meant a failed
   // write was a line in a console nobody reads.
+  // The promise is CAUGHT, not dropped. `repository.mutate` rejects on the states `db.js` names by
+  // hand — an upgrade blocked by another tab after a service-worker update, a quota the device has
+  // run out of — and on a record the envelope cannot identify. Until Task 9 a rejection here still
+  // left the row in localStorage; now the queue is the only durable copy, so a silent rejection is
+  // a record that exists nowhere while the screen shows it saved. The record views already say this
+  // out loud on the identical failure.
   const queueRecord = (entityType, operation, record, machine) =>
-    mutateBusinessRecord(businessEnvelope({ entityType, operation, record, machine, syncMeta }));
+    mutateBusinessRecord(businessEnvelope({ entityType, operation, record, machine, syncMeta }))
+      .catch((error) => { alert("บันทึกลงคิวไม่สำเร็จ: " + (error && error.message ? error.message : error)); });
   const queueIssue = (record, operation) => queueRecord("issue", operation, record);
 
   const handleSaveIssue = (form) => {
@@ -217,13 +228,20 @@ const PrimaryGroutApp = () => {
 
     // Configs are singletons: there is no collection to empty, so no tombstone question. A null is
     // "this response did not carry one", which must not blank a config the crew is looking at.
-    if (data.planConfig) setPlanConfig(data.planConfig);
-    if (data.distPlanConfig) setDistPlanConfig(data.distPlanConfig);
+    // Still guarded: a response that did not carry this machine's config must not blank what the
+    // crew is looking at. Now the slot it does not blank is this machine's own.
+    if (data.planConfig) setPlanConfigs((previous) => ({ ...previous, [activeMachine]: data.planConfig }));
+    if (data.distPlanConfig) setDistPlanConfigs((previous) => ({ ...previous, [activeMachine]: data.distPlanConfig }));
     // both machines' route configs — the distance table shows them side by side
     if (data.routeConfigs && typeof data.routeConfigs === "object") setRouteConfigs(data.routeConfigs);
     // `machineProgress` is exempt from Step 5b by construction: GAS computes it on every response
     // rather than reading a sheet, so it has no records, no deletions and nothing to tombstone.
     if (data.machineProgress) setMachineProgress(data.machineProgress);
+    // A machine whose config was written before it ever loaded has a snapshot holding that config
+    // and nothing else, so `load` reports `indexeddb` and the app says "showing saved data" over
+    // empty lists. The lists ARE empty and the config IS saved, so the notice is not false — but it
+    // reads as reassurance. Recorded rather than fixed: telling the two apart needs a
+    // "never fetched" flag on the snapshot, which is Task 10's status work.
     if (data.routeProjectTotal != null) setRouteProjectTotal(data.routeProjectTotal);
     // Instrument module: project-wide (ไม่ขึ้นกับ activeMachine). Server-only, same rule as above.
     // instLocation/instThreshold have no sync entity, so they have no tombstone to read and an
@@ -324,11 +342,14 @@ const PrimaryGroutApp = () => {
     // A config is a singleton, not a row in a list, so it is mirrored by replacing the value rather
     // than by `applyOptimisticRow`. The payload carries the config under its own entity name, the
     // same shape `configValue` reads on the snapshot side.
-    if (entityType === "planConfig") return setPlanConfig(record.planConfig ?? record);
-    if (entityType === "distPlanConfig") return setDistPlanConfig(record.distPlanConfig ?? record);
+    // Always the machine on screen in practice — a config envelope is built by the view showing it
+    // — so this reads the record first and falls back rather than implying a difference the app can
+    // produce. Nothing pins the distinction, because nothing can reach it.
+    const configMachine = record.machine || activeMachineRef.current;
+    if (entityType === "planConfig") return setPlanConfigs((previous) => ({ ...previous, [configMachine]: record.planConfig ?? record }));
+    if (entityType === "distPlanConfig") return setDistPlanConfigs((previous) => ({ ...previous, [configMachine]: record.distPlanConfig ?? record }));
     if (entityType === "routeConfig") {
-      const machine = record.machine || activeMachineRef.current;
-      setRouteConfigs((previous) => ({ ...(previous || {}), [machine]: record.routeConfig ?? record }));
+      setRouteConfigs((previous) => ({ ...(previous || {}), [configMachine]: record.routeConfig ?? record }));
       if (record.routeProjectTotal !== undefined) setRouteProjectTotal(record.routeProjectTotal);
       return;
     }
@@ -515,15 +536,15 @@ const PrimaryGroutApp = () => {
       {activeTab === "overview" && <OverviewView segmentRecords={activeSegments} groutRecords={activeGrouts} setCurrentModule={setCurrentModule} setActiveTab={setActiveTab} activeMachine={activeMachine} onMachineChange={setActiveMachine} />}
       {activeTab === "record" && currentModule === "grout" && <GroutRecordView projectInfo={projectInfo} handleProjectInfoChange={handleProjectInfoChange} groutRecords={activeGrouts} secondaryGroutRecords={activeSecondaryGrouts} segmentRecords={activeSegments} setCurrentModule={setCurrentModule} setActiveTab={setActiveTab} machine={activeMachine} isCurrentMachine={isCurrentMachine} onMutate={mutateBusinessRecord} syncMeta={syncMeta} />}
       {activeTab === "record" && currentModule === "segment" && <SegmentRecordView projectInfo={projectInfo} handleProjectInfoChange={handleProjectInfoChange} segmentRecords={activeSegments} setCurrentModule={setCurrentModule} setActiveTab={setActiveTab} machine={activeMachine} isCurrentMachine={isCurrentMachine} onMutate={mutateBusinessRecord} syncMeta={syncMeta} />}
-      {activeTab === "dashboard" && <ExecutiveDashboardView segmentRecords={activeSegments} groutRecords={activeGrouts} shiftReports={activeShiftReports} dailyReports={activeDailyReports} machine={activeMachine} onNavigate={handleNavigate} filterState={dashFilter.state} readOnly={isViewer} distPlanConfig={distPlanConfig} />}
-      {activeTab === "analysis" && currentModule === "segment" && <SegmentAnalysisView segmentRecords={activeSegments} projectInfo={projectInfo} machine={activeMachine} filterState={dashFilter.state} readOnly={isViewer} onMutate={mutateBusinessRecord} syncMeta={syncMeta} planConfig={planConfig} />}
+      {activeTab === "dashboard" && <ExecutiveDashboardView segmentRecords={activeSegments} groutRecords={activeGrouts} shiftReports={activeShiftReports} dailyReports={activeDailyReports} machine={activeMachine} onNavigate={handleNavigate} filterState={dashFilter.state} readOnly={isViewer} distPlanConfig={distPlanConfigs[activeMachine] ?? null} />}
+      {activeTab === "analysis" && currentModule === "segment" && <SegmentAnalysisView segmentRecords={activeSegments} projectInfo={projectInfo} machine={activeMachine} filterState={dashFilter.state} readOnly={isViewer} onMutate={mutateBusinessRecord} syncMeta={syncMeta} planConfig={planConfigs[activeMachine] ?? null} />}
       {activeTab === "analysis" && currentModule === "grout" && <GroutAnalysisView groutRecords={activeGrouts} secondaryGroutRecords={activeSecondaryGrouts} readOnly={isViewer} />}
-      {activeTab === "analysis" && currentModule === "route" && <RouteScheduleView segmentRecords={activeSegments} projectInfo={projectInfo} machine={activeMachine} machineProgress={machineProgress} routeProjectTotal={routeProjectTotal} filterState={dashFilter.state} readOnly={isViewer} onMutate={mutateBusinessRecord} syncMeta={syncMeta}  routeConfigs={routeConfigs} distPlanConfig={distPlanConfig} />}
+      {activeTab === "analysis" && currentModule === "route" && <RouteScheduleView segmentRecords={activeSegments} projectInfo={projectInfo} machine={activeMachine} machineProgress={machineProgress} routeProjectTotal={routeProjectTotal} filterState={dashFilter.state} readOnly={isViewer} onMutate={mutateBusinessRecord} syncMeta={syncMeta}  routeConfigs={routeConfigs} distPlanConfig={distPlanConfigs[activeMachine] ?? null} />}
       {activeTab === "head_level" && <HeadLevelView segmentRecords={activeSegments} machine={activeMachine} readOnly={isViewer} />}
       {activeTab === "performance" && <PerformanceView segmentRecords={activeSegments} shiftReports={activeShiftReports} filterState={dashFilter.state} />}
       {activeTab === "prep_gantt" && <PrepGanttView machine={activeMachine} readOnly={isViewer} onMutate={mutateBusinessRecord} syncMeta={syncMeta} tasks={activePrepTasks} />}
       {activeTab === "datalog" && currentModule === "grout" && <GroutDashboardView groutRecords={activeGrouts} secondaryGroutRecords={activeSecondaryGrouts} segmentRecords={activeSegments} machine={activeMachine} onMutate={mutateBusinessRecord} syncMeta={syncMeta} readOnly={isViewer} />}
-      {activeTab === "datalog" && currentModule === "segment" && <SegmentDashboardView segmentRecords={activeSegments} machine={activeMachine} onMutate={mutateBusinessRecord} syncMeta={syncMeta} planConfig={planConfig} />}
+      {activeTab === "datalog" && currentModule === "segment" && <SegmentDashboardView segmentRecords={activeSegments} machine={activeMachine} onMutate={mutateBusinessRecord} syncMeta={syncMeta} planConfig={planConfigs[activeMachine] ?? null} />}
       {activeTab === "report" && <ReportView segmentRecords={activeSegments} groutRecords={activeGrouts} projectInfo={projectInfo} shiftReports={activeShiftReports} onCreateDaily={(draft) => { setPendingRecordForm(draft); setActiveTab("record_daily"); }} />}
       {activeTab === "shift_report" && <ShiftReportView projectInfo={projectInfo} segmentRecords={activeSegments} shiftReports={activeShiftReports} machine={activeMachine} isCurrentMachine={isCurrentMachine} onMutate={mutateBusinessRecord} syncMeta={syncMeta} readOnly={isViewer} />}
       {activeTab === "record_daily" && <RecordDailyView dailyReports={activeDailyReports} onSave={(form) => { handleSaveDailyReport(form); setActiveTab("daily_report"); }} pendingForm={pendingRecordForm} onConsumePendingForm={() => setPendingRecordForm(null)} activeMachine={activeMachine} />}

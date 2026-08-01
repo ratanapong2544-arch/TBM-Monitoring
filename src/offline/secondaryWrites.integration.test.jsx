@@ -221,8 +221,15 @@ test("saving the route queues routeConfig carrying its project total", async () 
 
 // App owns the issue, daily-report and instrument handlers, so those envelopes can only be asserted
 // where they are built. A fake repository captures them; everything else is the real App.
-function renderApp(serverData = {}, { mutate }) {
-  const machineData = machine => ({ ...emptyServerData(machine), ...serverData });
+function renderApp(serverData = {}, options) {
+  return renderAppPerMachine(() => serverData, options);
+}
+
+// Some rules are only visible when the two machines answer differently — a per-machine payload is
+// what `getData` actually returns, and a fixture that hands both machines the same object cannot
+// show a config leaking across a switch.
+function renderAppPerMachine(serverDataFor, { mutate }) {
+  const machineData = machine => ({ ...emptyServerData(machine), ...serverDataFor(machine) });
   const repository = {
     load: async machine => ({ data: machineData(machine), source: "indexeddb", fetchedAt: "2026-07-01T00:00:00.000Z", stale: true }),
     refresh: async machine => ({ data: { ...machineData(machine), present: {} }, source: "server", fetchedAt: "2026-08-01T00:00:00.000Z", stale: false }),
@@ -609,4 +616,135 @@ test("a distance plan saved offline is still on the page after leaving and comin
 
   expect([...view.container.querySelectorAll('input[type="month"]')].some(i => i.value === "2026-09")).toBe(true);
   view.unmount();
+});
+
+test("switching machine does not carry the other machine's plan across", async () => {
+  // TBM2 has no plan config of its own — it is the empty-state machine this branch already models —
+  // so `if (data.planConfig)` left TBM1's in state, the views' props never changed, and TBM2's Plan
+  // Settings, the executive plan-variance figure and the plan line on two charts all showed TBM1's
+  // numbers. Pressing บันทึก on TBM2 then wrote TBM1's plan to `planConfig_TBM2` on the sheet.
+  const mutate = jest.fn(async () => ({ optimisticRecord: {} }));
+  const perMachine = machine => (machine === "TBM1"
+    ? { planConfig: { basePlanAcc: 777, ranges: [] }, distPlanConfig: { ranges: [{ start: "2026-09", end: "2026-12", monthlyPlan: 150 }] } }
+    : {});
+  const view = await settle(renderAppPerMachine(perMachine, { mutate }));
+
+  await navigate(view.container, /Segment Trend/);
+  await click(byTitle(view.container, "Plan Settings"));
+  expect([...view.container.querySelectorAll('input[type="number"]')].some(i => i.value === "777")).toBe(true);
+  await click(button(view.container, /ยกเลิก|ปิด/));
+
+  await click(button(view.container, /^TBM2$/));
+  await settle(view);
+  await navigate(view.container, /Segment Trend/);
+  await click(byTitle(view.container, "Plan Settings"));
+
+  expect([...view.container.querySelectorAll('input[type="number"]')].some(i => i.value === "777")).toBe(false);
+  view.unmount();
+});
+
+test("a write the queue refuses is said out loud, not swallowed", async () => {
+  // `openOfflineDb` rejects by name on an upgrade blocked by another tab — the ordinary state after
+  // a service-worker update with two tabs open — and on quota exhaustion. Task 9 removed the
+  // localStorage copy that used to survive that, so a rejection nobody surfaces is a record that
+  // exists nowhere while the screen shows it saved.
+  const mutate = jest.fn(async () => { throw new Error("IndexedDB upgrade blocked by another tab"); });
+  const alerted = jest.spyOn(window, "alert").mockImplementation(() => {});
+  try {
+    const view = await settle(renderApp({ issues: [issue("iss_1", "รอ Platform")] }, { mutate }));
+
+    await click(byTitle(view.container, "ปิด (แก้แล้ว)"));
+
+    expect(alerted).toHaveBeenCalledWith(expect.stringContaining("IndexedDB upgrade blocked by another tab"));
+    view.unmount();
+  } finally {
+    alerted.mockRestore();
+  }
+});
+
+test("a refresh landing while the crew is editing does not take the draft away", async () => {
+  // The views keep an editing copy and re-take the prop when a new one arrives. While a modal is
+  // open that would discard what they have typed — and underground a refresh can land at any
+  // moment, so this is the ordinary case rather than the unlucky one.
+  const view = render(<SegmentAnalysisView segmentRecords={[]} projectInfo={projectInfo} machine="TBM1"
+    planConfig={{ basePlanAcc: 1, ranges: [] }} onMutate={onMutate} syncMeta={{}} />);
+
+  await click(byTitle(view.container, "Plan Settings"));
+  type(view.container, 'input[type="number"]', "555");
+  view.rerender(<SegmentAnalysisView segmentRecords={[]} projectInfo={projectInfo} machine="TBM1"
+    planConfig={{ basePlanAcc: 999, ranges: [] }} onMutate={onMutate} syncMeta={{}} />);
+
+  // the typed value is still on screen — the modal holds several number fields and which one this
+  // is does not matter; what matters is that the incoming prop did not replace the draft
+  expect([...view.container.querySelectorAll('input[type="number"]')].some(i => i.value === "555")).toBe(true);
+  expect([...view.container.querySelectorAll('input[type="number"]')].some(i => i.value === "999")).toBe(false);
+  view.unmount();
+});
+
+test("a prep task list arriving while the task modal is open does not move the rows under it", async () => {
+  // The modal's own fields are separate state and were never at risk — asserting them would pass
+  // with the guard removed. What the guard protects is the LIST the save is computed against:
+  // `submit` builds its next list from `tasks`, so a list swapped underneath means the save is
+  // written against rows the crew never saw.
+  seedTasks([task("prep_1", "ตั้งเครน", { machine: "TBM1" })]);
+  const view = render(<PrepGanttView machine="TBM1" tasks={machineTasks("TBM1")} onMutate={onMutate} syncMeta={{}} />);
+
+  await click([...view.container.querySelectorAll("div")].find(node => node.textContent === "ตั้งเครน"));
+  view.rerender(<PrepGanttView machine="TBM1" tasks={[task("prep_9", "จากเซิร์ฟเวอร์", { machine: "TBM1" })]} onMutate={onMutate} syncMeta={{}} />);
+
+  expect(view.container.textContent).toContain("ตั้งเครน");
+  expect(view.container.textContent).not.toContain("จากเซิร์ฟเวอร์");
+  view.unmount();
+});
+
+test("the plan settings save carries planConfig alone, never the distance plan beside it", async () => {
+  // The one-shot write sent both together so GAS would not overwrite the one the view was not
+  // editing. Each is its own record with its own version now, and the sync path writes exactly the
+  // key the envelope names — so sending the other would be this view saving a config it never showed.
+  const view = render(<SegmentAnalysisView segmentRecords={[]} projectInfo={projectInfo} machine="TBM1"
+    planConfig={{ basePlanAcc: 5, ranges: [] }} onMutate={onMutate} syncMeta={{}} />);
+
+  await click(byTitle(view.container, "Plan Settings"));
+  await click(button(view.container, /บันทึกการตั้งค่า/));
+
+  expect(Object.keys(onMutate.mock.calls[0][0].payload)).toEqual(["planConfig"]);
+  view.unmount();
+});
+
+test("a prep task envelope names the machine on screen, in the payload as well as the key", async () => {
+  // `prepTask` is machine-keyed AND returned project-wide, so `machine` is a real column: a row that
+  // reaches the sheet without one is read back as TBM1's and appears on the wrong Work Plan.
+  // The row itself carries no machine — the shape a task created before the two-TBM split has, and
+  // the shape `upsertPrepTask` produces for a new one. The view stamps it, so a fixture that already
+  // has the right machine cannot tell whether the stamp happened.
+  const rows = [{ ...task("prep_1", "ตั้งเครน"), machine: undefined }];
+  const view = render(<PrepGanttView machine="TBM2" tasks={rows} onMutate={onMutate} syncMeta={{}} />);
+
+  await click([...view.container.querySelectorAll("div")].find(node => node.textContent === "ตั้งเครน"));
+  await click(button(view.container, /^ลบ$/));
+
+  expect(onMutate.mock.calls[0][0].payload.machine).toBe("TBM2");
+  view.unmount();
+});
+
+test("Set Baseline writes the tasks it actually changed, not every row on the page", async () => {
+  // `setBaseline` only touches leaves; a parent's baseline is derived at render from its children.
+  // Queueing the untouched parents too sends writes that change nothing, and every one of them takes
+  // a place in a queue that drains over a tunnel link one request at a time.
+  seedTasks([
+    task("prep_parent", "งานแม่", { machine: "TBM1" }),
+    task("prep_leaf_1", "ลูกที่หนึ่ง", { machine: "TBM1", parentId: "prep_parent" }),
+    task("prep_leaf_2", "ลูกที่สอง", { machine: "TBM1", parentId: "prep_parent" }),
+  ]);
+  const confirmed = jest.spyOn(window, "confirm").mockReturnValue(true);
+  try {
+    const view = render(<PrepGanttView machine="TBM1" tasks={machineTasks("TBM1")} onMutate={onMutate} syncMeta={{}} />);
+
+    await click(button(view.container, /Set Baseline/));
+
+    expect(onMutate.mock.calls.map(([envelope]) => envelope.recordId).sort()).toEqual(["prep_leaf_1", "prep_leaf_2"]);
+    view.unmount();
+  } finally {
+    confirmed.mockRestore();
+  }
 });

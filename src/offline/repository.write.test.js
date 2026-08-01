@@ -554,3 +554,37 @@ test("a config edited on a machine that has never been online is still there aft
   expect(data.routeConfigs.TBM2.legs[0].name).toBe("ช่วงของ TBM2");
   expect(data.planConfig.basePlanAcc).toBe(55);
 });
+
+test("a config confirmed while a refresh is in flight is not reverted by the older answer", async () => {
+  // The crew saves the route on a cold launch underground while the initial getData is still out.
+  // `mutateBusinessRecord` starts the drain, the small POST lands first, and GAS answers a config
+  // write with `success(canon)` — a body carrying neither `id` nor `recordId`. Without one the
+  // confirmed record has no slot, `confirmedAfterRequest` cannot match it against the request that
+  // is still in flight, and the older snapshot overwrites the route they just saved. Nothing polls,
+  // so it stays reverted for the session.
+  let stamp = 0;
+  const clock = () => `2026-08-02T00:00:${String(stamp++).padStart(2, "0")}.000Z`;
+  let deliver;
+  const repository = makeRepository({
+    now: clock,
+    // held open: the request goes out first and answers last, which is the ordering the tunnel link
+    // produces every time — a getData over ~800 rows against a small POST
+    fetchServerSnapshot: () => new Promise(resolve => {
+      deliver = () => resolve({ status: "success", segments: [], planConfig: { basePlanAcc: 1, ranges: [] } });
+    }),
+    createRequestId: () => "request-cfg-race",
+  });
+  const inFlight = repository.refresh("TBM1");
+
+  const queued = await repository.mutate(buildMutationEnvelope({
+    entityType: "planConfig", operation: "update", machine: "TBM1", recordId: "TBM1",
+    payload: { planConfig: { basePlanAcc: 240, ranges: [] } }, syncMeta: {},
+  }));
+  // GAS's config answer: the canonical body, with no identifier of its own
+  await repository.applySyncSuccess(queued.requestId, { status: "success", version: 4, record: { planConfig: { basePlanAcc: 240, ranges: [] } } });
+
+  deliver();
+  const { data } = await inFlight;
+
+  expect(data.planConfig.basePlanAcc).toBe(240);
+});

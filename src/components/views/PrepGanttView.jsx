@@ -109,20 +109,24 @@ const PrepGanttView = ({ machine = "TBM1", readOnly = false, onMutate, syncMeta,
     return rollupAll(vTasks, forecast.byId, isRedLeaf);
   }, [vTasks, forecast, viewDate]); // isRedLeaf เป็น inline fn — deps ครบผ่าน vTasks/forecast/viewDate
 
-  // durability is the queue's now — `savePrepTasks` was the last localStorage business write
-  const persist = (next) => setTasks(next);
+  // Was `persist`, and the name outlived what it did: durability is the queue's since Task 9 Step 5
+  // — `savePrepTasks` was the last localStorage business write — so this only moves the rows on
+  // screen. App holds the durable copy and mirrors it back through `tasks`.
+  const showRows = (next) => setTasks(next);
   // `machine` comes from the view, not from the row: `prepTask` is machine-keyed AND returned
   // project-wide, so one list holds both machines' rows and the key has to name the one on screen.
   const queueTask = (row, operation) => {
     if (!onMutate) return;
-    onMutate(buildMutationEnvelope({
+    // caught, not dropped: the queue is the only durable copy since Task 9 Step 5, so a rejection
+    // that says nothing is a task the crew watched appear and that exists nowhere
+    Promise.resolve(onMutate(buildMutationEnvelope({
       entityType: "prepTask", operation, machine, recordId: row.id, payload: { ...row, machine }, syncMeta,
-    }));
+    }))).catch((error) => { alert("บันทึกงานเตรียมลงคิวไม่สำเร็จ: " + (error && error.message ? error.message : error)); });
   };
   const submit = (form) => {
     // จด plog ด้วยวันจริงเสมอ (ไม่ใช่ viewDate) — การเขียนข้อมูลใช้ tasks จริง
     const next = upsertPrepTask(tasks, form, today);
-    persist(next);
+    showRows(next);
     const saved = form.id ? next.find((t) => t.id === form.id) : next.find((t) => !tasks.some((o) => o.id === t.id));
     // The queue owns durability now: the task is on this device before this resolves, and
     // `baseVersion` lets the server refuse an edit made against a row that has since moved on. The
@@ -132,7 +136,7 @@ const PrepGanttView = ({ machine = "TBM1", readOnly = false, onMutate, syncMeta,
   };
   const del = (id) => {
     const removed = tasks.find((t) => t.id === id);
-    persist(removePrepTask(tasks, id));
+    showRows(removePrepTask(tasks, id));
     if (removed) queueTask(removed, "delete");
     setModal({ open: false, editing: null });
   };
@@ -143,10 +147,13 @@ const PrepGanttView = ({ machine = "TBM1", readOnly = false, onMutate, syncMeta,
     if (!window.confirm(`Set Baseline (${machine}): บันทึกแผนปัจจุบันเป็นแผนเดิมสำหรับเทียบ — ทับ baseline เก่าทั้งหมด?`)) return;
     const baselined = new Map(setBaseline(leaves).map((t) => [t.id, t]));
     const next = tasks.map((t) => baselined.get(t.id) || t);
-    persist(next);
-    // one mutation per task, not one batch: the queue orders per record, so a task the server
-    // refuses strands only itself — and a batch would make every task one record
-    next.forEach((t) => queueTask(t, "update"));
+    showRows(next);
+    // One mutation per CHANGED task — not one batch, and not one per row on the page. The queue
+    // orders per record, so a task the server refuses strands only itself; a batch would make every
+    // task one record, and queueing the untouched parents (their baseline is derived from their
+    // children at render) would fill a link that sends one request at a time with writes that
+    // change nothing.
+    baselined.forEach((t) => queueTask(t, "update"));
   };
 
   const axisStart = bounds ? addDays(bounds.minDate, -2) : today;

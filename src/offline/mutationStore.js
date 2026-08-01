@@ -368,6 +368,11 @@ export async function confirmMutation(db, requestId, response, { owner, confirme
       domainKey: record.domainKey || mutation.domainKey,
       payload: {
         ...record,
+        // The confirmed row has to keep saying WHICH row it is. GAS answers a config write with the
+        // canonical body alone — no `id`, no `recordId` — and a row without one has no slot, so
+        // `confirmedAfterRequest` cannot match it against a refresh still in flight and the older
+        // answer overwrites the config the crew just saved.
+        recordId: record.recordId ?? record.id ?? mutation.recordId,
         version: response.version ?? record.version,
         updatedAt: response.updatedAt ?? record.updatedAt,
         updatedByDevice: response.updatedByDevice ?? record.updatedByDevice ?? null,

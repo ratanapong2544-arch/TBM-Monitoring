@@ -148,13 +148,14 @@ export async function reconcileLegacyStage(db, serverData) {
       });
       const remoteRecord = remoteByKey.get(keyFor(localRecord, definition));
       if (remoteRecord && stableJson(comparableRecord(localRecord, definition)) === stableJson(comparableRecord(remoteRecord, definition))) return;
-      allConfirmed = false;
       const conflictId = `legacy:${legacyKey}:${domainKey}`;
       const existing = existingConflicts.get(conflictId);
-      // A conflict the crew has already dealt with is history — leave it exactly as they left it.
-      // An open one is refreshed so its server side matches what the server says now, keeping the
-      // moment it was first raised.
+      // A conflict the crew has already dealt with is history — leave it exactly as they left it,
+      // and let the family confirm: marking it unconfirmed on every launch for a difference that was
+      // settled means the staged entry never latches. An open one is refreshed so its server side
+      // matches what the server says now, keeping the moment it was first raised.
       if (existing && existing.status !== "open") return;
+      allConfirmed = false;
       conflictStore.put({
         conflictId,
         status: "open",

@@ -280,3 +280,22 @@ test("a collection the response carried empty is a real absence, and conflicts",
     reason: "legacy_local_difference", domainKey: "issue:GLOBAL:issue-1", server: null,
   })]);
 });
+
+test("a family whose only difference the crew resolved confirms on the next launch", async () => {
+  // `confirmed` is what says a staged legacy key has been dealt with. Marking it false for a
+  // conflict that is already resolved means the entry never latches, and every launch re-reads it.
+  const db = await openOfflineDb();
+  const storage = window.localStorage;
+  storage.setItem("tbmIssues", JSON.stringify([{ id: "issue-1", title: "Local" }]));
+  await stageLegacyLocalStorage(db, storage);
+  await reconcileLegacyStage(db, { issues: [{ id: "issue-1", title: "Server" }] });
+
+  const [raised] = await readAll(db, "conflicts");
+  await new Promise(resolve => {
+    const store = db.transaction("conflicts", "readwrite").objectStore("conflicts");
+    store.put({ ...raised, status: "resolved" }).onsuccess = () => resolve();
+  });
+  await reconcileLegacyStage(db, { issues: [{ id: "issue-1", title: "Server" }] });
+
+  expect(await readRecord(db, "syncMeta", "legacy:tbmIssues")).toMatchObject({ confirmed: true });
+});

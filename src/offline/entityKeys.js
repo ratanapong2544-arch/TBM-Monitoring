@@ -89,3 +89,18 @@ export function domainKeyForRow(entityType, row, fallbackMachine) {
   // beside it. A row from the sheet carries only `id` and falls through to it.
   return makeDomainKey({ entityType, machine: source.machine || fallbackMachine, recordId: source.recordId ?? source.id, payload: source });
 }
+
+// What `optimisticEntity` stamps onto the record App renders. They are the QUEUE's bookkeeping, not
+// the crew's data: a second edit of a row queued offline reads them back off state, and GAS's
+// JSON-blob path copies every payload key into the sheet cell — so `syncStatus: "pending"` on a
+// server row makes `preserveLocal` treat it as this device's unsynced work and freezes it on every
+// other phone. `machine` is NOT here: it is a real column on both blob-backed sheets.
+export const QUEUE_STAMPED_KEYS = Object.freeze(["recordId", "entityType", "domainKey", "version", "syncStatus"]);
+
+export function withoutQueueStamps(payload) {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return payload;
+  if (!QUEUE_STAMPED_KEYS.some(key => key in payload)) return payload;
+  const clean = { ...payload };
+  QUEUE_STAMPED_KEYS.forEach(key => { delete clean[key]; });
+  return clean;
+}

@@ -556,6 +556,82 @@ export async function getSyncCounts(db) {
   };
 }
 
+/**
+ * Everything the Sync Center shows, in one read.
+ *
+ * Four questions the crew can act on, and the grouping IS the answer to each: what is on its way,
+ * what cannot move, what the server disagrees with, what has landed. `blocked` is its own group for
+ * the reason `getSyncCounts` already gives — a record queued behind a refused head is never posted,
+ * so listing it under "on its way" is a lie the crew would act on.
+ *
+ * Every row carries `requestId`, `entityType`, `machine`, `recordId` and `domainKey`: the plan's
+ * Step 4 says never to hide the record identifier in diagnostic detail, and a row the crew cannot
+ * name is a row they cannot decide about.
+ */
+export async function getSyncCenterView(db, { recentLimit = 50 } = {}) {
+  const transaction = db.transaction([STORES.mutations, STORES.conflicts], "readonly");
+  const [mutations, conflicts] = await Promise.all([
+    requestResult(transaction.objectStore(STORES.mutations).getAll()),
+    requestResult(transaction.objectStore(STORES.conflicts).getAll()),
+  ]);
+  await complete(transaction);
+
+  const identity = item => ({
+    requestId: item.requestId,
+    entityType: item.entityType,
+    machine: item.machine || "GLOBAL",
+    recordId: item.recordId,
+    domainKey: item.domainKey,
+  });
+  const isStuck = item => item.status === MUTATION_STATUS.CONFLICT
+    || item.status === MUTATION_STATUS.VALIDATION_ERROR
+    || item.status === MUTATION_STATUS.PERMANENT_ERROR;
+  const blockedDomains = new Set(mutations.filter(isStuck).map(item => item.domainKey));
+  const byQueueOrder = (left, right) => (left.queueSequence || 0) - (right.queueSequence || 0);
+  const newestFirst = (left, right) => String(right.confirmedAtLocal || "").localeCompare(String(left.confirmedAtLocal || ""));
+
+  const queued = mutations.filter(item => item.status === MUTATION_STATUS.PENDING || item.status === MUTATION_STATUS.SYNCING);
+  const rowOf = item => ({
+    ...identity(item),
+    status: item.status,
+    operation: item.operation,
+    createdAtLocal: item.createdAtLocal,
+    attemptCount: item.attemptCount || 0,
+    nextAttemptAt: item.nextAttemptAt || null,
+    lastError: item.lastError || null,
+  });
+
+  const conflictByRequest = new Map(conflicts.filter(item => item.status === "open").map(item => [item.requestId, item]));
+  return {
+    pending: queued.filter(item => !blockedDomains.has(item.domainKey)).sort(byQueueOrder).map(rowOf),
+    blocked: queued.filter(item => blockedDomains.has(item.domainKey)).sort(byQueueOrder).map(rowOf),
+    errors: mutations
+      .filter(item => item.status === MUTATION_STATUS.VALIDATION_ERROR || item.status === MUTATION_STATUS.PERMANENT_ERROR)
+      .sort(byQueueOrder)
+      .map(rowOf),
+    // Both sides, so the crew compares rather than guesses. A conflict whose mutation has been
+    // pruned still lists — the record is what they are deciding about, not the request.
+    conflicts: [...conflictByRequest.values()].map(conflict => {
+      const mutation = mutations.find(item => item.requestId === conflict.requestId);
+      return {
+        conflictId: conflict.conflictId,
+        requestId: conflict.requestId,
+        ...(mutation ? identity(mutation) : { entityType: conflict.entityType, machine: conflict.machine || "GLOBAL", recordId: conflict.recordId, domainKey: conflict.domainKey }),
+        currentVersion: conflict.currentVersion ?? null,
+        serverRecord: conflict.serverRecord || null,
+        localRecord: conflict.localRecord || (mutation && mutation.payload) || null,
+        reason: conflict.reason || null,
+        createdAtLocal: conflict.createdAtLocal || null,
+      };
+    }),
+    recent: mutations
+      .filter(item => item.status === MUTATION_STATUS.SYNCED || item.status === MUTATION_STATUS.RESOLVED)
+      .sort(newestFirst)
+      .slice(0, recentLimit)
+      .map(item => ({ ...rowOf(item), confirmedAtLocal: item.confirmedAtLocal || null, version: item.version ?? null })),
+  };
+}
+
 export async function setLastSyncedAt(db, value) {
   const transaction = db.transaction(STORES.syncMeta, "readwrite");
   transaction.objectStore(STORES.syncMeta).put({ key: "lastSyncedAt", value });

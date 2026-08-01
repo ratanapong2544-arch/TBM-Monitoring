@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import { Plus } from "lucide-react";
-import { apiCall } from "../../utils/api";
 import {
   loadPrepTasks, savePrepTasks, upsertPrepTask, removePrepTask,
   todayBKK, taskStatus, prepSummary,
@@ -12,6 +11,7 @@ import {
 } from "../../utils/prepForecast";
 import { buildTree, visibleOrder, rollupAll, loadCollapsed, saveCollapsed } from "../../utils/prepTree";
 import PrepTaskModal from "./PrepTaskModal";
+import { buildMutationEnvelope } from "../../offline/mutationEnvelope";
 
 const STATUS_BAR = { done: "bg-sgreen-dark", behind: "bg-code-d", ontrack: "bg-navy", notstarted: "bg-ink-3" };
 const STATUS_TEXT = { done: "text-sgreen-dark", behind: "text-code-d", ontrack: "text-navy", notstarted: "text-ink-3" };
@@ -36,7 +36,7 @@ const _d = (s) => new Date(s + "T00:00:00");
 const dayDiff = (a, b) => Math.round((_d(b) - _d(a)) / 86400000);
 const fmtTH = (s) => { const x = _d(s); return `${x.getDate()} ${TH_MONTHS[x.getMonth()]}`; };
 
-const PrepGanttView = ({ machine = "TBM1", readOnly = false }) => {
+const PrepGanttView = ({ machine = "TBM1", readOnly = false, onMutate, syncMeta }) => {
   const [tasks, setTasks] = useState(() => loadPrepTasks(machine));
   const [modal, setModal] = useState({ open: false, editing: null });
   const [availW, setAvailW] = useState(0);
@@ -104,17 +104,29 @@ const PrepGanttView = ({ machine = "TBM1", readOnly = false }) => {
   }, [vTasks, forecast, viewDate]); // isRedLeaf เป็น inline fn — deps ครบผ่าน vTasks/forecast/viewDate
 
   const persist = (next) => { setTasks(next); savePrepTasks(machine, next); };
+  // `machine` comes from the view, not from the row: `prepTask` is machine-keyed AND returned
+  // project-wide, so one list holds both machines' rows and the key has to name the one on screen.
+  const queueTask = (row, operation) => {
+    if (!onMutate) return;
+    onMutate(buildMutationEnvelope({
+      entityType: "prepTask", operation, machine, recordId: row.id, payload: { ...row, machine }, syncMeta,
+    }));
+  };
   const submit = (form) => {
     // จด plog ด้วยวันจริงเสมอ (ไม่ใช่ viewDate) — การเขียนข้อมูลใช้ tasks จริง
     const next = upsertPrepTask(tasks, form, today);
     persist(next);
     const saved = form.id ? next.find((t) => t.id === form.id) : next.find((t) => !tasks.some((o) => o.id === t.id));
-    if (saved) apiCall("savePrepTask", { ...saved, machine }).catch((e) => console.warn("PrepTask sync (save) failed — kept locally:", e.message));
+    // The queue owns durability now: the task is on this device before this resolves, and
+    // `baseVersion` lets the server refuse an edit made against a row that has since moved on. The
+    // `.catch(console.warn)` this replaced meant a failed write was a line in a console nobody reads.
+    if (saved) queueTask(saved, form.id ? "update" : "create");
     setModal({ open: false, editing: null });
   };
   const del = (id) => {
+    const removed = tasks.find((t) => t.id === id);
     persist(removePrepTask(tasks, id));
-    apiCall("deletePrepTask", { id }).catch((e) => console.warn("PrepTask sync (delete) failed — kept locally:", e.message));
+    if (removed) queueTask(removed, "delete");
     setModal({ open: false, editing: null });
   };
 
@@ -125,7 +137,9 @@ const PrepGanttView = ({ machine = "TBM1", readOnly = false }) => {
     const baselined = new Map(setBaseline(leaves).map((t) => [t.id, t]));
     const next = tasks.map((t) => baselined.get(t.id) || t);
     persist(next);
-    next.forEach((t) => apiCall("savePrepTask", { ...t, machine }).catch((e) => console.warn("PrepTask sync (baseline) failed — kept locally:", e.message)));
+    // one mutation per task, not one batch: the queue orders per record, so a task the server
+    // refuses strands only itself — and a batch would make every task one record
+    next.forEach((t) => queueTask(t, "update"));
   };
 
   const axisStart = bounds ? addDays(bounds.minDate, -2) : today;

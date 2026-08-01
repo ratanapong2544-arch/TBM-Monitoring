@@ -23,11 +23,11 @@ import PrepGanttView from "./components/views/PrepGanttView";
 import InstrumentDashboardView from "./components/views/InstrumentDashboardView";
 import InstrumentLocationView from "./components/views/InstrumentLocationView";
 import InstrumentScheduleView from "./components/views/InstrumentScheduleView";
-import { STORE, loadCache, persistCache, makeInstId } from "./utils/instruments";
+import { makeInstId } from "./utils/instruments";
 import { markMeasurementDone, markMeasurementNA, cancelMeasurement } from "./utils/instrumentSchedule";
 import { useFilterState } from "./hooks/useGlobalFilter";
-import { loadIssues, persistIssues, upsertIssue, setIssueStatus, removeIssue, forMachine } from "./utils/issues";
-import { loadDailyReports, persistDailyReports, upsertDailyReport, removeDailyReport, normalize } from "./utils/dailyReports";
+import { upsertIssue, setIssueStatus, removeIssue, forMachine } from "./utils/issues";
+import { upsertDailyReport, removeDailyReport } from "./utils/dailyReports";
 import { getMachineConfig } from "./utils/machineConfig";
 import { savePrepTasks } from "./utils/prepGantt";
 import { isViewerMode, VIEWER_TABS } from "./utils/viewerMode";
@@ -71,20 +71,19 @@ const PrimaryGroutApp = () => {
   const [routeProjectTotal, setRouteProjectTotal] = useState(null);
   const [moreOpen, setMoreOpen] = useState(false);
 
-  const [instLocations, setInstLocations] = useState(() => loadCache(STORE.locations));
-  const [instInstruments, setInstInstruments] = useState(() => loadCache(STORE.instruments));
-  const [instThresholds, setInstThresholds] = useState(() => loadCache(STORE.thresholds));
-  const [instReadings, setInstReadings] = useState(() => loadCache(STORE.readings));
-  const [instSchedules, setInstSchedules] = useState(() => loadCache(STORE.schedules));
+  const [instLocations, setInstLocations] = useState([]);
+  const [instInstruments, setInstInstruments] = useState([]);
+  const [instThresholds, setInstThresholds] = useState([]);
+  const [instReadings, setInstReadings] = useState([]);
+  const [instSchedules, setInstSchedules] = useState([]);
   const [selectedInstLocId, setSelectedInstLocId] = useState(null);
 
-  const [issues, setIssues] = useState(loadIssues);
-  useEffect(() => { persistIssues(issues); }, [issues]);
+  const [issues, setIssues] = useState([]);
   useEffect(() => {
     if (isViewer && !VIEWER_TABS.includes(activeTab)) setActiveTab("dashboard");
   }, [isViewer, activeTab]);
 
-  const [dailyReports, setDailyReports] = useState(() => normalize(loadDailyReports()));
+  const [dailyReports, setDailyReports] = useState([]);
   const [pendingRecordForm, setPendingRecordForm] = useState(null);
   // Per machine, from the snapshot. It used to live in one localStorage key for both machines, so
   // whichever machine was active last wrote over the other one's plan.
@@ -93,7 +92,7 @@ const PrimaryGroutApp = () => {
   const [routeConfigs, setRouteConfigs] = useState(null);
   const handleSaveDailyReport = (report) => {
     const next = upsertDailyReport(dailyReports, report);
-    setDailyReports(next); persistDailyReports(next);
+    setDailyReports(next);
     const saved = report.id ? next.find((r) => r.id === report.id) : next.find((r) => !dailyReports.some((o) => o.id === r.id));
     if (saved) queueRecord("dailyReport", report.id ? "update" : "create", { ...saved, machine: saved.machine || activeMachine }, saved.machine || activeMachine);
   };
@@ -101,7 +100,7 @@ const PrimaryGroutApp = () => {
     // the record, not `{ id }`: the domain key is derived from the payload's own machine, and a
     // delete keyed differently from the record it removes queues against a domain nothing else touches
     const removed = dailyReports.find((r) => r.id === id);
-    const next = removeDailyReport(dailyReports, id); setDailyReports(next); persistDailyReports(next);
+    const next = removeDailyReport(dailyReports, id); setDailyReports(next);
     if (removed) queueRecord("dailyReport", "delete", removed, removed.machine || activeMachine);
   };
 
@@ -135,7 +134,7 @@ const PrimaryGroutApp = () => {
   const handleSaveInstReading = (reading) => {
     const row = reading.id ? reading : { ...reading, id: makeInstId("rd"), enteredBy: "manual" };
     const next = reading.id ? instReadings.map((r) => (r.id === row.id ? row : r)) : [row, ...instReadings];
-    setInstReadings(next); persistCache(STORE.readings, next);
+    setInstReadings(next);
     queueRecord("instReading", reading.id ? "update" : "create", row);
   };
   // kind: "done" | "na" | "cancel" — default "done" เพื่อไม่ break v1 schedule view ที่เรียก
@@ -146,14 +145,14 @@ const PrimaryGroutApp = () => {
       kind === "na" ? markMeasurementNA(instSchedules, sched.id) :
       kind === "cancel" ? cancelMeasurement(instSchedules, sched.id) :
       markMeasurementDone(instSchedules, sched.id, measuredAtISO ?? sched.measuredAt);
-    setInstSchedules(next); persistCache(STORE.schedules, next);
+    setInstSchedules(next);
     // one mutation per schedule row, not one batch: marking a measurement can move several rows at
     // once, and the queue orders per record — a row the server refuses must strand only itself
     changed.forEach((row) => queueRecord("instSchedule", "update", row));
   };
   const handleUpdateInstrument = (ins) => {
     const next = instInstruments.map((i) => (i.id === ins.id ? ins : i));
-    setInstInstruments(next); persistCache(STORE.instruments, next);
+    setInstInstruments(next);
     queueRecord("instrument", "update", ins);
   };
 
@@ -177,29 +176,21 @@ const PrimaryGroutApp = () => {
     setShiftReports(data.shiftReports);
     // the rows on screen now belong to this machine (see rowsReady below)
     setRowsMachine(activeMachine);
-    // The localStorage-primary collections (issues, dailyReports, prepTasks, inst*, configs) are
-    // only ever touched by a LIVE SERVER response. Two reasons, both proven to lose field data:
-    //   1. an IndexedDB read always succeeds offline, and writes do not reach the queue until
-    //      Tasks 8-9, so an offline-created record exists only in localStorage. Putting a cached
-    //      snapshot into state is enough to destroy it, because state is what gets persisted —
-    //      `useEffect(() => persistIssues(issues), [issues])` above, and every save handler
-    //      rebuilds its next list from state.
-    //   2. normalizeServerData maps an absent key to [], so an older GAS deployment or a partial
-    //      doGet looks exactly like a real deletion. An empty collection is never written through;
-    //      propagating a server-side deletion of the last record is Task 9's reconciliation job,
-    //      which can compare both sides. Losing a field record outranks showing a stale one.
-    // These collections are already seeded from localStorage at mount, so skipping a cache read
-    // costs nothing.
-    //
-    // KNOWN HOLE, unchanged from before Task 7 and owned by Tasks 8-9: a NON-EMPTY server response
-    // still replaces these lists wholesale, so a record created offline whose apiCall never
-    // succeeded is destroyed the first time the server answers. The rules above only protect it
-    // while the app stays offline. It is fixed for real when writes go through the mutation queue
-    // (Task 8) and legacy localStorage is reconciled instead of overwritten (Task 9).
+    // Task 9 Step 5 retired localStorage for these collections, and that changed what this block
+    // has to be. Reason 1 for the server-only rule is gone: writes go through the queue, and the
+    // snapshot re-injects whatever has not synced, so the cached read now CARRIES the crew's
+    // offline records instead of destroying them. Keeping the rule would have been the regression —
+    // nothing seeds these lists at mount any more, so an offline launch would show none of them.
+    //   Reason 2 stands and is why the `.length` guards remain: normalizeServerData maps an absent
+    // key to [], so an older GAS deployment or a partial doGet looks exactly like a real deletion.
+    // Propagating a genuine server-side deletion of the last record is Step 5b's job, with
+    // `present` to tell the two apart — the same flag reconciliation uses.
+    // prepTasks still goes to localStorage below: `PrepGanttView` reads it from there, and moving
+    // that view onto props is its own unit of work.
     const serverAuthoritative = offlineData.source === "server";
+    if (data.issues.length) setIssues(data.issues);
+    if (data.dailyReports.length) setDailyReports(data.dailyReports);
     if (serverAuthoritative) {
-      if (data.issues.length) { setIssues(data.issues); persistIssues(data.issues); }
-      if (data.dailyReports.length) { setDailyReports(data.dailyReports); persistDailyReports(data.dailyReports); }
       if (data.prepTasks.length) {
         const byM = {};
         data.prepTasks.forEach((t) => { const m = t.machine || "TBM1"; (byM[m] = byM[m] || []).push(t); });
@@ -219,16 +210,12 @@ const PrimaryGroutApp = () => {
     if (data.machineProgress) setMachineProgress(data.machineProgress);
     if (data.routeProjectTotal != null) setRouteProjectTotal(data.routeProjectTotal);
     // Instrument module: project-wide (ไม่ขึ้นกับ activeMachine). Server-only, same rule as above.
-    const mirrorInst = (rows, setter, store) => {
-      if (!serverAuthoritative || !rows.length) return;
-      setter(rows);
-      persistCache(store, rows);
-    };
-    mirrorInst(data.instLocations, setInstLocations, STORE.locations);
-    mirrorInst(data.instInstruments, setInstInstruments, STORE.instruments);
-    mirrorInst(data.instThresholds, setInstThresholds, STORE.thresholds);
-    mirrorInst(data.instReadings, setInstReadings, STORE.readings);
-    mirrorInst(data.instSchedules, setInstSchedules, STORE.schedules);
+    const mirrorInst = (rows, setter) => { if (rows.length) setter(rows); };
+    mirrorInst(data.instLocations, setInstLocations);
+    mirrorInst(data.instInstruments, setInstInstruments);
+    mirrorInst(data.instThresholds, setInstThresholds);
+    mirrorInst(data.instReadings, setInstReadings);
+    mirrorInst(data.instSchedules, setInstSchedules);
   }, [offlineData.data, offlineData.source, activeMachine]);
 
   useEffect(() => {

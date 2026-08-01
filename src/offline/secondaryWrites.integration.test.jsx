@@ -411,3 +411,23 @@ test("a route config arriving after mount replaces the one on screen", async () 
 
   expect(onMutate.mock.calls[0][0].payload.routeConfig.legs[0].name).toBe("ใหม่จากเซิร์ฟเวอร์");
 });
+
+test("no business collection is written to localStorage any more", async () => {
+  // Step 5's whole point: the queue and the snapshot are the durable store. A second copy in
+  // localStorage is not a safety net — it is a second source of truth that no longer receives
+  // deletes, versions or conflict outcomes, and the reconciliation pass exists to retire it.
+  const mutate = jest.fn(async () => ({ optimisticRecord: {} }));
+  const view = await settle(renderApp({
+    issues: [issue("iss_1", "รอ Platform")],
+    dailyReports: [dailyReport("dr_1")],
+    instInstruments: [{ id: "ins_1", locationId: "L1", type: "INC", name: "P604" }],
+  }, { mutate }));
+
+  await click(byTitle(view.container, "ปิด (แก้แล้ว)"));
+
+  expect(window.localStorage.getItem("tbmIssues")).toBeNull();
+  expect(window.localStorage.getItem("tbmDailyReports")).toBeNull();
+  expect(window.localStorage.getItem("instInstruments")).toBeNull();
+  expect(mutate).toHaveBeenCalledTimes(1); // the write still happened — through the queue
+  view.unmount();
+});

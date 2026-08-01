@@ -102,37 +102,41 @@ beforeEach(() => {
 });
 afterEach(() => window.localStorage.clear());
 
-test("an offline relaunch keeps unsynced issues that only exist in localStorage", async () => {
-  // load() always succeeds offline; mirroring that snapshot into state persisted it straight back
-  // over the crew's offline-created record
-  window.localStorage.setItem("tbmIssues", JSON.stringify([
-    { id: "iss_offline_1", machine: "TBM1", title: "Offline issue", status: "open" },
-    { id: "iss_server_1", machine: "TBM1", title: "Server issue", status: "open" },
-  ]));
+test("an offline relaunch shows the snapshot, and never the legacy localStorage copy", async () => {
+  // This test used to protect a record that existed ONLY in localStorage from being overwritten by
+  // a cached snapshot. Task 9 Step 5 removed that store: the snapshot is the durable one, and it
+  // re-injects whatever has not synced. A stale localStorage copy is now legacy data — staged and
+  // reconciled, never rendered — so what has to be pinned is the opposite of what it once was.
+  window.localStorage.setItem("tbmIssues", JSON.stringify([{ id: "iss_legacy", machine: "TBM1", title: "ของเก่าใน localStorage", status: "open" }]));
   const repository = makeRepository({
-    load: async machine => ({ data: cached(machine, { issues: [{ id: "iss_server_1", machine: "TBM1", title: "Server issue", status: "open" }] }), source: "indexeddb", fetchedAt: "x", stale: true }),
+    load: async machine => ({ data: cached(machine, { issues: [{ id: "iss_snap", machine: "TBM1", title: "จาก snapshot", status: "open" }] }), source: "indexeddb", fetchedAt: "x", stale: true }),
     refresh: async () => { throw new Error("NETWORK"); },
   });
 
   const app = renderApp(repository);
   await act(async () => {});
 
-  const ids = JSON.parse(window.localStorage.getItem("tbmIssues")).map(i => i.id);
-  expect(ids).toEqual(expect.arrayContaining(["iss_offline_1", "iss_server_1"]));
+  expect(app.text()).toContain("จาก snapshot");
+  expect(app.text()).not.toContain("ของเก่าใน localStorage");
   app.unmount();
 });
 
-test("an offline relaunch keeps an unsynced route config", async () => {
+test("an offline relaunch does not write the configs back to localStorage", async () => {
+  // Same retirement as the issues above: App used to mirror every config it received into
+  // localStorage for the views to read. They take props now, so a launch must leave that key
+  // exactly as the legacy staging found it — untouched, for reconciliation to compare.
   window.localStorage.setItem("tbmRouteConfig", JSON.stringify({ plannedDistance: 1234.56 }));
   const repository = makeRepository({
     load: async machine => ({ data: cached(machine, { routeConfigs: { TBM1: { plannedDistance: 1000 } } }), source: "indexeddb", fetchedAt: "x", stale: true }),
-    refresh: async () => { throw new Error("NETWORK"); },
+    refresh: async machine => ({ data: snapshot(machine, { routeConfigs: { TBM1: { plannedDistance: 2000 } } }), source: "server", fetchedAt: "x", stale: false }),
   });
 
   const app = renderApp(repository);
   await act(async () => {});
 
   expect(JSON.parse(window.localStorage.getItem("tbmRouteConfig"))).toEqual({ plannedDistance: 1234.56 });
+  expect(window.localStorage.getItem("tbmDistancePlanConfig")).toBeNull();
+  expect(window.localStorage.getItem("tbmPlanConfig")).toBeNull();
   app.unmount();
 });
 
@@ -140,24 +144,31 @@ test("a server response with an absent collection does not erase local business 
   // normalizeServerData maps an absent key to [], so an older GAS deployment or a partial doGet is
   // indistinguishable from a real deletion. Every gated collection must survive it — asserting only
   // prepTasks was vacuous, because an empty list produces no per-machine writes either way.
+  // Step 5 changed where "local" lives for most of these: the cached snapshot, not localStorage.
+  // prepTasks is the exception and still reads its own key — `PrepGanttView` has not moved yet.
   window.localStorage.setItem("tbmPrepTasks_TBM2", JSON.stringify([{ id: "pt_local", title: "Local prep" }]));
-  window.localStorage.setItem("tbmIssues", JSON.stringify([{ id: "iss_local", machine: "TBM1", title: "Local", status: "open" }]));
-  window.localStorage.setItem("tbmDailyReports", JSON.stringify([{ id: "dr_local", machine: "TBM1", date: "2026-07-29" }]));
-  window.localStorage.setItem("instReadings", JSON.stringify([{ id: "rd_local", instrumentId: "in1" }]));
+  let answer;
   const repository = makeRepository({
-    refresh: async machine => ({
-      data: snapshot(machine, { prepTasks: [], issues: [], dailyReports: [], instReadings: [] }),
-      source: "server", fetchedAt: "x", stale: false,
+    load: async machine => ({
+      data: cached(machine, { issues: [{ id: "iss_local", machine: "TBM1", title: "ปัญหาที่มีอยู่", status: "open" }] }),
+      source: "indexeddb", fetchedAt: "x", stale: true,
+    }),
+    // Held open on purpose. The cached snapshot has to reach the SCREEN before the server answers —
+    // that is the ordering the app runs in, an IndexedDB read against a network round trip — and
+    // resolving both inside one `act` lets React batch the cache render away, leaving the test
+    // asserting the server response alone.
+    refresh: machine => new Promise(resolve => {
+      answer = () => resolve({ data: snapshot(machine, { prepTasks: [], issues: [], dailyReports: [], instReadings: [] }), source: "server", fetchedAt: "x", stale: false });
     }),
   });
 
   const app = renderApp(repository);
   await act(async () => {});
+  expect(app.text()).toContain("ปัญหาที่มีอยู่"); // the cache put it on screen
+  await act(async () => { answer(); });
 
+  expect(app.text()).toContain("ปัญหาที่มีอยู่"); // and the empty response did not take it off
   expect(JSON.parse(window.localStorage.getItem("tbmPrepTasks_TBM2"))).toEqual([{ id: "pt_local", title: "Local prep" }]);
-  expect(JSON.parse(window.localStorage.getItem("tbmIssues")).map(i => i.id)).toEqual(["iss_local"]);
-  expect(JSON.parse(window.localStorage.getItem("tbmDailyReports")).map(r => r.id)).toEqual(["dr_local"]);
-  expect(JSON.parse(window.localStorage.getItem("instReadings")).map(r => r.id)).toEqual(["rd_local"]);
   app.unmount();
 });
 
@@ -176,15 +187,20 @@ test("a server response only rewrites the machines it actually carries", async (
 });
 
 test("a live server response does replace the collections it carries", async () => {
-  window.localStorage.setItem("tbmIssues", JSON.stringify([{ id: "iss_old", machine: "TBM1", title: "Old", status: "open" }]));
+  // It used to be asserted on localStorage. Task 9 Step 5 retired that copy — the queue and the
+  // snapshot are the durable store now — so the observable is the screen, which is what the crew
+  // actually reads. The cached issue is on it first; the server's answer replaces it.
   const repository = makeRepository({
-    refresh: async machine => ({ data: snapshot(machine, { issues: [{ id: "iss_new", machine: "TBM1", title: "New", status: "open" }] }), source: "server", fetchedAt: "x", stale: false }),
+    load: async machine => ({ data: cached(machine, { issues: [{ id: "iss_old", machine: "TBM1", title: "รอ Platform เก่า", status: "open" }] }), source: "indexeddb", fetchedAt: "2026-07-01T00:00:00.000Z", stale: true }),
+    refresh: async machine => ({ data: snapshot(machine, { issues: [{ id: "iss_new", machine: "TBM1", title: "รอ Platform ใหม่", status: "open" }] }), source: "server", fetchedAt: "x", stale: false }),
   });
 
   const app = renderApp(repository);
   await act(async () => {});
 
-  expect(JSON.parse(window.localStorage.getItem("tbmIssues")).map(i => i.id)).toEqual(["iss_new"]);
+  expect(app.text()).toContain("รอ Platform ใหม่");
+  expect(app.text()).not.toContain("รอ Platform เก่า");
+  expect(window.localStorage.getItem("tbmIssues")).toBeNull(); // and no second copy is left behind
   app.unmount();
 });
 

@@ -17,6 +17,7 @@ beforeEach(() => {
   apiCall.mockImplementation(async () => ({ status: "success" }));
   // the save bookkeeping deliberately outlives a mount, so it has to be cleared between tests
   __resetShiftSaveStateForTests();
+  onMutateOverride = null; // module state too, and it was the one this list forgot
 });
 
 // App re-mirrors segmentRecords/shiftReports with a NEW array identity on every snapshot — the
@@ -784,6 +785,50 @@ test("a save that never reached the queue leaves the next one free to create the
 
     expect(sent.map(envelope => envelope.operation)).toEqual(["create", "create"]);
     expect(sent[1].recordId).toBe(sent[0].recordId); // still the same report, not a second one
+    form.unmount();
+  } finally {
+    alerted.mockRestore();
+  }
+});
+
+test("a create that fails while a second save is already in flight does not turn that save into an update", async () => {
+  // The sequential retry was closed by releasing the marker when a send throws. This is the other
+  // half: the second save is composed WHILE the create is still travelling, so it read the marker
+  // before the failure could retract it. Its `update` names a row the server has never had — GAS
+  // answers a terminal SYNC_RECORD_NOT_FOUND, that refusal takes the head of the report's domain,
+  // and nothing gets past it again: no retry, no re-type, no reload, and `shiftReport` has no delete
+  // to recover with. The crew would see a complete shift report that can never reach the sheet.
+  const sent = [];
+  const releases = [];
+  onMutateOverride = envelope => {
+    sent.push(envelope);
+    return new Promise((resolve, reject) => releases.push({ resolve, reject }));
+  };
+  const alerted = jest.spyOn(window, "alert").mockImplementation(() => {});
+  try {
+    const form = render(view());
+    type(form.container, "Engineer", "3");
+    await act(async () => {
+      [...form.container.querySelectorAll("button")].find(b => /Save to Cloud/.test(b.textContent))
+        .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    // a time bar is added before that save settles — its auto-save is composed inside the window
+    act(() => { form.container.querySelector('[title="เพิ่มเวลาการทำงาน"]').dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+    const times = form.container.querySelectorAll('input[type="time"]');
+    [["08:00", 0], ["09:00", 1]].forEach(([value, index]) => act(() => {
+      Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set.call(times[index], value);
+      times[index].dispatchEvent(new Event("input", { bubbles: true }));
+    }));
+    await act(async () => {
+      [...form.container.querySelectorAll("button")].find(b => /เพิ่มช่วงเวลาลงกราฟ/.test(b.textContent))
+        .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    await act(async () => { releases[0].reject(new Error("QuotaExceededError")); });
+    await act(async () => { if (releases[1]) releases[1].resolve({}); });
+
+    expect(sent.map(envelope => envelope.operation)).toEqual(["create", "create"]);
     form.unmount();
   } finally {
     alerted.mockRestore();

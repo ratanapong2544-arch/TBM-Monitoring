@@ -4,7 +4,7 @@ import StatCard from "../common/StatCard";
 import RingVisualizer from "../common/RingVisualizer";
 import { formatDisplayDate, formatDisplayTime, parseCH, formatCH } from "../../utils/formatters";
 import { getRingNumeric, getLogicalShiftDate, calculateSoilVolume } from "../../utils/helpers";
-import { buildMutationEnvelope } from "../../offline/mutationEnvelope";
+import { AmbiguousRecordError, buildMutationEnvelope } from "../../offline/mutationEnvelope";
 import { ResponsiveContainer, ComposedChart, CartesianGrid, XAxis, YAxis, Tooltip, Bar, Line } from "recharts";
 import { Badge } from "../../ui-ux-pro-max";
 
@@ -245,26 +245,38 @@ const SegmentDashboardView = ({ segmentRecords, machine = "TBM1", onMutate, sync
       // this view renaming a row nobody asked to rename, and the key is derived from the same value,
       // so leaving it alone is what keeps the edit on the record's own version stream.
       const updatedRecord = { ...editFormData };
+      refuseIfAmbiguous(updatedRecord.id);
       await onMutate(buildMutationEnvelope({
         entityType: "segment", operation: "update", machine,
         recordId: updatedRecord.id, payload: updatedRecord, syncMeta,
       }));
       setSelectedRecord(null);
       setIsEditing(false);
-    } catch (err) { alert("อัปเดตข้อมูลไม่สำเร็จ: " + err.message); }
+    } catch (err) { alert(err.code === "SYNC_AMBIGUOUS_RECORD" ? err.message : "อัปเดตข้อมูลไม่สำเร็จ: " + err.message); }
+  };
+
+  // GAS resolves a write by record id and takes the FIRST match, and the captured sheet spreads
+  // seven ids over sixteen rows. This view can reach every one of them, and the delete is the sharp
+  // end: `applyOptimisticRow` removes the right ring locally while GAS removes a different one, so
+  // the crew watches P81 go and the sheet loses P37 — then the next refresh brings P81 back and P37
+  // is gone, with no error anywhere. The record form refuses this; so does this now.
+  const refuseIfAmbiguous = (recordId) => {
+    const sharing = segmentRecords.filter(row => row.id === recordId);
+    if (sharing.length > 1) throw new AmbiguousRecordError(recordId, sharing.length);
   };
 
   const handleDeleteRecord = async () => {
     try {
       // the payload still carries the ring: the domain key is derived from it, and a delete keyed
       // differently from its own record would queue against a domain nothing else touches
+      refuseIfAmbiguous(selectedRecord.id);
       await onMutate(buildMutationEnvelope({
         entityType: "segment", operation: "delete", machine,
         recordId: selectedRecord.id, payload: selectedRecord, syncMeta,
       }));
       setSelectedRecord(null);
       setShowDeleteConfirm(false);
-    } catch (err) { alert("ลบข้อมูลไม่สำเร็จ: " + err.message); }
+    } catch (err) { alert(err.code === "SYNC_AMBIGUOUS_RECORD" ? err.message : "ลบข้อมูลไม่สำเร็จ: " + err.message); }
   };
 
   const handleSavePlanSettings = () => {

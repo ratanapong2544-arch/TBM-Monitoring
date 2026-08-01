@@ -493,6 +493,9 @@ test("re-saving the open ring is queued when its id names one row, and refused w
     expect(alerts).toHaveLength(1);
     expect(alerts[0]).toContain("ซ้ำกันอยู่ 4 แถว");   // the real cause
     expect(alerts[0]).not.toContain("แก้เลขริง");        // not "you renamed it"
+    // and a refusal, not a save that went wrong — nothing was attempted, so the "failed" wrapper
+    // that every other error gets must not be prepended to it
+    expect(alerts[0]).not.toContain("บันทึกข้อมูลไม่สำเร็จ");
     shared.unmount();
   } finally {
     alerted.mockRestore();
@@ -588,4 +591,59 @@ test("saving a shift report that already exists queues an update at its version"
   }));
   expect(apiCall).not.toHaveBeenCalled();
   view.unmount();
+});
+
+test("un-ticking one injection position keeps the others", async () => {
+  // A primary row as `GroutRecordView` writes it carries `positions` and no `primaryPositions`. The
+  // toggle wrote BOTH maps, and `!(prev.primaryPositions || {})[pos]` on a map that does not exist is
+  // `true` — so un-ticking A saved `primaryPositions: {A: true}`, and every consumer prefers that map
+  // once anything in it is true. The record came back as "A injected, nothing else": the inverse of
+  // what the crew did, with every other position they had recorded dropped.
+  const grouts = [{ id: "g1", ringNo: "P41", partA: "12.5", partB: "6.25", pressure: "3.2", total: 18.75, groutPass: "1st Pass", date: "2026-07-30", positions: { A: true, B1: true, C1: true } }];
+  const view = render(
+    <GroutDashboardView groutRecords={grouts} secondaryGroutRecords={[]} segmentRecords={[]} machine="TBM1"
+      syncMeta={{ "grout:TBM1:P41:1st Pass": { version: 5 } }} onMutate={onMutate} />
+  );
+  await click(view.container.querySelector("tbody tr"));
+  await click(byTitle(view.container, "Edit"));
+  // the positions are SVG wedges, not buttons: each `<g>` carries the toggle and a `<text>` label
+  const wedge = [...view.container.querySelectorAll("svg g")].find(node => node.textContent.trim() === "A");
+  await click(wedge);
+  await click(button(view.container, /Save Changes/));
+
+  const { positions, primaryPositions } = onMutate.mock.calls[0][0].payload;
+  const injected = { ...positions, ...(primaryPositions || {}) };
+  expect(Object.keys(injected).filter(key => injected[key])).toEqual(["B1", "C1"]);
+  view.unmount();
+});
+
+test("the data log refuses an edit or a delete whose record id names more than one row", async () => {
+  // This view can reach every duplicate-id row on the sheet, and the delete is the sharp end:
+  // `applyOptimisticRow` removes the right ring locally while GAS removes the first id match — a
+  // different one. The crew watches P81 go, the sheet loses P37, and the next refresh swaps them
+  // back. The record form already refuses this; open item 2a is the server half.
+  const row = ringNo => ({ id: "seg_dup", ringNo, typeRing: "C1", keyPos: "16", startCH: "8+010.20", finishCH: "8+008.80", length: "1.40", status: "Completed", installType: "Permanent", date: "2026-07-30" });
+  const alerts = [];
+  const alerted = jest.spyOn(window, "alert").mockImplementation(message => alerts.push(message));
+  try {
+    const view = render(
+      <SegmentDashboardView segmentRecords={[row("P37"), row("P81")]} machine="TBM1"
+        syncMeta={{ "segment:TBM1:P81:Permanent": { version: 2 } }} onMutate={onMutate} />
+    );
+    await click(view.container.querySelectorAll("tbody tr")[1]);
+    await click(byTitle(view.container, "Edit"));
+    await click(button(view.container, /Save Changes/));
+    await click(byTitle(view.container, "Delete"));
+    await click(button(view.container, /^ลบ$/));
+
+    expect(onMutate).not.toHaveBeenCalled();
+    expect(alerts).toHaveLength(2);
+    alerts.forEach(message => {
+      expect(message).toContain("ซ้ำกันอยู่ 2 แถว");
+      expect(message).not.toContain("ไม่สำเร็จ"); // a refusal, not a save that went wrong
+    });
+    view.unmount();
+  } finally {
+    alerted.mockRestore();
+  }
 });

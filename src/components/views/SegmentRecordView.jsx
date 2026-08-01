@@ -124,6 +124,12 @@ const SegmentRecordView = ({ projectInfo, handleProjectInfoChange, segmentRecord
       // the first match and GAS would resolve correctly. Narrowing it means deciding which of two
       // indistinguishable rows the crew meant, from sheet order — and the sheet is the thing that
       // cannot tell them apart. A refusal an admin can act on beats a guess nobody can audit.
+      // Zero matches is deliberate and not the same case: a queued delete hides its row while the
+      // form still holds the id (open item 3b), and `identity: undefined` then skips the
+      // re-identification check inside `buildMutationEnvelope`. That is the right call — the guard
+      // compares against a stored row, and there is none to compare against — but it means a ring
+      // corrected in that window is queued without it, so the check is worth naming rather than
+      // leaving as a silent fall-through.
       const sharing = isUpdate ? segmentRecords.filter(row => row.id === recordData.id) : [];
       if (sharing.length > 1) throw new AmbiguousRecordError(recordData.id, sharing.length);
       // The queue owns durability and ordering: the record is on this device before this resolves,

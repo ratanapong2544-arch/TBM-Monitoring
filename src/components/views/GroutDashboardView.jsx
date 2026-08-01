@@ -69,11 +69,20 @@ const GroutDashboardView = ({ groutRecords, segmentRecords, secondaryGroutRecord
       const isReGrout = selectedRecord.groutPass === "Re-Grout";
       if (isReGrout) {
         return { ...prev, secondaryPositions: { ...(prev.secondaryPositions || {}), [pos]: !(prev.secondaryPositions || {})[pos] } };
-      } else {
-        return { ...prev, positions: { ...(prev.positions || {}), [pos]: !(prev.positions || {})[pos] }, primaryPositions: { ...(prev.primaryPositions || {}), [pos]: !(prev.primaryPositions || {})[pos] } };
       }
+      // ONE map, the one this record is actually read from. Writing both inverted the record: a
+      // primary row as `GroutRecordView` writes it has `positions` and no `primaryPositions`, so
+      // `!(prev.primaryPositions || {})[pos]` was `true` for the position being UN-ticked — and every
+      // consumer prefers `primaryPositions` once anything in it is true. Un-ticking A saved
+      // "A injected, nothing else", dropping every other position the crew had recorded.
+      const field = Object.values(prev.primaryPositions || {}).some(Boolean) ? "primaryPositions" : "positions";
+      return { ...prev, [field]: { ...(prev[field] || {}), [pos]: !(prev[field] || {})[pos] } };
     });
   };
+
+  // closing a record disarms its delete too: `SegmentDashboardView` resets all three, and leaving
+  // this one set showed the red confirm bar already up over the NEXT record the crew opened
+  const closeRecord = () => { setSelectedRecord(null); setIsEditing(false); setShowDeleteConfirm(false); };
 
   const handleEditChange = (e) => {
     const { name, value } = e.target;
@@ -269,7 +278,7 @@ const GroutDashboardView = ({ groutRecords, segmentRecords, secondaryGroutRecord
                 )}
                 {!isEditing && !readOnly && <button onClick={() => { setEditFormData(selectedRecord); setIsEditing(true); }} className="p-2 bg-white/10 hover:bg-white/20 rounded-full transition-colors" title="Edit"><Edit size={18} /></button>}
                 {!readOnly && <button onClick={() => setShowDeleteConfirm(true)} className="p-2 bg-white/10 hover:bg-code-d rounded-full transition-colors" title="Delete"><Trash2 size={18} /></button>}
-                <button onClick={() => { setSelectedRecord(null); setIsEditing(false); }} className="p-2 bg-white/10 hover:bg-white/20 rounded-full transition-colors ml-2"><X size={20} /></button>
+                <button onClick={closeRecord} className="p-2 bg-white/10 hover:bg-white/20 rounded-full transition-colors ml-2"><X size={20} /></button>
               </div>
             </div>
 

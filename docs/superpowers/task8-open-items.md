@@ -83,11 +83,12 @@ why prod is clean today. It is not an invariant:
 A repaired sheet is a moment, not a guarantee. The client no longer relies on one; the server still
 does. Belongs with item 1 on the deployment that opens the gate.
 
-**The client refuses this in ONE view.** `SegmentRecordView` now refuses a save whose record id names
-more than one row, because it would land on a ring the crew is not looking at. `SegmentDashboardView`
-queues its edits and deletes by record id with no such check — and those are the paths that can reach
-all sixteen duplicate-id rows on the captured sheet today. The deployment that closes this item
-should know both call sites exist.
+**The client half is closed.** `SegmentRecordView` and `SegmentDashboardView` both refuse a write
+whose record id names more than one row, because it would land on a ring the crew is not looking at.
+The delete was the sharp end: `applyOptimisticRow` removes the right ring locally while GAS removes
+the first id match, so the crew watched one ring go and the sheet lost another, with the next refresh
+swapping them back and no error anywhere. The server half is still open, and it is what this item is
+about.
 
 ## 3. Two rows of one ring cannot both hold a queued edit — CLOSED
 
@@ -365,6 +366,26 @@ invisible after a relaunch — and it is unreachable today only because no view 
 (grepped: no `entityType: "planConfig"|"distPlanConfig"|"routeConfig"` outside the offline module and
 its tests). Task 9 wires the plan and route editors to the queue, and has to carry the singletons
 into the stored snapshot when it does.
+
+## 3p. Lint is off, so two `eslint-disable-next-line` comments are decorative
+
+`.eslintrc.json` is `{"parser": "@typescript-eslint/parser"}` with no `"extends": ["react-app"]`, so
+CRA merges the base config — parser, plugins, env — and **no rules**. Measured: an unused import, an
+unread variable and a `useEffect` reading a value its dependency list omits all compile clean under
+`CI=true react-scripts build`.
+
+Two things follow. `CI=true react-scripts build` is a compile check, not a lint gate, and every
+commit message on this branch that calls it "compiles clean" means exactly that and no more. And the
+`// eslint-disable-next-line react-hooks/exhaustive-deps` at `ShiftReportView.jsx` do nothing —
+they read as "this list was narrowed past a rule that checked the rest", and the rest was never
+checked. This branch's hardest defects have all been hand-reasoned dependency lists.
+
+Turning it on is not a Task 8 change: `CI=true` promotes warnings to errors, so `react-app`'s rules
+would have to be triaged across the whole legacy app before the build gate passes again. It belongs
+with Task 12's verification gates, and the dead code the last review found (`SegmentDashboardView`'s
+unreachable Plan Settings modal and its helpers, unused recharts imports in both dashboards, unused
+`formatCH`/`VOL_120`/`VOL_150`, the `setActiveTab` prop neither record view reads) is what a first
+pass would surface.
 
 ## 4. Deliberate deviations from the plan
 

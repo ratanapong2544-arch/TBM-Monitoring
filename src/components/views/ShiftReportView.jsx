@@ -29,18 +29,28 @@ const stableKey = (value) => {
 // reports first touched in the same millisecond — a different date or shift, so genuinely two rows —
 // would take the same id, and everything downstream that matches rows by id would fold them into one.
 const shiftDraftIds = new Map();
-// Report keys a create has already been COMPOSED for. `existingReportRef` only turns true once the
+// Report keys whose create has REACHED THE QUEUE. `existingReportRef` only turns true once the
 // previous save's row has come back through App and re-rendered, and two saves can start inside that
 // window — Save to Cloud racing a time-bar auto-save, or two quick taps on a time bar, neither of
-// which is gated on `isSaving`. This is recorded synchronously, before the first await, so the
-// second save sees it however fast it follows.
+// which is gated on `isSaving`.
+//
+// A synchronous flag was tried and is not enough. Whether this save is a create is decided from a
+// FACT — that an earlier create landed — so it has to be read after that earlier send has settled,
+// not while it is in flight. A flag set before the await and retracted on failure still hands
+// `update` to a save that read it in between, and that update names a row the server has never had:
+// GAS answers a terminal `SYNC_RECORD_NOT_FOUND`, which takes the head of the report's domain and
+// never yields — no retry, no re-type, no reload, and `shiftReport` has no delete to recover with.
+// So `sendChains` serialises the sends of one report key and each save decides its own operation
+// after the one before it has finished, which makes the failure case fall out rather than need
+// retracting.
 const composedCreateFor = new Set();
+const sendChains = new Map();
 const draftIdFor = (key) => {
   if (!shiftDraftIds.has(key)) shiftDraftIds.set(key, `shift_${Date.now()}_${String(key).replace(/[^\w-]+/g, "_")}`);
   return shiftDraftIds.get(key);
 };
 // module state persists across tests in one file, which would make them order-dependent
-export const __resetShiftSaveStateForTests = () => { shiftDraftIds.clear(); composedCreateFor.clear(); };
+export const __resetShiftSaveStateForTests = () => { shiftDraftIds.clear(); composedCreateFor.clear(); sendChains.clear(); };
 
 const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, machine = "TBM1", isCurrentMachine, onMutate, syncMeta, readOnly = false }) => {
   const [isSaving, setIsSaving] = useState(false);
@@ -253,12 +263,6 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, machine = 
     // `id` came from `reportIdForSave()` two lines up, which reads this same ref in this same
     // synchronous block, so comparing them again could only ever be true — it read as a guard
     // against a stale id, which is the one thing it cannot be
-    // ...or a create for this report was already composed and is still on its way. Recorded on the
-    // next line, synchronously, so the save that follows this one within the same tick sees it —
-    // and RELEASED below if this one never reached the queue.
-    const existedAtSave = Boolean(existingReportRef.current) || composedCreateFor.has(keyAtSave);
-    const composedCreate = !existedAtSave;
-    if (composedCreate) composedCreateFor.add(keyAtSave);
     // Objects, not JSON strings. The one-shot write stringified these because GAS wanted text, but
     // the queue serializes the payload itself on the way out (`serializeSyncRowValues_` encodes each
     // cell once), and the SAME payload is what the snapshot store overlays and the app then renders.
@@ -271,19 +275,27 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, machine = 
     const ownKey = stableKey([savedRecord.id, savedRecord.location, savedRecord.manpower, savedRecord.result, savedRecord.events]);
 
     return async () => {
-      try {
+      // Behind whatever was last sent for this report, so the operation below is decided against a
+      // settled outcome rather than a guess about one in flight. `.catch` because a failed send
+      // still settles the question — it just answers "no create landed".
+      const previous = sendChains.get(keyAtSave);
+      const send = (async () => {
+        if (previous) await previous.catch(() => {});
+        // The row exists, or a create for it has already reached the queue.
+        const treatAsExisting = Boolean(existingReportRef.current) || composedCreateFor.has(keyAtSave);
         await onMutate(buildMutationEnvelope({
-          entityType: "shiftReport", operation: existedAtSave ? "update" : "create",
+          entityType: "shiftReport", operation: treatAsExisting ? "update" : "create",
           machine: machineAtSave, recordId: id, payload, syncMeta,
         }));
-      } catch (error) {
-        // Nothing was queued, so nothing is on its way: leave the key clean or the retry this app's
-        // own message asks for composes an UPDATE for a row that does not exist. GAS answers that
-        // with a terminal `SYNC_RECORD_NOT_FOUND`, which takes the head of this report's domain and
-        // never yields — no retry, no re-type and no reload gets past it, and `shiftReport` has no
-        // delete to recover with. A storage hiccup on a new report would cost the whole shift.
-        if (composedCreate) composedCreateFor.delete(keyAtSave);
-        throw error;
+        // only now: a create that threw queued nothing, and the next save has to be a create too
+        if (!treatAsExisting) composedCreateFor.add(keyAtSave);
+      })();
+      sendChains.set(keyAtSave, send);
+      try {
+        await send;
+      } finally {
+        // the chain is only worth keeping while something is behind it
+        if (sendChains.get(keyAtSave) === send) sendChains.delete(keyAtSave);
       }
       // Only speak for the form if it is still showing this report AND still holding what was sent.
       // Both conditions matter. The crew may have moved to another date, shift or machine, where

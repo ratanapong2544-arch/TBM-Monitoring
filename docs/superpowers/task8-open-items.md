@@ -422,6 +422,19 @@ it, but it is the same class as the defects this task spent several rounds closi
 settled before the pilot: either widen the echo, or confirm the merge never surfaces the stripped
 copy.
 
+## 3s. Two instrument write handlers have no caller, so Task 9 queued them blind
+
+`handleUpdateInstrument` and `handleSaveInstReading` in `App.jsx` are passed to nothing.
+`git log -S onUpdateInstrument` and `-S onSaveReading` return no commit at all: `e9caf92`
+("wire write handlers") added the handlers, and no view ever received them. Editing an instrument
+and entering a reading are R4/R5 of the instrument rebuild, which has not landed.
+
+Task 9 routed both onto the queue anyway, because leaving one family on `apiCall` would have left a
+second write path to maintain. But they are the two families with no App-level envelope test, and
+the reason is not oversight: there is no UI path to drive, and a test that calls the handler
+directly would pin the shape of code no crew can reach. The moment a view is wired, that test is
+owed — the write is unexercised until then, not proven.
+
 ## 4. Deliberate deviations from the plan
 
 - **"บันทึกในเครื่องแล้ว" is only in the shift report.** Step 3 asks for it on every core write. The

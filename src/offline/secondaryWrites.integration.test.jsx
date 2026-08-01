@@ -263,3 +263,74 @@ test("closing an issue queues one update for that issue", async () => {
   expect(apiCall).not.toHaveBeenCalled();
   view.unmount();
 });
+
+// --- daily reports -----------------------------------------------------------------------------
+
+const dailyReport = (id, extra = {}) => ({
+  id, date: "2026-07-30", area: "IS2", machine: "TBM1", kind: "itemized", workLogText: "ติดตั้งราง", ...extra,
+});
+
+const settle = async (view) => { for (let pass = 0; pass < 4; pass += 1) await act(async () => {}); return view; };
+const navigate = async (container, label) => click(button(container, label));
+
+test("deleting a daily report queues a delete carrying the record, not { id }", async () => {
+  // The domain key of a dailyReport is machine-scoped and read off the payload, so a delete sent as
+  // `{ id }` keys to `dailyReport:GLOBAL:<id>` — a domain nothing else on the branch writes, which
+  // means it never orders behind the create it is meant to undo.
+  const mutate = jest.fn(async () => ({ optimisticRecord: {} }));
+  const view = await settle(renderApp({ dailyReports: [dailyReport("dr_1")] }, { mutate }));
+
+  await navigate(view.container, /Daily Report/);
+  await click(byTitle(view.container, "ลบ"));
+
+  expect(mutate).toHaveBeenCalledTimes(1);
+  const [envelope] = mutate.mock.calls[0];
+  expect(envelope).toEqual(expect.objectContaining({
+    entityType: "dailyReport", operation: "delete", machine: "TBM1",
+    recordId: "dr_1", domainKey: "dailyReport:TBM1:dr_1",
+  }));
+  expect(envelope.payload.area).toBe("IS2"); // the record itself, so the key can be derived from it
+  expect(apiCall).not.toHaveBeenCalled();
+  view.unmount();
+});
+
+// --- instrument schedules ----------------------------------------------------------------------
+
+const schedule = (id, extra = {}) => ({
+  id, locationId: "L1", scheduleType: "DISTANCE", instrumentGroup: "SURFACE", distanceOffset: 0,
+  tbmChainage: 9000, isMeasured: false, measuredAt: null, notes: "", ...extra,
+});
+
+test("marking a measurement queues one mutation per changed row, not one batch", async () => {
+  // Marking the DISTANCE row completes its offset, which cascades a target date onto both LONG_TERM
+  // rows waiting on it — three records changed by one click. The queue orders per record, so these
+  // must be three envelopes with three request ids: a row GAS refuses then strands only itself.
+  const mutate = jest.fn(async () => ({ optimisticRecord: {} }));
+  const view = await settle(renderApp({
+    instLocations: [{ id: "L1", name: "IS2 Shaft" }],
+    instSchedules: [
+      schedule("sc_dist"),
+      schedule("sc_lt30", { scheduleType: "LONG_TERM", longTermLabel: "30 วัน", longTermDays: 30, triggerOffset: 0, distanceOffset: null }),
+      schedule("sc_lt90", { scheduleType: "LONG_TERM", longTermLabel: "90 วัน", longTermDays: 90, triggerOffset: 0, distanceOffset: null }),
+    ],
+  }, { mutate }));
+
+  await navigate(view.container, /วาระตรวจวัด/);
+  await click(byTitle(view.container, "บันทึกผลตรวจวัด"));
+  await click(button(view.container, /ยืนยันตรวจวัดเสร็จสิ้น/));
+
+  expect(mutate).toHaveBeenCalledTimes(3);
+  const envelopes = mutate.mock.calls.map(([envelope]) => envelope);
+  expect(envelopes.map(e => e.recordId)).toEqual(["sc_dist", "sc_lt30", "sc_lt90"]);
+  // each envelope carries its own row — the batch failure mode is one envelope holding the list
+  expect(envelopes.map(e => e.payload.id)).toEqual(["sc_dist", "sc_lt30", "sc_lt90"]);
+  envelopes.forEach(envelope => expect(Array.isArray(envelope.payload)).toBe(false));
+  envelopes.forEach(envelope => expect(envelope).toEqual(expect.objectContaining({
+    entityType: "instSchedule", operation: "update",
+    domainKey: `instSchedule:GLOBAL:${envelope.recordId}`,
+  })));
+  expect(envelopes[0].payload.isMeasured).toBe(true);
+  expect(envelopes[1].payload.targetDate).toBeTruthy(); // the cascade, carried in its own envelope
+  expect(apiCall).not.toHaveBeenCalled();
+  view.unmount();
+});

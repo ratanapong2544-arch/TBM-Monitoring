@@ -39,7 +39,11 @@ function render(element) {
     root = createRoot(container);
     root.render(element);
   });
-  return { container, unmount: () => act(() => { root.unmount(); container.remove(); }) };
+  return {
+    container,
+    rerender: element => act(() => { root.render(element); }),
+    unmount: () => act(() => { root.unmount(); container.remove(); }),
+  };
 }
 
 const click = async (element) => {
@@ -332,5 +336,40 @@ test("marking a measurement queues one mutation per changed row, not one batch",
   expect(envelopes[0].payload.isMeasured).toBe(true);
   expect(envelopes[1].payload.targetDate).toBeTruthy(); // the cascade, carried in its own envelope
   expect(apiCall).not.toHaveBeenCalled();
+  view.unmount();
+});
+
+// --- Step 5: the plan config comes down as a prop, not out of localStorage --------------------
+
+test("the analysis view edits the plan config it was given, not whatever localStorage holds", async () => {
+  // `tbmPlanConfig` is one key for both machines: App wrote whichever machine was active into it,
+  // so switching to TBM2 and back showed TBM2's plan under TBM1's rings. The snapshot already
+  // stores the config per machine — reading the prop is what makes that reach the screen.
+  window.localStorage.setItem("tbmPlanConfig", JSON.stringify({ basePlanAcc: 999, ranges: [{ start: "2026-01-01", end: "2026-12-31", dailyPlan: 99 }] }));
+  const planConfig = { basePlanAcc: 120, baseActualAcc: 118, ranges: [{ start: "2026-08-01", end: "2026-08-31", dailyPlan: 6 }] };
+  const view = render(<SegmentAnalysisView segmentRecords={[]} projectInfo={projectInfo} machine="TBM1"
+    planConfig={planConfig} onMutate={onMutate} syncMeta={{ "planConfig:TBM1": { version: 6 } }} />);
+
+  await click(byTitle(view.container, "Plan Settings"));
+  await click(button(view.container, /บันทึกการตั้งค่า/));
+
+  const [envelope] = onMutate.mock.calls[0];
+  expect(envelope.payload.planConfig).toMatchObject({ basePlanAcc: 120, baseActualAcc: 118 });
+  expect(envelope.payload.planConfig.ranges).toEqual([{ start: "2026-08-01", end: "2026-08-31", dailyPlan: 6 }]);
+  view.unmount();
+});
+
+test("a plan config arriving after mount replaces the one on screen", async () => {
+  // The first render is the cached snapshot; the server answer lands a moment later. A `useState`
+  // initialiser only ever runs once, so without this the crew keeps editing the stale plan.
+  const view = render(<SegmentAnalysisView segmentRecords={[]} projectInfo={projectInfo} machine="TBM1"
+    planConfig={{ basePlanAcc: 1, ranges: [] }} onMutate={onMutate} syncMeta={{}} />);
+  view.rerender(<SegmentAnalysisView segmentRecords={[]} projectInfo={projectInfo} machine="TBM1"
+    planConfig={{ basePlanAcc: 240, ranges: [] }} onMutate={onMutate} syncMeta={{}} />);
+
+  await click(byTitle(view.container, "Plan Settings"));
+  await click(button(view.container, /บันทึกการตั้งค่า/));
+
+  expect(onMutate.mock.calls[0][0].payload.planConfig).toMatchObject({ basePlanAcc: 240 });
   view.unmount();
 });

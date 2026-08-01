@@ -86,6 +86,9 @@ const PrimaryGroutApp = () => {
 
   const [dailyReports, setDailyReports] = useState(() => normalize(loadDailyReports()));
   const [pendingRecordForm, setPendingRecordForm] = useState(null);
+  // Per machine, from the snapshot. It used to live in one localStorage key for both machines, so
+  // whichever machine was active last wrote over the other one's plan.
+  const [planConfig, setPlanConfig] = useState(null);
   const handleSaveDailyReport = (report) => {
     const next = upsertDailyReport(dailyReports, report);
     setDailyReports(next); persistDailyReports(next);
@@ -206,9 +209,7 @@ const PrimaryGroutApp = () => {
     // configs are localStorage-primary too: an offline plan or route edit lives only there until
     // Tasks 8-9, so a cache read must not write over it
     if (serverAuthoritative) {
-      if (data.planConfig) {
-        try { localStorage.setItem("tbmPlanConfig", JSON.stringify(data.planConfig)); } catch (e) { console.error("Parse planConfig error", e); }
-      }
+      if (data.planConfig) setPlanConfig(data.planConfig);
       if (data.distPlanConfig) {
         try { localStorage.setItem("tbmDistancePlanConfig", JSON.stringify(data.distPlanConfig)); } catch (e) { console.error("Parse distPlanConfig error", e); }
       }
@@ -497,14 +498,14 @@ const PrimaryGroutApp = () => {
       {activeTab === "record" && currentModule === "grout" && <GroutRecordView projectInfo={projectInfo} handleProjectInfoChange={handleProjectInfoChange} groutRecords={activeGrouts} secondaryGroutRecords={activeSecondaryGrouts} segmentRecords={activeSegments} setCurrentModule={setCurrentModule} setActiveTab={setActiveTab} machine={activeMachine} isCurrentMachine={isCurrentMachine} onMutate={mutateBusinessRecord} syncMeta={syncMeta} />}
       {activeTab === "record" && currentModule === "segment" && <SegmentRecordView projectInfo={projectInfo} handleProjectInfoChange={handleProjectInfoChange} segmentRecords={activeSegments} setCurrentModule={setCurrentModule} setActiveTab={setActiveTab} machine={activeMachine} isCurrentMachine={isCurrentMachine} onMutate={mutateBusinessRecord} syncMeta={syncMeta} />}
       {activeTab === "dashboard" && <ExecutiveDashboardView segmentRecords={activeSegments} groutRecords={activeGrouts} shiftReports={activeShiftReports} dailyReports={activeDailyReports} machine={activeMachine} onNavigate={handleNavigate} filterState={dashFilter.state} readOnly={isViewer} />}
-      {activeTab === "analysis" && currentModule === "segment" && <SegmentAnalysisView segmentRecords={activeSegments} projectInfo={projectInfo} machine={activeMachine} filterState={dashFilter.state} readOnly={isViewer} onMutate={mutateBusinessRecord} syncMeta={syncMeta} />}
+      {activeTab === "analysis" && currentModule === "segment" && <SegmentAnalysisView segmentRecords={activeSegments} projectInfo={projectInfo} machine={activeMachine} filterState={dashFilter.state} readOnly={isViewer} onMutate={mutateBusinessRecord} syncMeta={syncMeta} planConfig={planConfig} />}
       {activeTab === "analysis" && currentModule === "grout" && <GroutAnalysisView groutRecords={activeGrouts} secondaryGroutRecords={activeSecondaryGrouts} readOnly={isViewer} />}
       {activeTab === "analysis" && currentModule === "route" && <RouteScheduleView segmentRecords={activeSegments} projectInfo={projectInfo} machine={activeMachine} machineProgress={machineProgress} routeProjectTotal={routeProjectTotal} filterState={dashFilter.state} readOnly={isViewer} onMutate={mutateBusinessRecord} syncMeta={syncMeta} />}
       {activeTab === "head_level" && <HeadLevelView segmentRecords={activeSegments} machine={activeMachine} readOnly={isViewer} />}
       {activeTab === "performance" && <PerformanceView segmentRecords={activeSegments} shiftReports={activeShiftReports} filterState={dashFilter.state} />}
       {activeTab === "prep_gantt" && <PrepGanttView machine={activeMachine} readOnly={isViewer} onMutate={mutateBusinessRecord} syncMeta={syncMeta} />}
       {activeTab === "datalog" && currentModule === "grout" && <GroutDashboardView groutRecords={activeGrouts} secondaryGroutRecords={activeSecondaryGrouts} segmentRecords={activeSegments} machine={activeMachine} onMutate={mutateBusinessRecord} syncMeta={syncMeta} readOnly={isViewer} />}
-      {activeTab === "datalog" && currentModule === "segment" && <SegmentDashboardView segmentRecords={activeSegments} machine={activeMachine} onMutate={mutateBusinessRecord} syncMeta={syncMeta} />}
+      {activeTab === "datalog" && currentModule === "segment" && <SegmentDashboardView segmentRecords={activeSegments} machine={activeMachine} onMutate={mutateBusinessRecord} syncMeta={syncMeta} planConfig={planConfig} />}
       {activeTab === "report" && <ReportView segmentRecords={activeSegments} groutRecords={activeGrouts} projectInfo={projectInfo} shiftReports={activeShiftReports} onCreateDaily={(draft) => { setPendingRecordForm(draft); setActiveTab("record_daily"); }} />}
       {activeTab === "shift_report" && <ShiftReportView projectInfo={projectInfo} segmentRecords={activeSegments} shiftReports={activeShiftReports} machine={activeMachine} isCurrentMachine={isCurrentMachine} onMutate={mutateBusinessRecord} syncMeta={syncMeta} readOnly={isViewer} />}
       {activeTab === "record_daily" && <RecordDailyView dailyReports={activeDailyReports} onSave={(form) => { handleSaveDailyReport(form); setActiveTab("daily_report"); }} pendingForm={pendingRecordForm} onConsumePendingForm={() => setPendingRecordForm(null)} activeMachine={activeMachine} />}

@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import {
   TrendingUp, Settings, Plus, Save, Trash2, X, Maximize2, Loader2, Printer
 } from "lucide-react";
@@ -14,7 +14,7 @@ import {
 import { fitAndPrint } from "../../utils/printFit";
 import { buildMutationEnvelope } from "../../offline/mutationEnvelope";
 
-export default function SegmentAnalysisView({ segmentRecords = [], projectInfo, machine = "TBM1", filterState = {}, readOnly = false, onMutate, syncMeta }) {
+export default function SegmentAnalysisView({ segmentRecords = [], projectInfo, machine = "TBM1", filterState = {}, readOnly = false, onMutate, syncMeta, planConfig: planConfigProp }) {
   const filteredSegments = useMemo(() => filterByState(segmentRecords, filterState), [segmentRecords, filterState]);
 
   // ── ตัวช่วยแสดงผล (display only) ──
@@ -88,13 +88,18 @@ export default function SegmentAnalysisView({ segmentRecords = [], projectInfo, 
   // ── Plan Config ──
   const [showPlanModal, setShowPlanModal] = useState(false);
   const defaultPlanConfig = { basePlanAcc: 0, baseActualAcc: 0, ranges: [] };
-  const [planConfig, setPlanConfig] = useState(() => {
-    try {
-      const saved = localStorage.getItem("tbmPlanConfig");
-      if (saved) { const parsed = JSON.parse(saved); return { ...defaultPlanConfig, ...parsed, ranges: parsed.ranges || [] }; }
-    } catch (e) { }
-    return defaultPlanConfig;
-  });
+  // The config comes down as a prop now. `tbmPlanConfig` was one localStorage key for both machines,
+  // so App wrote whichever machine was active into it and switching back showed the other machine's
+  // plan under these rings; the snapshot has stored it per machine all along.
+  const withDefaults = config => ({ ...defaultPlanConfig, ...(config || {}), ranges: (config && config.ranges) || [] });
+  const [planConfig, setPlanConfig] = useState(() => withDefaults(planConfigProp));
+  // The first render is the cached snapshot and the server answer lands a moment later, so a
+  // `useState` initialiser alone would leave the crew editing the stale plan. Not while the modal is
+  // open: a refresh mid-edit would otherwise discard what they had typed.
+  useEffect(() => {
+    if (!showPlanModal) setPlanConfig(withDefaults(planConfigProp));
+    // eslint-disable-next-line
+  }, [planConfigProp]);
 
   const [isSavingPlan, setIsSavingPlan] = useState(false);
 
@@ -112,7 +117,6 @@ export default function SegmentAnalysisView({ segmentRecords = [], projectInfo, 
     if (readOnly) return;
     setIsSavingPlan(true);
     try {
-      localStorage.setItem("tbmPlanConfig", JSON.stringify(planConfig));
       // planConfig ALONE. The one-shot write sent distPlanConfig with it to stop GAS overwriting the
       // one this view was not editing; each is its own record with its own version now, and the sync
       // path writes exactly the key the envelope names — so sending the other would be this view

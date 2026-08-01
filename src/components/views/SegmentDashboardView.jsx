@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import { TrendingUp, Layers, Activity, MapPin, Calendar, Clock, Edit, Trash2, X, Settings, Database, Plus, Save, Camera } from "lucide-react";
 import StatCard from "../common/StatCard";
 import RingVisualizer from "../common/RingVisualizer";
@@ -8,7 +8,7 @@ import { buildMutationEnvelope, refuseAmbiguousRecord } from "../../offline/muta
 import { ResponsiveContainer, ComposedChart, CartesianGrid, XAxis, YAxis, Tooltip, Bar, Line } from "recharts";
 import { Badge } from "../../ui-ux-pro-max";
 
-const SegmentDashboardView = ({ segmentRecords, machine = "TBM1", onMutate, syncMeta }) => {
+const SegmentDashboardView = ({ segmentRecords, machine = "TBM1", onMutate, syncMeta, planConfig: planConfigProp }) => {
   const [filterMode, setFilterMode] = useState("all");
   const [filterDate, setFilterDate] = useState(new Date().toISOString().split("T")[0]);
   const [filterMonth, setFilterMonth] = useState(new Date().toISOString().slice(0, 7));
@@ -23,16 +23,14 @@ const SegmentDashboardView = ({ segmentRecords, machine = "TBM1", onMutate, sync
   const [showPlanModal, setShowPlanModal] = useState(false);
 
   const defaultPlanConfig = { basePlanAcc: 0, baseActualAcc: 0, ranges: [] };
-  const [planConfig, setPlanConfig] = useState(() => {
-    try {
-      const saved = localStorage.getItem("tbmPlanConfig");
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        return { ...defaultPlanConfig, ...parsed, ranges: parsed.ranges || [] };
-      }
-    } catch (e) { }
-    return defaultPlanConfig;
-  });
+  // Same prop as `SegmentAnalysisView`: one localStorage key served both machines, so the plan on
+  // screen belonged to whichever machine was active last.
+  const withDefaults = config => ({ ...defaultPlanConfig, ...(config || {}), ranges: (config && config.ranges) || [] });
+  const [planConfig, setPlanConfig] = useState(() => withDefaults(planConfigProp));
+  useEffect(() => {
+    if (!showPlanModal) setPlanConfig(withDefaults(planConfigProp));
+    // eslint-disable-next-line
+  }, [planConfigProp]);
 
   const getPlanForDate = (dateStr, config) => {
     if (!config || !config.ranges || config.ranges.length === 0) return 0;
@@ -274,8 +272,17 @@ const SegmentDashboardView = ({ segmentRecords, machine = "TBM1", onMutate, sync
     } catch (err) { alert(err.code === "SYNC_AMBIGUOUS_RECORD" ? err.message : "ลบข้อมูลไม่สำเร็จ: " + err.message); }
   };
 
-  const handleSavePlanSettings = () => {
-    localStorage.setItem('tbmPlanConfig', JSON.stringify(planConfig));
+  // Nothing opens this modal — `setShowPlanModal(true)` appears nowhere, so the plan editor here is
+  // unreachable and the live one is `SegmentAnalysisView`'s. Left in place under this branch's
+  // display-preservation rule rather than deleted, but routed through the queue like every other
+  // write: a localStorage-only save behind a door that may one day be reopened is a trap.
+  const handleSavePlanSettings = async () => {
+    if (onMutate) {
+      await onMutate(buildMutationEnvelope({
+        entityType: "planConfig", operation: "update", machine, recordId: machine,
+        payload: { planConfig }, syncMeta,
+      }));
+    }
     setShowPlanModal(false);
   };
 

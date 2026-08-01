@@ -313,6 +313,13 @@ caller, and a future reader should know it was parked rather than missed.
   but nothing on either page says so. It matters more after the merge than it does here: this branch
   has no print path at all (`utils/printPages.js` does not exist on it), while `origin/main` prints
   both pages in one 18-page set.
+- **A create claims a tombstone's version, not 0.** Step 4 says the base version is
+  `syncMeta[domainKey]?.version || 0`. `createBaseVersion` (`mutationEnvelope.js`) sends the
+  tombstone's version when the key carries one, because GAS refuses a create that does not claim it —
+  which is the whole of delete-and-re-record. Argued in code, and it belongs on this list.
+- **`__resetShiftSaveStateForTests` survived Step 4's delete list** along with the draft-id map it
+  now exists to clear. The name still says "shift save state", which is the bookkeeping the step
+  deleted; what it resets is the map the same step's exception keeps.
 - **The shift-report draft-id map survives**, against Step 4's delete list. Without it a remount
   mints a new id, which files a second report for one shift. Its three regression tests are in
   `shiftReportMidEdit.test.jsx`.

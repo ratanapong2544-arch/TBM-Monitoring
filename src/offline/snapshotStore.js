@@ -15,7 +15,9 @@ const singletonKeys = ["planConfig", "distPlanConfig", "routeConfigs", "routePro
 // returned project-wide, so an unsynced record of any machine belongs in the list
 const MACHINE_SCOPED_COLLECTIONS = new Set(["segment", "grout", "secondaryGrout", "shiftReport"]);
 const UNRESOLVED_STATUSES = new Set([MUTATION_STATUS.PENDING, MUTATION_STATUS.SYNCING, MUTATION_STATUS.VALIDATION_ERROR, MUTATION_STATUS.CONFLICT]);
-// confirmed mutations kept for the recent list Task 10's Sync Center is specified to show (last 50)
+// Confirmed mutations kept for the recent list Task 10's Sync Center is specified to show. The plan
+// says 50; this keeps 200 deliberately, so a crew who drains a whole offline shift can still see the
+// start of it, and so Task 10 can widen its window without a second migration.
 const CONFIRMED_MUTATION_RETENTION = 200;
 
 function requestResult(request) { return new Promise((resolve, reject) => { request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error); }); }
@@ -118,7 +120,7 @@ export async function writeServerSnapshot(db, machine, data, fetchedAt, requeste
   // all three reads issued together and awaited as one. Awaiting the first before issuing the others
   // leaves the transaction's survival resting on how promptly a microtask runs — the same reason
   // `putOptimisticMutation` and `confirmMutation` batch theirs, and this is the hotter path.
-  const [previous, existing, pendingMutations] = await Promise.all([
+  const [previous, existing, allMutations] = await Promise.all([
     requestResult(snapshots.get(scopeKey(machine))),
     requestResult(entities.getAll()),
     requestResult(mutations.getAll()),
@@ -126,10 +128,10 @@ export async function writeServerSnapshot(db, machine, data, fetchedAt, requeste
   // Everything below is keyed by RECORD, not by ring — see `newestUnresolvedByRecord` above for why.
   const slotOf = mutation => recordSlot(mutation.domainKey, mutation.recordId);
   const byQueueOrder = (left, right) => (left.queueSequence || 0) - (right.queueSequence || 0);
-  const unresolvedByRecord = newestUnresolvedByRecord(pendingMutations, mutation => mutation.domainKey, Date.now());
+  const unresolvedByRecord = newestUnresolvedByRecord(allMutations, mutation => mutation.domainKey, Date.now());
   // which records have a mutation that already finished, in either direction — only the fact is
   // read, so a Map of statuses implied a significance the value never had
-  const terminalRecords = new Set(pendingMutations
+  const terminalRecords = new Set(allMutations
     .filter(mutation => mutation.status === MUTATION_STATUS.SYNCED || mutation.status === MUTATION_STATUS.RESOLVED)
     .map(slotOf));
   // A blank Id cell reaches here as "", not as an absent key: `getSheetDataAsJson` assigns every
@@ -150,7 +152,7 @@ export async function writeServerSnapshot(db, machine, data, fetchedAt, requeste
   // dashboards, the reports and the "Last:" indicator until some later refresh, which underground
   // may be the next shift. Anything confirmed after the request went out is newer than the answer,
   // so it is kept exactly as a pending write would be.
-  const confirmedAfterRequest = new Map(pendingMutations
+  const confirmedAfterRequest = new Map(allMutations
     .filter(mutation => (mutation.status === MUTATION_STATUS.SYNCED || mutation.status === MUTATION_STATUS.RESOLVED)
       // this device's own reading of both instants; `syncedAt` is the server's clock and comparing
       // the two would turn ordinary clock skew into either lost rows or stale ones
@@ -314,7 +316,7 @@ export async function writeServerSnapshot(db, machine, data, fetchedAt, requeste
   snapshot.syncMeta = mergedSyncMeta;
   committed.syncMeta = mergedSyncMeta;
   overlayConfigSingletons({ snapshot, committed, existing, machine, preserveLocal });
-  pruneConfirmedMutations(mutations, pendingMutations);
+  pruneConfirmedMutations(mutations, allMutations);
 
   snapshots.put(snapshot);
   await complete(transaction);
@@ -364,8 +366,8 @@ function overlayConfigSingletons({ snapshot, committed, existing, machine, prese
 // path forever. Only already-confirmed mutations past the recent window Task 10's Sync Center is
 // specified to show are dropped — pending, error and conflict records are never touched (handoff
 // safety note 5).
-function pruneConfirmedMutations(mutations, pendingMutations) {
-  pendingMutations
+function pruneConfirmedMutations(mutations, allMutations) {
+  allMutations
     .filter(mutation => mutation.status === MUTATION_STATUS.SYNCED || mutation.status === MUTATION_STATUS.RESOLVED)
     .sort((left, right) => (right.queueSequence || 0) - (left.queueSequence || 0))
     .slice(CONFIRMED_MUTATION_RETENTION)

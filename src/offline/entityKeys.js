@@ -50,13 +50,23 @@ export function entityKeyForRecord(key, domainKey, recordId) {
   return String(key).endsWith(`:${domainKey}:id:${recordId}`);
 }
 
-// Which record a row names — a sheet row, a cached row or a row on screen. `""` and an absent id
-// both mean "names no record": a blank Id cell reaches the client as the empty string, because
-// `getSheetDataAsJson` assigns every header key from the row's values. Shared because the migration
-// in `db.js` and the merge in `snapshotStore.js` were spelling it out separately, in opposite field
-// order, and a device state where the two disagree is one rule disagreeing with itself.
+// Which record a SHEET ROW names — the id column, since that is what the sheet knows about itself.
+// `""` and an absent id both mean "names no record": a blank Id cell reaches the client as the empty
+// string, because `getSheetDataAsJson` assigns every header key from the row's values.
 export function rowIdOf(row) {
   const id = row && (row.id ?? row.recordId);
+  return id == null || id === "" ? null : id;
+}
+
+// Which record an OPTIMISTIC ROW was keyed under. Deliberately the other field order, and the two
+// are not one rule: `optimisticEntity` injects `recordId` into every queued payload, so that is the
+// value the runtime built the key from and the value a migration has to recover — while `rowIdOf`
+// above answers what a row from the sheet calls itself. They agree for every write Task 8 queues
+// (all eight call sites pass `recordId: <payload>.id`) and Task 9 adds types where they need not,
+// which is exactly when recovering the wrong one would strand a re-keyed row under a key nothing
+// looks up. Consolidating them into one function was tried, and this comment is why it was undone.
+export function optimisticRecordIdOf(payload) {
+  const id = payload && (payload.recordId ?? payload.id);
   return id == null || id === "" ? null : id;
 }
 

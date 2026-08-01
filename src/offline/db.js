@@ -1,5 +1,5 @@
 import { makeDomainKey } from "./domainKey";
-import { isLegacyOptimisticKey, isOptimisticKey, optimisticEntityKey, rowIdOf } from "./entityKeys";
+import { isLegacyOptimisticKey, isOptimisticKey, optimisticEntityKey, optimisticRecordIdOf } from "./entityKeys";
 import { DB_NAME, DB_VERSION, MUTATION_STATUS, STORES } from "./schema";
 import { FIELD_FOR_ENTITY_TYPE, isMachineScopedEntityType, newestUnresolvedByRecord } from "./snapshotStore";
 
@@ -35,7 +35,7 @@ function recordScopeOptimisticKeys(transaction) {
             return;
           }
           entities.delete(record.key);
-          const recordId = rowIdOf(record.payload);
+          const recordId = optimisticRecordIdOf(record.payload);
           if (recordId == null) return;
           const key = optimisticEntityKey(record.domainKey, recordId);
           entities.put({ ...record, key });
@@ -161,7 +161,7 @@ export function recanonicalizeDomainKeys(transaction) {
             return;
           }
           const domainKey = remap.get(record.domainKey) || record.domainKey;
-          const recordId = rowIdOf(record.payload);
+          const recordId = optimisticRecordIdOf(record.payload);
           const key = recordId == null ? null : optimisticEntityKey(domainKey, recordId);
           if (key === record.key) { kept.push(keptRow(key, record)); return; }
           entities.delete(record.key);

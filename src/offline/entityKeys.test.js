@@ -1,4 +1,4 @@
-import { entityKeyForRecord, isLegacyOptimisticKey, isOptimisticKey, optimisticEntityKey, serverEntityKey } from "./entityKeys";
+import { domainKeyForRow, entityKeyForRecord, isLegacyOptimisticKey, isOptimisticKey, optimisticEntityKey, optimisticRecordIdOf, rowIdOf, serverEntityKey } from "./entityKeys";
 
 const serverRow = (domainKey, rowId) => serverEntityKey("TBM1", "segments", domainKey, `id:${rowId}`);
 
@@ -57,4 +57,40 @@ test("a v2 key is recognised as one to re-key, and a v3 key is not", () => {
   expect(isLegacyOptimisticKey("entity:optimistic:segment:TBM1:P643:Permanent")).toBe(true);
   expect(isLegacyOptimisticKey(optimisticEntityKey("segment:TBM1:P643:Permanent", "seg_b"))).toBe(false);
   expect(isLegacyOptimisticKey(serverRow("segment:TBM1:P643:Permanent", "seg_b"))).toBe(false);
+});
+
+test("a sheet row and a queued row are asked DIFFERENT questions about their id", () => {
+  // Not one rule with two spellings — two rules. `rowIdOf` answers what a row from the sheet calls
+  // itself, so it reads `id`. `optimisticRecordIdOf` recovers the value the runtime built a queued
+  // row's KEY from, which `optimisticEntity` injects as `recordId`. They agree for every write Task 8
+  // queues; a migration that recovered the wrong one would re-key a row under a key nothing looks up.
+  const both = { id: "IDX", recordId: "RECY" };
+  expect(rowIdOf(both)).toBe("IDX");
+  expect(optimisticRecordIdOf(both)).toBe("RECY");
+  // each falls through to the other only when its own field is ABSENT — a BLANK one is an answer,
+  // and the answer is "names no record". A sheet row whose Id cell is empty does not secretly mean
+  // some other field, and a queued row keyed under a blank record id could not have been queued.
+  expect(rowIdOf({ recordId: "R" })).toBe("R");
+  expect(rowIdOf({ id: "", recordId: "R" })).toBeNull();
+  expect(optimisticRecordIdOf({ id: "A" })).toBe("A");
+  expect(optimisticRecordIdOf({ recordId: "", id: "A" })).toBeNull();
+  // and "names no record" is the same answer from both
+  [rowIdOf, optimisticRecordIdOf].forEach(read => {
+    expect(read({})).toBeNull();
+    expect(read({ id: "", recordId: "" })).toBeNull();
+    expect(read(null)).toBeNull();
+  });
+});
+
+test("a row's domain comes from the row's own machine, and a blank one is not a machine", () => {
+  // `normalizeReport` writes `machine: ""` for a report whose stored machine is not a known one, and
+  // `makeDomainKey` maps a blank machine to GLOBAL — so reading it with `??` would file the row under
+  // a different domain from the one the merge files it under, and the screen would show it twice.
+  expect(domainKeyForRow("dailyReport", { id: "d1", machine: "TBM2" }, "TBM1")).toBe("dailyReport:TBM2:d1");
+  expect(domainKeyForRow("dailyReport", { id: "d1", machine: "" }, "TBM1")).toBe("dailyReport:TBM1:d1");
+  expect(domainKeyForRow("dailyReport", { id: "d1" }, "TBM1")).toBe("dailyReport:TBM1:d1");
+  // a ring's identity is its ring and install type, whatever machine column the row does not have
+  expect(domainKeyForRow("segment", { id: "s1", ringNo: "P41", installType: "Permanent" }, "TBM1")).toBe("segment:TBM1:P41:Permanent");
+  // and a project-wide type stays GLOBAL however the row is labelled
+  expect(domainKeyForRow("issue", { id: "i1", machine: "TBM2" }, "TBM1")).toBe("issue:GLOBAL:i1");
 });

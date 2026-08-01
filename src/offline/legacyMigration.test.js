@@ -299,3 +299,20 @@ test("a family whose only difference the crew resolved confirms on the next laun
 
   expect(await readRecord(db, "syncMeta", "legacy:tbmIssues")).toMatchObject({ confirmed: true });
 });
+
+test("a staged config of the other machine is not compared against this machine's server value", async () => {
+  // `planConfig`/`distPlanConfig` arrive as scalars for the machine being refreshed. Comparing
+  // TBM2's staged config against TBM1's server config marks the family confirmed when the two
+  // happen to match — discarding a real legacy difference — or raises a conflict showing a server
+  // side that belongs to the wrong machine.
+  const db = await openOfflineDb();
+  const storage = window.localStorage;
+  storage.setItem("tbmDistancePlanConfig__TBM2", JSON.stringify({ ranges: [{ startMonth: "2026-08", endMonth: "2026-12" }] }));
+  await stageLegacyLocalStorage(db, storage);
+
+  await reconcileLegacyStage(db, { machine: "TBM1", distPlanConfig: { ranges: [{ startMonth: "2026-08", endMonth: "2026-12" }] } });
+
+  const staged = await readRecord(db, "syncMeta", "legacy:tbmDistancePlanConfig__TBM2");
+  expect(staged.confirmed).toBeUndefined(); // nothing was compared, so nothing is claimed
+  expect(await readAll(db, "conflicts")).toEqual([]);
+});

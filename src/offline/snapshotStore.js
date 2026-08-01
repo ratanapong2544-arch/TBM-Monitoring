@@ -19,6 +19,9 @@ const MACHINE_SCOPED_COLLECTIONS = new Set(["segment", "grout", "secondaryGrout"
 // snapshot has to refuse it too: since Task 9 Step 5 retired their localStorage copies this IS the
 // durable one, and a rule enforced on the screen but not on the cache lasts until the next launch.
 // The four machine-scoped collections are not here — they are server-authoritative wholesale.
+// the field names of the machine-scoped collections; another machine's snapshot never answers
+// for these, because its rows are not this machine's rows
+const MACHINE_SCOPED_FIELDS = new Set(["segments", "grouts", "secondaryGrouts", "shiftReports"]);
 const GUARDED_COLLECTIONS = new Set(["issue", "dailyReport", "prepTask", "instLocation", "instrument", "instThreshold", "instReading", "instSchedule"]);
 // Every status that is not finished. `PERMANENT_ERROR` was missing, so a permanently-refused row
 // stayed on screen only through `preserveLocal`'s third disjunct, which reads the STORED
@@ -258,8 +261,22 @@ export async function writeServerSnapshot(db, machine, data, fetchedAt, requeste
   // What the previous snapshot held for a field, as payloads — the "previous" side of the same
   // `applyServerRows` rule App applies to its state.
   const cachedByKey = new Map(existing.map(record => [record.key, record]));
-  const cachedPayloads = field => ((previous && previous.entityKeys && previous.entityKeys[field]) || [])
+  const payloadsOf = snapshot => field => ((snapshot && snapshot.entityKeys && snapshot.entityKeys[field]) || [])
     .map(key => cachedByKey.get(key)).filter(Boolean).map(record => record.payload);
+  // A machine refreshing for the first time has no previous side of its own, and without one the
+  // guard protects nothing — the machine being switched to lost exactly what the machine it was
+  // switched from kept. The project-wide collections are the same rows on every snapshot, so any
+  // other machine's snapshot answers for them.
+  const otherSnapshots = storedSnapshots.filter(snapshot => snapshot.scopeKey !== scopeKey(machine));
+  const cachedPayloads = field => {
+    const own = payloadsOf(previous)(field);
+    if (own.length || MACHINE_SCOPED_FIELDS.has(field)) return own;
+    for (const snapshot of otherSnapshots) {
+      const rows = payloadsOf(snapshot)(field);
+      if (rows.length) return rows;
+    }
+    return own;
+  };
 
   collections.forEach(([field, entityType]) => {
     const seenIds = new Set();

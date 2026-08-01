@@ -514,6 +514,20 @@ the distance-plan mid-edit guard, `queueTask`'s catch, the plan-variance prop at
 disjunct. It guarded a machineless envelope, and since `queueRecord` defaults the machine there is
 no such envelope; a dead branch inside a guard sends the next reader somewhere nothing executes.
 
+## 3v. The prep-task per-machine carve-out exists on the screen and not in the cache
+
+App keeps the rows of a machine the payload never mentions (`carried`) — the rule the per-machine
+localStorage keys used to give for free, and the reason a partial `doGet` does not empty a machine's
+Work Plan. `writeServerSnapshot` has no such carve-out: it replaces a non-empty collection wholesale,
+keeping only rows `preserveLocal` claims. So a TBM2 task kept on screen by a payload carrying only
+TBM1's rows is already gone from the stored snapshot, and disappears at the next relaunch with
+nothing said.
+
+Direction is stale-not-lost, and the screen is the safer of the two. Closing it means teaching the
+write path the same carve-out — `applyServerRows` would need an optional scope predicate both sides
+pass — which is a shared-rule change of the kind this branch has spent six review rounds on, and it
+belongs with Task 10's reconciliation work rather than at the end of Task 9.
+
 ## 4. Deliberate deviations from the plan
 
 - **"บันทึกในเครื่องแล้ว" is only in the shift report.** Step 3 asks for it on every core write. The

@@ -217,10 +217,16 @@ const PrimaryGroutApp = () => {
     setIssues((previous) => applyServerRows("issue", data.issues, previous, serverMeta, activeMachine));
     setDailyReports((previous) => applyServerRows("dailyReport", data.dailyReports, previous, serverMeta, activeMachine));
     if (data.prepTasks.length) {
-      // Only machines the payload actually carries: a machine absent from it keeps its own rows,
-      // the same rule the per-machine localStorage keys used to give for free. A tombstone still
-      // outranks that — a payload naming only TBM1 can still say TBM2's last task was deleted, and
-      // keeping "its own rows" must not mean keeping a row the server named.
+      // A machine absent from the payload keeps its own rows — the rule the per-machine localStorage
+      // keys used to give for free — and a tombstone still outranks it, because a payload naming
+      // only TBM1 can still say TBM2's last task was deleted.
+      //
+      // The stored snapshot does NOT apply this carve-out: `writeServerSnapshot` replaces a
+      // non-empty collection wholesale, so the row this keeps on screen is gone from the cache and
+      // disappears at the next relaunch with nothing said. Keeping it here is still the right
+      // direction — a partial `doGet` must not empty a machine's Work Plan — and closing the gap
+      // means teaching the write path the same carve-out, which is Task 10's work on a rule that
+      // currently has to be spelled twice to exist at all. Recorded in open item 3v.
       const carried = new Set(data.prepTasks.map((t) => t.machine || "TBM1"));
       setPrepTasks((previous) => [
         ...applyServerRows("prepTask", [], previous.filter((t) => !carried.has(t.machine || "TBM1")), serverMeta, activeMachine),
@@ -232,6 +238,11 @@ const PrimaryGroutApp = () => {
 
     // Configs are singletons: there is no collection to empty, so no tombstone question. A null is
     // "this response did not carry one", which must not blank a config the crew is looking at.
+    //   A machine whose config was written before it ever loaded has a snapshot holding that config
+    // and nothing else, so `load` reports `indexeddb` and the app says "showing saved data" over
+    // empty lists. The lists ARE empty and the config IS saved, so the notice is not false — but it
+    // reads as reassurance. Recorded rather than fixed (open item 3t): telling the two apart needs a
+    // "never fetched" flag on the snapshot, which is Task 10's status work.
     // Still guarded: a response that did not carry this machine's config must not blank what the
     // crew is looking at. Now the slot it does not blank is this machine's own.
     if (data.planConfig) setPlanConfigs((previous) => ({ ...previous, [activeMachine]: data.planConfig }));
@@ -241,11 +252,6 @@ const PrimaryGroutApp = () => {
     // `machineProgress` is exempt from Step 5b by construction: GAS computes it on every response
     // rather than reading a sheet, so it has no records, no deletions and nothing to tombstone.
     if (data.machineProgress) setMachineProgress(data.machineProgress);
-    // A machine whose config was written before it ever loaded has a snapshot holding that config
-    // and nothing else, so `load` reports `indexeddb` and the app says "showing saved data" over
-    // empty lists. The lists ARE empty and the config IS saved, so the notice is not false — but it
-    // reads as reassurance. Recorded rather than fixed: telling the two apart needs a
-    // "never fetched" flag on the snapshot, which is Task 10's status work.
     if (data.routeProjectTotal != null) setRouteProjectTotal(data.routeProjectTotal);
     // Instrument module: project-wide (ไม่ขึ้นกับ activeMachine). Server-only, same rule as above.
     // instLocation/instThreshold have no sync entity, so they have no tombstone to read and an
@@ -369,9 +375,10 @@ const PrimaryGroutApp = () => {
     // succeed and cannot see, which is the failure this whole task exists to prevent. Say so.
     if (!setter) {
       // The families App does not mirror keep their own state and have already updated it by the
-      // time the write is queued — issues, daily reports, prep tasks, configs, instruments,
-      // readings, schedules. Anything else arriving here queues correctly and then never appears
-      // until a refresh, which is a save the crew watched succeed and cannot see.
+      // time the write is queued — issues, daily reports, instruments, readings, schedules. Prep
+      // tasks and the three configs cannot reach this branch at all: the first has a setter above,
+      // the others return twenty lines earlier. Anything else arriving here queues correctly and
+      // then never appears until a refresh, which is a save the crew watched succeed and cannot see.
       if (!SELF_RENDERED_ENTITY_TYPES.has(entityType) && process.env.NODE_ENV !== "production") {
         console.warn(`applyOptimisticRecord has no setter for ${entityType}; the queued write will not show until the next refresh`);
       }

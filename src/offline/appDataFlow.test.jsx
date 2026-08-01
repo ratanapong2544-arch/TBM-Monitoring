@@ -1001,3 +1001,33 @@ test("an instrument family the server tombstones leaves the screen, and an empty
   expect(app.text()).not.toContain("IS1 Shaft"); // the tombstoned one goes
   app.unmount();
 });
+
+test("an empty response leaves the prep tasks and daily reports the cache already holds", async () => {
+  // The two `applyServerRows` call sites in App that no test reached. The prep-task one is the
+  // else-branch, which runs ONLY when the payload carries no prep tasks at all — the missing-sheet
+  // and partial-`doGet` case the rule exists for.
+  let answer;
+  const repository = makeRepository({
+    load: async machine => ({
+      data: cached(machine, {
+        prepTasks: [{ id: "pt_1", machine: "TBM1", name: "งานเตรียมที่แคชไว้", start: "2026-08-01", end: "2026-08-05", progress: 0, deps: [] }],
+        dailyReports: [{ id: "dr_1", machine: "TBM1", date: "2026-07-30", area: "IS2 ที่แคชไว้" }],
+      }),
+      source: "indexeddb", fetchedAt: "x", stale: true,
+    }),
+    refresh: machine => new Promise(resolve => {
+      answer = () => resolve({ data: snapshot(machine, { prepTasks: [], dailyReports: [] }), source: "server", fetchedAt: "x", stale: false });
+    }),
+  });
+
+  const app = renderApp(repository);
+  await act(async () => {});
+  const button = pattern => [...app.container.querySelectorAll("button")].find(b => pattern.test(b.textContent));
+  await act(async () => { answer(); });
+
+  await act(async () => { button(/Work Plan/).dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+  expect(app.text()).toContain("งานเตรียมที่แคชไว้");
+  await act(async () => { button(/Daily Report/).dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+  expect(app.text()).toContain("IS2 ที่แคชไว้");
+  app.unmount();
+});

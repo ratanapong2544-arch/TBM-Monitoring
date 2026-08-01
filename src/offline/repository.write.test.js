@@ -731,3 +731,50 @@ test("a row the server tombstones is dropped from the stored snapshot", async ()
   const relaunched = makeRepository({ fetchServerSnapshot: async () => { throw new Error("offline"); } });
   expect((await relaunched.load("TBM1")).data.issues).toEqual([]);
 });
+
+test("a machine's first refresh does not empty what the device already holds for a project-wide family", async () => {
+  // The guard needs a "previous" side, and a machine refreshing for the first time has none of its
+  // own — so the protection TBM1 had, the machine being switched to did not. A phone used on TBM1
+  // all week, switched to TBM2 at the shaft on a partial response, then relaunched: the Issues rail,
+  // Daily Reports, Work Plan and the whole instrument module read empty while TBM1's snapshot still
+  // holds every row.
+  let carried = true;
+  const repository = makeRepository({
+    fetchServerSnapshot: async machine => (carried
+      ? { status: "success", segments: [], machine, issues: [{ id: "iss_1", title: "รอ Platform", machine: "TBM1" }], instLocations: [{ id: "L1", name: "IS2 Shaft" }] }
+      : { status: "success", segments: [], machine }),
+  });
+  await repository.refresh("TBM1");
+
+  carried = false;
+  await repository.refresh("TBM2"); // this machine's first refresh, and it carried nothing
+
+  const relaunched = makeRepository({ fetchServerSnapshot: async () => { throw new Error("offline"); } });
+  expect((await relaunched.load("TBM2")).data.issues.map(row => row.id)).toEqual(["iss_1"]);
+  expect((await relaunched.load("TBM2")).data.instLocations.map(row => row.id)).toEqual(["L1"]);
+});
+
+test("this device's own confirmed config does not outrank the server's on the next refresh", async () => {
+  // A config's optimistic entity is never evicted — configs appear in no `entityKeys` list, so the
+  // snapshot's key sweep can never reach one. `preserveLocal` in the overlay is the only thing that
+  // stops this phone re-applying its last confirmed plan over every later server answer, which would
+  // mean a second engineer's route edit never arriving and the Route page printing the wrong
+  // distances for good.
+  let serverPlan = { basePlanAcc: 1, ranges: [] };
+  const repository = makeRepository({
+    fetchServerSnapshot: async machine => ({ status: "success", segments: [], machine, planConfig: serverPlan }),
+    createRequestId: () => "request-plan",
+  });
+  await repository.refresh("TBM1");
+
+  const queued = await repository.mutate(buildMutationEnvelope({
+    entityType: "planConfig", operation: "update", machine: "TBM1", recordId: "TBM1",
+    payload: { planConfig: { basePlanAcc: 240, ranges: [] } }, syncMeta: {},
+  }));
+  await repository.applySyncSuccess(queued.requestId, { status: "success", version: 2, record: { planConfig: { basePlanAcc: 240, ranges: [] } } });
+
+  serverPlan = { basePlanAcc: 777, ranges: [] }; // another engineer's edit
+  const { data } = await repository.refresh("TBM1");
+
+  expect(data.planConfig.basePlanAcc).toBe(777);
+});

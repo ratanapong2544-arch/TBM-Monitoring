@@ -78,6 +78,14 @@ function serverRecords(serverData, definition) {
 // that does carry it. Config entities are not in `present` at all (they are not collections), and
 // an unflagged family is treated as carried, which keeps every caller without `present` working.
 function responseCarried(serverData, definition) {
+  // `planConfig` and `distPlanConfig` arrive as SCALARS for the machine being refreshed. A staged
+  // key belonging to the OTHER machine would be compared against this machine's config and keyed as
+  // the other's: equal by luck marks the family confirmed and discards a real legacy difference,
+  // unequal raises a conflict showing the wrong machine's server side. This response did not carry
+  // that machine's config, which is exactly what "not carried" means — the family waits for a
+  // response that did. `routeConfigs` is a per-machine map, so its lookup succeeds regardless.
+  const scalarConfig = definition.entityType === "planConfig" || definition.entityType === "distPlanConfig";
+  if (scalarConfig && definition.machine && serverData && serverData.machine && definition.machine !== serverData.machine) return false;
   const present = serverData && serverData.present;
   if (!present) return true;
   const flags = definition.serverKeys.map(key => present[key]).filter(flag => flag !== undefined);

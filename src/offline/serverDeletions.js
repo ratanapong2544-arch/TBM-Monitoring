@@ -1,4 +1,4 @@
-import { makeDomainKey } from "./domainKey";
+import { domainKeyForRow } from "./entityKeys";
 
 // Task 9 Step 5b — propagating a deletion that empties a collection.
 //
@@ -19,13 +19,11 @@ import { makeDomainKey } from "./domainKey";
 // rows would lose both from the screen if this were pointed at them.
 export function isServerDeleted(entityType, record, syncMeta, fallbackMachine) {
   if (!syncMeta || !record) return false;
-  const key = makeDomainKey({
-    entityType,
-    machine: record.machine || fallbackMachine,
-    recordId: record.id,
-    payload: record,
-  });
-  const meta = syncMeta[key];
+  // `domainKeyForRow` and nothing else. This spelled the same rule a second time — same inputs, one
+  // difference (`record.id` against `recordId ?? id`) that happens not to matter for the families
+  // Task 9 queues — and a rule spelled twice is what this branch's completion record names as its
+  // worst defect class.
+  const meta = syncMeta[domainKeyForRow(entityType, record, fallbackMachine)];
   return Boolean(meta && meta.deleted);
 }
 

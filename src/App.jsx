@@ -39,6 +39,7 @@ import { applyOptimisticRow, stripQueuedPhotos } from "./offline/displayRecord";
 
 import { Shell, NAV_GROUPS } from "./ui-ux-pro-max";
 import "./styles/globals.css";
+import { buildMutationEnvelope } from "./offline/mutationEnvelope";
 
 // stable empty array so the machine-switch gate does not remount every consumer each render
 const EMPTY_ROWS = [];
@@ -90,25 +91,29 @@ const PrimaryGroutApp = () => {
     apiCall("deleteDailyReport", { id }).catch((e) => console.warn("DailyReport sync (delete) failed — kept locally:", e.message));
   };
 
-  const syncIssueToServer = (issue) => {
-    apiCall("saveIssue", issue).catch((e) => console.warn("Issue sync (save) failed — kept locally:", e.message));
-  };
+  // `issue` is project-wide, so its key carries GLOBAL whatever machine the crew is looking at —
+  // `makeDomainKey` decides that, not the caller. The `.catch(console.warn)` this replaced meant a
+  // failed write was a line in a console nobody reads.
+  const queueIssue = (record, operation) => mutateBusinessRecord(buildMutationEnvelope({
+    entityType: "issue", operation, recordId: record.id, payload: record, syncMeta,
+  }));
 
   const handleSaveIssue = (form) => {
     const next = upsertIssue(issues, form);
     setIssues(next);
     const saved = form.id ? next.find((i) => i.id === form.id) : next[0];
-    if (saved) syncIssueToServer(saved);
+    if (saved) queueIssue(saved, form.id ? "update" : "create");
   };
   const handleSetIssueStatus = (id, status) => {
     const next = setIssueStatus(issues, id, status);
     setIssues(next);
     const changed = next.find((i) => i.id === id);
-    if (changed) syncIssueToServer(changed);
+    if (changed) queueIssue(changed, "update");
   };
   const handleDeleteIssue = (id) => {
+    const removed = issues.find((i) => i.id === id);
     setIssues(removeIssue(issues, id));
-    apiCall("deleteIssue", { id }).catch((e) => console.warn("Issue sync (delete) failed — kept locally:", e.message));
+    if (removed) queueIssue(removed, "delete");
   };
 
   const handleSaveInstReading = (reading) => {

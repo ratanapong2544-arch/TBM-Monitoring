@@ -1,3 +1,6 @@
+import "fake-indexeddb/auto";
+if (!global.structuredClone) global.structuredClone = value => JSON.parse(JSON.stringify(value));
+
 import React from "react";
 import { createRoot } from "react-dom/client";
 import { act } from "react-dom/test-utils";
@@ -7,6 +10,9 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 import PrepGanttView from "../components/views/PrepGanttView";
 import RouteScheduleView from "../components/views/RouteScheduleView";
 import SegmentAnalysisView from "../components/views/SegmentAnalysisView";
+import App from "../App";
+import { OfflineProvider } from "./OfflineProvider";
+import { emptyServerData } from "./normalizeServerData";
 import { apiCall } from "../utils/api";
 
 // Task 9 moves the remaining business writes onto the same queue Task 8 built for the core five.
@@ -201,6 +207,59 @@ test("saving the route queues routeConfig carrying its project total", async () 
   }));
   expect(envelope.payload.routeProjectTotal).toBe(4321);
   expect(envelope.payload.routeConfig).toBeTruthy();
+  expect(apiCall).not.toHaveBeenCalled();
+  view.unmount();
+});
+
+// App owns the issue, daily-report and instrument handlers, so those envelopes can only be asserted
+// where they are built. A fake repository captures them; everything else is the real App.
+function renderApp(serverData = {}, { mutate }) {
+  const machineData = machine => ({ ...emptyServerData(machine), ...serverData });
+  const repository = {
+    load: async machine => ({ data: machineData(machine), source: "indexeddb", fetchedAt: "2026-07-01T00:00:00.000Z", stale: true }),
+    refresh: async machine => ({ data: { ...machineData(machine), present: {} }, source: "server", fetchedAt: "2026-08-01T00:00:00.000Z", stale: false }),
+    subscribe: () => () => {},
+    getSyncSummary: async () => ({ online: true, pending: 0, syncing: 0, conflicts: 0, errors: 0, blocked: 0, lastSyncedAt: null }),
+    setSyncMetaValue: async () => {},
+    mutate,
+  };
+  let container;
+  let root;
+  act(() => {
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    root.render(
+      <OfflineProvider deps={{
+        openDb: async () => ({}), stageLegacyLocalStorage: async () => {},
+        createRepository: () => repository,
+        createSyncRunner: () => ({ start: async () => {}, stop: () => {}, runNow: async () => {} }),
+        storage: null,
+      }}>
+        <App />
+      </OfflineProvider>
+    );
+  });
+  return { container, unmount: () => act(() => { root.unmount(); container.remove(); }) };
+}
+
+const issue = (id, title, extra = {}) => ({
+  id, title, status: "open", machine: "TBM1", priority: "medium", createdAt: "2026-08-01T00:00:00.000Z", ...extra,
+});
+
+test("closing an issue queues one update for that issue", async () => {
+  const mutate = jest.fn(async () => ({ optimisticRecord: {} }));
+  const view = renderApp({ issues: [issue("iss_1", "รอ Platform")] }, { mutate });
+  // load, then refresh, then the mirror effect
+  for (let pass = 0; pass < 4; pass += 1) await act(async () => {});
+
+  // the rail renders its cards without a toggle once there is an issue — the count IS the button
+  await click(byTitle(view.container, "ปิด (แก้แล้ว)"));
+
+  expect(mutate).toHaveBeenCalledTimes(1);
+  expect(mutate).toHaveBeenCalledWith(expect.objectContaining({
+    entityType: "issue", operation: "update", recordId: "iss_1", domainKey: "issue:GLOBAL:iss_1",
+  }));
   expect(apiCall).not.toHaveBeenCalled();
   view.unmount();
 });

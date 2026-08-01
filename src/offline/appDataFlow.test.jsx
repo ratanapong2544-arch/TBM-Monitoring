@@ -86,11 +86,12 @@ function makeRepository(overrides = {}) {
 function optimisticShape(input) {
   return {
     ...input.payload,
-    id: input.recordId,
     recordId: input.recordId,
     entityType: input.entityType,
     machine: input.machine,
     domainKey: makeDomainKey(input),
+    version: input.baseVersion,
+    syncStatus: "pending",
   };
 }
 
@@ -354,7 +355,7 @@ test("a second save of one record stamps the version the first one confirmed", a
   const mutations = [];
   const repository = makeRepository({
     subscribe: listener => { listeners.add(listener); return () => listeners.delete(listener); },
-    mutate: async input => { mutations.push(input); return { optimisticRecord: input.payload }; },
+    mutate: async input => { mutations.push(input); return { optimisticRecord: optimisticShape(input) }; },
     refresh: async machine => ({
       data: snapshot(machine, { syncMeta: { "segment:TBM1:P41:Permanent": { version: 1 } } }),
       source: "server", fetchedAt: "2026-07-30T00:00:00.000Z", stale: false,

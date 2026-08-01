@@ -284,6 +284,18 @@ and 9 to ship together, so no device holds a snapshot from any of these commits.
 free the moment anything here is deployed ahead of Task 9** — bump `DB_VERSION` first if that
 happens, since the migration already rebuilds the key lists from the surviving rows.
 
+## 3k. `reconcileLegacyStage` is written, tested and wired to nothing
+
+`legacyMigration.js` exports it, its own tests call it nine times, and no production path does:
+`OfflineProvider` wires `stageLegacyLocalStorage` and stops there. It is a Task 7 plan deliverable
+that was built and not connected.
+
+It is not inert if it is ever connected: it writes `conflicts` rows with
+`reason: "legacy_local_difference"`, and `getSyncCounts` counts every open conflict — so wiring it
+would put a number in the status strip that no screen can resolve until Task 10. Predates Task 8 and
+untouched by it; recorded because it is the one piece of production code on this branch with no
+caller, and a future reader should know it was parked rather than missed.
+
 ## 4. Deliberate deviations from the plan
 
 - **"บันทึกในเครื่องแล้ว" is only in the shift report.** Step 3 asks for it on every core write. The
@@ -324,11 +336,12 @@ data-loss path is worse than no note.
 - `App.jsx` — `applyOptimisticRecord`'s dev-time warning for an entity type with no setter has no
   test: it fires on a state Task 8 cannot reach (every type it queues has one) and pinning a
   `console.warn` string would break on any rewording. It exists for Task 9, which adds the types.
-- `snapshotStore.js` — `rowIdOf` reducing a blank id to `null` is a spelling, not a rule: the three
+- `entityKeys.js` — `rowIdOf` reducing a blank id to `null` is a spelling, not a rule: the three
   places that asked "does this row name a record" disagreed on whether `""` counts, and every
   combination reaches the same answer anyway (`recordSlot` maps `null` and `""` to one slot, and the
   id-less path claims within the domain either way). Reverting it leaves the suite green, as it
-  should. What the fixtures now do carry is the shape GAS really sends — `{ id: "" }`, since
+  should — re-measured after it moved from `snapshotStore.js` into `entityKeys.js`, where the
+  migration and the merge now share one copy of it. What the fixtures now do carry is the shape GAS really sends — `{ id: "" }`, since
   `getSheetDataAsJson` assigns every header from the row values and a blank cell reads as `""`.
 - `PerformanceView.jsx` — a delay bar wholly inside one already counted names no Pareto theme, since
   it has no minutes to show on a chart of minutes; which of two overlapping bars keeps its cause is

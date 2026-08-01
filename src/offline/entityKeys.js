@@ -1,3 +1,5 @@
+import { makeDomainKey } from "./domainKey";
+
 // How a row in the `entities` store is named, in one place.
 //
 // Two of them exist, and BOTH name one row. A live sheet legitimately holds two rows sharing a ring
@@ -46,4 +48,24 @@ export function entityKeyForRecord(key, domainKey, recordId) {
   // key whose id is empty, and callers pass a record id straight through
   if (recordId == null || recordId === "") return false;
   return String(key).endsWith(`:${domainKey}:id:${recordId}`);
+}
+
+// Which record a row names — a sheet row, a cached row or a row on screen. `""` and an absent id
+// both mean "names no record": a blank Id cell reaches the client as the empty string, because
+// `getSheetDataAsJson` assigns every header key from the row's values. Shared because the migration
+// in `db.js` and the merge in `snapshotStore.js` were spelling it out separately, in opposite field
+// order, and a device state where the two disagree is one rule disagreeing with itself.
+export function rowIdOf(row) {
+  const id = row && (row.id ?? row.recordId);
+  return id == null || id === "" ? null : id;
+}
+
+// The domain a row belongs to, built from the ROW's own fields. The machine is the row's when it has
+// one — `dailyReport` and `prepTask` carry a machine column AND are machine-keyed, so reading it off
+// anything else names a different domain — and `||`, not `??`, because a blank machine cell means
+// "no machine of its own" and `normalizeReport` writes exactly that for an unrecognised machine.
+// Shared for the same reason: the cache and the on-screen list have to agree on which row is which.
+export function domainKeyForRow(entityType, row, fallbackMachine) {
+  const source = row || {};
+  return makeDomainKey({ entityType, machine: source.machine || fallbackMachine, recordId: source.id ?? source.recordId, payload: source });
 }

@@ -1,5 +1,4 @@
-import { makeDomainKey } from "./domainKey";
-import { isOptimisticKey, serverEntityKey } from "./entityKeys";
+import { domainKeyForRow, isOptimisticKey, rowIdOf as recordIdOfPayload, serverEntityKey } from "./entityKeys";
 import { toSyncVersion } from "./syncVersion";
 import { emptyServerData } from "./normalizeServerData";
 import { MUTATION_STATUS, STORES } from "./schema";
@@ -37,8 +36,7 @@ export function isMachineScopedEntityType(entityType) { return MACHINE_SCOPED_CO
 // rows sharing a ring identity (the views run deduplicateRecords over them), and keying by domain
 // alone made one row overwrite the other in the cache and appear twice in the list.
 function recordFor(machine, field, entityType, payload, index, seenIds) {
-  const recordMachine = payload.machine || machine;
-  const domainKey = makeDomainKey({ entityType, machine: recordMachine, recordId: payload.id, payload });
+  const domainKey = domainKeyForRow(entityType, payload, machine);
   // A sheet can hand back two rows carrying one id — GAS appends a duplicate in at least one path,
   // and imported rows are outside this app's control. Keying both as `id:<id>` made them one cache
   // entry: one row's values overwritten, the other listed twice, and the refresh and the relaunch
@@ -139,10 +137,7 @@ export async function writeServerSnapshot(db, machine, data, fetchedAt, requeste
   // "no id" has to mean both, or the id-less matching path below is simply never entered for the
   // shape the server actually sends — which is what `recordFor` and `deletePending` already say and
   // this said differently.
-  const rowIdOf = record => {
-    const id = (record.payload && record.payload.id) ?? (record.payload && record.payload.recordId);
-    return id == null || id === "" ? null : id;
-  };
+  const rowIdOf = record => recordIdOfPayload(record.payload);
   const slotForRow = record => recordSlot(record.domainKey, rowIdOf(record));
   const unresolvedStatus = record => {
     const mutation = unresolvedByRecord.get(slotForRow(record));

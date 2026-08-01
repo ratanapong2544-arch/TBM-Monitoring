@@ -1,5 +1,14 @@
 import { applyOptimisticRow, stripQueuedPhotos } from "./displayRecord";
 
+// Several tests here build a record by hand, which is the one shape that reaches `namesRow`'s
+// id-only fallback — and the fallback warns, deliberately, because matching on the id alone is the
+// rule the cross-ring duplicates disproved. Assert the warning instead of letting it scroll past in
+// every CI run: a diagnostic nobody reads is one nobody notices going missing.
+let warned;
+beforeEach(() => { warned = jest.spyOn(console, "warn").mockImplementation(() => {}); });
+afterEach(() => { warned.mockRestore(); });
+const warnedAboutMissingDomainKey = () => warned.mock.calls.some(([message]) => /no domainKey/.test(String(message)));
+
 test("a queued row reaches the list without its photo bytes", () => {
   // the difference between carrying the base64 and not is invisible on screen — both hide the photo
   // link, since there is no URL to open until GAS answers — so this is the only place it can be seen
@@ -16,6 +25,8 @@ test("a second save of one record replaces its row instead of adding another", (
 
   expect(second).toHaveLength(1);
   expect(second[0].status).toBe("Completed");
+  // a hand-built record carries no domain key, so it took the fallback and said so
+  expect(warnedAboutMissingDomainKey()).toBe(true);
 });
 
 test("a queued delete takes the row off the list", () => {
@@ -125,9 +136,17 @@ test("a row that carries its own machine is not claimed by the other machine's r
   const rows = [
     { id: "d1", machine: "TBM2", note: "tbm2's report" },
     { id: "d2", machine: "TBM1", note: "tbm1's other report" },
+    // `normalizeReport` writes `machine: ""` for any report whose stored machine is not a known one,
+    // and `recordFor` reads that with `||`, so the merge files it under the ACTIVE machine. Reading
+    // it with `??` would keep the blank, `makeDomainKey` would map it to GLOBAL, and the screen and
+    // the merge would name different domains for one row — the failure this function prevents.
+    { id: "d3", machine: "", note: "a report whose machine cell is blank" },
   ];
   const tbm1 = { id: "d1", machine: "TBM1", recordId: "d1", entityType: "dailyReport", domainKey: "dailyReport:TBM1:d1", note: "tbm1's report" };
+  const blank = { id: "d3", machine: "TBM1", recordId: "d3", entityType: "dailyReport", domainKey: "dailyReport:TBM1:d3", note: "EDITED" };
 
   expect(applyOptimisticRow(rows, "update", tbm1)).toEqual([...rows, tbm1]);
   expect(applyOptimisticRow(rows, "delete", tbm1)).toEqual(rows);
+  expect(applyOptimisticRow(rows, "update", blank).map(row => row.note)).toEqual([rows[0].note, rows[1].note, "EDITED"]);
+  expect(applyOptimisticRow(rows, "delete", blank).map(row => row.id)).toEqual(["d1", "d2"]);
 });

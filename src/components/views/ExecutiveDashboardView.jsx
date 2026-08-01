@@ -7,14 +7,14 @@ import { filterByState } from "../../hooks/useGlobalFilter";
 import { formatDisplayDate } from "../../utils/formatters";
 import { getRingNumeric, calculateSoilVolume } from "../../utils/helpers";
 import { TOTAL_ROUTE_DISTANCE, drivePhotosFolder } from "../../utils/constants";
-import { loadDistancePlan, plannedDistanceToNow, currentMonthBKK } from "../../utils/planConfig";
+import { distancePlanFor, plannedDistanceToNow, currentMonthBKK } from "../../utils/planConfig";
 import { chartColors, tooltipStyle } from "../../ui-ux-pro-max/chartTheme";
 import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip } from "recharts";
 import ExecutiveEmptyState from "./ExecutiveEmptyState";
 import AlignmentMapView from "./AlignmentMapView";
 import { fitAndPrint } from "../../utils/printFit";
 
-const ExecutiveDashboardView = ({ segmentRecords, groutRecords, dailyReports = [], machine = "TBM1", onNavigate, filterState = {}, readOnly = false }) => {
+const ExecutiveDashboardView = ({ segmentRecords, groutRecords, dailyReports = [], machine = "TBM1", onNavigate, filterState = {}, readOnly = false, distPlanConfig = null }) => {
   const filteredSegments = useMemo(() => filterByState(segmentRecords, filterState), [segmentRecords, filterState]);
   const filteredGrout = useMemo(() => filterByState(groutRecords, filterState), [groutRecords, filterState]);
 
@@ -106,13 +106,13 @@ const ExecutiveDashboardView = ({ segmentRecords, groutRecords, dailyReports = [
 
   // Plan variance: แผนสะสมถึงเดือนปัจจุบัน (per-machine) vs actual. null เมื่อไม่มีแผน.
   const planVariance = useMemo(() => {
-    const cfg = loadDistancePlan(machine);
+    const cfg = distancePlanFor(distPlanConfig);
     if (!cfg.ranges || cfg.ranges.length === 0) return null;
     const planAcc = plannedDistanceToNow(cfg, { asOfMonth: currentMonthBKK(), totalRouteDistance: machine === "TBM1" ? TOTAL_ROUTE_DISTANCE : 0 });
     if (planAcc <= 0) return null;
     const actual = overallStats.totalDistance;
     return { planToNow: planAcc, variance: actual - planAcc, behind: actual - planAcc < 0 };
-  }, [overallStats.totalDistance, machine]);
+  }, [overallStats.totalDistance, machine, distPlanConfig]);
 
   // ══════════════════════════════════════════════
   // SECTION: Grout Pending

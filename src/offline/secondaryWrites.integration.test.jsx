@@ -373,3 +373,41 @@ test("a plan config arriving after mount replaces the one on screen", async () =
   expect(onMutate.mock.calls[0][0].payload.planConfig).toMatchObject({ basePlanAcc: 240 });
   view.unmount();
 });
+
+test("the route view edits the route config it was given, not whatever localStorage holds", async () => {
+  window.localStorage.setItem("tbmRouteConfig", JSON.stringify({ legs: [{ order: "9.9", level: 2, name: "จาก localStorage", plannedDistance: 111 }] }));
+  const routeConfigs = { TBM1: { legs: [{ order: "1.1", level: 2, name: "IS2 → IS1", plannedDistance: 1234, remark: "" }] }, TBM2: { legs: [] } };
+  const view = render(<RouteScheduleView segmentRecords={[]} projectInfo={projectInfo} machine="TBM1"
+    routeConfigs={routeConfigs} onMutate={onMutate} syncMeta={{}} />);
+
+  await click(button(view.container, /แก้ไขเส้นทาง/));
+  await click(button(view.container, /บันทึก$/));
+
+  const [envelope] = onMutate.mock.calls[0];
+  expect(envelope.payload.routeConfig.legs[0]).toMatchObject({ name: "IS2 → IS1", plannedDistance: 1234 });
+});
+
+test("the distance plan comes down as a prop, per machine", async () => {
+  window.localStorage.setItem("tbmDistancePlanConfig__TBM2", JSON.stringify({ ranges: [{ start: "2020-01", end: "2020-02", monthlyPlan: 1 }] }));
+  const view = render(<RouteScheduleView segmentRecords={[]} projectInfo={projectInfo} machine="TBM2"
+    distPlanConfig={{ ranges: [{ start: "2026-08", end: "2026-12", monthlyPlan: 180 }] }}
+    onMutate={onMutate} syncMeta={{}} />);
+
+  await click(byTitle(view.container, "Distance Plan Settings"));
+  await click(button(view.container, /บันทึกการตั้งค่า/));
+
+  const [envelope] = onMutate.mock.calls[0];
+  expect(envelope.payload.distPlanConfig.ranges).toEqual([{ start: "2026-08", end: "2026-12", monthlyPlan: 180 }]);
+});
+
+test("a route config arriving after mount replaces the one on screen", async () => {
+  const view = render(<RouteScheduleView segmentRecords={[]} projectInfo={projectInfo} machine="TBM1"
+    routeConfigs={{ TBM1: { legs: [{ order: "1.1", level: 2, name: "เก่า", plannedDistance: 1 }] } }} onMutate={onMutate} syncMeta={{}} />);
+  view.rerender(<RouteScheduleView segmentRecords={[]} projectInfo={projectInfo} machine="TBM1"
+    routeConfigs={{ TBM1: { legs: [{ order: "1.1", level: 2, name: "ใหม่จากเซิร์ฟเวอร์", plannedDistance: 2 }] } }} onMutate={onMutate} syncMeta={{}} />);
+
+  await click(button(view.container, /แก้ไขเส้นทาง/));
+  await click(button(view.container, /บันทึก$/));
+
+  expect(onMutate.mock.calls[0][0].payload.routeConfig.legs[0].name).toBe("ใหม่จากเซิร์ฟเวอร์");
+});

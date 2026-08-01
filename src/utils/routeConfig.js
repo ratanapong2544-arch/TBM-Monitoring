@@ -39,17 +39,23 @@ function seedFor(machine) {
   return { legs: (DEFAULT_ROUTE_LEGS[machine] || []).map((l) => ({ ...l })) };
 }
 
+// What a stored config becomes on screen: usable as given, or this machine's seed. Pure, so the
+// same rule applies whether the config arrived from the snapshot (the live path) or localStorage.
+export function routeConfigFor(machine, cfg) {
+  return cfg && Array.isArray(cfg.legs) ? cfg : seedFor(machine);
+}
+
+// MIGRATION ONLY — no active React path reads this. `App` passes the snapshot's configs down as
+// props; this remains for `legacyMigration` staging and for reading a device that predates it.
 export function loadRouteConfig(machine) {
   try {
     const raw = localStorage.getItem(routeConfigKey(machine));
-    if (raw) {
-      const p = JSON.parse(raw);
-      if (p && Array.isArray(p.legs)) return p;
-    }
+    if (raw) return routeConfigFor(machine, JSON.parse(raw));
   } catch (e) { /* malformed → seed */ }
   return seedFor(machine);
 }
 
+// MIGRATION ONLY — writes go through the mutation queue.
 export function saveRouteConfig(machine, cfg) {
   try { localStorage.setItem(routeConfigKey(machine), JSON.stringify(cfg)); } catch (e) { /* quota */ }
 }

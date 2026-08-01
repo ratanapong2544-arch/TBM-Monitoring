@@ -6,8 +6,8 @@ import { filterByState } from "../../hooks/useGlobalFilter";
 import { formatDisplayDate } from "../../utils/formatters";
 import { getRingNumeric } from "../../utils/helpers";
 import { TOTAL_ROUTE_DISTANCE, ROUTE_SEGMENTS } from "../../utils/constants";
-import { loadDistancePlan, saveDistancePlan } from "../../utils/planConfig";
-import { loadRouteConfig, saveRouteConfig, routeRowsFromBored, machineActualMeters, ROUTE_TOTAL, PROJECT_TOTAL_M, ROUTE_NAME, ROUTE_STATUS, pct, validateRouteConfig } from "../../utils/routeConfig";
+import { distancePlanFor } from "../../utils/planConfig";
+import { routeConfigFor, routeRowsFromBored, machineActualMeters, ROUTE_TOTAL, PROJECT_TOTAL_M, ROUTE_NAME, ROUTE_STATUS, pct, validateRouteConfig } from "../../utils/routeConfig";
 import { chartColors, axisTick, tooltipStyle } from "../../ui-ux-pro-max/chartTheme";
 import {
   ResponsiveContainer, ComposedChart, CartesianGrid, XAxis, YAxis, Tooltip, Line, ReferenceLine
@@ -15,7 +15,7 @@ import {
 import { fitAndPrint } from "../../utils/printFit";
 import { buildMutationEnvelope } from "../../offline/mutationEnvelope";
 
-const RouteScheduleView = ({ segmentRecords = [], projectInfo, machine = "TBM1", machineProgress = null, routeProjectTotal = null, filterState = {}, readOnly = false, onMutate, syncMeta }) => {
+const RouteScheduleView = ({ segmentRecords = [], projectInfo, machine = "TBM1", machineProgress = null, routeProjectTotal = null, filterState = {}, readOnly = false, onMutate, syncMeta, routeConfigs = null, distPlanConfig: distPlanConfigProp = null }) => {
   const filteredSegments = useMemo(() => filterByState(segmentRecords, filterState), [segmentRecords, filterState]);
 
   // ── Print State ──
@@ -43,14 +43,24 @@ const RouteScheduleView = ({ segmentRecords = [], projectInfo, machine = "TBM1",
   const [expandedChart, setExpandedChart] = useState(null);
 
   // ── F3: Route distance table (project-wide TBM1+TBM2+รวม, config แก้ได้) ──
-  const [routeCfg, setRouteCfg] = useState({ TBM1: loadRouteConfig("TBM1"), TBM2: loadRouteConfig("TBM2") });
+  // Both machines' configs come down from the snapshot; this table shows them side by side.
+  const routeCfgFromProps = () => ({
+    TBM1: routeConfigFor("TBM1", routeConfigs && routeConfigs.TBM1),
+    TBM2: routeConfigFor("TBM2", routeConfigs && routeConfigs.TBM2),
+  });
+  const [routeCfg, setRouteCfg] = useState(routeCfgFromProps);
   const [routeEditing, setRouteEditing] = useState(false);
   // ซ่อนข้อความหมายเหตุเป็นค่าเริ่มต้น — ตารางแคบลง กราฟข้างๆ จึงกว้างพอให้ตัวเลขบนจุดไม่ทับกัน
   const [showRemark, setShowRemark] = useState(false);
   const [routeDraft, setRouteDraft] = useState(null);
   const [routeSaving, setRouteSaving] = useState(false);
   const [routeErr, setRouteErr] = useState([]);
-  useEffect(() => { setRouteCfg({ TBM1: loadRouteConfig("TBM1"), TBM2: loadRouteConfig("TBM2") }); }, [machineProgress]);
+  // A later render brings the server's answer; the cached snapshot was the first one. Never while
+  // the table is being edited — a refresh mid-edit would discard the draft underneath it.
+  useEffect(() => {
+    if (!routeEditing) setRouteCfg(routeCfgFromProps());
+    // eslint-disable-next-line
+  }, [routeConfigs]);
 
   const boredByMachine = useMemo(() => ({
     TBM1: machine === "TBM1" ? machineActualMeters(segmentRecords) : (machineProgress && machineProgress.TBM1 ? machineProgress.TBM1.dist : 0),
@@ -75,7 +85,6 @@ const RouteScheduleView = ({ segmentRecords = [], projectInfo, machine = "TBM1",
     const errs = validateRouteConfig(cfg);
     if (errs.length) { setRouteErr(errs); return; }
     setRouteSaving(true);
-    saveRouteConfig(machine, cfg);
     setRouteCfg((prev) => ({ ...prev, [machine]: cfg }));
     // `routeProjectTotal` rides along: GAS stores it in its own PlanConfig row and the snapshot
     // merge already carries it across for a routeConfig edit
@@ -92,9 +101,13 @@ const RouteScheduleView = ({ segmentRecords = [], projectInfo, machine = "TBM1",
 
   // ── Distance Plan Config ──
   const [showDistPlanModal, setShowDistPlanModal] = useState(false);
-  const [distPlanConfig, setDistPlanConfig] = useState(() => loadDistancePlan(machine));
-  // โหลดแผนใหม่เมื่อสลับหัวขณะอยู่หน้านี้
-  useEffect(() => { setDistPlanConfig(loadDistancePlan(machine)); }, [machine]);
+  const [distPlanConfig, setDistPlanConfig] = useState(() => distancePlanFor(distPlanConfigProp));
+  // The prop is already scoped to the machine on screen — switching heads swaps the snapshot, which
+  // is what used to be a re-read here. Not while the modal is open.
+  useEffect(() => {
+    if (!showDistPlanModal) setDistPlanConfig(distancePlanFor(distPlanConfigProp));
+    // eslint-disable-next-line
+  }, [distPlanConfigProp, machine]);
 
   // ── Distance Plan settings handlers ──
   const [isSavingDistPlan, setIsSavingDistPlan] = useState(false);
@@ -102,7 +115,6 @@ const RouteScheduleView = ({ segmentRecords = [], projectInfo, machine = "TBM1",
     if (readOnly) return;
     setIsSavingDistPlan(true);
     try {
-      saveDistancePlan(machine, distPlanConfig);
       // Every machine, not only TBM1. The sync path keys on `distPlanConfig_<machine>` and getData
       // reads it back the same way, so the "per-machine GAS = future" this guarded against arrived
       // with Task 6 — TBM2's distance plan had been local-only for no reason, which is the sole

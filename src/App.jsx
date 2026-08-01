@@ -89,6 +89,8 @@ const PrimaryGroutApp = () => {
   // Per machine, from the snapshot. It used to live in one localStorage key for both machines, so
   // whichever machine was active last wrote over the other one's plan.
   const [planConfig, setPlanConfig] = useState(null);
+  const [distPlanConfig, setDistPlanConfig] = useState(null);
+  const [routeConfigs, setRouteConfigs] = useState(null);
   const handleSaveDailyReport = (report) => {
     const next = upsertDailyReport(dailyReports, report);
     setDailyReports(next); persistDailyReports(next);
@@ -210,16 +212,9 @@ const PrimaryGroutApp = () => {
     // Tasks 8-9, so a cache read must not write over it
     if (serverAuthoritative) {
       if (data.planConfig) setPlanConfig(data.planConfig);
-      if (data.distPlanConfig) {
-        try { localStorage.setItem("tbmDistancePlanConfig", JSON.stringify(data.distPlanConfig)); } catch (e) { console.error("Parse distPlanConfig error", e); }
-      }
-      // F3: route configs (ทั้ง 2 เครื่อง) → localStorage เพื่อให้ RouteScheduleView โหลด
-      if (data.routeConfigs && typeof data.routeConfigs === "object") {
-        try {
-          if (data.routeConfigs.TBM1) localStorage.setItem("tbmRouteConfig", JSON.stringify(data.routeConfigs.TBM1));
-          if (data.routeConfigs.TBM2) localStorage.setItem("tbmRouteConfig__TBM2", JSON.stringify(data.routeConfigs.TBM2));
-        } catch (e) { /* ignore */ }
-      }
+      if (data.distPlanConfig) setDistPlanConfig(data.distPlanConfig);
+      // both machines' route configs — the distance table shows them side by side
+      if (data.routeConfigs && typeof data.routeConfigs === "object") setRouteConfigs(data.routeConfigs);
     }
     if (data.machineProgress) setMachineProgress(data.machineProgress);
     if (data.routeProjectTotal != null) setRouteProjectTotal(data.routeProjectTotal);
@@ -497,10 +492,10 @@ const PrimaryGroutApp = () => {
       {activeTab === "overview" && <OverviewView segmentRecords={activeSegments} groutRecords={activeGrouts} setCurrentModule={setCurrentModule} setActiveTab={setActiveTab} activeMachine={activeMachine} onMachineChange={setActiveMachine} />}
       {activeTab === "record" && currentModule === "grout" && <GroutRecordView projectInfo={projectInfo} handleProjectInfoChange={handleProjectInfoChange} groutRecords={activeGrouts} secondaryGroutRecords={activeSecondaryGrouts} segmentRecords={activeSegments} setCurrentModule={setCurrentModule} setActiveTab={setActiveTab} machine={activeMachine} isCurrentMachine={isCurrentMachine} onMutate={mutateBusinessRecord} syncMeta={syncMeta} />}
       {activeTab === "record" && currentModule === "segment" && <SegmentRecordView projectInfo={projectInfo} handleProjectInfoChange={handleProjectInfoChange} segmentRecords={activeSegments} setCurrentModule={setCurrentModule} setActiveTab={setActiveTab} machine={activeMachine} isCurrentMachine={isCurrentMachine} onMutate={mutateBusinessRecord} syncMeta={syncMeta} />}
-      {activeTab === "dashboard" && <ExecutiveDashboardView segmentRecords={activeSegments} groutRecords={activeGrouts} shiftReports={activeShiftReports} dailyReports={activeDailyReports} machine={activeMachine} onNavigate={handleNavigate} filterState={dashFilter.state} readOnly={isViewer} />}
+      {activeTab === "dashboard" && <ExecutiveDashboardView segmentRecords={activeSegments} groutRecords={activeGrouts} shiftReports={activeShiftReports} dailyReports={activeDailyReports} machine={activeMachine} onNavigate={handleNavigate} filterState={dashFilter.state} readOnly={isViewer} distPlanConfig={distPlanConfig} />}
       {activeTab === "analysis" && currentModule === "segment" && <SegmentAnalysisView segmentRecords={activeSegments} projectInfo={projectInfo} machine={activeMachine} filterState={dashFilter.state} readOnly={isViewer} onMutate={mutateBusinessRecord} syncMeta={syncMeta} planConfig={planConfig} />}
       {activeTab === "analysis" && currentModule === "grout" && <GroutAnalysisView groutRecords={activeGrouts} secondaryGroutRecords={activeSecondaryGrouts} readOnly={isViewer} />}
-      {activeTab === "analysis" && currentModule === "route" && <RouteScheduleView segmentRecords={activeSegments} projectInfo={projectInfo} machine={activeMachine} machineProgress={machineProgress} routeProjectTotal={routeProjectTotal} filterState={dashFilter.state} readOnly={isViewer} onMutate={mutateBusinessRecord} syncMeta={syncMeta} />}
+      {activeTab === "analysis" && currentModule === "route" && <RouteScheduleView segmentRecords={activeSegments} projectInfo={projectInfo} machine={activeMachine} machineProgress={machineProgress} routeProjectTotal={routeProjectTotal} filterState={dashFilter.state} readOnly={isViewer} onMutate={mutateBusinessRecord} syncMeta={syncMeta}  routeConfigs={routeConfigs} distPlanConfig={distPlanConfig} />}
       {activeTab === "head_level" && <HeadLevelView segmentRecords={activeSegments} machine={activeMachine} readOnly={isViewer} />}
       {activeTab === "performance" && <PerformanceView segmentRecords={activeSegments} shiftReports={activeShiftReports} filterState={dashFilter.state} />}
       {activeTab === "prep_gantt" && <PrepGanttView machine={activeMachine} readOnly={isViewer} onMutate={mutateBusinessRecord} syncMeta={syncMeta} />}

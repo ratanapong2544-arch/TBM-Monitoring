@@ -6,15 +6,15 @@ import { filterByState } from "../../hooks/useGlobalFilter";
 import { formatDisplayDate, formatDisplayTime } from "../../utils/formatters";
 import { getRingNumeric } from "../../utils/helpers";
 import { PROJECT_DEADLINE } from "../../utils/constants";
-import { apiCall } from "../../utils/api";
 import { computePaceStats } from "../../utils/paceStats";
 import { chartColors, axisTick, tooltipStyle } from "../../ui-ux-pro-max/chartTheme";
 import {
   ResponsiveContainer, ComposedChart, CartesianGrid, XAxis, YAxis, Tooltip, Bar, Line, LabelList
 } from "recharts";
 import { fitAndPrint } from "../../utils/printFit";
+import { buildMutationEnvelope } from "../../offline/mutationEnvelope";
 
-export default function SegmentAnalysisView({ segmentRecords = [], projectInfo, machine = "TBM1", filterState = {}, readOnly = false }) {
+export default function SegmentAnalysisView({ segmentRecords = [], projectInfo, machine = "TBM1", filterState = {}, readOnly = false, onMutate, syncMeta }) {
   const filteredSegments = useMemo(() => filterByState(segmentRecords, filterState), [segmentRecords, filterState]);
 
   // ── ตัวช่วยแสดงผล (display only) ──
@@ -113,9 +113,16 @@ export default function SegmentAnalysisView({ segmentRecords = [], projectInfo, 
     setIsSavingPlan(true);
     try {
       localStorage.setItem("tbmPlanConfig", JSON.stringify(planConfig));
-      // ส่งทั้งคู่เหมือนเดิม (กัน GAS เขียนทับ distPlanConfig ฝั่ง server) — ดึง distance plan จาก localStorage
-      const distPlanConfig = JSON.parse(localStorage.getItem("tbmDistancePlanConfig") || "null") || { ranges: [] };
-      await apiCall("savePlanConfig", { machine, planConfig, distPlanConfig });
+      // planConfig ALONE. The one-shot write sent distPlanConfig with it to stop GAS overwriting the
+      // one this view was not editing; each is its own record with its own version now, and the sync
+      // path writes exactly the key the envelope names — so sending the other would be this view
+      // saving a config it never showed.
+      if (onMutate) {
+        await onMutate(buildMutationEnvelope({
+          entityType: "planConfig", operation: "update", machine, recordId: machine,
+          payload: { planConfig }, syncMeta,
+        }));
+      }
       setShowPlanModal(false);
     } catch (e) {
       console.error("Failed to save plan config", e);

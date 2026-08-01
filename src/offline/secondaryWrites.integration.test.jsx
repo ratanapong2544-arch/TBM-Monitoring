@@ -5,6 +5,8 @@ import { act } from "react-dom/test-utils";
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
 import PrepGanttView from "../components/views/PrepGanttView";
+import RouteScheduleView from "../components/views/RouteScheduleView";
+import SegmentAnalysisView from "../components/views/SegmentAnalysisView";
 import { apiCall } from "../utils/api";
 
 // Task 9 moves the remaining business writes onto the same queue Task 8 built for the core five.
@@ -139,5 +141,66 @@ test("a prep task of the other machine is never written under this one's key", a
   expect(onMutate).toHaveBeenCalledWith(expect.objectContaining({
     machine: "TBM2", recordId: "prep_9", domainKey: "prepTask:TBM2:prep_9",
   }));
+  view.unmount();
+});
+
+const projectInfo = { date: "2026-08-01", shift: "Day", location: "L", tbmNo: "TBM1" };
+const byTitle = (container, title) => container.querySelector(`[title="${title}"]`);
+
+test("saving the plan settings queues planConfig alone", async () => {
+  // The one-shot write sent planConfig AND distPlanConfig together, from two different views, to
+  // stop GAS overwriting whichever one was not being edited. Each is its own record with its own
+  // version now, and the sync path writes exactly the key the envelope names — so sending the other
+  // one would be this view saving a config it was never showing.
+  const view = render(<SegmentAnalysisView segmentRecords={[]} projectInfo={projectInfo} machine="TBM1"
+    onMutate={onMutate} syncMeta={{ "planConfig:TBM1": { version: 6 } }} />);
+
+  await click(byTitle(view.container, "Plan Settings"));
+  await click(button(view.container, /บันทึกการตั้งค่า/));
+
+  expect(onMutate).toHaveBeenCalledTimes(1);
+  expect(onMutate).toHaveBeenCalledWith(expect.objectContaining({
+    entityType: "planConfig", operation: "update", machine: "TBM1", domainKey: "planConfig:TBM1", baseVersion: 6,
+  }));
+  expect(apiCall).not.toHaveBeenCalled();
+  view.unmount();
+});
+
+test("saving the distance plan queues distPlanConfig for the machine on screen", async () => {
+  // It synced only on TBM1 — "per-machine GAS = future". The sync path keys on
+  // `distPlanConfig_<machine>` and getData reads it back the same way, so TBM2's distance plan has
+  // been local-only for no reason, which is exactly the "localStorage as sole durable source" this
+  // task exists to end.
+  const view = render(<RouteScheduleView segmentRecords={[]} projectInfo={projectInfo} machine="TBM2"
+    onMutate={onMutate} syncMeta={{ "distPlanConfig:TBM2": { version: 3 } }} />);
+
+  await click(byTitle(view.container, "Distance Plan Settings"));
+  await click(button(view.container, /บันทึกการตั้งค่า/));
+
+  expect(onMutate).toHaveBeenCalledTimes(1);
+  expect(onMutate).toHaveBeenCalledWith(expect.objectContaining({
+    entityType: "distPlanConfig", operation: "update", machine: "TBM2", domainKey: "distPlanConfig:TBM2", baseVersion: 3,
+  }));
+  expect(apiCall).not.toHaveBeenCalled();
+  view.unmount();
+});
+
+test("saving the route queues routeConfig carrying its project total", async () => {
+  // `routeProjectTotal` is a sibling singleton edited through the same mutation — GAS stores it in
+  // its own PlanConfig row, and the snapshot merge already carries it across for a routeConfig edit.
+  const view = render(<RouteScheduleView segmentRecords={[]} projectInfo={projectInfo} machine="TBM1"
+    routeProjectTotal={4321} onMutate={onMutate} syncMeta={{ "routeConfig:TBM1": { version: 9 } }} />);
+
+  await click(button(view.container, /แก้ไขเส้นทาง/));
+  await click(button(view.container, /บันทึก$/)); // the icon leaves a leading space in the label
+
+  expect(onMutate).toHaveBeenCalledTimes(1);
+  const [envelope] = onMutate.mock.calls[0];
+  expect(envelope).toEqual(expect.objectContaining({
+    entityType: "routeConfig", operation: "update", machine: "TBM1", domainKey: "routeConfig:TBM1", baseVersion: 9,
+  }));
+  expect(envelope.payload.routeProjectTotal).toBe(4321);
+  expect(envelope.payload.routeConfig).toBeTruthy();
+  expect(apiCall).not.toHaveBeenCalled();
   view.unmount();
 });

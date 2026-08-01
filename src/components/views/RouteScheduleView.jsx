@@ -6,7 +6,6 @@ import { filterByState } from "../../hooks/useGlobalFilter";
 import { formatDisplayDate } from "../../utils/formatters";
 import { getRingNumeric } from "../../utils/helpers";
 import { TOTAL_ROUTE_DISTANCE, ROUTE_SEGMENTS } from "../../utils/constants";
-import { apiCall } from "../../utils/api";
 import { loadDistancePlan, saveDistancePlan } from "../../utils/planConfig";
 import { loadRouteConfig, saveRouteConfig, routeRowsFromBored, machineActualMeters, ROUTE_TOTAL, PROJECT_TOTAL_M, ROUTE_NAME, ROUTE_STATUS, pct, validateRouteConfig } from "../../utils/routeConfig";
 import { chartColors, axisTick, tooltipStyle } from "../../ui-ux-pro-max/chartTheme";
@@ -14,8 +13,9 @@ import {
   ResponsiveContainer, ComposedChart, CartesianGrid, XAxis, YAxis, Tooltip, Line, ReferenceLine
 } from "recharts";
 import { fitAndPrint } from "../../utils/printFit";
+import { buildMutationEnvelope } from "../../offline/mutationEnvelope";
 
-const RouteScheduleView = ({ segmentRecords = [], projectInfo, machine = "TBM1", machineProgress = null, routeProjectTotal = null, filterState = {}, readOnly = false }) => {
+const RouteScheduleView = ({ segmentRecords = [], projectInfo, machine = "TBM1", machineProgress = null, routeProjectTotal = null, filterState = {}, readOnly = false, onMutate, syncMeta }) => {
   const filteredSegments = useMemo(() => filterByState(segmentRecords, filterState), [segmentRecords, filterState]);
 
   // ── Print State ──
@@ -77,7 +77,16 @@ const RouteScheduleView = ({ segmentRecords = [], projectInfo, machine = "TBM1",
     setRouteSaving(true);
     saveRouteConfig(machine, cfg);
     setRouteCfg((prev) => ({ ...prev, [machine]: cfg }));
-    try { await apiCall("saveRouteConfig", { routeConfig: cfg, routeProjectTotal: projTotal, machine }); } catch (e) { alert("ซิงค์เส้นทางขึ้นเซิร์ฟเวอร์ไม่สำเร็จ (บันทึกในเครื่องแล้ว): " + e.message); }
+    // `routeProjectTotal` rides along: GAS stores it in its own PlanConfig row and the snapshot
+    // merge already carries it across for a routeConfig edit
+    try {
+      if (onMutate) {
+        await onMutate(buildMutationEnvelope({
+          entityType: "routeConfig", operation: "update", machine, recordId: machine,
+          payload: { routeConfig: cfg, routeProjectTotal: projTotal }, syncMeta,
+        }));
+      }
+    } catch (e) { alert("บันทึกเส้นทางลงคิวไม่สำเร็จ: " + e.message); }
     setRouteSaving(false); setRouteEditing(false);
   };
 
@@ -94,10 +103,15 @@ const RouteScheduleView = ({ segmentRecords = [], projectInfo, machine = "TBM1",
     setIsSavingDistPlan(true);
     try {
       saveDistancePlan(machine, distPlanConfig);
-      // GAS sync เฉพาะ TBM1 (per-machine GAS = future); หัวอื่น = local-only
-      if (machine === "TBM1") {
-        const planConfig = JSON.parse(localStorage.getItem("tbmPlanConfig") || "null") || { basePlanAcc: 0, baseActualAcc: 0, ranges: [] };
-        await apiCall("savePlanConfig", { machine, planConfig, distPlanConfig });
+      // Every machine, not only TBM1. The sync path keys on `distPlanConfig_<machine>` and getData
+      // reads it back the same way, so the "per-machine GAS = future" this guarded against arrived
+      // with Task 6 — TBM2's distance plan had been local-only for no reason, which is the sole
+      // durable source this task exists to end.
+      if (onMutate) {
+        await onMutate(buildMutationEnvelope({
+          entityType: "distPlanConfig", operation: "update", machine, recordId: machine,
+          payload: { distPlanConfig }, syncMeta,
+        }));
       }
       setShowDistPlanModal(false);
     } catch (e) {

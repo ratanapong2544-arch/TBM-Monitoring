@@ -13,8 +13,13 @@ const OfflineContext = createContext(null);
 // app is online on a device that is not.
 const initialSummary = () => ({
   online: typeof navigator === "undefined" || navigator.onLine !== false,
-  pending: 0, syncing: 0, conflicts: 0, errors: 0, lastSyncedAt: null,
+  // `blocked` belongs here too: `getSyncCounts` returns it and App reads it, so leaving it out made
+  // the first render's shape differ from every later one
+  pending: 0, syncing: 0, conflicts: 0, errors: 0, blocked: 0, lastSyncedAt: null,
 });
+
+const SUMMARY_FIELDS = ["online", "pending", "syncing", "conflicts", "errors", "blocked", "lastSyncedAt"];
+const sameSummary = (a, b) => Boolean(a) && Boolean(b) && SUMMARY_FIELDS.every(field => a[field] === b[field]);
 
 export function useOffline({ optional = false } = {}) {
   const context = useContext(OfflineContext);
@@ -63,7 +68,11 @@ export function OfflineProvider({ children, deps = {} }) {
   const refreshSummary = useCallback(async () => {
     try {
       const summary = await repository.getSyncSummary();
-      setSyncSummary(summary);
+      // Only store a genuinely different summary. Every repository event calls this, and a drain of
+      // an offline shift's backlog emits one per confirmed mutation — each storing a fresh object,
+      // changing the context value, and re-rendering App and every view under it. The counts are
+      // seven scalars, so comparing them costs nothing next to the render they avoid.
+      setSyncSummary(previous => (sameSummary(previous, summary) ? previous : summary));
       return summary;
     } catch (error) {
       return null;

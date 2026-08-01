@@ -162,7 +162,7 @@ test("a report started before the launch fetch lands does not erase the one alre
 });
 
 // Two sheet rows can share a ring identity. That is a supported state, not corruption — it is why
-// the cache keys per row and why five views run `deduplicateRecords` — and a mutation is always
+// the cache keys per row and why four views run `deduplicateRecords` — and a mutation is always
 // about ONE of them. Matching by ring instead of by row took the crew's edit to the wrong record.
 const twoRowsOnOneRing = [
   { id: "seg_a", ringNo: "P643", installType: "Permanent", length: "1.40" },

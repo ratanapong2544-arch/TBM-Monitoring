@@ -209,6 +209,8 @@ export function createRepository(deps = {}) {
 
   return {
     subscribe(listener) { subscribers.add(listener); return () => subscribers.delete(listener); },
+    // Task 10's Sync Center surfaces these; nothing subscribes today, like `retryMutation` and
+    // `resolveConflict` beside it.
     subscribeErrors(listener) { errorSubscribers.add(listener); return () => errorSubscribers.delete(listener); },
     async load(machine) {
       const data = await readServerSnapshot(await openDb(), machine);

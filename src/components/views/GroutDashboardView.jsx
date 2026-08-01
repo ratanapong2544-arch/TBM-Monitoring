@@ -3,7 +3,7 @@ import { FileText, Droplet, Activity, ChevronLeft, ChevronRight, Edit, Trash2, X
 import { formatDisplayDate, formatCH } from "../../utils/formatters";
 import { getRingNumeric } from "../../utils/helpers";
 import { THEORETICAL_VOL, VOL_120, VOL_150 } from "../../utils/constants";
-import { buildMutationEnvelope } from "../../offline/mutationEnvelope";
+import { buildMutationEnvelope, refuseAmbiguousRecord } from "../../offline/mutationEnvelope";
 import StatCard from "../common/StatCard";
 import RingVisualizer from "../common/RingVisualizer";
 import { ResponsiveContainer, AreaChart, CartesianGrid, XAxis, YAxis, Tooltip, ReferenceLine, Area } from "recharts";
@@ -97,12 +97,13 @@ const GroutDashboardView = ({ groutRecords, segmentRecords, secondaryGroutRecord
       // the ring is not editable here, so it travels exactly as the record carries it
       const updated = { ...editFormData, total: Number(total) };
       try {
+        refuseAmbiguousRecord(secondaryGroutRecords, updated.id);
         await onMutate(buildMutationEnvelope({
           entityType: "secondaryGrout", operation: "update", machine,
           recordId: updated.id, payload: updated, syncMeta,
         }));
         setSelectedRecord(updated); setIsEditing(false);
-      } catch (e) { alert("อัปเดตข้อมูลล้มเหลว: " + e.message); }
+      } catch (e) { alert(e.code === "SYNC_AMBIGUOUS_RECORD" ? e.message : "อัปเดตข้อมูลล้มเหลว: " + e.message); }
       return;
     }
     const isReGrout = editFormData.groutPass === "Re-Grout";
@@ -114,6 +115,10 @@ const GroutDashboardView = ({ groutRecords, segmentRecords, secondaryGroutRecord
     const updatedRecord = { ...editFormData, total: Number(total), ratio: Number(ratio) };
 
     try {
+      // GAS resolves by record id and takes the first match, so an id the sheet holds twice would
+      // write to a row the crew is not looking at. `dedupSegmentIds` is segments-only, so grout has
+      // no repair path at all — see open item 2a.
+      refuseAmbiguousRecord(groutRecords, updatedRecord.id);
       // the queue serializes the payload itself, so it takes the record with `positions` still an
       // object — the one-shot write used to stringify them here to stop GAS double-encoding
       await onMutate(buildMutationEnvelope({
@@ -122,12 +127,13 @@ const GroutDashboardView = ({ groutRecords, segmentRecords, secondaryGroutRecord
       }));
       setSelectedRecord(updatedRecord);
       setIsEditing(false);
-    } catch (e) { alert("อัปเดตข้อมูลล้มเหลว: " + e.message); }
+    } catch (e) { alert(e.code === "SYNC_AMBIGUOUS_RECORD" ? e.message : "อัปเดตข้อมูลล้มเหลว: " + e.message); }
   };
 
   const handleDeleteRecord = async () => {
     try {
       const isSecondaryRecord = selectedRecord.groutType === "secondary";
+      refuseAmbiguousRecord(isSecondaryRecord ? secondaryGroutRecords : groutRecords, selectedRecord.id);
       // the payload still carries the ring, because the domain key is derived from it
       await onMutate(buildMutationEnvelope({
         entityType: isSecondaryRecord ? "secondaryGrout" : "grout", operation: "delete", machine,
@@ -135,7 +141,7 @@ const GroutDashboardView = ({ groutRecords, segmentRecords, secondaryGroutRecord
       }));
       setSelectedRecord(null);
       setShowDeleteConfirm(false);
-    } catch (e) { alert("ลบข้อมูลล้มเหลว: " + e.message); }
+    } catch (e) { alert(e.code === "SYNC_AMBIGUOUS_RECORD" ? e.message : "ลบข้อมูลล้มเหลว: " + e.message); }
   };
 
   return (

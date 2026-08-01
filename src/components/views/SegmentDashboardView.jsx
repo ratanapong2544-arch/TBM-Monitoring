@@ -4,7 +4,7 @@ import StatCard from "../common/StatCard";
 import RingVisualizer from "../common/RingVisualizer";
 import { formatDisplayDate, formatDisplayTime, parseCH, formatCH } from "../../utils/formatters";
 import { getRingNumeric, getLogicalShiftDate, calculateSoilVolume } from "../../utils/helpers";
-import { AmbiguousRecordError, buildMutationEnvelope } from "../../offline/mutationEnvelope";
+import { buildMutationEnvelope, refuseAmbiguousRecord } from "../../offline/mutationEnvelope";
 import { ResponsiveContainer, ComposedChart, CartesianGrid, XAxis, YAxis, Tooltip, Bar, Line } from "recharts";
 import { Badge } from "../../ui-ux-pro-max";
 
@@ -245,7 +245,7 @@ const SegmentDashboardView = ({ segmentRecords, machine = "TBM1", onMutate, sync
       // this view renaming a row nobody asked to rename, and the key is derived from the same value,
       // so leaving it alone is what keeps the edit on the record's own version stream.
       const updatedRecord = { ...editFormData };
-      refuseIfAmbiguous(updatedRecord.id);
+      refuseAmbiguousRecord(segmentRecords, updatedRecord.id);
       await onMutate(buildMutationEnvelope({
         entityType: "segment", operation: "update", machine,
         recordId: updatedRecord.id, payload: updatedRecord, syncMeta,
@@ -260,16 +260,11 @@ const SegmentDashboardView = ({ segmentRecords, machine = "TBM1", onMutate, sync
   // end: `applyOptimisticRow` removes the right ring locally while GAS removes a different one, so
   // the crew watches P81 go and the sheet loses P37 — then the next refresh brings P81 back and P37
   // is gone, with no error anywhere. The record form refuses this; so does this now.
-  const refuseIfAmbiguous = (recordId) => {
-    const sharing = segmentRecords.filter(row => row.id === recordId);
-    if (sharing.length > 1) throw new AmbiguousRecordError(recordId, sharing.length);
-  };
-
   const handleDeleteRecord = async () => {
     try {
       // the payload still carries the ring: the domain key is derived from it, and a delete keyed
       // differently from its own record would queue against a domain nothing else touches
-      refuseIfAmbiguous(selectedRecord.id);
+      refuseAmbiguousRecord(segmentRecords, selectedRecord.id);
       await onMutate(buildMutationEnvelope({
         entityType: "segment", operation: "delete", machine,
         recordId: selectedRecord.id, payload: selectedRecord, syncMeta,

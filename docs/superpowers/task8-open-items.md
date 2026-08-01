@@ -13,7 +13,7 @@ as a prerequisite under Task 12 in `CLAUDE_HANDOFF.md`.
 
 `gas-live/Code.js` tombstones the ring KEY on a delete, not the row: `applySyncMutation_` then
 answers `SYNC_RECORD_DELETED` to every later UPDATE on that key. A ring legitimately carries two
-rows — the cache keys per row and five views run `deduplicateRecords` for exactly that reason — so
+rows — the cache keys per row and four views run `deduplicateRecords` for exactly that reason — so
 deleting one makes every later correction of the other terminal. It parks at the head of that ring's
 domain and blocks what is queued behind it. The crew sees their correction on screen, the sheet keeps
 the old value, and the status strip counts it as stuck.
@@ -83,8 +83,9 @@ why prod is clean today. It is not an invariant:
 A repaired sheet is a moment, not a guarantee. The client no longer relies on one; the server still
 does. Belongs with item 1 on the deployment that opens the gate.
 
-**The client half is closed.** `SegmentRecordView` and `SegmentDashboardView` both refuse a write
-whose record id names more than one row, because it would land on a ring the crew is not looking at.
+**The client half is closed.** All three views that write by record id — `SegmentRecordView`,
+`SegmentDashboardView` and `GroutDashboardView` — refuse a write whose record id names more than one
+row, through one shared `refuseAmbiguousRecord`, because it would land on a ring the crew is not looking at.
 The delete was the sharp end: `applyOptimisticRow` removes the right ring locally while GAS removes
 the first id match, so the crew watched one ring go and the sheet lost another, with the next refresh
 swapping them back and no error anywhere. The server half is still open, and it is what this item is
@@ -463,7 +464,8 @@ copy.
   never what it is, and `operation` is frozen when a save is composed. Two saves started before the
   first one's row comes back both filed a create, the second posted base 0 against a row that by then
   existed, and it parked at `conflict` — head of that report's domain, unresolvable before Task 10.
-  It is released when a save fails, since nothing was queued then and the retry has to be a create.
+  Nothing is released on failure and nothing needs to be: the key is added only after the send
+  resolves, so a save that threw marks nothing and the retry composes a create again.
 - **The shift-report draft-id map survives**, against Step 4's delete list. Without it a remount
   mints a new id, which files a second report for one shift. Its three regression tests are in
   `shiftReportMidEdit.test.jsx`.
@@ -484,6 +486,10 @@ data-loss path is worse than no note.
   machineless scope has no scope key to be created under, which is a design question that task owns.
 - `App.jsx` — the photo strip on the snapshot mirror is invisible to the DOM: carrying the bytes and
   dropping them render identically. The rule is tested on the reducer in `displayRecord.test.js`.
+- `OfflineProvider.jsx` — the shallow-equal bail in `refreshSummary` keeps the previous summary
+  object when nothing changed. Its only effect is how many times React re-renders, which no
+  assertion here can see; what it prevents is a drain of an offline shift's backlog storing one fresh
+  object per confirmed mutation and re-rendering App and every view under it each time.
 - `App.jsx` — `applyOptimisticRecord`'s dev-time warning for an entity type with no setter has no
   test: it fires on a state Task 8 cannot reach (every type it queues has one) and pinning a
   `console.warn` string would break on any rewording. It exists for Task 9, which adds the types.

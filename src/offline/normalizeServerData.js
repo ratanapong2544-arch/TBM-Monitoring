@@ -31,7 +31,8 @@ export function normalizeServerData(result = {}, machine) {
   });
   normalized.secondaryGrouts = (result.secondaryGrouts || []).map(grout => ({ ...grout, positions: parsePositions(grout.positions), total: Number(grout.total || 0) }));
   normalized.shiftReports = (result.shiftReports || []).map(report => ({ ...report, events: safeParseJSON(report.events, {}), manpower: safeParseJSON(report.manpower, defaultManpower), result: safeParseJSON(report.result, defaultResult) }));
-  ["issues", "dailyReports", "prepTasks", "instLocations", "instInstruments", "instThresholds", "instReadings", "instSchedules"].forEach(key => { normalized[key] = Array.isArray(result[key]) ? result[key] : []; });
+  // `dailyReports` is not here: the next line overwrites it with the normalized form
+  ["issues", "prepTasks", "instLocations", "instInstruments", "instThresholds", "instReadings", "instSchedules"].forEach(key => { normalized[key] = Array.isArray(result[key]) ? result[key] : []; });
   normalized.dailyReports = normalizeDailyReports(result.dailyReports);
   normalized.planConfig = parseConfig(result.planConfig); normalized.distPlanConfig = parseConfig(result.distPlanConfig);
   normalized.routeConfigs = result.routeConfigs && typeof result.routeConfigs === "object" ? result.routeConfigs : {};

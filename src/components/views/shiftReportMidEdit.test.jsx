@@ -413,6 +413,35 @@ test("the crew's own save is not announced as a server copy", async () => {
   form.unmount();
 });
 
+test("typing after a save resolves still does not announce the crew's own row as a server copy", async () => {
+  // The test above passes through the dirty flag, not through the own-write key: nothing is typed
+  // after the resolve, so the row is taken by the "form is clean, load it" branch. This is the case
+  // the KEY exists for — type between the save resolving and the row arriving, and the arriving row
+  // is the crew's own with one field behind. Without the key they get "there is a server report —
+  // your data is preserved" about their own write, offering them a copy of it.
+  let release;
+  let rows = [];
+  const setShiftReports = updater => { rows = typeof updater === "function" ? updater(rows) : updater; };
+  onMutateOverride = envelope => new Promise(resolve => {
+    release = () => { setShiftReports(prev => [...prev.filter(r => r.id !== envelope.recordId), envelope.payload]); resolve({}); };
+  });
+  const form = render(view({ shiftReports: rows }));
+  type(form.container, "Engineer", "6");
+
+  await act(async () => {
+    [...form.container.querySelectorAll("button")].find(b => /Save to Cloud/.test(b.textContent))
+      .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  });
+  await act(async () => { release(); });
+  type(form.container, "Surveyor", "2"); // typed after the resolve, before the row lands
+  form.rerender(view({ shiftReports: rows }));
+
+  expect(form.container.textContent).not.toContain("มีรายงานกะนี้จากเซิร์ฟเวอร์");
+  expect(form.value("Engineer")).toBe("6");
+  expect(form.value("Surveyor")).toBe("2");
+  form.unmount();
+});
+
 test("a row that arrives without what was typed mid-flight is announced, not silently trusted", async () => {
   // The own-write key says "this row is mine, leave the form alone". That is only true while the
   // form still holds what was sent. Type during the round trip and the arriving row is missing it,
@@ -757,12 +786,13 @@ test("switching to a different shift loads that shift's own report", () => {
 });
 
 test("a save that never reached the queue leaves the next one free to create the report", async () => {
-  // The in-flight marker that stops two overlapping saves both filing a create is added BEFORE the
-  // await, which is the point — but a save that throws never queued anything, and leaving the key
-  // marked made every later save compose an UPDATE for a row that does not exist. GAS answers that
-  // with a terminal SYNC_RECORD_NOT_FOUND; it takes the head of this report's domain and never
-  // yields, and `shiftReport` has no delete to recover with. One storage hiccup on a new report
-  // would cost the whole shift — and this app's own message asks the crew to press Save again.
+  // Whether this save is a create is decided from a FACT — that an earlier create reached the queue
+  // — so the marker is added only after the send resolves. A save that throws queued nothing and
+  // marks nothing, and the retry this app's own message asks for is a create again. An earlier
+  // design set the marker before the await and retracted it on failure; that left every later save
+  // composing an UPDATE for a row that does not exist, which GAS answers with a terminal
+  // SYNC_RECORD_NOT_FOUND at the head of that report's domain — and `shiftReport` has no delete to
+  // recover with, so one storage hiccup on a new report cost the whole shift.
   const sent = [];
   let failNext = true;
   onMutateOverride = envelope => {
@@ -792,12 +822,14 @@ test("a save that never reached the queue leaves the next one free to create the
 });
 
 test("a create that fails while a second save is already in flight does not turn that save into an update", async () => {
-  // The sequential retry was closed by releasing the marker when a send throws. This is the other
-  // half: the second save is composed WHILE the create is still travelling, so it read the marker
-  // before the failure could retract it. Its `update` names a row the server has never had — GAS
-  // answers a terminal SYNC_RECORD_NOT_FOUND, that refusal takes the head of the report's domain,
-  // and nothing gets past it again: no retry, no re-type, no reload, and `shiftReport` has no delete
-  // to recover with. The crew would see a complete shift report that can never reach the sheet.
+  // The sequential retry is closed by marking only after the send resolves. This is the other half,
+  // and it is why `sendChains` exists: a save composed WHILE the create is still travelling has to
+  // wait for that send to settle before it can know. Set-before-await-and-retract could not answer
+  // it — the second save had already read the marker. Its `update` names a row the server has never
+  // had — GAS answers a terminal SYNC_RECORD_NOT_FOUND, that refusal takes the head of the report's
+  // domain, and nothing gets past it again: no retry, no re-type, no reload, and `shiftReport` has
+  // no delete to recover with. The crew would see a complete shift report that never reaches the
+  // sheet.
   const sent = [];
   const releases = [];
   onMutateOverride = envelope => {

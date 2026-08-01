@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect, useRef } from "react";
 import { Layers, ChevronRight, Save, Loader2, Camera, Clock } from "lucide-react";
 import { parseCH, formatCH } from "../../utils/formatters";
 import { offsetRingNo, calculateSoilVolume, handleFileUpload } from "../../utils/helpers";
-import { AmbiguousRecordError, buildMutationEnvelope } from "../../offline/mutationEnvelope";
+import { buildMutationEnvelope, refuseAmbiguousRecord } from "../../offline/mutationEnvelope";
 import { SegmentedToggle } from "../../ui-ux-pro-max";
 import StickyActionBar from "../../ui-ux-pro-max/components/StickyActionBar";
 
@@ -130,8 +130,7 @@ const SegmentRecordView = ({ projectInfo, handleProjectInfoChange, segmentRecord
       // compares against a stored row, and there is none to compare against — but it means a ring
       // corrected in that window is queued without it, so the check is worth naming rather than
       // leaving as a silent fall-through.
-      const sharing = isUpdate ? segmentRecords.filter(row => row.id === recordData.id) : [];
-      if (sharing.length > 1) throw new AmbiguousRecordError(recordData.id, sharing.length);
+      const stored = isUpdate ? refuseAmbiguousRecord(segmentRecords, recordData.id) : null;
       // The queue owns durability and ordering: the record is on this device before this resolves,
       // and `baseVersion` lets the server refuse an edit made against a row that has since moved on.
       await onMutate(buildMutationEnvelope({
@@ -140,7 +139,7 @@ const SegmentRecordView = ({ projectInfo, handleProjectInfoChange, segmentRecord
         // re-saving the open ring: the crew can correct its number before saving, and a T-prefix
         // even flips installType on its own — both change the key, so the stored row goes along to
         // say whether this save re-identifies the record
-        identity: isUpdate ? sharing[0] : null,
+        identity: stored,
       }));
       // A save resolves seconds later, and the crew may have switched machine in between. The row is
       // App's to place and App withholds it; what this guard protects is the FORM, which by then

@@ -113,6 +113,16 @@ export class AmbiguousRecordError extends Error {
   }
 }
 
+// GAS resolves a write by record id and takes the FIRST match, so a save against an id the sheet
+// holds twice lands on a row the crew is not looking at. Every view that writes by record id asks
+// this — the segment record form, the segment data log, and the grout data log, whose exposure is
+// larger rather than smaller (`dedupSegmentIds` is segments-only and `appendRow` enforces nothing).
+export function refuseAmbiguousRecord(rows, recordId) {
+  const sharing = (rows || []).filter(row => row && row.id === recordId);
+  if (sharing.length > 1) throw new AmbiguousRecordError(recordId, sharing.length);
+  return sharing[0];
+}
+
 export class ReidentifiedRecordError extends Error {
   constructor(previousKey, nextKey) {
     super("แก้เลขริง/ชนิดการติดตั้งของรายการที่บันทึกไว้แล้วไม่ได้ — ให้ลบรายการนี้ แล้วบันทึกใหม่ด้วยเลขที่ถูกต้อง");

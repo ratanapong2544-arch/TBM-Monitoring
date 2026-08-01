@@ -133,8 +133,6 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, machine = 
   const reportKey = existingReport ? stableKey([existingReport.id, existingReport.location, existingReport.manpower, existingReport.result, existingReport.events]) : null;
   // which report is on screen right now, so a save that resolves later can tell whether the form it
   // started from is still the one being edited
-  const selectorKeyRef = useRef(selectorKey);
-  selectorKeyRef.current = selectorKey;
   const autoResultRef = useRef(autoResult);
   autoResultRef.current = autoResult;
   const existingReportRef = useRef(existingReport);
@@ -304,15 +302,14 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, machine = 
         // the chain is only worth keeping while something is behind it
         if (sendChains.get(keyAtSave) === send) sendChains.delete(keyAtSave);
       }
-      // Only speak for the form if it is still showing this report AND still holding what was sent.
-      // Both conditions matter. The crew may have moved to another date, shift or machine, where
-      // clearing the dirty flag would invite the next snapshot to load over what they typed there.
-      // Or the form may have reloaded — leaving this report and coming back is enough — in which
-      // case it now shows the stored copy WITHOUT this write. Claiming the own-write key then made
-      // the effect below skip loading the row this save produced, so the next save rebuilt its
-      // payload from the stale form and erased the event that had just been recorded.
-      const formStillHoldsThisWrite = selectorKeyRef.current === keyAtSave
-        && loadGenerationRef.current === loadAtSave
+      // Only speak for the form if it has not RELOADED and still holds what was sent. Both matter:
+      // a reload — leaving this report and coming back is enough — means the form now shows the
+      // stored copy WITHOUT this write, and claiming the own-write key then made the effect below
+      // skip loading the row this save produced, so the next save rebuilt its payload from the stale
+      // form and erased the event just recorded. A third conjunct compared the report key too; it
+      // decided nothing, because changing date, shift or machine runs `loadForm`, which bumps the
+      // load generation and clears both fields this guard protects.
+      const formStillHoldsThisWrite = loadGenerationRef.current === loadAtSave
         && formSerialRef.current === formAtSave;
       if (formStillHoldsThisWrite) {
         // The row that comes back carries this write, so the effect watching for a server copy

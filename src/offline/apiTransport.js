@@ -17,7 +17,9 @@ export class ApiFailure extends Error {
       return new ApiFailure(classified.kind, code, result.message || classified.message, { response: result, status: classified.status });
     }
     const normalizedCode = String(code).toUpperCase();
-    const kind = result.httpStatus === 422 || /VALIDATION|INVALID/.test(normalizedCode) ? "validation" : /RETRY|BUSY|LOCK|TIMEOUT|RATE/.test(normalizedCode) ? "retryable" : "permanent";
+    // no `httpStatus` test here: the branch above returns for any non-null one, so by this line it
+    // is absent and only the code can classify
+    const kind = /VALIDATION|INVALID/.test(normalizedCode) ? "validation" : /RETRY|BUSY|LOCK|TIMEOUT|RATE/.test(normalizedCode) ? "retryable" : "permanent";
     return new ApiFailure(kind, code, result.message || "GAS request failed", { response: result });
   }
 }

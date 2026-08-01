@@ -112,7 +112,7 @@ Important: `.superpowers/sdd` is intentionally ignored and may not exist in a ne
 - Tailwind 3 is compiled locally; production no longer depends on the Tailwind CDN.
 - Root-scoped standalone manifest and PNG icons exist for iPhone, Android, and maskable installation.
 - Icon generation is reproducible through `tools/generate-pwa-icons.mjs`.
-- Installed dependencies include `idb`, `fake-indexeddb`, `tailwindcss`, `workbox-build`, and `sharp`.
+- Installed dependencies include `fake-indexeddb`, `tailwindcss`, `workbox-build`, and `sharp`. (`idb` was listed here and was never imported — the offline layer promisifies raw `indexedDB` itself — so it was dropped from `package.json`.)
 
 ### Offline application shell
 

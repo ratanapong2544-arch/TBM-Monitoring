@@ -1,7 +1,6 @@
 import { GAS_URL } from "./constants";
 import { ApiFailure, classifyHttpFailure, parseGasResponse, toApiFailure } from "../offline/apiTransport";
 
-export { ApiFailure, classifyHttpFailure, parseGasResponse };
 
 // Retained for the existing online-only callers. Offline reads use apiTransport directly.
 export const apiCall = async (action, data) => {

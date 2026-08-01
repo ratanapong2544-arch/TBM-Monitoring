@@ -672,3 +672,34 @@ test("closing a grout record disarms its delete before the next one is opened", 
   expect(onMutate).not.toHaveBeenCalled();
   view.unmount();
 });
+
+test("the grout data log refuses an edit or a delete whose record id names more than one row", async () => {
+  // Grout's exposure is larger than segments', not smaller: GAS resolves by record id and takes the
+  // first match either way, and `dedupSegmentIds` — the manual repair open item 2a describes — is
+  // segments-only, so a duplicated grout id has no repair path at all. 338 rows, 338 distinct ids
+  // today; `appendRow` enforces nothing.
+  const row = ringNo => ({ id: "g_dup", ringNo, partA: "12.5", partB: "6.25", pressure: "3.2", total: 18.75, groutPass: "1st Pass", date: "2026-07-30", positions: {} });
+  const alerts = [];
+  const alerted = jest.spyOn(window, "alert").mockImplementation(message => alerts.push(message));
+  try {
+    const view = render(
+      <GroutDashboardView groutRecords={[row("P41"), row("P42")]} secondaryGroutRecords={[]} segmentRecords={[]} machine="TBM1"
+        syncMeta={{}} onMutate={onMutate} />
+    );
+    await click(view.container.querySelectorAll("tbody tr")[1]);
+    await click(byTitle(view.container, "Edit"));
+    await click(button(view.container, /Save Changes/));
+    await click(byTitle(view.container, "Delete"));
+    await click(button(view.container, /^ลบ$/));
+
+    expect(onMutate).not.toHaveBeenCalled();
+    expect(alerts).toHaveLength(2);
+    alerts.forEach(message => {
+      expect(message).toContain("ซ้ำกันอยู่ 2 แถว");
+      expect(message).not.toContain("ล้มเหลว"); // a refusal, not a write that went wrong
+    });
+    view.unmount();
+  } finally {
+    alerted.mockRestore();
+  }
+});

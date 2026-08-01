@@ -105,8 +105,13 @@ export async function stageLegacyLocalStorage(db, storage) {
 }
 
 export async function reconcileLegacyStage(db, serverData) {
-  const readTransaction = db.transaction(STORES.syncMeta, "readonly");
+  const readTransaction = db.transaction([STORES.syncMeta, STORES.conflicts], "readonly");
   const stagedEntries = await requestResult(readTransaction.objectStore(STORES.syncMeta).getAll());
+  // Reconciliation runs on every launch and the conflict id is deterministic, so without this the
+  // second pass re-puts `status: "open"` over a row the crew already resolved.
+  const existingConflicts = new Map(
+    (await requestResult(readTransaction.objectStore(STORES.conflicts).getAll())).map(row => [row.conflictId, row])
+  );
   await complete(readTransaction);
   const transaction = db.transaction([STORES.syncMeta, STORES.conflicts], "readwrite");
   const metaStore = transaction.objectStore(STORES.syncMeta);
@@ -129,15 +134,21 @@ export async function reconcileLegacyStage(db, serverData) {
       const remoteRecord = remoteByKey.get(keyFor(localRecord, definition));
       if (remoteRecord && stableJson(comparableRecord(localRecord, definition)) === stableJson(comparableRecord(remoteRecord, definition))) return;
       allConfirmed = false;
+      const conflictId = `legacy:${legacyKey}:${domainKey}`;
+      const existing = existingConflicts.get(conflictId);
+      // A conflict the crew has already dealt with is history — leave it exactly as they left it.
+      // An open one is refreshed so its server side matches what the server says now, keeping the
+      // moment it was first raised.
+      if (existing && existing.status !== "open") return;
       conflictStore.put({
-        conflictId: `legacy:${legacyKey}:${domainKey}`,
+        conflictId,
         status: "open",
         reason: "legacy_local_difference",
         domainKey,
         legacyKey,
         local: localRecord,
         server: remoteRecord || null,
-        createdAtLocal: new Date().toISOString(),
+        createdAtLocal: (existing && existing.createdAtLocal) || new Date().toISOString(),
       });
     });
     metaStore.put({ ...entry, confirmed: allConfirmed, reconciledAt: new Date().toISOString() });

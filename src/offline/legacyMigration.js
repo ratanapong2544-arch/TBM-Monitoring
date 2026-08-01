@@ -139,11 +139,16 @@ export async function reconcileLegacyStage(db, serverData) {
   const conflictStore = transaction.objectStore(STORES.conflicts);
 
   let reconciled = 0;
+  let pending = 0;
   stagedEntries.filter(entry => entry.key.startsWith("legacy:") && !entry.parseError).forEach(entry => {
     const legacyKey = entry.key.slice("legacy:".length);
     const definition = LEGACY_TYPES[legacyKey];
     if (!definition) return;
-    if (!responseCarried(serverData, definition)) return;
+    // Skipped, not settled. A family this response did not carry — the other machine's scalar
+    // config, or a collection an older deployment omits — is counted so the caller knows the pass
+    // was incomplete and does not latch on it: "waits for a response that does carry it" is only
+    // true if something asks again.
+    if (!responseCarried(serverData, definition)) { pending += 1; return; }
     const remote = serverRecords(serverData, definition);
     const remoteByKey = new Map(remote.map(record => [keyFor(record, definition), record]));
     let allConfirmed = true;
@@ -179,6 +184,7 @@ export async function reconcileLegacyStage(db, serverData) {
     metaStore.put({ ...entry, confirmed: allConfirmed, reconciledAt: new Date().toISOString() });
   });
   await complete(transaction);
-  // how many staged families this pass actually compared — the caller latches on it
-  return { reconciled };
+  // how many staged families this pass compared, and how many it had to skip. The caller latches
+  // only on a pass that left nothing pending.
+  return { reconciled, pending };
 }

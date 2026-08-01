@@ -242,7 +242,12 @@ export function createRepository(deps = {}) {
         if (!legacyReconciled) {
           try {
             const outcome = await reconcileLegacy(await openDb(), data);
-            legacyReconciled = Boolean(outcome && outcome.reconciled);
+            // Latched only by a COMPLETE pass. A response carries one machine's scalar configs, so a
+            // TBM1-first session that latched on its own pass left the staged TBM2 plan compared
+            // against nothing and never revisited — the family it skipped is the reason to ask
+            // again. A deployment that never carries a family keeps the pass cheap and repeating,
+            // which is two getAlls on small stores and the correct end.
+            legacyReconciled = Boolean(outcome && outcome.reconciled && !outcome.pending);
           } catch (error) { /* best-effort, like staging */ }
         }
         // A later request may already have finished while this one was still out — a quick machine

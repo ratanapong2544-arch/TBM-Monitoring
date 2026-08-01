@@ -19,9 +19,6 @@ const MACHINE_SCOPED_COLLECTIONS = new Set(["segment", "grout", "secondaryGrout"
 // snapshot has to refuse it too: since Task 9 Step 5 retired their localStorage copies this IS the
 // durable one, and a rule enforced on the screen but not on the cache lasts until the next launch.
 // The four machine-scoped collections are not here — they are server-authoritative wholesale.
-// the field names of the machine-scoped collections; another machine's snapshot never answers
-// for these, because its rows are not this machine's rows
-const MACHINE_SCOPED_FIELDS = new Set(["segments", "grouts", "secondaryGrouts", "shiftReports"]);
 const GUARDED_COLLECTIONS = new Set(["issue", "dailyReport", "prepTask", "instLocation", "instrument", "instThreshold", "instReading", "instSchedule"]);
 // Every status that is not finished. `PERMANENT_ERROR` was missing, so a permanently-refused row
 // stayed on screen only through `preserveLocal`'s third disjunct, which reads the STORED
@@ -269,13 +266,19 @@ export async function writeServerSnapshot(db, machine, data, fetchedAt, requeste
   // other machine's snapshot answers for them.
   const otherSnapshots = storedSnapshots.filter(snapshot => snapshot.scopeKey !== scopeKey(machine));
   const cachedPayloads = field => {
-    const own = payloadsOf(previous)(field);
-    if (own.length || MACHINE_SCOPED_FIELDS.has(field)) return own;
+    // Borrowed ONLY when this machine has no snapshot at all. Keyed on "no rows" instead, it also
+    // fired for a machine that had correctly dropped a tombstoned row — and a later response whose
+    // syncMeta no longer names that tombstone (an empty SyncMeta sheet after `setupSheets`, or a
+    // partial doGet) revived it from the other machine's stale snapshot. Never a lost ring, but a
+    // record one machine had discarded coming back is not something to leave in a hot path.
+    // Only the guarded, project-wide collections reach here, so there is nothing machine-specific
+    // to borrow — a machine-scoped field would be wrong to take from another machine's snapshot.
+    if (previous) return payloadsOf(previous)(field);
     for (const snapshot of otherSnapshots) {
       const rows = payloadsOf(snapshot)(field);
       if (rows.length) return rows;
     }
-    return own;
+    return [];
   };
 
   collections.forEach(([field, entityType]) => {

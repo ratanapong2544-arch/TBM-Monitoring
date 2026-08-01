@@ -132,3 +132,19 @@ test("a refresh that beat the legacy staging does not consume the one reconcilia
 
   expect(reconcileLegacy).toHaveBeenCalledTimes(2); // retried after the empty pass, latched after the real one
 });
+
+test("a pass that had to skip a family is retried on the next refresh", async () => {
+  // A response carries one machine's scalar configs, so a TBM1-first session that latched on its own
+  // pass left the staged TBM2 plan compared against nothing and never revisited. "Waits for a
+  // response that does carry it" is only true if something asks again.
+  const reconcileLegacy = jest.fn(async () => ({ reconciled: 3, pending: 1 }));
+  const repository = makeRepository({ reconcileLegacy });
+
+  await repository.refresh("TBM1");
+  await repository.refresh("TBM2");
+  reconcileLegacy.mockResolvedValueOnce({ reconciled: 4, pending: 0 });
+  await repository.refresh("TBM2");
+  await repository.refresh("TBM1");
+
+  expect(reconcileLegacy).toHaveBeenCalledTimes(3); // retried while pending, latched once complete
+});

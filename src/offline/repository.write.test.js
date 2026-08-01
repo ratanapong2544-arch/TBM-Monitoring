@@ -596,8 +596,11 @@ test("a project-wide record keeps its own machine tag when it is queued", () => 
   // `forMachine` reads `i.machine || "TBM1"`: an issue tagged TBM2 or ทั้งโครงการ, edited
   // underground, moves onto TBM1 on the next relaunch. Edit it from there and the form posts
   // `machine: "TBM1"` into the sheet's own column, permanently, for every device.
+  // The envelope carries the machine on SCREEN — `queueRecord` defaults to it, so `machine: undefined`
+  // is a shape production no longer emits and a test using it cannot tell the two orderings apart.
+  // The row's own tag has to beat a real one.
   const optimistic = optimisticEntity({
-    entityType: "issue", operation: "update", machine: undefined,
+    entityType: "issue", operation: "update", machine: "TBM1",
     recordId: "iss_1", domainKey: "issue:GLOBAL:iss_1",
     payload: { id: "iss_1", title: "รอ Platform", machine: "TBM2" },
   });
@@ -777,4 +780,28 @@ test("this device's own confirmed config does not outrank the server's on the ne
   const { data } = await repository.refresh("TBM1");
 
   expect(data.planConfig.basePlanAcc).toBe(777);
+});
+
+test("a row this machine has already discarded is not revived from the other machine's snapshot", async () => {
+  // The fallback is for a machine with NO snapshot. Keyed on "no rows" it also fired for a machine
+  // that had correctly dropped a tombstoned row — and `getSyncMetaMap_` returns {} for an empty or
+  // missing SyncMeta sheet, so the very next response can stop naming the tombstone. TBM2's stale
+  // snapshot then hands the deleted record back to TBM1.
+  let phase = 0;
+  const repository = makeRepository({
+    fetchServerSnapshot: async machine => {
+      if (phase === 0) return { status: "success", segments: [], machine, issues: [{ id: "iss_1", title: "รอ Platform", machine: "TBM1" }] };
+      if (phase === 1) return { status: "success", segments: [], machine, issues: [], syncMeta: { "issue:GLOBAL:iss_1": { version: 2, deleted: true } } };
+      return { status: "success", segments: [], machine, issues: [] }; // the tombstone is no longer named
+    },
+  });
+  await repository.refresh("TBM1");
+  await repository.refresh("TBM2");
+
+  phase = 1;
+  await repository.refresh("TBM1"); // TBM1 drops it
+  phase = 2;
+  await repository.refresh("TBM1"); // and must not take it back from TBM2's copy
+
+  expect((await repository.load("TBM1")).data.issues).toEqual([]);
 });

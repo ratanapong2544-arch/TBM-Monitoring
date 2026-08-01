@@ -18,7 +18,11 @@ const initialSummary = () => ({
   pending: 0, syncing: 0, conflicts: 0, errors: 0, blocked: 0, lastSyncedAt: null,
 });
 
-const SUMMARY_FIELDS = ["online", "pending", "syncing", "conflicts", "errors", "blocked", "lastSyncedAt"];
+// Every field `getSyncSummary` returns. A hand-kept list, so a count added there and not here would
+// be compared by nothing: the seven known fields would match, the bail would keep the old object, and
+// the new indicator would silently never update. `SUMMARY_FIELDS` is exported and pinned against the
+// real summary's key set for exactly that reason — Task 10's Sync Center is where a count gets added.
+export const SUMMARY_FIELDS = ["online", "pending", "syncing", "conflicts", "errors", "blocked", "lastSyncedAt"];
 const sameSummary = (a, b) => Boolean(a) && Boolean(b) && SUMMARY_FIELDS.every(field => a[field] === b[field]);
 
 export function useOffline({ optional = false } = {}) {

@@ -1,8 +1,13 @@
+import "fake-indexeddb/auto";
+if (!global.structuredClone) global.structuredClone = value => JSON.parse(JSON.stringify(value));
+
 import React from "react";
 import { createRoot } from "react-dom/client";
 import { act } from "react-dom/test-utils";
 
-import { OfflineProvider, useOffline } from "./OfflineProvider";
+import { OfflineProvider, SUMMARY_FIELDS, useOffline } from "./OfflineProvider";
+import { createRepository } from "./repository";
+import { openOfflineDb } from "./db";
 
 // No @testing-library in this project, so drive the provider with a minimal react-dom harness.
 function renderProvider(deps, { strict = false } = {}) {
@@ -164,4 +169,14 @@ test("survives StrictMode double-invocation with a single started runner", async
   expect(calls.stageLegacy).toBe(1);
   provider.unmount();
   expect(calls.unsubscribes).toBe(calls.subscribes);
+});
+
+test("the summary comparison knows every field the summary has", async () => {
+  // The provider keeps the previous summary object when all of `SUMMARY_FIELDS` compare equal, which
+  // is what stops a backlog drain re-rendering the whole app once per confirmed mutation. A count
+  // added to `getSyncCounts` and not to this list would be compared by nothing: the known fields
+  // match, the old object is kept, and the new indicator never updates. Task 10 adds counts.
+  const summary = await createRepository({ openDb: openOfflineDb }).getSyncSummary();
+
+  expect(Object.keys(summary).sort()).toEqual([...SUMMARY_FIELDS].sort());
 });

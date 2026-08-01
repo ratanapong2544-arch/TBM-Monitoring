@@ -27,6 +27,9 @@ function namesRow(record, entityType, row) {
   const rowId = row.id ?? row.recordId;
   const recordId = record.id ?? record.recordId;
   if (rowId !== recordId) return false;
+  // the row's own machine when it has one, as `recordFor` does: `dailyReport` and `prepTask` carry a
+  // machine column AND are machine-keyed, so reading it off the record would name a different domain
+  const rowMachine = row.machine ?? record.machine;
   if (!record.domainKey) {
     // Unreachable through the queue: `optimisticEntity` always injects the key. Reachable from a
     // caller that builds a record by hand — and falling back to the id alone is the rule the
@@ -34,7 +37,7 @@ function namesRow(record, entityType, row) {
     if (process.env.NODE_ENV !== "production") console.warn("applyOptimisticRow got a record with no domainKey; falling back to matching on the record id alone");
     return true;
   }
-  return makeDomainKey({ entityType, machine: record.machine, recordId: rowId, payload: row }) === record.domainKey;
+  return makeDomainKey({ entityType, machine: rowMachine, recordId: rowId, payload: row }) === record.domainKey;
 }
 
 export function applyOptimisticRow(rows, operation, incoming) {
@@ -46,7 +49,11 @@ export function applyOptimisticRow(rows, operation, incoming) {
   // delete would remove it. Every type Task 8 queues sets `id` to its own record id; Task 9 adds
   // types where that need not hold.
   const recordId = record.id ?? record.recordId;
-  if (recordId == null || recordId === "") return operation === "delete" ? rows : [...rows, record];
+  // `""` is NOT "names no row" here, though `rowIdOf` reduces it to null in the store: a blank id on
+  // both sides is what the merge's `claimWithinDomain` matches within one domain, and `namesRow`
+  // asks that same question. Treating it as unnamed made the screen append where the refresh
+  // overlaid. Only an ABSENT id names nothing.
+  if (recordId == null) return operation === "delete" ? rows : [...rows, record];
   // ONE row, in both directions. A mutation is about one row, and the snapshot merge overwrites one
   // and hides one — filtering and mapping over every match made the screen disagree with the refresh
   // that followed it: two rows sharing a ring and an id rendered the edit twice and a delete emptied

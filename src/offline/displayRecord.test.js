@@ -62,15 +62,25 @@ test("a row with no photo is handed back untouched", () => {
   expect(stripQueuedPhotos(null)).toBe(null);
 });
 
-test("a queued record that names no row is added, never painted over an id-less one", () => {
-  // `row.id === undefined` is true of every row the sheet returned without an id — and a blank Id
-  // cell arrives as `""`, which GAS sends for real. Matching on it would overwrite the first such
-  // row with an unrelated record, and a delete would remove it. Every type Task 8 queues sets `id`
-  // to its own record id; Task 9 adds types where that need not hold.
-  const rows = [{ ringNo: "P641", length: "1.40" }, { id: "", ringNo: "P642", length: "2.40" }];
+test("an id names a row when it is blank on both sides, and nothing when it is absent", () => {
+  // The sheet sends `id: ""` for a blank Id cell, and the merge matches a blank-id record to a
+  // blank-id ROW WITHIN ONE DOMAIN (`claimWithinDomain`). Treating `""` as "names no row" here made
+  // the screen append where the following refresh overlaid — the two halves of one rule disagreeing,
+  // which is the state this whole seam exists to prevent. An ABSENT id is the different case: it
+  // names nothing, and matching on it would overwrite the first row that also has none.
+  const rows = [
+    { id: "", ringNo: "P641", installType: "Permanent", length: "1.41" },
+    { id: "", ringNo: "P642", installType: "Permanent", length: "1.42" },
+  ];
+  const named = ring => ({ id: "", ringNo: ring, installType: "Permanent", length: "9.99", entityType: "segment", machine: "TBM1", domainKey: `segment:TBM1:${ring}:Permanent` });
 
-  expect(applyOptimisticRow(rows, "create", { ringNo: "P644" })).toEqual([...rows, { ringNo: "P644" }]);
-  expect(applyOptimisticRow(rows, "update", { id: "", ringNo: "P645" })).toEqual([...rows, { id: "", ringNo: "P645" }]);
+  expect(applyOptimisticRow(rows, "update", named("P642")).map(row => `${row.ringNo}/${row.length}`))
+    .toEqual(["P641/1.41", "P642/9.99"]);
+  expect(applyOptimisticRow(rows, "delete", named("P642")).map(row => row.ringNo)).toEqual(["P641"]);
+  expect(applyOptimisticRow(rows, "update", named("P900")).map(row => row.ringNo)).toEqual(["P641", "P642", "P900"]);
+
+  // no id at all: appended, and a delete removes nothing
+  expect(applyOptimisticRow(rows, "update", { ringNo: "P900" })).toEqual([...rows, { ringNo: "P900" }]);
   expect(applyOptimisticRow(rows, "delete", { ringNo: "P641" })).toEqual(rows);
 });
 
@@ -103,4 +113,21 @@ test("a record named only by recordId still finds the row it already put on scre
 
   expect(applyOptimisticRow([onScreen], "update", edited)).toEqual([edited]);
   expect(applyOptimisticRow([onScreen], "delete", edited)).toEqual([]);
+});
+
+test("a row that carries its own machine is not claimed by the other machine's record", () => {
+  // `dailyReport` and `prepTask` are the two entity types that are machine-keyed AND returned
+  // project-wide AND carry a `machine` column, so one list holds both machines' rows and the same
+  // record id can appear once per machine. Building the row's key from the RECORD's machine — as
+  // this did — makes TBM1's save claim TBM2's row: the other machine's report is overwritten on
+  // screen and comes back at the next refresh. `recordFor` reads the row's own machine; so does this
+  // now. Task 9 is where these two types reach the queue.
+  const rows = [
+    { id: "d1", machine: "TBM2", note: "tbm2's report" },
+    { id: "d2", machine: "TBM1", note: "tbm1's other report" },
+  ];
+  const tbm1 = { id: "d1", machine: "TBM1", recordId: "d1", entityType: "dailyReport", domainKey: "dailyReport:TBM1:d1", note: "tbm1's report" };
+
+  expect(applyOptimisticRow(rows, "update", tbm1)).toEqual([...rows, tbm1]);
+  expect(applyOptimisticRow(rows, "delete", tbm1)).toEqual(rows);
 });

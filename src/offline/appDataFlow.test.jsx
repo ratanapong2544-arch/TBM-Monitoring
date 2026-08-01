@@ -11,6 +11,7 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 import App from "../App";
 import { OfflineProvider } from "./OfflineProvider";
 import { emptyServerData } from "./normalizeServerData";
+import { makeDomainKey } from "./domainKey";
 import { createRepository } from "./repository";
 import { deleteOfflineDbForTests, openOfflineDb } from "./db";
 import { apiCall } from "../utils/api";
@@ -75,6 +76,21 @@ function makeRepository(overrides = {}) {
     getSyncSummary: async () => ({ online: true, pending: 0, syncing: 0, conflicts: 0, errors: 0, lastSyncedAt: null }),
     setSyncMetaValue: async () => {},
     ...overrides,
+  };
+}
+
+// What `optimisticEntity` really returns. A fake that omits `entityType`/`domainKey` sends a shape
+// the real repository never sends, and `applyOptimisticRow` then falls back to matching on the
+// record id alone — the rule the cross-ring duplicates disproved. Both sides of a seam agreeing on
+// a shape neither production side uses is how three defects reached review on this branch.
+function optimisticShape(input) {
+  return {
+    ...input.payload,
+    id: input.recordId,
+    recordId: input.recordId,
+    entityType: input.entityType,
+    machine: input.machine,
+    domainKey: makeDomainKey(input),
   };
 }
 
@@ -400,7 +416,7 @@ test("a ring saved offline is on screen before the server ever sees it", async (
   // the whole point of the queue: the crew saves in the tunnel, with no link, and the ring must
   // still count. It is counted by being in the list — the next ring prefills from it.
   const repository = makeRepository({
-    mutate: async input => ({ optimisticRecord: { ...input.payload, id: input.recordId } }),
+    mutate: async input => ({ optimisticRecord: optimisticShape(input) }),
   });
   const app = renderApp(repository);
   await act(async () => {});
@@ -420,7 +436,7 @@ test("a ring deleted from the data log leaves the screen before the server confi
   const repository = makeRepository({
     load: async machine => ({ data: cached(machine, { segments: [{ id: "s1", ringNo: "P643", machine: "TBM1", date: "2026-07-30", installType: "Permanent", status: "Completed" }] }), source: "indexeddb", fetchedAt: "x", stale: true }),
     refresh: async machine => ({ data: snapshot(machine, { segments: [{ id: "s1", ringNo: "P643", machine: "TBM1", date: "2026-07-30", installType: "Permanent", status: "Completed" }] }), source: "server", fetchedAt: "2026-07-30T00:00:00.000Z", stale: false }),
-    mutate: async input => { sent.push(input); return { optimisticRecord: { ...input.payload, id: input.recordId } }; },
+    mutate: async input => { sent.push(input); return { optimisticRecord: optimisticShape(input) }; },
   });
   const app = renderApp(repository);
   await act(async () => {});
@@ -447,7 +463,7 @@ test("a save resolving after the crew navigates away and switches machine does n
   let release;
   const repository = makeRepository({
     mutate: input => new Promise(resolve => {
-      release = () => resolve({ optimisticRecord: { ...input.payload, id: input.recordId } });
+      release = () => resolve({ optimisticRecord: optimisticShape(input) });
     }),
   });
   const app = renderApp(repository);
@@ -489,7 +505,7 @@ test("every view App hands a write to is also handed the versions to stamp it wi
   const repository = makeRepository({
     load: async machine => ({ data: cached(machine, rows), source: "indexeddb", fetchedAt: "x", stale: true }),
     refresh: async machine => ({ data: snapshot(machine, rows), source: "server", fetchedAt: "2026-07-30T00:00:00.000Z", stale: false }),
-    mutate: async input => { sent.push(input); return { optimisticRecord: { ...input.payload, id: input.recordId } }; },
+    mutate: async input => { sent.push(input); return { optimisticRecord: optimisticShape(input) }; },
   });
   const app = renderApp(repository);
   await act(async () => {});
@@ -526,7 +542,7 @@ test("a version another device moved past wins over the one this device remember
       data: snapshot(machine, { segments, syncMeta: { "segment:TBM1:P643:Permanent": { version: serverVersion } } }),
       source: "server", fetchedAt: "2026-07-30T00:00:00.000Z", stale: false,
     }),
-    mutate: async input => { sent.push(input); return { optimisticRecord: { ...input.payload, id: input.recordId } }; },
+    mutate: async input => { sent.push(input); return { optimisticRecord: optimisticShape(input) }; },
   });
   notify = event => listeners.forEach(listener => listener(event));
 
@@ -681,7 +697,7 @@ test("a ring deleted and recorded again in one session reaches the sheet", async
     subscribe: listener => { listeners.add(listener); return () => listeners.delete(listener); },
     load: async machine => ({ data: cached(machine, { syncMeta: { "segment:TBM1:P644:Permanent": { version: 1 } } }), source: "indexeddb", fetchedAt: "x", stale: true }),
     refresh: async machine => ({ data: snapshot(machine, { syncMeta: { "segment:TBM1:P644:Permanent": { version: 1 } } }), source: "server", fetchedAt: "2026-07-30T00:00:00.000Z", stale: false }),
-    mutate: async input => { sent.push(input); return { optimisticRecord: { ...input.payload, id: input.recordId } }; },
+    mutate: async input => { sent.push(input); return { optimisticRecord: optimisticShape(input) }; },
   });
   const app = renderApp(repository);
   await act(async () => {});
@@ -777,7 +793,7 @@ test("a queued write starts the drain instead of waiting for the next app event"
   // without this the record is durable but idle: it goes out on the next online/focus/
   // visibilitychange, which on a phone left face-up at the site office may be a long time
   const runNow = jest.fn(async () => {});
-  const repository = makeRepository({ mutate: async input => ({ optimisticRecord: { ...input.payload, id: input.recordId } }) });
+  const repository = makeRepository({ mutate: async input => ({ optimisticRecord: optimisticShape(input) }) });
   const app = renderApp(repository, { runNow });
   await act(async () => {});
   // the refresh path drains too, so only the calls AFTER the snapshot has settled say anything about
@@ -797,7 +813,7 @@ test("a save resolving after a machine switch does not land in the other machine
   let release;
   const repository = makeRepository({
     mutate: input => new Promise(resolve => {
-      release = () => resolve({ optimisticRecord: { ...input.payload, id: input.recordId } });
+      release = () => resolve({ optimisticRecord: optimisticShape(input) });
     }),
   });
   const app = renderApp(repository);

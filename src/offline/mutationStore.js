@@ -48,10 +48,10 @@ function patchSnapshotKeys(snapshots, entities, stored, mutation) {
   const survivingKeys = new Map();
   const scoped = scopesFor(stored, mutation);
   const optimisticKey = optimisticEntityKey(mutation.domainKey, mutation.recordId);
-  // A mutation is about ONE row, and every key here names one: a server key ends `:id:<rowId>` and
-  // an optimistic key now does too. So "mine" is a single question with a single answer, and both
-  // branches below can ask it without any per-operation special case — which is what the last three
-  // defects in this function all came from.
+  // A mutation is about ONE row, and a row is named by its domain AND its record id — a record id
+  // alone is not unique on a live sheet. So "mine" is a single question with a single answer, and
+  // both branches below can ask it without any per-operation special case, which is what the last
+  // three defects in this function all came from.
   const mine = key => entityKeyForRecord(key, mutation.domainKey, mutation.recordId);
   scoped.forEach(snapshot => {
     const keys = (snapshot.entityKeys && snapshot.entityKeys[field]) || [];
@@ -157,8 +157,10 @@ export async function getMutation(db, requestId) {
   return result || null;
 }
 
-// `recordId` is optional so a caller that only knows the domain still gets an answer: two records
-// can share one, and then the newest queued copy is the one that speaks for it.
+// `recordId` is optional so a caller that only knows the domain still gets an answer. Two records
+// can share a domain, and then this returns an ARBITRARY one of them — `getAll` yields IndexedDB key
+// order, so it is the highest record id lexicographically, which has no relation to time. Nothing in
+// the app takes that form; name the record if which one matters.
 export async function getEntity(db, domainKey, recordId) {
   const transaction = db.transaction(STORES.entities, "readonly");
   const store = transaction.objectStore(STORES.entities);
@@ -312,7 +314,7 @@ export async function confirmMutation(db, requestId, response, { owner, confirme
     // what the last full `getData` carried. The next edit of this record would stamp the version
     // from before its own write, the server would answer `conflict` for a row nobody else touched,
     // and that conflict would block the record's domain with nothing on screen to show it.
-    patchSnapshotSyncMeta(snapshotStoreHandle, snapshots, mutation, confirmedVersion, leavesDeleted(mutation));
+    patchSnapshotSyncMeta(snapshotStoreHandle, snapshots, mutation, confirmedVersion, confirmedLeavesDeleted);
   }
   // The newest write still queued FOR THIS RECORD. Asking per ring answered with a neighbouring
   // row's mutation whenever two rows shared one — so the row that had just synced kept an optimistic
@@ -324,7 +326,7 @@ export async function confirmMutation(db, requestId, response, { owner, confirme
     .sort((left, right) => (right.queueSequence || 0) - (left.queueSequence || 0))[0];
   if (newestOutstanding) {
     entityStore.put(optimisticEntity(newestOutstanding));
-  } else if (leavesDeleted(mutation)) {
+  } else if (confirmedLeavesDeleted) {
     // a confirmed delete has no row left to describe. Writing one would leave an entity nothing
     // points at — `patchSnapshotKeys` took its key out of the list when the delete was queued — and
     // the next refresh only deletes the keys the previous snapshot named, so it would simply sit

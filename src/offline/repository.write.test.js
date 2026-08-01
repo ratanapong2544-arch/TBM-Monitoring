@@ -424,3 +424,25 @@ test("the record `mutate` hands back is the one the on-screen list can match", a
     .toEqual(["P37/1.37", "P71/9.99"]);
   expect(applyOptimisticRow(rows, "delete", optimisticRecord).map(row => row.ringNo)).toEqual(["P37"]);
 });
+
+test("the list and the merge change the same ONE row when two share a ring and an id", async () => {
+  // The merge overwrites one row and hides one row; the screen filtered and mapped over EVERY match,
+  // so a same-ring duplicate rendered ["9.99","9.99"] the moment the crew pressed save while the
+  // refresh that followed said ["9.99","2.40"] — and Delete emptied the list, with the neighbour
+  // coming back at the next refresh, which underground is the next shift. The cross-ring case was
+  // closed and this one, two rows on ONE ring, was left as it was. Open item 1 has GAS appending a
+  // second row with the same record id onto the same ring.
+  const repository = makeRepository();
+  const rows = [
+    { id: "s1", ringNo: "P643", installType: "Permanent", length: "1.40" },
+    { id: "s1", ringNo: "P643", installType: "Permanent", length: "2.40" },
+  ];
+
+  const { optimisticRecord } = await repository.mutate({
+    entityType: "segment", operation: "update", machine: "TBM1", recordId: "s1", baseVersion: 1,
+    payload: { id: "s1", ringNo: "P643", installType: "Permanent", length: "9.99" },
+  });
+
+  expect(applyOptimisticRow(rows, "update", optimisticRecord).map(row => row.length)).toEqual(["9.99", "2.40"]);
+  expect(applyOptimisticRow(rows, "delete", optimisticRecord).map(row => row.length)).toEqual(["2.40"]);
+});

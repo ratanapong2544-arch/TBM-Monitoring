@@ -15,7 +15,7 @@ function createStore(db, name, options, indexes) {
 // its rows. Existing rows are re-keyed from the record id their own payload already carries; a row
 // without one cannot be placed and is dropped, which costs only its on-screen copy — its mutation is
 // still in the queue and rewrites the row when it drains.
-export function recordScopeOptimisticKeys(transaction) {
+function recordScopeOptimisticKeys(transaction) {
   const entities = transaction.objectStore(STORES.entities);
   const snapshots = transaction.objectStore(STORES.snapshots);
 

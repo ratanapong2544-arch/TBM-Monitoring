@@ -338,8 +338,15 @@ data-loss path is worse than no note.
 - `repository.js` — the null-snapshot fallback in `refresh` (`(overtaken && read) || write`) is
   unreachable now that a request is only recorded as newest once its write has landed. It stays
   because the alternative is handing the caller a null it then reads `fetchedAt` off.
-- `snapshotStore.js` — several belt-and-braces guards survive removal: `localByRecord`'s and
-  `localOnly`'s preference for the queued copy over the cached one, `deletePending`'s null-id check
-  (`recordSlot` already makes an empty id unmatchable), the SYNCING lease check, and `>=` versus `>`
-  on the confirmed-after-request comparison (the repository clock is strictly monotonic, so the two
-  stamps are never equal).
+- `snapshotStore.js` — measured, one guard at a time, by breaking it and running the whole suite:
+  - **PINNED, not free** — the SYNCING lease check (2 tests) and `localByRecord`'s preference for the
+    queued copy over the cached one (1 test, added with the duplicate-id fix). An earlier version of
+    this list called both of them untested. They were, when it was written; they are not now, and a
+    list of "do not bother testing these" is worth nothing if it is not re-measured.
+  - **Survives removal** — `localOnly`'s preference for the queued copy (`localByRecord` decides
+    first in every path that reaches it), `deletePending`'s null-id check (`recordSlot` already makes
+    an empty id unmatchable), and `>=` versus `>` on the confirmed-after-request comparison (the
+    repository clock is strictly monotonic, so the two stamps are never equal).
+  - **No longer a guard** — `claimWithinDomain`'s "only within this ring" test survived removal too,
+    so it was replaced by a Map keyed on the domain: the rule is the shape of the lookup now, and
+    there is no predicate left to drop.

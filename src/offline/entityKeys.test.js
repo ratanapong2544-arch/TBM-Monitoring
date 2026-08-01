@@ -25,7 +25,7 @@ test("a key names the row's RING too, not just its record id", () => {
 });
 
 test("a queued copy names its row the same way a server row does", () => {
-  // both shapes end `:id:<recordId>`, which is what lets one rule cover both
+  // both shapes end `:<domainKey>:id:<recordId>`, which is what lets one rule cover both
   const domain = "segment:TBM1:P643:Permanent";
   const queued = optimisticEntityKey(domain, "seg_b");
   expect(entityKeyForRecord(queued, domain, "seg_b")).toBe(true);

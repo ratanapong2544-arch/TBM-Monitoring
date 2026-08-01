@@ -24,9 +24,17 @@ const PHOTOS = [
 // four. A record built by the queue carries the domain key it was filed under, and for a ring that
 // key IS the identity; a record without one (a caller outside the queue) falls back to the id.
 function namesRow(record, entityType, row) {
-  if (row.id !== record.id) return false;
-  if (!record.domainKey) return true;
-  return makeDomainKey({ entityType, machine: record.machine, recordId: row.id, payload: row }) === record.domainKey;
+  const rowId = row.id ?? row.recordId;
+  const recordId = record.id ?? record.recordId;
+  if (rowId !== recordId) return false;
+  if (!record.domainKey) {
+    // Unreachable through the queue: `optimisticEntity` always injects the key. Reachable from a
+    // caller that builds a record by hand — and falling back to the id alone is the rule the
+    // cross-ring duplicates proved wrong, so it must not degrade quietly.
+    if (process.env.NODE_ENV !== "production") console.warn("applyOptimisticRow got a record with no domainKey; falling back to matching on the record id alone");
+    return true;
+  }
+  return makeDomainKey({ entityType, machine: record.machine, recordId: rowId, payload: row }) === record.domainKey;
 }
 
 export function applyOptimisticRow(rows, operation, incoming) {
@@ -37,11 +45,15 @@ export function applyOptimisticRow(rows, operation, incoming) {
   // sheet returned without an id, so an unnamed record would overwrite the first of them and a
   // delete would remove it. Every type Task 8 queues sets `id` to its own record id; Task 9 adds
   // types where that need not hold.
-  if (record.id == null || record.id === "") return operation === "delete" ? rows : [...rows, record];
-  if (operation === "delete") return rows.filter(row => !namesRow(record, entityType, row));
-  return rows.some(row => namesRow(record, entityType, row))
-    ? rows.map(row => (namesRow(record, entityType, row) ? record : row))
-    : [...rows, record];
+  const recordId = record.id ?? record.recordId;
+  if (recordId == null || recordId === "") return operation === "delete" ? rows : [...rows, record];
+  // ONE row, in both directions. A mutation is about one row, and the snapshot merge overwrites one
+  // and hides one — filtering and mapping over every match made the screen disagree with the refresh
+  // that followed it: two rows sharing a ring and an id rendered the edit twice and a delete emptied
+  // the list, with the neighbour returning at the next refresh.
+  const at = rows.findIndex(row => namesRow(record, entityType, row));
+  if (operation === "delete") return at === -1 ? rows : rows.filter((unused, index) => index !== at);
+  return at === -1 ? [...rows, record] : rows.map((row, index) => (index === at ? record : row));
 }
 
 export function stripQueuedPhotos(record) {

@@ -91,3 +91,16 @@ test("a queued write lands on the ring it names, not on every ring sharing its i
   expect(applyOptimisticRow(rows, "delete", edit).map(row => `${row.ringNo}/${row.length}`))
     .toEqual(["P37/1.37", "P41/1.41"]);
 });
+
+test("a record named only by recordId still finds the row it already put on screen", () => {
+  // The store names a row by `payload.id ?? payload.recordId`; this matched on `id` alone. For the
+  // four types Task 8 queues they are the same value, so nothing showed. Task 9 adds types whose
+  // payload carries no `id` — `optimisticEntity` injects `recordId` regardless, so the row this
+  // reducer put on screen last time is named by that and only that. Matching on `id` would leave
+  // every later save appending another copy of the same record, and every delete removing none.
+  const onScreen = { recordId: "i1", title: "first", entityType: "issue", machine: null, domainKey: "issue:GLOBAL:i1" };
+  const edited = { ...onScreen, title: "second" };
+
+  expect(applyOptimisticRow([onScreen], "update", edited)).toEqual([edited]);
+  expect(applyOptimisticRow([onScreen], "delete", edited)).toEqual([]);
+});

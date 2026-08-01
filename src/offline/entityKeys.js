@@ -32,7 +32,9 @@ export function serverEntityKey(machine, field, domainKey, rowId) {
 }
 
 // Which ROW a key names — the record id AND the domain it belongs to. Both shapes end
-// `:<domainKey>:id:<recordId>`, so one suffix test covers them.
+// `:<domainKey>:id:<recordId>`, so one suffix test covers them. A server row the sheet returned
+// without an id is keyed `:<domainKey>:row:<index>` instead and matches nothing here, which is
+// right: it names no record, so no mutation can name it.
 //
 // The domain is not decoration. A record id is not unique on a live sheet: the captured production
 // payload carries seven ids spread over sixteen rows, every pair on a DIFFERENT ring, and matching

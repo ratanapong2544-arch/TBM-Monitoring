@@ -207,12 +207,11 @@ export async function writeServerSnapshot(db, machine, data, fetchedAt, requeste
     if (ofType) ofType.push(record); else existingByType.set(record.entityType, [record]);
     const rowId = rowIdOf(record);
     if (rowId == null) return;
-    const slot = `${record.entityType}||${recordSlot(record.domainKey, rowId)}`;
+    const slot = recordSlot(record.domainKey, rowId); // every domain key starts with its entity type
     const held = localByRecord.get(slot);
     if (!held || (isOptimisticKey(record.key) && !isOptimisticKey(held.key))) localByRecord.set(slot, record);
   });
-  const localForRecord = (domainKey, entityType, recordId) =>
-    localByRecord.get(`${entityType}||${recordSlot(domainKey, recordId)}`);
+  const localForRecord = (domainKey, recordId) => localByRecord.get(recordSlot(domainKey, recordId));
   const preserve = (record, status) => ({ ...record, payload: { ...record.payload, syncStatus: status } });
   // An optimistic record is stamped with its mutation's machine ("GLOBAL" for a project-wide
   // entity, or another machine's id), while a server-derived record is stamped with the active
@@ -221,8 +220,9 @@ export async function writeServerSnapshot(db, machine, data, fetchedAt, requeste
   // row. Scope by the domain key instead: it carries the owning machine for ring-scoped entities,
   // and getData returns the project-wide collections for every machine anyway.
   const domainMachine = domainKey => String(domainKey || "").split(":")[1];
-  const inScope = (record, entityType) => record.entityType === entityType
-    && (!MACHINE_SCOPED_COLLECTIONS.has(entityType) || domainMachine(record.domainKey) === machine);
+  // entity type is not re-tested: the only caller iterates the per-type index built above
+  const inScope = (record, entityType) => !MACHINE_SCOPED_COLLECTIONS.has(entityType)
+    || domainMachine(record.domainKey) === machine;
   const previousKeys = Object.values(previous && previous.entityKeys || {}).flat();
   previousKeys.forEach(key => entities.delete(key));
   const entityKeys = {};
@@ -252,9 +252,18 @@ export async function writeServerSnapshot(db, machine, data, fetchedAt, requeste
     // Neither side always names a record: a row the sheet stored before sync existed carries no id,
     // and neither does the local copy of one. Those can only be matched within their ring, and only
     // ONE such local copy may answer for each — otherwise two rows collapse into one again.
+    // Indexed by the domain rather than scanned for it, so "only within its ring" is the shape of
+    // the lookup rather than a predicate that could be dropped — and so this stops being the last
+    // full scan per incoming row in a function whose point was removing them.
+    const idLessByDomain = new Map();
+    localOnly.forEach((record, slot) => {
+      if (rowIdOf(record) != null) return;
+      const waiting = idLessByDomain.get(record.domainKey);
+      if (waiting) waiting.push(slot); else idLessByDomain.set(record.domainKey, [slot]);
+    });
     const claimWithinDomain = domainKey => {
-      const slot = [...localOnly.keys()]
-        .find(key => localOnly.get(key).domainKey === domainKey && rowIdOf(localOnly.get(key)) == null);
+      const waiting = idLessByDomain.get(domainKey);
+      const slot = waiting && waiting.shift();
       if (slot === undefined) return null;
       const record = localOnly.get(slot);
       localOnly.delete(slot);
@@ -292,7 +301,7 @@ export async function writeServerSnapshot(db, machine, data, fetchedAt, requeste
       .map(record => {
         const local = rowIdOf(record) == null
           ? claimWithinDomain(record.domainKey)
-          : claimOnce(record.domainKey, rowIdOf(record), () => localForRecord(record.domainKey, entityType, rowIdOf(record)));
+          : claimOnce(record.domainKey, rowIdOf(record), () => localForRecord(record.domainKey, rowIdOf(record)));
         if (!local || !preserveLocal(local)) return record;
         return preserve(local, unresolvedStatus(local) || local.payload.syncStatus);
       });
@@ -306,23 +315,37 @@ export async function writeServerSnapshot(db, machine, data, fetchedAt, requeste
 
   const snapshot = { scopeKey: scopeKey(machine), machine, fetchedAt, entityKeys };
   singletonKeys.forEach(key => { snapshot[key] = data[key]; committed[key] = data[key]; });
-  // `syncMeta` is the one singleton this device also writes: `confirmMutation` records what the
-  // server confirmed so the next edit can stamp it. A getData answer composed before that
-  // confirmation would otherwise replace it with the version from before this device's own write,
-  // and the next edit of that record would be refused as a conflict nobody caused. Take the higher
-  // of the two per key — a version only ever moves forward.
-  const previousSyncMeta = (previous && previous.syncMeta) || {};
-  const mergedSyncMeta = { ...(data.syncMeta || {}) };
-  Object.keys(previousSyncMeta).forEach(key => {
-    const mine = previousSyncMeta[key];
-    const theirs = mergedSyncMeta[key];
-    if (!theirs || toSyncVersion(mine && mine.version) > toSyncVersion(theirs.version)) mergedSyncMeta[key] = mine;
-  });
+  const mergedSyncMeta = mergeSyncMeta(previous, data);
   snapshot.syncMeta = mergedSyncMeta;
   committed.syncMeta = mergedSyncMeta;
-  // A pending config edit must not be erased by server data either. These arrive as singletons
-  // rather than collection rows, so they need the same optimistic overlay: without it an offline
-  // plan edit disappeared on the next refresh and was re-entered, conflicting with itself.
+  overlayConfigSingletons({ snapshot, committed, existing, machine, preserveLocal });
+  pruneConfirmedMutations(mutations, pendingMutations);
+
+  snapshots.put(snapshot);
+  await complete(transaction);
+  return { ...committed, fetchedAt };
+}
+
+// `syncMeta` is the one singleton this device also writes: `confirmMutation` records what the server
+// confirmed so the next edit can stamp it. A getData answer composed before that confirmation would
+// otherwise replace it with the version from before this device's own write, and the next edit of
+// that record would be refused as a conflict nobody caused. Take the higher of the two per key — a
+// version only ever moves forward.
+function mergeSyncMeta(previous, data) {
+  const previousSyncMeta = (previous && previous.syncMeta) || {};
+  const merged = { ...(data.syncMeta || {}) };
+  Object.keys(previousSyncMeta).forEach(key => {
+    const mine = previousSyncMeta[key];
+    const theirs = merged[key];
+    if (!theirs || toSyncVersion(mine && mine.version) > toSyncVersion(theirs.version)) merged[key] = mine;
+  });
+  return merged;
+}
+
+// A pending config edit must not be erased by server data either. These arrive as singletons rather
+// than collection rows, so they need the same optimistic overlay: without it an offline plan edit
+// disappeared on the next refresh and was re-entered, conflicting with itself.
+function overlayConfigSingletons({ snapshot, committed, existing, machine, preserveLocal }) {
   CONFIG_ENTITY_TYPES.forEach(([entityType, field]) => {
     existing.filter(record => record.entityType === entityType && preserveLocal(record)).forEach(record => {
       const value = configValue(record.payload, entityType);
@@ -340,17 +363,18 @@ export async function writeServerSnapshot(db, machine, data, fetchedAt, requeste
       committed[field] = snapshot[field];
     });
   });
-  // Bound the mutation log: every refresh reads it whole, so lifetime growth would slow the hot
-  // read path forever. Only already-confirmed mutations past the Sync Center's "recent" window are
-  // dropped — pending, error and conflict records are never touched (handoff safety note 5).
-  const confirmed = pendingMutations
-    .filter(mutation => mutation.status === MUTATION_STATUS.SYNCED || mutation.status === MUTATION_STATUS.RESOLVED)
-    .sort((left, right) => (right.queueSequence || 0) - (left.queueSequence || 0));
-  confirmed.slice(CONFIRMED_MUTATION_RETENTION).forEach(mutation => mutations.delete(mutation.requestId));
+}
 
-  snapshots.put(snapshot);
-  await complete(transaction);
-  return { ...committed, fetchedAt };
+// Bound the mutation log: every refresh reads it whole, so lifetime growth would slow the hot read
+// path forever. Only already-confirmed mutations past the recent window Task 10's Sync Center is
+// specified to show are dropped — pending, error and conflict records are never touched (handoff
+// safety note 5).
+function pruneConfirmedMutations(mutations, pendingMutations) {
+  pendingMutations
+    .filter(mutation => mutation.status === MUTATION_STATUS.SYNCED || mutation.status === MUTATION_STATUS.RESOLVED)
+    .sort((left, right) => (right.queueSequence || 0) - (left.queueSequence || 0))
+    .slice(CONFIRMED_MUTATION_RETENTION)
+    .forEach(mutation => mutations.delete(mutation.requestId));
 }
 
 export async function readServerSnapshot(db, machine) {

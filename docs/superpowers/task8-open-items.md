@@ -249,6 +249,41 @@ The hole is pre-existing (the same shape existed at 30 s); the lease widened it 
 a write path that can deliver a 60 s upload at all. Task 10 owns the Sync Center and its manual
 "sync now", which closes it properly; a periodic tick would close it sooner.
 
+## 3h. A ring whose sheet cell is spelled differently from the form's normalisation shows twice
+
+`SegmentRecordView` sends `String(ringNo).trim().toUpperCase()`; `SegmentDashboardView`'s edit path
+deliberately does not normalise, and `reidentifies` normalises only for its comparison, so the
+envelope is accepted. If the sheet cell holds `" p643 "`, the envelope's domain key is
+`segment:TBM1:P643:Permanent` and the row rebuilds as `segment:TBM1: p643 :Permanent`, so the queued
+copy is appended beside the row it was meant to replace.
+
+Zero of the 373 rings in the captured payload are spelled dirty, the write still posts, the server
+resolves by id so the sheet ends correct, and the duplicate clears on the first refresh after the
+write lands. It is also not a regression: before the row identity became domain-aware, the screen and
+the relaunch showed one row while the refresh showed two — now all three agree with each other.
+Normalising in the dashboard's envelope would fix it, and would change a form Step 4 says to
+preserve, on a state no live row is in.
+
+## 3i. The one grout row with a blank id can no longer be edited or deleted
+
+`requireMutationEnvelope` refuses an empty `recordId`, so `GroutDashboardView` reports
+`อัปเดตข้อมูลล้มเหลว: Mutation requires recordId`. The legacy `apiCall` path resolved it as the
+first blank-id match; the queue cannot, because a mutation has to name the record it is about.
+
+One row of 338 in the captured payload (P96). It fails loudly and loses nothing — but it is a
+behaviour change Task 8 makes, and this document is meant to be the complete list.
+
+## 3j. `recordFor`'s key shape changed without a DB_VERSION bump
+
+A snapshot written by an earlier commit on this branch carries `row:N` for every duplicate-id row
+after the first; an offline edit of such a row then appends rather than replaces, until the first
+`getData` rewrites the list.
+
+Unreachable today: nothing on this branch has been deployed and the promotion gate binds Tasks 7, 8
+and 9 to ship together, so no device holds a snapshot from any of these commits. **It stops being
+free the moment anything here is deployed ahead of Task 9** — bump `DB_VERSION` first if that
+happens, since the migration already rebuilds the key lists from the surviving rows.
+
 ## 4. Deliberate deviations from the plan
 
 - **"บันทึกในเครื่องแล้ว" is only in the shift report.** Step 3 asks for it on every core write. The

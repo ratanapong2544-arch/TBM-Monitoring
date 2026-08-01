@@ -2,6 +2,7 @@ import "fake-indexeddb/auto";
 if (!global.structuredClone) global.structuredClone = value => JSON.parse(JSON.stringify(value));
 import { deleteOfflineDbForTests, openOfflineDb } from "./db";
 import { buildMutationEnvelope } from "./mutationEnvelope";
+import { applyOptimisticRow } from "./displayRecord";
 import { createRepository } from "./repository";
 
 beforeEach(async () => { await deleteOfflineDbForTests(); });
@@ -397,4 +398,29 @@ test.each([
   await expect(repository.getMutation(original.requestId)).resolves.toMatchObject({ status: "resolved", resolvedAt: expect.any(String), strategy, resolutionRequestId: "request-2" });
   await expect(repository.getConflict(original.requestId)).resolves.toMatchObject({ status: "resolved", strategy, resolvedAt: expect.any(String), resolutionRequestId: "request-2", before: expect.any(Object), after: expect.any(Object) });
   await expect(repository.getMutation("request-2")).resolves.toMatchObject({ status: "pending", baseVersion: 9, payload: expect.objectContaining({ status: expectedStatus }) });
+});
+
+test("the record `mutate` hands back is the one the on-screen list can match", async () => {
+  // A real seam, faked on both sides until now. `applyOptimisticRow` decides which row a queued
+  // write is about by rebuilding the row's domain key, and it needs `entityType` and `domainKey`
+  // from the payload `optimisticEntity` injects. Delete either injection and the whole suite stays
+  // green while every update appends a duplicate row on screen and every delete removes nothing —
+  // the same class this identity rule exists to close, arriving from the other side. The App-level
+  // tests could not see it: their fake repository returns `{ ...payload, id: recordId }`, which has
+  // neither field, so they exercise the id-only fallback instead of the shape the real one sends.
+  // Task 9 edits `optimisticEntity` to add entity types.
+  const repository = makeRepository();
+  const rows = [
+    { id: "s1", ringNo: "P37", installType: "Temporary", length: "1.37" },
+    { id: "s1", ringNo: "P71", installType: "Permanent", length: "1.71" },
+  ];
+
+  const { optimisticRecord } = await repository.mutate({
+    entityType: "segment", operation: "update", machine: "TBM1", recordId: "s1", baseVersion: 1,
+    payload: { id: "s1", ringNo: "P71", installType: "Permanent", length: "9.99" },
+  });
+
+  expect(applyOptimisticRow(rows, "update", optimisticRecord).map(row => `${row.ringNo}/${row.length}`))
+    .toEqual(["P37/1.37", "P71/9.99"]);
+  expect(applyOptimisticRow(rows, "delete", optimisticRecord).map(row => row.ringNo)).toEqual(["P37"]);
 });

@@ -446,3 +446,22 @@ test("the list and the merge change the same ONE row when two share a ring and a
   expect(applyOptimisticRow(rows, "update", optimisticRecord).map(row => row.length)).toEqual(["9.99", "2.40"]);
   expect(applyOptimisticRow(rows, "delete", optimisticRecord).map(row => row.length)).toEqual(["2.40"]);
 });
+
+test("the screen names a queued row the way the merge does, when the two ids differ", async () => {
+  // `optimisticEntity` injects `recordId`, GAS resolves the write by it and stamps the sheet's id
+  // column from it, and the merge reads a queued row `recordId`-first for exactly that reason. The
+  // list has to ask the same question of the same record, or the crew sees their save twice and the
+  // next refresh silently collapses it to one — the two halves of one rule disagreeing, from the
+  // side the last fix did not move. Unreachable in Task 8 (all eight call sites pass
+  // `recordId: <payload>.id`); the first Task 9 type where they differ walks straight into it.
+  const repository = makeRepository();
+  const rows = [{ id: "R1", ringNo: "P1", installType: "Permanent", status: "on the sheet" }];
+
+  const { optimisticRecord } = await repository.mutate({
+    entityType: "segment", operation: "update", machine: "TBM1", recordId: "R1", baseVersion: 1,
+    payload: { id: "SHEET-ROW-7", ringNo: "P1", installType: "Permanent", status: "crew edit" },
+  });
+
+  expect(applyOptimisticRow(rows, "update", optimisticRecord).map(row => row.status)).toEqual(["crew edit"]);
+  expect(applyOptimisticRow(rows, "delete", optimisticRecord)).toEqual([]);
+});

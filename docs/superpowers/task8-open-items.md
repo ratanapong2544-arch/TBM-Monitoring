@@ -358,6 +358,12 @@ data-loss path is worse than no note.
 - `App.jsx` — `applyOptimisticRecord`'s dev-time warning for an entity type with no setter has no
   test: it fires on a state Task 8 cannot reach (every type it queues has one) and pinning a
   `console.warn` string would break on any rewording. It exists for Task 9, which adds the types.
+- `PerformanceView.jsx` — a delay bar wholly inside one already counted names no Pareto theme, since
+  it has no minutes to show on a chart of minutes; which of two overlapping bars keeps its cause is
+  array order. Not testable as a rule (attributing it zero minutes is the same thing), so it is
+  written down instead. The invariant that the themes DO add up to their category is testable — the
+  Pareto renders nothing in jsdom, so `shiftMinutesByCategory` is exported and tested directly.
+  (Removed by accident with the false `rowIdOf` claim; still true, still untestable.)
 - `repository.js` — the null-snapshot fallback in `refresh` (`(overtaken && read) || write`) is
   unreachable now that a request is only recorded as newest once its write has landed. It stays
   because the alternative is handing the caller a null it then reads `fetchedAt` off.

@@ -23,9 +23,17 @@ const PHOTOS = [
 // touched into copies of the one they saved, the moment they pressed it — and a delete removed all
 // four. A record built by the queue carries the domain key it was filed under, and for a ring that
 // key IS the identity; a record without one (a caller outside the queue) falls back to the id.
+// Which record a row or a queued record names, `recordId` FIRST — the same order the merge reads a
+// queued row in, and for the same reason: `optimisticEntity` injects `recordId`, GAS resolves the
+// write by it and stamps the sheet's id column from it, so that is the record's identity. A row that
+// came from the sheet carries no `recordId` and falls through to its `id`; a row this reducer put on
+// screen earlier carries one, and it is then the same value the merge will use. Reading `id` first
+// made the screen and the merge name different records whenever the two differ, so a save showed
+// twice and the next refresh collapsed it.
+//
 // `""` counts here, unlike `entityKeys.rowIdOf`: a blank id on both sides names a row WITHIN its
 // domain, which is what the merge's `claimWithinDomain` matches. Only an absent id names nothing.
-const idOf = value => value.id ?? value.recordId;
+const idOf = value => value.recordId ?? value.id;
 
 function namesRow(record, entityType, row) {
   if (idOf(row) !== idOf(record)) return false;

@@ -390,11 +390,11 @@ const PrimaryGroutApp = () => {
     // what makes the record form derive the next ring from the wrong machine and the shift report
     // send an update carrying an id the other machine's sheet has never had. The queue keeps the
     // write regardless; only the on-screen copy is withheld, and the next snapshot restores it.
-    // `!input.machine` is the project-wide families: their envelope carries no machine at all, so a
-    // machine test would skip them silently — and skipping here also skips the missing-setter
-    // warning, so a family that needed a mirror would fail without a sound. The guard is about
-    // machine-scoped arrays, and only those.
-    if (!input.machine || isCurrentMachine(input.machine)) applyOptimisticRecord(input.entityType, input.operation, optimisticRecord);
+    // Every envelope carries a machine now — `queueRecord` defaults to the one on screen and the
+    // views always pass theirs — so this is the machine test alone. The `!input.machine` disjunct
+    // that stood here was dead the moment that default went in, and a dead branch in a guard is
+    // worse than no branch: it sends the next reader somewhere nothing can execute.
+    if (isCurrentMachine(input.machine)) applyOptimisticRecord(input.entityType, input.operation, optimisticRecord);
     // best-effort: draining is the runner's job and a failure here must not fail the crew's save,
     // which is already durable in IndexedDB by this point
     try { Promise.resolve(runner.runNow()).catch(() => {}); } catch (error) { /* queued regardless */ }

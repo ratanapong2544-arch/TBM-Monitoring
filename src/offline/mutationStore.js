@@ -38,8 +38,12 @@ function scopesFor(stored, mutation) {
   // getData had NO snapshot to be patched into, so the write reached the queue and no screen: on
   // relaunch the crew sees nothing and enters it again, which is a duplicate row on the sheet. That
   // is exactly the fresh-install-at-the-shaft state App is written to render into.
-  if (scoped.length || !mutation.machine) return scoped;
-  return [{ scopeKey: snapshotScopeKey(mutation.machine), machine: mutation.machine, fetchedAt: null, entityKeys: {} }];
+  // "This machine has no snapshot", not "the device has none". A project-wide family's scope list is
+  // every stored snapshot, so on a phone that has been used on TBM1 and never on TBM2 the list is
+  // already non-empty and the write filed into TBM1's snapshot alone — leaving it off TBM2's screen,
+  // which is the machine the crew is on. `patchSnapshotConfig` ten lines down had this right.
+  if (!mutation.machine || scoped.some(snapshot => snapshot.machine === mutation.machine)) return scoped;
+  return [...scoped, { scopeKey: snapshotScopeKey(mutation.machine), machine: mutation.machine, fetchedAt: null, entityKeys: {} }];
 }
 
 // A config is a singleton, not a row: there is no entity key to add to a list, so the value goes

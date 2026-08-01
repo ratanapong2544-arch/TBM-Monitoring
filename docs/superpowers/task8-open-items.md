@@ -470,30 +470,46 @@ crew cannot tell it from a machine whose data is genuinely cached. Telling them 
 snapshot to carry "never fetched" — `fetchedAt: null` already says it, and nothing reads it that way
 — which belongs with Task 10's status work rather than here. Same family as 3e.
 
-## 3u. Four rules on this branch are not pinned, and each for its own reason
+## 3u. Rules on this branch that no test pins, and why each one
 
-- **`RouteScheduleView`'s `if (!routeEditing)` guard** — unpinnable. The editor renders `routeDraft`,
-  separate state the guard never touches, so a config arriving mid-edit is invisible either way. A
-  test asserting the draft survives passes with the guard removed; it was written, found vacuous and
-  deleted rather than left green. The guard stays because it stops the table behind the editor
-  jumping, which jsdom cannot see.
-- **`applyOptimisticRecord`'s `record.machine || activeMachineRef.current`** — unreachable. A config
-  envelope is always built by the view showing that machine, so the two are equal on every path.
-- **`mutateBusinessRecord`'s `!input.machine ||` disjunct** — unreachable today. Every family with a
-  setter supplies a machine; the disjunct exists so a future project-wide family that needs a mirror
-  is not skipped in silence.
-- **App's wiring of `distPlanConfig` into `ExecutiveDashboardView`** — pinnable in principle, not
-  pinned at App level. The rule itself IS pinned at the view
-  (`ExecutiveDashboardView.planVariance.test.jsx`: the figure appears with the prop and goes when it
-  is null), but an App-level test has to render the Executive page, which lazily imports the 3D
-  alignment map — WebGL, `URL.createObjectURL`, `TextDecoder` — and mocking the map inside the App
-  harness would change what every other test in that file exercises. What is unasserted is the one
-  line handing the prop over.
+Two quality rounds pulled this list up for being wrong about its own count, so it is written as a
+list of reasons rather than a number, and the reasons are what matter.
 
-The two `if (data.planConfig)` / `if (data.distPlanConfig)` null-blanking guards in `App.jsx` are
-also unpinned; they are the same rule as the collection `.length` guards, whose reasoning is in
-`serverDeletions.js`, and a config has no tombstone to distinguish a real absence from a partial
-response. Left as the conservative direction.
+**Unpinnable — the rule has no observable effect in jsdom.**
+
+- `RouteScheduleView`'s `if (!routeEditing)` guard. The editor renders `routeDraft`, separate state
+  the guard never touches, so a config arriving mid-edit is invisible either way. A test asserting
+  the draft survives passes with the guard removed; it was written, found vacuous and deleted. The
+  guard stays because it stops the table behind the editor jumping.
+
+**Unreachable — the branch cannot be taken, or taking it changes nothing.**
+
+- `applyOptimisticRecord`'s `record.machine || activeMachineRef.current`. A config envelope is always
+  built by the view showing that machine.
+- `optimisticEntity`'s `|| "GLOBAL"` on the entity's top-level machine. Its only reader tests it for
+  machine-scoped types, all of which always carry a machine.
+
+**Pinnable and not pinned — a deliberate stop, with the cost written down.**
+
+- App's wiring of `distPlanConfig` into `ExecutiveDashboardView`. The RULE is pinned at the view
+  (`ExecutiveDashboardView.planVariance.test.jsx`); what is unasserted is the one line handing the
+  prop over. An App-level test must render the Executive page, which lazily imports the 3D alignment
+  map — WebGL, `URL.createObjectURL`, `TextDecoder`, none of which jsdom has. Mocking the map inside
+  `appDataFlow.test.jsx` is cheap and would work; it has not been done.
+- The two `if (data.planConfig)` / `if (data.distPlanConfig)` null-blanking guards in `App.jsx`.
+  Same rule as the collection `.length` guards, whose reasoning is in `serverDeletions.js`; a config
+  has no tombstone, so a real absence cannot be told from a partial response and the conservative
+  direction is all there is.
+- `planConfigFor`'s defaults and `distancePlanFor`'s `ranges` normalisation reduced to identity, and
+  `PrepGanttView`'s batch-failure count. Cosmetic if wrong.
+
+**Was unpinned, now pinned** (kept so the next reviewer does not re-derive them): App's
+`machine = activeMachine` scope default, App's per-machine `distPlanConfig` into `RouteScheduleView`,
+the distance-plan mid-edit guard, `queueTask`'s catch, the plan-variance prop at the view.
+
+**Deleted rather than left as a dead branch:** `mutateBusinessRecord`'s `!input.machine ||`
+disjunct. It guarded a machineless envelope, and since `queueRecord` defaults the machine there is
+no such envelope; a dead branch inside a guard sends the next reader somewhere nothing executes.
 
 ## 4. Deliberate deviations from the plan
 

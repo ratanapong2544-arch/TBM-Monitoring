@@ -796,3 +796,39 @@ test("a distance plan arriving while its modal is open does not take the draft a
   expect([...view.container.querySelectorAll('input[type="month"]')].some(i => i.value === "2020-01")).toBe(false);
   view.unmount();
 });
+
+test("a write carries the machine on screen as its scope, even for a project-wide family", async () => {
+  // The scope hint is what gives a never-fetched machine a snapshot to be patched into. Without it
+  // a record raised on a fresh TBM2 is in the queue and on no screen after a relaunch.
+  const mutate = jest.fn(async () => ({ optimisticRecord: {} }));
+  const view = await settle(renderApp({ issues: [issue("iss_1", "รอ Platform")] }, { mutate }));
+
+  await click(byTitle(view.container, "ปิด (แก้แล้ว)"));
+
+  const [envelope] = mutate.mock.calls[0];
+  expect(envelope.machine).toBe("TBM1");
+  expect(envelope.domainKey).toBe("issue:GLOBAL:iss_1"); // and the key is still GLOBAL
+  view.unmount();
+});
+
+test("the route page is given this machine's distance plan", async () => {
+  // The other half of "TBM2 was shown TBM1's plan": pinned for the segment views, unpinned here.
+  const mutate = jest.fn(async () => ({ optimisticRecord: {} }));
+  const perMachine = machine => (machine === "TBM1"
+    ? { distPlanConfig: { ranges: [{ startMonth: "2026-09", endMonth: "2026-12", mode: "rings", ringsPerDay: 3, avgLength: 1.2, distancePerMonth: 0 }] } }
+    : {});
+  const view = await settle(renderAppPerMachine(perMachine, { mutate }));
+
+  await navigate(view.container, /Route & Schedule/);
+  await click(byTitle(view.container, "Distance Plan Settings"));
+  expect([...view.container.querySelectorAll('input[type="month"]')].some(i => i.value === "2026-09")).toBe(true);
+  await click(button(view.container, /ยกเลิก|ปิด/));
+
+  await click(button(view.container, /^TBM2$/));
+  await settle(view);
+  await navigate(view.container, /Route & Schedule/);
+  await click(byTitle(view.container, "Distance Plan Settings"));
+
+  expect([...view.container.querySelectorAll('input[type="month"]')].some(i => i.value === "2026-09")).toBe(false);
+  view.unmount();
+});

@@ -128,10 +128,11 @@ export async function writeServerSnapshot(db, machine, data, fetchedAt, requeste
   // all three reads issued together and awaited as one. Awaiting the first before issuing the others
   // leaves the transaction's survival resting on how promptly a microtask runs — the same reason
   // `putOptimisticMutation` and `confirmMutation` batch theirs, and this is the hotter path.
-  const [previous, existing, allMutations] = await Promise.all([
+  const [previous, existing, allMutations, storedSnapshots] = await Promise.all([
     requestResult(snapshots.get(scopeKey(machine))),
     requestResult(entities.getAll()),
     requestResult(mutations.getAll()),
+    requestResult(snapshots.getAll()),
   ]);
   // Everything below is keyed by RECORD, not by ring — see `newestUnresolvedByRecord` above for why.
   const slotOf = mutation => recordSlot(mutation.domainKey, mutation.recordId);
@@ -234,7 +235,17 @@ export async function writeServerSnapshot(db, machine, data, fetchedAt, requeste
   const inScope = (record, entityType) => !MACHINE_SCOPED_COLLECTIONS.has(entityType)
     || domainMachine(record.domainKey) === machine;
   const previousKeys = Object.values(previous && previous.entityKeys || {}).flat();
-  previousKeys.forEach(key => entities.delete(key));
+  // A key ANOTHER machine's snapshot still names is not this refresh's to delete. The project-wide
+  // collections are filed into every stored snapshot, so refreshing TBM1 was deleting rows TBM2's
+  // snapshot still pointed at: once the mutation behind one is terminal nothing re-puts it, and
+  // `readServerSnapshot` resolves the dangling key to undefined and drops the row. The instrument
+  // schedule a supervisor marked on TBM1 was then missing from TBM2's page entirely.
+  // `patchSnapshotKeys` already carries this rule ("a row deleted while something still names it is
+  // unrecoverable"); this was the copy without it.
+  const namedElsewhere = new Set(storedSnapshots
+    .filter(snapshot => snapshot.scopeKey !== scopeKey(machine))
+    .flatMap(snapshot => Object.values(snapshot.entityKeys || {}).flat()));
+  previousKeys.forEach(key => { if (!namedElsewhere.has(key)) entities.delete(key); });
   const entityKeys = {};
   const committed = emptyServerData(machine);
 

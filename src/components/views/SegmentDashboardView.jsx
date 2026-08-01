@@ -23,13 +23,11 @@ const SegmentDashboardView = ({ segmentRecords, machine = "TBM1", onMutate, sync
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showPlanModal, setShowPlanModal] = useState(false);
 
-  const defaultPlanConfig = { basePlanAcc: 0, baseActualAcc: 0, ranges: [] };
   // Same prop as `SegmentAnalysisView`: one localStorage key served both machines, so the plan on
   // screen belonged to whichever machine was active last.
-  const withDefaults = planConfigFor;
-  const [planConfig, setPlanConfig] = useState(() => withDefaults(planConfigProp));
+  const [planConfig, setPlanConfig] = useState(() => planConfigFor(planConfigProp));
   useEffect(() => {
-    if (!showPlanModal) setPlanConfig(withDefaults(planConfigProp));
+    if (!showPlanModal) setPlanConfig(planConfigFor(planConfigProp));
     // eslint-disable-next-line
   }, [planConfigProp]);
 

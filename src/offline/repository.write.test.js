@@ -635,3 +635,51 @@ test("a record raised on a device that has never fetched is still on screen afte
   // and the issue still says which machine it belongs to
   expect(data.issues[0].machine).toBe("TBM2");
 });
+
+test("a record raised on a machine this device has never fetched is on that machine's screen", async () => {
+  // The synthesis only fired when the device had NO snapshot at all. A project-wide family's scope
+  // list is every stored snapshot, so as soon as ANY machine has one the list is non-empty and the
+  // write is filed into that other machine's snapshot alone. The crew taps TBM2 on a phone that has
+  // only ever been used on TBM1, raises an issue underground, and it is on no screen after the
+  // relaunch — `tbmActiveMachine` remembers TBM2.
+  const repository = makeRepository({
+    fetchServerSnapshot: async machine => ({ status: "success", segments: [], machine }),
+  });
+  await repository.refresh("TBM1");
+
+  await repository.mutate(buildMutationEnvelope({
+    entityType: "issue", operation: "create", machine: "TBM2", recordId: "iss_b",
+    payload: { id: "iss_b", title: "รอไฟฟ้า", machine: "TBM2", severity: "delay", status: "open" }, syncMeta: {},
+  }));
+
+  const relaunched = makeRepository({ fetchServerSnapshot: async () => { throw new Error("offline"); } });
+  expect((await relaunched.load("TBM2")).data.issues.map(row => row.id)).toEqual(["iss_b"]);
+  // and it is still on TBM1, where project-wide rows also belong
+  expect((await relaunched.load("TBM1")).data.issues.map(row => row.id)).toEqual(["iss_b"]);
+});
+
+test("refreshing one machine does not take a confirmed project-wide record off the other", async () => {
+  // A project-wide row is filed into every stored snapshot's key list. `writeServerSnapshot` deletes
+  // every key the refreshed machine's PREVIOUS snapshot named — including that shared one — and once
+  // the mutation is terminal nothing re-puts it, while the other machine's snapshot still names it.
+  // `readServerSnapshot` then resolves it to undefined and drops the row.
+  // A supervisor's phone caches both machines: mark a measurement done on TBM1, let it sync, relaunch
+  // and refresh, switch to TBM2 underground — the schedule row is gone from the page the instrument
+  // module exists to keep.
+  let serverIssues = [];
+  const repository = makeRepository({
+    fetchServerSnapshot: async machine => ({ status: "success", segments: [], issues: serverIssues, machine }),
+    createRequestId: () => "request-shared",
+  });
+  await repository.refresh("TBM1");
+  await repository.refresh("TBM2");
+
+  const queued = await repository.mutate(buildMutationEnvelope({
+    entityType: "issue", operation: "create", machine: "TBM1", recordId: "iss_x",
+    payload: { id: "iss_x", title: "ทั้งโครงการ", machine: "all", severity: "info", status: "open" }, syncMeta: {},
+  }));
+  await repository.applySyncSuccess(queued.requestId, { status: "success", version: 1, record: { id: "iss_x", title: "ทั้งโครงการ", machine: "all" } });
+  await repository.refresh("TBM1"); // the server has not caught up yet
+
+  expect((await repository.load("TBM2")).data.issues.map(row => row.id)).toEqual(["iss_x"]);
+});

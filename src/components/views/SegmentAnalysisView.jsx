@@ -88,17 +88,15 @@ export default function SegmentAnalysisView({ segmentRecords = [], projectInfo, 
 
   // ── Plan Config ──
   const [showPlanModal, setShowPlanModal] = useState(false);
-  const defaultPlanConfig = { basePlanAcc: 0, baseActualAcc: 0, ranges: [] };
   // The config comes down as a prop now. `tbmPlanConfig` was one localStorage key for both machines,
   // so App wrote whichever machine was active into it and switching back showed the other machine's
   // plan under these rings; the snapshot has stored it per machine all along.
-  const withDefaults = planConfigFor;
-  const [planConfig, setPlanConfig] = useState(() => withDefaults(planConfigProp));
+  const [planConfig, setPlanConfig] = useState(() => planConfigFor(planConfigProp));
   // The first render is the cached snapshot and the server answer lands a moment later, so a
   // `useState` initialiser alone would leave the crew editing the stale plan. Not while the modal is
   // open: a refresh mid-edit would otherwise discard what they had typed.
   useEffect(() => {
-    if (!showPlanModal) setPlanConfig(withDefaults(planConfigProp));
+    if (!showPlanModal) setPlanConfig(planConfigFor(planConfigProp));
     // eslint-disable-next-line
   }, [planConfigProp]);
 

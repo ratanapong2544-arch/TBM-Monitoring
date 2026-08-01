@@ -18,7 +18,8 @@ export function syncDateKey(value) {
   // Bangkok script timezone. Unreachable on the client — `normalizeServerData` yields JSON strings,
   // never Dates — and it would be WRONG here if it were reachable, since a browser east of UTC+7
   // reads its own local fields. It exists so this function and `syncDateKey_` stay one function in
-  // two files, which is what the shared vector file checks.
+  // two files. The shared vector file cannot reach it — JSON has no Date — so what holds this branch
+  // is the GAS-side assertion in `tools/gas-sync-contract.test.cjs`, on the side where it runs.
   if (value instanceof Date) return `${value.getFullYear()}-${pad2(value.getMonth() + 1)}-${pad2(value.getDate())}`;
   const text = String(value == null ? "" : value);
   if (!text.includes("T")) return text;

@@ -110,6 +110,10 @@ The reasoning "two rows on one ring is a state the data logs dedupe for" is true
   2026-04-04 Night  delay 1020 min = 17.0 h
   ```
 
+  (The payload holds a THIRD duplicated shift, 2026-04-08 Day, not named above because it costs
+  nothing: its second row's only bar is `Clean Area 19:45-06:00` — night hours filed under a Day
+  shift, which clamps to zero minutes either way.)
+
   It does not print above 100% on today's data — the worst group across every filter state of the
   captured payload is 85.4% (`daily 2026-03-30`, 1230 min over two shifts). **That is a measurement,
   not a bound.** The mechanism usually saving it is that the finest filter is a DATE

@@ -61,3 +61,15 @@ test("a row with no photo is handed back untouched", () => {
   expect(stripQueuedPhotos(row)).toBe(row);
   expect(stripQueuedPhotos(null)).toBe(null);
 });
+
+test("a queued record that names no row is added, never painted over an id-less one", () => {
+  // `row.id === undefined` is true of every row the sheet returned without an id — and a blank Id
+  // cell arrives as `""`, which GAS sends for real. Matching on it would overwrite the first such
+  // row with an unrelated record, and a delete would remove it. Every type Task 8 queues sets `id`
+  // to its own record id; Task 9 adds types where that need not hold.
+  const rows = [{ ringNo: "P641", length: "1.40" }, { id: "", ringNo: "P642", length: "2.40" }];
+
+  expect(applyOptimisticRow(rows, "create", { ringNo: "P644" })).toEqual([...rows, { ringNo: "P644" }]);
+  expect(applyOptimisticRow(rows, "update", { id: "", ringNo: "P645" })).toEqual([...rows, { id: "", ringNo: "P645" }]);
+  expect(applyOptimisticRow(rows, "delete", { ringNo: "P641" })).toEqual(rows);
+});

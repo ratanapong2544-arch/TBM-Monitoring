@@ -53,8 +53,9 @@ export async function parseGasResponse(response) {
 // also suppresses the snapshot-age strip — the crew is told data is on its way instead of being told
 // how old what they are looking at is.
 //
-// The ceiling has to tell "dead" apart from "slow", and this payload is not small: a real `getData`
-// response for one machine measures 463 KB (`data.json` in this worktree), and GAS itself burns
+// The ceiling has to tell "dead" apart from "slow", and this payload is not small: the largest
+// capture in this worktree (`data.json`, a PARTIAL one-machine response — it carries 3 of the 12
+// collections) measures 463 KB, so a full one is larger, and GAS itself burns
 // several seconds before the first byte. At 100 kbps — ordinary for a link underground — that is
 // roughly 45 s of honest transfer, so a 30 s ceiling would turn a working link into a deterministic
 // failure the crew cannot raise, pinning them to the previous shift's snapshot. 90 s still bounds
@@ -118,10 +119,10 @@ export function assertSyncResponse(mutation, result) {
 
 // The write ceiling, argued the same way as the read one above and from the same link speed.
 //
-// Every field of an envelope except `imageBase64` is bounded by GAS's own 50 000-character cell
-// limit (`syncSizeRefusal_`), so an ordinary ring or shift report is a few tens of kilobytes — about
-// four seconds at 100 kbps. `imageBase64` is the exception, and it is exempt precisely because it
-// does not go in a cell: `handleFileUpload` reads the file whole with `readAsDataURL` and never
+// Every field that reaches a CELL is bounded by GAS's own 50 000-character limit
+// (`syncSizeRefusal_`), so an ordinary ring or shift report is a few tens of kilobytes — about four
+// seconds at 100 kbps. `imageBase64` is the exception on the entities that do not store their
+// payload as one JSON blob, and it is exempt precisely because it does not go in a cell: `handleFileUpload` reads the file whole with `readAsDataURL` and never
 // resizes, so a phone photo rides inside the envelope at some megabytes. The 15 s that used to be
 // here — unnamed, and a sixth of the read's — could carry about 190 KB, so on a tunnel link a save
 // with a photo timed out every time, was classified retryable, and sat at the head of its ring's

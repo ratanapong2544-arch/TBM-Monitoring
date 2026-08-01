@@ -873,6 +873,39 @@ test("two sheet rows carrying one id are both kept, with their own values", asyn
   expect(relaunched.map(row => row.length)).toEqual(["1.40", "2.40"]);
 });
 
+test("a queued edit of one of two rows sharing an id does not overwrite the other", async () => {
+  // The CACHE learned to keep both rows apart — the second gets a positional key — but the MERGE
+  // still looked its local copy up by the payload id, so both rows got handed the same queued copy:
+  // the second row's own values vanished from the list and from the store, and the snapshot named
+  // one key twice. That is verbatim the failure the per-record key was introduced to close, reached
+  // from the other direction. A local copy answers for ONE row, exactly as the id-less branch has
+  // always claimed its match.
+  const sheet = [{ id: "s1", ringNo: "P643", length: "1.40" }, { id: "s1", ringNo: "P643", length: "2.40" }];
+  const repository = createRepository({ openDb: openOfflineDb, fetchServerSnapshot: async () => ({ segments: sheet }) });
+  await repository.refresh("TBM1");
+  await repository.mutate({ entityType: "segment", operation: "update", machine: "TBM1", recordId: "s1", baseVersion: 0, payload: { id: "s1", ringNo: "P643", installType: "Permanent", length: "9.99" } });
+
+  const refreshed = (await repository.refresh("TBM1")).data.segments;
+  const relaunched = (await repository.load("TBM1")).data.segments;
+
+  expect(refreshed.map(row => row.length)).toEqual(["9.99", "2.40"]);
+  expect(relaunched.map(row => row.length)).toEqual(["9.99", "2.40"]);
+});
+
+test("deleting a record that two sheet rows claim takes one row off screen, not both", async () => {
+  // A delete names one record, and the sheet cannot tell its two rows apart any better than this
+  // client can — the server will match whichever it finds first. Hiding both takes a row off every
+  // screen that nobody asked to delete, which is what the "it hides ONE row, not the ring" rule
+  // exists to prevent; keying the rule on the payload id let the duplicate slip through it.
+  const sheet = [{ id: "s1", ringNo: "P643", length: "1.40" }, { id: "s1", ringNo: "P643", length: "2.40" }];
+  const repository = createRepository({ openDb: openOfflineDb, fetchServerSnapshot: async () => ({ segments: sheet }) });
+  await repository.refresh("TBM1");
+  await repository.mutate({ entityType: "segment", operation: "delete", machine: "TBM1", recordId: "s1", baseVersion: 1, payload: { id: "s1", ringNo: "P643", installType: "Permanent" } });
+
+  expect((await repository.refresh("TBM1")).data.segments.map(row => row.length)).toEqual(["2.40"]);
+  expect((await repository.load("TBM1")).data.segments.map(row => row.length)).toEqual(["2.40"]);
+});
+
 test("a phone whose clock has never been set keeps seeing new rows, launch after launch", async () => {
   // The first launch was covered; the SECOND is where the sentinel bites. `lastCompletedRequest` is
   // per repository instance, so every launch starts with an empty map — and with `Date.parse(0)` as

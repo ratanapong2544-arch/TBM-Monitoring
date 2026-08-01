@@ -190,7 +190,7 @@ test("posts the complete mutation envelope and returns the typed sync response",
   }));
 });
 
-test("cleans up the 15 second timeout after a sync post settles", async () => {
+test("clears the post deadline once the request settles, either way", async () => {
   // named for a success but mocked as a validation_error, so the path it claimed was never the path
   // it ran; both settle the request, and both must clear the timer
   jest.useFakeTimers();
@@ -235,9 +235,10 @@ test("a write is given the time the payload it carries needs", async () => {
 });
 
 test("the claim lease outlives the write deadline", async () => {
-  // A lease shorter than the deadline lets a second runner claim and re-post a mutation still in
-  // flight. Nothing is written twice — GAS takes a script lock and replays the stored response for a
-  // repeated requestId — but the second post spends the crew's link again on the payload that was
-  // already too slow for it. Raising one of these two without the other is the mistake this catches.
+  // A lease shorter than the deadline lets a second runner claim and re-post a mutation whose first
+  // post is still in flight. Nothing is written twice — GAS takes a script lock and replays the
+  // stored response for a repeated requestId — but the second post spends the crew's link again on
+  // the payload that was already too slow for it. The derivation makes that impossible today, so
+  // what this catches is someone replacing it with a literal: it is a tripwire, not coverage.
   expect(SYNC_LEASE_MS).toBeGreaterThan(SYNC_POST_TIMEOUT_MS);
 });

@@ -283,6 +283,8 @@ export async function confirmMutation(db, requestId, response, { owner, confirme
   // the version it just wrote.
   const rebased = new Map();
   const confirmedVersion = response.version == null ? null : toSyncVersion(response.version);
+  // does not vary with the item being filtered; read once
+  const confirmedLeavesDeleted = leavesDeleted(mutation);
   if (confirmedVersion !== null) {
     mutations
       .filter(item => item.domainKey === mutation.domainKey && item.requestId !== requestId
@@ -299,7 +301,7 @@ export async function confirmMutation(db, requestId, response, { owner, confirme
         // `leavesDeleted`, not the operation: a delete the server refused and the crew resolved by
         // keeping the server's copy leaves the record ALIVE, and rebasing a queued create onto that
         // version would tell GAS it is a post-conflict successor for a row that still exists
-        && (item.operation !== "create" || leavesDeleted(mutation)))
+        && (item.operation !== "create" || confirmedLeavesDeleted))
       .forEach(item => {
         const patched = { ...item, baseVersion: confirmedVersion };
         rebased.set(item.requestId, patched);

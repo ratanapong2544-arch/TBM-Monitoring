@@ -20,6 +20,11 @@ const PHOTOS = [
 export function applyOptimisticRow(rows, operation, incoming) {
   const record = stripQueuedPhotos(incoming);
   if (!record) return rows;
+  // A record that names no row matches nothing: `row.id === undefined` is true of every row the
+  // sheet returned without an id, so an unnamed record would overwrite the first of them and a
+  // delete would remove it. Every type Task 8 queues sets `id` to its own record id; Task 9 adds
+  // types where that need not hold.
+  if (record.id == null || record.id === "") return operation === "delete" ? rows : [...rows, record];
   if (operation === "delete") return rows.filter(row => row.id !== record.id);
   return rows.some(row => row.id === record.id)
     ? rows.map(row => (row.id === record.id ? record : row))

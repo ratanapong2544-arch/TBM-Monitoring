@@ -337,6 +337,31 @@ test("a ring whose delete the server refused stays visible after an upgrade", as
   expect(loaded.segments.map(row => row.id)).toEqual(["seg_y"]);
 });
 
+test("deleting one row of a ring and correcting the other hides only the deleted one", async () => {
+  // The tombstone is per RECORD, not per ring. Asked per ring, the newest mutation on this ring is
+  // the CORRECTION, which is not a delete — so nothing is hidden and the deleted row is rebuilt onto
+  // every screen, while the first refresh still hides it. That is the migration and the merge
+  // disagreeing about one row, which is the whole class this rule exists to close, and it is the
+  // per-row/per-ring confusion that produced the defects in the two rounds before it.
+  // Two rows of one ring can both hold a queued copy in a v2 store only when the store carries both
+  // key shapes — a device that rolled back and forward. Any later migration starts from v3, where
+  // two queued rows on one ring is the ordinary case.
+  const ringKey = "segment:TBM1:P648:Permanent";
+  await seedAtVersion(2, {
+    mutations: [
+      { requestId: "m-del", status: "pending", operation: "delete", entityType: "segment", machine: "TBM1", recordId: "seg_a", domainKey: ringKey, payload: { id: "seg_a" }, queueSequence: 1 },
+      { requestId: "m-fix", status: "pending", operation: "update", entityType: "segment", machine: "TBM1", recordId: "seg_b", domainKey: ringKey, payload: { id: "seg_b" }, queueSequence: 2 },
+    ],
+    entities: [
+      { key: `entity:optimistic:${ringKey}`, entityType: "segment", machine: "TBM1", domainKey: ringKey, payload: { id: "seg_a" } },
+      { key: `entity:optimistic:${ringKey}:id:seg_b`, entityType: "segment", machine: "TBM1", domainKey: ringKey, payload: { id: "seg_b" } },
+    ],
+    snapshots: [{ scopeKey: "getData:TBM1", machine: "TBM1", entityKeys: { segments: [] } }],
+  });
+
+  expect((await readServerSnapshot(await openOfflineDb(), "TBM1")).segments.map(row => row.id)).toEqual(["seg_b"]);
+});
+
 test("a delete whose claim was abandoned mid-post leaves its row visible", async () => {
   // A SYNCING lease that has expired is not a write in flight, it is one whose device was killed
   // mid-post; `unresolvedByRecord` drops it and `deletePending` shows the row. The migration must

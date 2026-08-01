@@ -4,7 +4,7 @@ import { act } from "react-dom/test-utils";
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
-import PerformanceView from "./PerformanceView";
+import PerformanceView, { shiftMinutesByCategory } from "./PerformanceView";
 
 // Two rows can describe ONE shift, and this page counted each of them as a shift of its own.
 // Nothing dedupes shift reports — not the sheet, not the merge — and since Task 8 the queue can
@@ -167,6 +167,27 @@ test("a bar spanning two earlier ones is not charged for their shared minutes tw
 
   expect(container.textContent).toContain("Delay รวม" + "4.0 ชม.");
   expect(container.textContent).not.toContain("Delay รวม" + "3.5 ชม.");
+});
+
+test("the Pareto's causes add up to the category they came from", () => {
+  // The Pareto splits "Other 3" — the delay catch-all — by the cause the crew typed. It reaches the
+  // screen through a recharts chart, which renders nothing in jsdom, so charging a theme the whole
+  // bar instead of the minutes it actually claimed cannot be seen from the DOM: the themes would
+  // silently add up to more than the category the chart sits under. Two overlapping bars with
+  // different causes is exactly the shape two transcriptions of one shift produce.
+  const { catMin, other3Theme } = shiftMinutesByCategory([{
+    date: "2026-07-30", shift: "Night",
+    events: {
+      "Other 3": [
+        { start: "20:00", end: "21:30", label: "รอถังดิน" },        // รอวัสดุ/ถังดิน, 90 min
+        { start: "21:00", end: "22:00", label: "สับหลีกราง" },       // รางสับหลีก, 30 of its 60 already claimed
+      ],
+    },
+  }]);
+
+  expect(catMin["Other 3"]).toBe(120);
+  expect(Object.values(other3Theme).reduce((sum, minutes) => sum + minutes, 0)).toBe(catMin["Other 3"]);
+  expect(other3Theme).toEqual({ "รอวัสดุ/ถังดิน": 90, "รางสับหลีก": 30 });
 });
 
 test("two different shifts are still two shifts", () => {

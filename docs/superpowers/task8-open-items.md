@@ -85,12 +85,34 @@ The reasoning "two rows on one ring is a state the data logs dedupe for" is true
     19:00–20:00 and as 19:00–20:30. It printed **18.0 ชม. of delay inside a 12 hour shift, and
     150%** — worse than either of the states it replaced.
 
-  A shift cannot spend one minute twice on one activity, so overlap within a category is double
-  entry by definition; the rule follows from that and needs no guess about labels. It also collapses
-  overlap WITHIN a single row, which is the same rule and the same truth (the payload holds no such
-  bar today). **It does not bound the delay GROUP**: two different categories recorded over the same
-  minutes still add, so `Delay รวม` can exceed the shift. That is pre-existing, unchanged here, and
-  not in evidence in the payload. Nothing else dedupes shift reports.
+  The rule is a TIME BUDGET, not a claim about activities: the donut divides 720 minutes per shift,
+  and minutes counted twice under one category cannot fit in it. It is not "one category is one
+  activity" — **`Other 1`–`Other 4` are free-text catch-alls, and two genuinely concurrent
+  activities can share one**. The payload has exactly that, and it is the one place the rule
+  collapses minutes that are NOT a duplicate:
+
+  ```
+  2026-03-07 Day (shift_1772865588115, a SINGLE row) — Other 1: per-bar 319 → coverage 259
+     11:24-12:24  "พักกลางวัน"     ← the lunch break
+     10:00-12:24  "ขนดินขึ้น"       ← hauling muck, running through it
+  ```
+
+  60 minutes of Support, and the number after is still the right one: 319 minutes of one category
+  inside a 12-hour shift double-counts an hour the shift only had once. Recorded because it is the
+  exception to the sentence above, and because "measured against the payload" is the claim that
+  produced two bad fixes already.
+
+  **It does not bound the delay GROUP.** Two different categories over the same minutes still add,
+  so `Delay รวม` can exceed the shift — and does, unchanged by any of this:
+
+  ```
+  2026-03-15 Day    delay 916 min  = 15.3 h
+  2026-04-04 Night  delay 1020 min = 17.0 h
+  ```
+
+  It never prints above 100% because the finest filter is a DATE (`useGlobalFilter`'s `daily`), which
+  is two shifts, so the percentage divides by 1440 rather than 720. A per-shift view would surface it.
+  Nothing else dedupes shift reports.
   - **Latent:** a row with a blank `date` keys as `__<shift>`, so every undated row of one shift name
     collapses into one. The captured payload holds none, and `filterByState` does not filter them out
     in the default mode, so this is waiting on the first blank-dated sheet row.
@@ -167,6 +189,11 @@ from the truth, and the strip already says "แสดงข้อมูลที
   preserve existing form behaviour. Those edits cannot be expressed by the sync protocol (see 2), so
   the alternative was a field that always refuses — and for a Re-Grout row, which no view can create,
   the prescribed remedy of delete-and-re-record does not exist either.
+- **The shift report and the Performance page now count one shift's minutes differently.**
+  `ShiftReportView`'s `getTotalMinutes` sums per bar; `PerformanceView` counts the minutes occupied.
+  For 2026-03-07 Day the report prints 319 minutes of `Other 1` and the Performance page counts 259.
+  Both are in the 18-page print set. They answer different questions — what was written down, and
+  how long the machine stood still — but nothing on either page says so.
 - **The shift-report draft-id map survives**, against Step 4's delete list. Without it a remount
   mints a new id, which files a second report for one shift. Its three regression tests are in
   `shiftReportMidEdit.test.jsx`.
@@ -187,6 +214,11 @@ data-loss path is worse than no note.
   machineless scope has no scope key to be created under, which is a design question that task owns.
 - `App.jsx` — the photo strip on the snapshot mirror is invisible to the DOM: carrying the bytes and
   dropping them render identically. The rule is tested on the reducer in `displayRecord.test.js`.
+- `PerformanceView.jsx` — a delay bar wholly inside one already counted names no Pareto theme, since
+  it has no minutes to show on a chart of minutes; which of two overlapping bars keeps its cause is
+  array order. Not testable as a rule (attributing it zero minutes is the same thing), so it is
+  written down instead. The invariant that the themes DO add up to their category is testable — the
+  Pareto renders nothing in jsdom, so `shiftMinutesByCategory` is exported and tested directly.
 - `repository.js` — the null-snapshot fallback in `refresh` (`(overtaken && read) || write`) is
   unreachable now that a request is only recorded as newest once its write has landed. It stays
   because the alternative is handing the caller a null it then reads `fetchedAt` off.

@@ -48,6 +48,33 @@ function uncoveredMinutes(covered, [from, to]) {
   return Math.max(0, minutes);
 }
 
+// The minutes each category actually stood still for, and — for the "Other 3" catch-all — how those
+// same minutes split by cause. Exported because the split reaches the screen only through a recharts
+// Pareto, which renders nothing in a jsdom test: charging a theme the whole bar instead of the
+// uncovered part is invisible from the DOM, and a rule no test can see is one that can be reverted
+// green. A bar wholly inside one already counted contributes nothing and names no theme — it has no
+// minutes to show on a chart of minutes — and which of two identical bars survives is array order.
+export function shiftMinutesByCategory(rows) {
+  const catMin = {};
+  const other3Theme = {};
+  rows.forEach((r) => {
+    const events = r.events || {};
+    Object.keys(events).forEach((cat) => {
+      const arr = Array.isArray(events[cat]) ? events[cat] : [];
+      const covered = [];
+      arr.forEach((ev) => {
+        const mins = uncoveredMinutes(covered, shiftEventWindow(ev.start, ev.end, r.shift));
+        if (mins <= 0) return;
+        catMin[cat] = (catMin[cat] || 0) + mins;
+        // แตก "Other 3" (catch-all) ตาม label เพื่อให้ Pareto โชว์สาเหตุจริงแทนแท่งรวมเดียว
+        // counted from the same minutes, so the themes always add up to the category total
+        if (cat === "Other 3") { const th = classifyOther3(ev.label); other3Theme[th] = (other3Theme[th] || 0) + mins; }
+      });
+    });
+  });
+  return { catMin, other3Theme };
+}
+
 export default function PerformanceView({ segmentRecords = [], shiftReports = [], filterState = {} }) {
   const filteredSegments = useMemo(() => filterByState(segmentRecords, filterState), [segmentRecords, filterState]);
   const filteredShiftReports = useMemo(() => filterByState(shiftReports, filterState), [shiftReports, filterState]);
@@ -83,8 +110,6 @@ export default function PerformanceView({ segmentRecords = [], shiftReports = []
       }
     });
 
-    const catMin = {};
-    const other3Theme = {};
     let shifts = 0;
     let operating = 0;
     // ONE row per shift. Two rows can describe one (date, shift) and each was counted as a shift of
@@ -117,21 +142,10 @@ export default function PerformanceView({ segmentRecords = [], shiftReports = []
         if (arr.length) merged[cat] = (merged[cat] || []).concat(arr);
       });
     });
-    Array.from(shiftRows.values()).forEach((r) => {
+    const rows = Array.from(shiftRows.values());
+    const { catMin, other3Theme } = shiftMinutesByCategory(rows);
+    rows.forEach((r) => {
       shifts += 1;
-      const events = r.events || {};
-      Object.keys(events).forEach((cat) => {
-        const arr = Array.isArray(events[cat]) ? events[cat] : [];
-        const covered = [];
-        arr.forEach((ev) => {
-          const mins = uncoveredMinutes(covered, shiftEventWindow(ev.start, ev.end, r.shift));
-          if (mins <= 0) return;
-          catMin[cat] = (catMin[cat] || 0) + mins;
-          // แตก "Other 3" (catch-all) ตาม label เพื่อให้ Pareto โชว์สาเหตุจริงแทนแท่งรวมเดียว
-          // counted from the same minutes, so the themes always add up to the category total
-          if (cat === "Other 3") { const th = classifyOther3(ev.label); other3Theme[th] = (other3Theme[th] || 0) + mins; }
-        });
-      });
       operating += Math.min(SHIFT_MINUTES, shiftOp[`${formatDisplayDate(r.date)}__${r.shift}`] || 0);
     });
     const sumGroup = (keys) => keys.reduce((s, k) => s + (catMin[k] || 0), 0);

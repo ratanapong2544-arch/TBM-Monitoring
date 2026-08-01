@@ -260,6 +260,12 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, machine = 
     const machineAtSave = machine;
     const keyAtSave = selectorKey;
     const id = reportIdForSave();
+    // Sampled HERE, with every other `…AtSave`: `existingReportRef` tracks whichever report the form
+    // is showing NOW, and reading it after the await let a save composed for a report that exists
+    // decide against a form that had since moved to another date — `create` for a row already on the
+    // sheet, refused as a conflict that parks at the head of its domain. The deferred read below is
+    // `composedCreateFor`, which is a global fact about a key rather than a fact about this mount.
+    const existedAtCompose = Boolean(existingReportRef.current);
     // `id` came from `reportIdForSave()` two lines up, which reads this same ref in this same
     // synchronous block, so comparing them again could only ever be true — it read as a guard
     // against a stale id, which is the one thing it cannot be
@@ -281,8 +287,8 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, machine = 
       const previous = sendChains.get(keyAtSave);
       const send = (async () => {
         if (previous) await previous.catch(() => {});
-        // The row exists, or a create for it has already reached the queue.
-        const treatAsExisting = Boolean(existingReportRef.current) || composedCreateFor.has(keyAtSave);
+        // The row existed when this save was composed, or a create for it has since reached the queue.
+        const treatAsExisting = existedAtCompose || composedCreateFor.has(keyAtSave);
         await onMutate(buildMutationEnvelope({
           entityType: "shiftReport", operation: treatAsExisting ? "update" : "create",
           machine: machineAtSave, recordId: id, payload, syncMeta,

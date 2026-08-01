@@ -834,3 +834,42 @@ test("a create that fails while a second save is already in flight does not turn
     alerted.mockRestore();
   }
 });
+
+test("two stacked saves of an EXISTING report stay updates when the crew changes date mid-flight", async () => {
+  // The serialisation moved the "does this row exist" read to after the previous send settles — but
+  // `existingReportRef` tracks whichever report the FORM is showing, not the report this save is
+  // for. Change the date while two saves are stacked and the second one asked a form that had
+  // already moved on: `create` for a row that exists, refused as a conflict, parked at the head of
+  // that report's domain and unresolvable before Task 10, while `preserveLocal` re-injects the
+  // refused copy so the shift shows twice from then on. The fact belongs to the save, so it is
+  // sampled when the save is composed, like every other `…AtSave` beside it.
+  const existing = { id: "sr1", date: "2026-07-30", shift: "Day", tbmNo: "TBM1", manpower: { Engineer: "3" }, result: {}, events: {} };
+  const sent = [];
+  const releases = [];
+  onMutateOverride = envelope => { sent.push(envelope); return new Promise(resolve => releases.push(resolve)); };
+  const form = render(view({ shiftReports: [existing] }));
+
+  type(form.container, "Engineer", "9");
+  await act(async () => {
+    [...form.container.querySelectorAll("button")].find(b => /Save to Cloud/.test(b.textContent))
+      .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  });
+  // a time bar stacks behind it, then the crew moves the form to a date with no report at all
+  act(() => { form.container.querySelector('[title="เพิ่มเวลาการทำงาน"]').dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+  const times = form.container.querySelectorAll('input[type="time"]');
+  [["08:00", 0], ["09:00", 1]].forEach(([value, index]) => act(() => {
+    Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set.call(times[index], value);
+    times[index].dispatchEvent(new Event("input", { bubbles: true }));
+  }));
+  await act(async () => {
+    [...form.container.querySelectorAll("button")].find(b => /เพิ่มช่วงเวลาลงกราฟ/.test(b.textContent))
+      .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  });
+  type(form.container, "date", "2026-08-05");
+  await act(async () => { releases[0]({}); });
+  await act(async () => { if (releases[1]) releases[1]({}); });
+
+  expect(sent.map(envelope => envelope.operation)).toEqual(["update", "update"]);
+  expect(sent.every(envelope => envelope.recordId === "sr1")).toBe(true);
+  form.unmount();
+});

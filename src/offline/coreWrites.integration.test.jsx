@@ -647,3 +647,27 @@ test("the data log refuses an edit or a delete whose record id names more than o
     alerted.mockRestore();
   }
 });
+
+test("closing a grout record disarms its delete before the next one is opened", async () => {
+  // The X reset the selection and the edit mode and left `showDeleteConfirm` set, so opening a
+  // DIFFERENT record showed the red confirm bar already up, naming the new ring. One more tap and
+  // the crew deletes a record they only just opened. `SegmentDashboardView` resets all three.
+  const grouts = [
+    { id: "g1", ringNo: "P41", partA: "12.5", partB: "6.25", pressure: "3.2", total: 18.75, groutPass: "1st Pass", date: "2026-07-30", positions: {} },
+    { id: "g2", ringNo: "P42", partA: "12.5", partB: "6.25", pressure: "3.2", total: 18.75, groutPass: "1st Pass", date: "2026-07-30", positions: {} },
+  ];
+  const view = render(
+    <GroutDashboardView groutRecords={grouts} secondaryGroutRecords={[]} segmentRecords={[]} machine="TBM1"
+      syncMeta={{}} onMutate={onMutate} />
+  );
+  await click(view.container.querySelectorAll("tbody tr")[0]);
+  await click(byTitle(view.container, "Delete"));
+  expect(button(view.container, /^ลบ$/)).toBeTruthy();
+
+  await click(view.container.querySelector("button.ml-2")); // the X in the record header, which has no title
+  await click(view.container.querySelectorAll("tbody tr")[1]);
+
+  expect(button(view.container, /^ลบ$/)).toBeFalsy();
+  expect(onMutate).not.toHaveBeenCalled();
+  view.unmount();
+});

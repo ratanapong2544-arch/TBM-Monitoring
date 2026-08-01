@@ -387,6 +387,36 @@ unreachable Plan Settings modal and its helpers, unused recharts imports in both
 `formatCH`/`VOL_120`/`VOL_150`, the `setActiveTab` prop neither record view reads) is what a first
 pass would surface.
 
+## 3q. A grout row carrying BOTH position maps would lose its display on the next toggle
+
+Every consumer reads `primaryPositions` when anything in it is true and `positions` otherwise. A row
+holding a truthy value in BOTH maps therefore shows the primary one — and un-ticking its last lit
+position empties that map, so the display falls back to `positions` and lights up whatever is in
+there, including the wedge just cleared.
+
+Zero of the 338 grout rows in the captured payload are in that state (329 carry `primaryPositions`
+only, 9 carry it all-false, none carries a truthy `positions`, none carries both), and this view
+cannot create one: it writes `positions` only while `primaryPositions` has nothing true. The crew
+would see it immediately — the edit-mode ring uses the same fallback rule.
+
+Related and unchanged: on a **Re-Grout** row the toggle writes `secondaryPositions` while the ring
+displays the primary map, so clicking a lit wedge appears to do nothing. All three real Re-Grout rows
+are in that state, and it predates the queue.
+
+## 3r. A confirmed grout write strips the row's own fields from this device's copy
+
+`applySyncMutation_` echoes the stored record through `headerRecord_(rec, GROUT_HEADERS)`
+(`Code.js:1345`), and `GROUT_HEADERS` has no `primary*`/`secondary*` keys — while `confirmMutation`
+stores `payload: { ...response.record }`. Executed: `primaryPositions` and `primaryPartA` are present
+before the confirmation and `undefined` after it. **The sheet keeps them** (`updateRow` maps by the
+sheet's own headers, and the live Grouts sheet has those columns), so this is the device's copy only.
+
+Not measured: whether the stripped copy reaches the screen or survives an offline relaunch — that
+depends on how the merge treats a `SYNCED` entity. Predates Task 8 and is identical either side of
+it, but it is the same class as the defects this task spent several rounds closing, and it should be
+settled before the pilot: either widen the echo, or confirm the merge never surfaces the stripped
+copy.
+
 ## 4. Deliberate deviations from the plan
 
 - **"บันทึกในเครื่องแล้ว" is only in the shift report.** Step 3 asks for it on every core write. The
@@ -411,6 +441,18 @@ pass would surface.
 - **`__resetShiftSaveStateForTests` survived Step 4's delete list** along with the draft-id map it
   now exists to clear. The name still says "shift save state", which is the bookkeeping the step
   deleted; what it resets is the map the same step's exception keeps.
+- **The shift-report serialising chain survives too** — the THIRD item on Step 4's delete list, and
+  the least expected. Whether a save is a create is a question about a FACT (did an earlier create
+  reach the queue), and a fact can only be read after the send that would establish it has settled.
+  A synchronous flag set before the await and retracted on failure closes the sequential retry and
+  not the concurrent one: a save composed inside the window has already frozen `update`, and that
+  update names a row the server never had — a terminal `SYNC_RECORD_NOT_FOUND` at the head of the
+  report's domain, unresolvable before Task 10. So `sendChains` holds the last send per report key
+  and each save awaits it. **Cost, measured:** a send that never settles now strands every later
+  save of THAT report (three saves reached `onMutate` before, one does now) — bounded by whether
+  `repository.mutate` can hang at all, since `openDb` rejects on `blocked` and the post is
+  fire-and-forget. Other report keys are unaffected, and the order of stacked sends is deterministic
+  now where it was concurrent before.
 - **The shift-report "create already composed" set survives too** — the second of the three things
   Step 4's delete list names. The step's rationale for deleting it, that "the per-domain ordering
   makes a second send an update rather than an append", is wrong: ordering decides when a send goes,

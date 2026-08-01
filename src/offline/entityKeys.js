@@ -31,12 +31,17 @@ export function serverEntityKey(machine, field, domainKey, rowId) {
   return `entity:${machine}:${field}:${domainKey}:${rowId}`;
 }
 
-// Which ROW a key names. Both shapes end `:id:<recordId>`, so this is the only question anything
-// needs to ask about a key — the by-domain and has-an-id variants that used to live here went with
-// the per-operation special cases that needed them.
-export function entityKeyForRecord(key, recordId) {
+// Which ROW a key names — the record id AND the domain it belongs to. Both shapes end
+// `:<domainKey>:id:<recordId>`, so one suffix test covers them.
+//
+// The domain is not decoration. A record id is not unique on a live sheet: the captured production
+// payload carries seven ids spread over sixteen rows, every pair on a DIFFERENT ring, and matching
+// the `:id:` suffix alone made a queued edit of one ring claim the first row carrying that id
+// whatever its ring — so the edit appeared on a ring nobody touched, and the ring the crew deleted
+// stayed while another went.
+export function entityKeyForRecord(key, domainKey, recordId) {
   // an absent id names no row, so it must not name every row: `endsWith(":id:")` would be true of a
   // key whose id is empty, and callers pass a record id straight through
   if (recordId == null || recordId === "") return false;
-  return String(key).endsWith(`:id:${recordId}`);
+  return String(key).endsWith(`:${domainKey}:id:${recordId}`);
 }

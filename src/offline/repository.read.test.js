@@ -906,6 +906,43 @@ test("deleting a record that two sheet rows claim takes one row off screen, not 
   expect((await repository.load("TBM1")).data.segments.map(row => row.length)).toEqual(["2.40"]);
 });
 
+test("editing one ring does not rewrite every other ring that shares its record id", async () => {
+  // The captured production payload carries SEVEN record ids spread over sixteen rows, and not one
+  // pair is on the same ring — `seg_1a2b3c4d5e6f` alone sits on P37, P41, P71 and P81. A key was
+  // matched by its `:id:<recordId>` suffix alone, which every one of those rows ends with, so a
+  // queued edit of one ring hijacked the first row carrying the id whatever its ring: the edited
+  // value appeared on a ring nobody touched and the edit itself was on no screen. `dedupSegmentIds`
+  // repaired the sheet once by hand; nothing stops it happening again — `appendRow` enforces no
+  // uniqueness, and open item 1 has GAS appending a duplicate id itself.
+  const sheet = [
+    { id: "s1", ringNo: "P37", installType: "Temporary", length: "1.37" },
+    { id: "s1", ringNo: "P71", installType: "Permanent", length: "1.71" },
+  ];
+  const repository = createRepository({ openDb: openOfflineDb, fetchServerSnapshot: async () => ({ segments: sheet }) });
+  await repository.refresh("TBM1");
+  await repository.mutate({ entityType: "segment", operation: "update", machine: "TBM1", recordId: "s1", baseVersion: 0, payload: { id: "s1", ringNo: "P71", installType: "Permanent", length: "9.99" } });
+
+  const shown = rows => rows.map(row => `${row.ringNo}/${row.length}`);
+  expect(shown((await repository.load("TBM1")).data.segments)).toEqual(["P37/1.37", "P71/9.99"]);
+  expect(shown((await repository.refresh("TBM1")).data.segments)).toEqual(["P37/1.37", "P71/9.99"]);
+  expect(shown((await repository.load("TBM1")).data.segments)).toEqual(["P37/1.37", "P71/9.99"]);
+});
+
+test("deleting one ring does not delete every other ring that shares its record id", async () => {
+  // The inversion of the same fault: the ring the crew deleted stayed and an unrelated one went.
+  const sheet = [
+    { id: "s1", ringNo: "P37", installType: "Temporary", length: "1.37" },
+    { id: "s1", ringNo: "P71", installType: "Permanent", length: "1.71" },
+  ];
+  const repository = createRepository({ openDb: openOfflineDb, fetchServerSnapshot: async () => ({ segments: sheet }) });
+  await repository.refresh("TBM1");
+  await repository.mutate({ entityType: "segment", operation: "delete", machine: "TBM1", recordId: "s1", baseVersion: 1, payload: { id: "s1", ringNo: "P71", installType: "Permanent" } });
+
+  const shown = rows => rows.map(row => `${row.ringNo}/${row.length}`);
+  expect(shown((await repository.load("TBM1")).data.segments)).toEqual(["P37/1.37"]);
+  expect(shown((await repository.refresh("TBM1")).data.segments)).toEqual(["P37/1.37"]);
+});
+
 test("a phone whose clock has never been set keeps seeing new rows, launch after launch", async () => {
   // The first launch was covered; the SECOND is where the sentinel bites. `lastCompletedRequest` is
   // per repository instance, so every launch starts with an empty map — and with `Date.parse(0)` as

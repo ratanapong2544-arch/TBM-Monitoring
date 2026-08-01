@@ -52,7 +52,7 @@ function patchSnapshotKeys(snapshots, entities, stored, mutation) {
   // an optimistic key now does too. So "mine" is a single question with a single answer, and both
   // branches below can ask it without any per-operation special case — which is what the last three
   // defects in this function all came from.
-  const mine = key => entityKeyForRecord(key, mutation.recordId);
+  const mine = key => entityKeyForRecord(key, mutation.domainKey, mutation.recordId);
   scoped.forEach(snapshot => {
     const keys = (snapshot.entityKeys && snapshot.entityKeys[field]) || [];
     let next;

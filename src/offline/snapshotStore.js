@@ -45,9 +45,13 @@ function recordFor(machine, field, entityType, payload, index, seenIds) {
   // disagreeing about which. The second occurrence falls back to its position, so the cache holds
   // what the sheet holds; only the first can be matched to a queued write, which is the best any
   // client can do when the sheet itself cannot tell them apart.
+  // A row is demoted to a positional key only when it collides on its RECORD — the same id on the
+  // same domain. Keyed by the bare id, every later row sharing an id with an earlier one lost its
+  // `:id:` key, and the production sheet spreads seven ids over sixteen rows on sixteen rings.
   const id = payload.id != null && payload.id !== "" ? String(payload.id) : null;
-  const duplicate = id !== null && seenIds && seenIds.has(id);
-  if (id !== null && seenIds) seenIds.add(id);
+  const slot = id === null ? null : recordSlot(domainKey, id);
+  const duplicate = slot !== null && seenIds && seenIds.has(slot);
+  if (slot !== null && seenIds) seenIds.add(slot);
   const rowId = id !== null && !duplicate ? `id:${id}` : `row:${index}`;
   return { key: serverEntityKey(machine, field, domainKey, rowId), machine, entityType, domainKey, payload };
 }

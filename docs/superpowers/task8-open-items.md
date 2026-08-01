@@ -52,6 +52,37 @@ and shift select which report is loaded rather than rename it, and the segment r
 `identity` so the envelope refuses first. But the client guard is the only defence, and it is opt-in
 per call site. Task 9 adds call sites to the same API.
 
+## 2a. A record id is not unique on the sheet, and the server resolves by it alone
+
+**Reproduced against the captured payload and read in the deployed source.**
+
+`data.json` carries SEVEN record ids spread over sixteen segment rows, and every pair is on a
+DIFFERENT ring — `seg_1a2b3c4d5e6f` alone sits on P37, P41, P71 and P81. On the client this broke
+three separate rules (all closed now: `entityKeyForRecord` takes the domain key, `applyOptimisticRow`
+matches on it, and `recordFor` demotes a row only on a true record collision). **On the server it is
+still true.**
+
+`readRowById_` (`Code.js:874`), `updateRow` (`Code.js:1371`) and the delete path all scan for the
+first row whose `id` matches and stop there. So an update of P71 posts `recordId:
+seg_1a2b3c4d5e6f`, GAS writes P37's row, and `SyncMeta` advances `segment:TBM1:P71:Permanent`. The
+crew's correction lands on a ring they were not looking at, and the version the client then holds
+describes a row the server never touched.
+
+This is NOT item 2 — that is a client sending a CHANGED ring on a row whose identity is otherwise
+sound. This is two rows the sheet itself cannot tell apart.
+
+`dedupSegmentIds()` (`Code.js:1396`) repaired TBM1's sheet by hand on 2026-07-18 and is presumably
+why prod is clean today. It is not an invariant:
+
+- it is manual — nothing calls it, it is run from the Apps Script editor;
+- it is segments-only — there is no equivalent for Grouts, SecondaryGrouts or ShiftReports;
+- `dedupSegmentIdsTBM2` is marked "เผื่อ" and may never have run;
+- `appendRow` (`Code.js:1366`) enforces no uniqueness at write time;
+- item 1 above has GAS appending a duplicate id itself.
+
+A repaired sheet is a moment, not a guarantee. The client no longer relies on one; the server still
+does. Belongs with item 1 on the deployment that opens the gate.
+
 ## 3. Two rows of one ring cannot both hold a queued edit — CLOSED
 
 The optimistic entity was keyed per DOMAIN, so two records sharing a ring shared one local copy: the

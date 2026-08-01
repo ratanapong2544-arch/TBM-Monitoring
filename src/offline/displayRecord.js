@@ -1,3 +1,4 @@
+import { makeDomainKey } from "./domainKey";
 // What goes on screen is not what goes on the wire.
 //
 // A photo travels as base64 inside the mutation payload, and the queue needs it there until GAS
@@ -17,17 +18,29 @@ const PHOTOS = [
 // rule, because every caller needs both and because the alternative — inlining it in App — left the
 // rule with nothing that could test it: the difference between carrying the photo bytes and not is
 // invisible in the DOM, so only a direct test of the reducer can see it at all.
+// Which row of the list a queued write is about. The id alone is not it: the production sheet
+// carries one id across four rings, so matching on `row.id` turned three rings the crew never
+// touched into copies of the one they saved, the moment they pressed it — and a delete removed all
+// four. A record built by the queue carries the domain key it was filed under, and for a ring that
+// key IS the identity; a record without one (a caller outside the queue) falls back to the id.
+function namesRow(record, entityType, row) {
+  if (row.id !== record.id) return false;
+  if (!record.domainKey) return true;
+  return makeDomainKey({ entityType, machine: record.machine, recordId: row.id, payload: row }) === record.domainKey;
+}
+
 export function applyOptimisticRow(rows, operation, incoming) {
   const record = stripQueuedPhotos(incoming);
   if (!record) return rows;
+  const entityType = record.entityType;
   // A record that names no row matches nothing: `row.id === undefined` is true of every row the
   // sheet returned without an id, so an unnamed record would overwrite the first of them and a
   // delete would remove it. Every type Task 8 queues sets `id` to its own record id; Task 9 adds
   // types where that need not hold.
   if (record.id == null || record.id === "") return operation === "delete" ? rows : [...rows, record];
-  if (operation === "delete") return rows.filter(row => row.id !== record.id);
-  return rows.some(row => row.id === record.id)
-    ? rows.map(row => (row.id === record.id ? record : row))
+  if (operation === "delete") return rows.filter(row => !namesRow(record, entityType, row));
+  return rows.some(row => namesRow(record, entityType, row))
+    ? rows.map(row => (namesRow(record, entityType, row) ? record : row))
     : [...rows, record];
 }
 

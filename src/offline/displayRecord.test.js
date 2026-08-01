@@ -73,3 +73,21 @@ test("a queued record that names no row is added, never painted over an id-less 
   expect(applyOptimisticRow(rows, "update", { id: "", ringNo: "P645" })).toEqual([...rows, { id: "", ringNo: "P645" }]);
   expect(applyOptimisticRow(rows, "delete", { ringNo: "P641" })).toEqual(rows);
 });
+
+test("a queued write lands on the ring it names, not on every ring sharing its id", () => {
+  // The list the crew is looking at matched on `row.id` alone, and the production sheet carries one
+  // id across four rings. Pressing save on P71 turned P37, P41 and P81 into copies of P71 on the
+  // spot; deleting P71 removed all four. The record carries its own domain key — the ring IS the
+  // identity for a segment — so match on that.
+  const rows = [
+    { id: "s1", ringNo: "P37", installType: "Temporary", length: "1.37" },
+    { id: "s1", ringNo: "P41", installType: "Permanent", length: "1.41" },
+    { id: "s1", ringNo: "P71", installType: "Permanent", length: "1.71" },
+  ];
+  const edit = { id: "s1", ringNo: "P71", installType: "Permanent", length: "9.99", entityType: "segment", machine: "TBM1", domainKey: "segment:TBM1:P71:Permanent" };
+
+  expect(applyOptimisticRow(rows, "update", edit).map(row => `${row.ringNo}/${row.length}`))
+    .toEqual(["P37/1.37", "P41/1.41", "P71/9.99"]);
+  expect(applyOptimisticRow(rows, "delete", edit).map(row => `${row.ringNo}/${row.length}`))
+    .toEqual(["P37/1.37", "P41/1.41"]);
+});

@@ -53,3 +53,11 @@ export function currentMonthBKK() {
   const nowTH = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Bangkok" }));
   return `${nowTH.getFullYear()}-${String(nowTH.getMonth() + 1).padStart(2, "0")}`;
 }
+
+// Pure, and shared by both views that show a plan config, for the same reason `distancePlanFor` and
+// `routeConfigFor` are: the snapshot path and the view path must not drift.
+export const DEFAULT_PLAN_CONFIG = { basePlanAcc: 0, baseActualAcc: 0, ranges: [] };
+
+export function planConfigFor(config) {
+  return { ...DEFAULT_PLAN_CONFIG, ...(config || {}), ranges: (config && config.ranges) || [] };
+}

@@ -1,8 +1,5 @@
 import "fake-indexeddb/auto";
 if (!global.structuredClone) global.structuredClone = value => JSON.parse(JSON.stringify(value));
-// jsdom has no TextDecoder/TextEncoder, and the Executive Dashboard lazily imports maplibre-gl,
-// which needs them the moment that page renders.
-if (!global.TextDecoder) { const util = require("util"); global.TextDecoder = util.TextDecoder; global.TextEncoder = util.TextEncoder; }
 
 import React from "react";
 import { createRoot } from "react-dom/client";
@@ -789,8 +786,12 @@ test("a distance plan arriving while its modal is open does not take the draft a
   await click(button(view.container, /เพิ่มช่วง/));
   type(view.container, 'input[type="month"]', "2026-09");
   view.rerender(<RouteScheduleView segmentRecords={[]} projectInfo={projectInfo} machine="TBM1"
-    distPlanConfig={{ ranges: [{ start: "2020-01", end: "2020-02", monthlyPlan: 1 }] }} onMutate={onMutate} syncMeta={{}} />);
+    distPlanConfig={{ ranges: [{ startMonth: "2020-01", endMonth: "2020-02", mode: "rings", ringsPerDay: 1, avgLength: 1.2, distancePerMonth: 0 }] }} onMutate={onMutate} syncMeta={{}} />);
 
+  // `startMonth`/`endMonth`, not `start`/`end`: with the plan-config field names the modal renders
+  // `value={undefined}`, React drops the inputs to uncontrolled and the typed DOM value survives
+  // whatever the guard does — which is how the first version of this test passed with the guard
+  // removed.
   expect([...view.container.querySelectorAll('input[type="month"]')].some(i => i.value === "2026-09")).toBe(true);
   expect([...view.container.querySelectorAll('input[type="month"]')].some(i => i.value === "2020-01")).toBe(false);
   view.unmount();

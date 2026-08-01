@@ -13,6 +13,7 @@ import {
 } from "recharts";
 import { fitAndPrint } from "../../utils/printFit";
 import { buildMutationEnvelope } from "../../offline/mutationEnvelope";
+import { planConfigFor } from "../../utils/planConfig";
 
 export default function SegmentAnalysisView({ segmentRecords = [], projectInfo, machine = "TBM1", filterState = {}, readOnly = false, onMutate, syncMeta, planConfig: planConfigProp }) {
   const filteredSegments = useMemo(() => filterByState(segmentRecords, filterState), [segmentRecords, filterState]);
@@ -91,7 +92,7 @@ export default function SegmentAnalysisView({ segmentRecords = [], projectInfo, 
   // The config comes down as a prop now. `tbmPlanConfig` was one localStorage key for both machines,
   // so App wrote whichever machine was active into it and switching back showed the other machine's
   // plan under these rings; the snapshot has stored it per machine all along.
-  const withDefaults = config => ({ ...defaultPlanConfig, ...(config || {}), ranges: (config && config.ranges) || [] });
+  const withDefaults = planConfigFor;
   const [planConfig, setPlanConfig] = useState(() => withDefaults(planConfigProp));
   // The first render is the cached snapshot and the server answer lands a moment later, so a
   // `useState` initialiser alone would leave the crew editing the stale plan. Not while the modal is
@@ -130,7 +131,7 @@ export default function SegmentAnalysisView({ segmentRecords = [], projectInfo, 
       setShowPlanModal(false);
     } catch (e) {
       console.error("Failed to save plan config", e);
-      alert("เกิดข้อผิดพลาดในการบันทึกข้อมูลไปยัง Server");
+      alert("บันทึกลงคิวไม่สำเร็จ — ข้อมูลนี้ยังไม่ถูกเก็บไว้ที่ใด: " + (e && e.message ? e.message : e));
     } finally {
       setIsSavingPlan(false);
     }

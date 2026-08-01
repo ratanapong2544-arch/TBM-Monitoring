@@ -12,6 +12,8 @@ import App from "../App";
 import { OfflineProvider } from "./OfflineProvider";
 import { emptyServerData } from "./normalizeServerData";
 import { makeDomainKey } from "./domainKey";
+import { optimisticEntity } from "./mutationStore";
+import { MUTATION_STATUS } from "./schema";
 import { createRepository } from "./repository";
 import { deleteOfflineDbForTests, openOfflineDb } from "./db";
 import { apiCall } from "../utils/api";
@@ -83,16 +85,15 @@ function makeRepository(overrides = {}) {
 // the real repository never sends, and `applyOptimisticRow` then falls back to matching on the
 // record id alone — the rule the cross-ring duplicates disproved. Both sides of a seam agreeing on
 // a shape neither production side uses is how three defects reached review on this branch.
+// Production's own function, not a copy of it. A copy drifted from it on the exact field a
+// review found a defect in — the payload's machine beating the envelope's — while the comment
+// above claimed parity, which is the shape this branch has now shipped four times.
 function optimisticShape(input) {
-  return {
-    ...input.payload,
-    recordId: input.recordId,
-    entityType: input.entityType,
-    machine: input.machine,
+  return optimisticEntity({
+    ...input,
     domainKey: makeDomainKey(input),
-    version: input.baseVersion,
-    syncStatus: "pending",
-  };
+    status: MUTATION_STATUS.PENDING,
+  }, MUTATION_STATUS.PENDING).payload;
 }
 
 beforeEach(() => {

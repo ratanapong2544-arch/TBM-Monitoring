@@ -604,3 +604,34 @@ test("a project-wide record keeps its own machine tag when it is queued", () => 
 
   expect(optimistic.payload.machine).toBe("TBM2");
 });
+
+test("a record raised on a device that has never fetched is still on screen after a relaunch", async () => {
+  // The state a fresh install at the shaft with no signal is in. App renders every entry surface
+  // then — its own comment says so — and `scopesFor` returned an empty scope list for the
+  // project-wide families, so the write reached the queue and no snapshot. On relaunch it was on no
+  // screen at all: not lost (the queue holds it), but the crew's only rational move is to enter it
+  // again, and that is a duplicate row on the sheet.
+  const offline = makeRepository({ fetchServerSnapshot: async () => { throw new Error("offline") } });
+
+  await offline.mutate(buildMutationEnvelope({
+    entityType: "issue", operation: "create", machine: "TBM2", recordId: "iss_1",
+    payload: { id: "iss_1", title: "รอ Platform", machine: "TBM2", severity: "delay", status: "open" }, syncMeta: {},
+  }));
+  await offline.mutate(buildMutationEnvelope({
+    entityType: "prepTask", operation: "create", machine: "TBM2", recordId: "pt_1",
+    payload: { id: "pt_1", name: "ตั้งเครน", machine: "TBM2" }, syncMeta: {},
+  }));
+  await offline.mutate(buildMutationEnvelope({
+    entityType: "dailyReport", operation: "create", machine: "TBM2", recordId: "dr_1",
+    payload: { id: "dr_1", machine: "TBM2", area: "IS2" }, syncMeta: {},
+  }));
+
+  const relaunched = makeRepository({ fetchServerSnapshot: async () => { throw new Error("offline") } });
+  const { data } = await relaunched.load("TBM2");
+
+  expect(data.issues.map(row => row.id)).toEqual(["iss_1"]);
+  expect(data.prepTasks.map(row => row.id)).toEqual(["pt_1"]);
+  expect(data.dailyReports.map(row => row.id)).toEqual(["dr_1"]);
+  // and the issue still says which machine it belongs to
+  expect(data.issues[0].machine).toBe("TBM2");
+});

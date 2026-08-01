@@ -33,7 +33,12 @@ function requestResult(request) {
 function scopesFor(stored, mutation) {
   const machineScoped = isMachineScopedEntityType(mutation.entityType);
   const scoped = machineScoped ? stored.filter(snapshot => snapshot.machine === mutation.machine) : stored;
-  if (scoped.length || !machineScoped || !mutation.machine) return scoped;
+  // The synthesised scope is not only for machine-scoped rows. A project-wide family — issue, daily
+  // report, prep task, the instrument families — written on a device that has never completed a
+  // getData had NO snapshot to be patched into, so the write reached the queue and no screen: on
+  // relaunch the crew sees nothing and enters it again, which is a duplicate row on the sheet. That
+  // is exactly the fresh-install-at-the-shaft state App is written to render into.
+  if (scoped.length || !mutation.machine) return scoped;
   return [{ scopeKey: snapshotScopeKey(mutation.machine), machine: mutation.machine, fetchedAt: null, entityKeys: {} }];
 }
 
@@ -135,12 +140,14 @@ export function optimisticEntity(mutation, status = mutation.status) {
       ...mutation.payload,
       recordId: mutation.recordId,
       entityType: mutation.entityType,
-      // The record's own tag wins when the envelope carries none. A project-wide family — `issue`
-      // most of all — is queued with no machine on purpose, because its key is GLOBAL; stamping that
-      // absence over the row's own `machine` column erased it, and `forMachine` reads a missing
-      // machine as TBM1. An issue tagged TBM2 or ทั้งโครงการ, edited underground, moved onto TBM1
-      // on the next relaunch and could be re-tagged there for good.
-      machine: mutation.machine ?? (mutation.payload && mutation.payload.machine),
+      // The ROW's own tag wins, and the envelope's is the fallback. `machine` on an envelope is a
+      // scope hint — which snapshot the write belongs in — while `machine` on the payload is the
+      // record's own column, and for a project-wide family they are different questions: an issue
+      // tagged TBM2 or ทั้งโครงการ is raised from whichever machine is on screen. Stamping the hint
+      // over the column erased it, `forMachine` reads a missing machine as TBM1, and an edit made
+      // from there wrote TBM1 into the sheet for good. Where a family has no column of its own —
+      // segment, grout, shift report — the payload has no `machine` and the hint is what lands.
+      machine: (mutation.payload && mutation.payload.machine) ?? mutation.machine,
       domainKey: mutation.domainKey,
       version: mutation.baseVersion,
       syncStatus: status,

@@ -133,9 +133,11 @@ const PrepGanttView = ({ machine = "TBM1", readOnly = false, onMutate, syncMeta,
       if (!failed.length) return;
       const reason = failed[0].reason;
       const detail = reason && reason.message ? reason.message : reason;
-      alert(failed.length === 1
+      // The count is about the BATCH, not the failures: "1 งานจาก 12" is a different fact from
+      // "the one write failed", and the crew is deciding whether to re-enter a plan.
+      alert(results.length === 1
         ? `บันทึกงานเตรียมลงคิวไม่สำเร็จ: ${detail}`
-        : `บันทึกงานเตรียมลงคิวไม่สำเร็จ ${failed.length} งาน: ${detail}`);
+        : `บันทึกงานเตรียมลงคิวไม่สำเร็จ ${failed.length} จาก ${results.length} งาน: ${detail}`);
     });
   };
   const submit = (form) => {

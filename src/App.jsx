@@ -126,7 +126,11 @@ const PrimaryGroutApp = () => {
   // left the row in localStorage; now the queue is the only durable copy, so a silent rejection is
   // a record that exists nowhere while the screen shows it saved. The record views already say this
   // out loud on the identical failure.
-  const queueRecord = (entityType, operation, record, machine) =>
+  // `machine` defaults to the one on screen. For a project-wide family that is a SCOPE HINT, not a
+  // tag — `makeDomainKey` ignores it and the key stays GLOBAL — and without it a write made before
+  // this device ever fetched has no snapshot to be patched into and is on no screen after a
+  // relaunch. The record's own `machine` column is untouched: `optimisticEntity` prefers it.
+  const queueRecord = (entityType, operation, record, machine = activeMachine) =>
     mutateBusinessRecord(businessEnvelope({ entityType, operation, record, machine, syncMeta }))
       .catch((error) => { alert("บันทึกลงคิวไม่สำเร็จ: " + (error && error.message ? error.message : error)); });
   const queueIssue = (record, operation) => queueRecord("issue", operation, record);

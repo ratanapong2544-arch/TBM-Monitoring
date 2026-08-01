@@ -7,6 +7,7 @@ import { getRingNumeric, getLogicalShiftDate, calculateSoilVolume } from "../../
 import { buildMutationEnvelope, refuseAmbiguousRecord } from "../../offline/mutationEnvelope";
 import { ResponsiveContainer, ComposedChart, CartesianGrid, XAxis, YAxis, Tooltip, Bar, Line } from "recharts";
 import { Badge } from "../../ui-ux-pro-max";
+import { planConfigFor } from "../../utils/planConfig";
 
 const SegmentDashboardView = ({ segmentRecords, machine = "TBM1", onMutate, syncMeta, planConfig: planConfigProp }) => {
   const [filterMode, setFilterMode] = useState("all");
@@ -25,7 +26,7 @@ const SegmentDashboardView = ({ segmentRecords, machine = "TBM1", onMutate, sync
   const defaultPlanConfig = { basePlanAcc: 0, baseActualAcc: 0, ranges: [] };
   // Same prop as `SegmentAnalysisView`: one localStorage key served both machines, so the plan on
   // screen belonged to whichever machine was active last.
-  const withDefaults = config => ({ ...defaultPlanConfig, ...(config || {}), ranges: (config && config.ranges) || [] });
+  const withDefaults = planConfigFor;
   const [planConfig, setPlanConfig] = useState(() => withDefaults(planConfigProp));
   useEffect(() => {
     if (!showPlanModal) setPlanConfig(withDefaults(planConfigProp));

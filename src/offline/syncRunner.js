@@ -16,9 +16,14 @@ function createOwner() {
 
 // How long a claim holds a mutation before another runner may take it. Derived from the POST
 // deadline, not chosen independently: a lease shorter than the deadline lets a second claim re-post
-// a mutation still in flight. GAS takes a script lock and replays the stored response for a repeated
-// requestId, so nothing is written twice — but the second post spends the crew's link again on a
-// payload that was already too slow for it, which is the one link they have. The margin is what a
+// a mutation whose FIRST post is still in flight. GAS takes a script lock and replays the stored
+// response for a repeated requestId, so nothing is written twice — but the second post spends the
+// crew's link again on a payload that was already too slow for it, which is the one link they have.
+//
+// It covers ONE post, not a drain pass. `claimDueMutations` stamps a single lease for the whole
+// batch at claim time and `drainOnce` posts them one at a time, so a pass with two slow posts
+// outlives its lease whatever the ratio — that has always been true, and the fencing on
+// `syncOwner` plus the ledger is what makes it harmless. The margin above the deadline is what a
 // timed-out attempt needs to finish failing and record itself.
 export const SYNC_LEASE_MS = SYNC_POST_TIMEOUT_MS + 30000;
 

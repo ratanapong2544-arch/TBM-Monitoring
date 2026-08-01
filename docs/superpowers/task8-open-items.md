@@ -199,6 +199,21 @@ would, and the lease has to stay above whatever the ceiling is. **The fix is res
 plan says to preserve. Before Task 8 the same save went through `apiCall` with no deadline at all,
 so the queue is what made the failure deterministic rather than merely slow.
 
+## 3g. A claim abandoned mid-post waits out the whole lease, and nothing ticks
+
+`SYNC_LEASE_MS` is 120 s, so a write whose device was killed while posting is reclaimable 121 s
+later rather than 31 s. That would be unremarkable if anything woke the runner, but its only
+triggers are `start()`, `online`, `focus`, `visibilitychange`, and the `runNow()` that follows each
+save — there is no periodic tick. A crew who reopens the app inside the window, then leaves it
+foregrounded and idle, has no event left to fire: the write sits `syncing` until they switch away
+and back or record the next ring. Measured: reopening at 60 s posts nothing even after
+`online` + `focus` + `runNow`; at 121 s it posts.
+
+Nothing is lost, and the strip counts it under `syncing` — "on its way", which it is, just not yet.
+The hole is pre-existing (the same shape existed at 30 s); the lease widened it 4×, in exchange for
+a write path that can deliver a 60 s upload at all. Task 10 owns the Sync Center and its manual
+"sync now", which closes it properly; a periodic tick would close it sooner.
+
 ## 4. Deliberate deviations from the plan
 
 - **"บันทึกในเครื่องแล้ว" is only in the shift report.** Step 3 asks for it on every core write. The

@@ -241,9 +241,9 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, machine = 
     const keyAtSave = selectorKey;
     const id = reportIdForSave();
     // `id` came from `reportIdForSave()` two lines up, which reads this same ref in this same
-  // synchronous block, so comparing them again could only ever be true — it read as a guard against
-  // a stale id, which is the one thing it cannot be
-  const existedAtSave = Boolean(existingReportRef.current);
+    // synchronous block, so comparing them again could only ever be true — it read as a guard
+    // against a stale id, which is the one thing it cannot be
+    const existedAtSave = Boolean(existingReportRef.current);
     // Objects, not JSON strings. The one-shot write stringified these because GAS wanted text, but
     // the queue serializes the payload itself on the way out (`serializeSyncRowValues_` encodes each
     // cell once), and the SAME payload is what the snapshot store overlays and the app then renders.

@@ -28,7 +28,6 @@ import { markMeasurementDone, markMeasurementNA, cancelMeasurement } from "./uti
 import { useFilterState } from "./hooks/useGlobalFilter";
 import { loadIssues, persistIssues, upsertIssue, setIssueStatus, removeIssue, forMachine } from "./utils/issues";
 import { loadDailyReports, persistDailyReports, upsertDailyReport, removeDailyReport, normalize } from "./utils/dailyReports";
-import { apiCall } from "./utils/api";
 import { getMachineConfig } from "./utils/machineConfig";
 import { savePrepTasks } from "./utils/prepGantt";
 import { isViewerMode, VIEWER_TABS } from "./utils/viewerMode";
@@ -44,6 +43,13 @@ import { buildMutationEnvelope } from "./offline/mutationEnvelope";
 // stable empty array so the machine-switch gate does not remount every consumer each render
 const EMPTY_ROWS = [];
 const EMPTY_SYNC_META = {};
+
+// Families that render from their own state rather than from App's mirror: each updates its list
+// before it queues, so there is nothing for `applyOptimisticRecord` to do and nothing wrong.
+const SELF_RENDERED_ENTITY_TYPES = new Set([
+  "issue", "dailyReport", "prepTask", "planConfig", "distPlanConfig", "routeConfig",
+  "instrument", "instReading", "instSchedule",
+]);
 
 const PrimaryGroutApp = () => {
   const [currentModule, setCurrentModule] = useState("segment");
@@ -84,19 +90,24 @@ const PrimaryGroutApp = () => {
     const next = upsertDailyReport(dailyReports, report);
     setDailyReports(next); persistDailyReports(next);
     const saved = report.id ? next.find((r) => r.id === report.id) : next.find((r) => !dailyReports.some((o) => o.id === r.id));
-    if (saved) apiCall("saveDailyReport", { ...saved, machine: saved.machine || activeMachine }).catch((e) => console.warn("DailyReport sync (save) failed — kept locally:", e.message));
+    if (saved) queueRecord("dailyReport", report.id ? "update" : "create", { ...saved, machine: saved.machine || activeMachine }, saved.machine || activeMachine);
   };
   const handleDeleteDailyReport = (id) => {
+    // the record, not `{ id }`: the domain key is derived from the payload's own machine, and a
+    // delete keyed differently from the record it removes queues against a domain nothing else touches
+    const removed = dailyReports.find((r) => r.id === id);
     const next = removeDailyReport(dailyReports, id); setDailyReports(next); persistDailyReports(next);
-    apiCall("deleteDailyReport", { id }).catch((e) => console.warn("DailyReport sync (delete) failed — kept locally:", e.message));
+    if (removed) queueRecord("dailyReport", "delete", removed, removed.machine || activeMachine);
   };
 
-  // `issue` is project-wide, so its key carries GLOBAL whatever machine the crew is looking at —
-  // `makeDomainKey` decides that, not the caller. The `.catch(console.warn)` this replaced meant a
-  // failed write was a line in a console nobody reads.
-  const queueIssue = (record, operation) => mutateBusinessRecord(buildMutationEnvelope({
-    entityType: "issue", operation, recordId: record.id, payload: record, syncMeta,
+  // Every business write App owns. `makeDomainKey` decides whether the key carries a machine or
+  // GLOBAL — the caller does not, which is why `machine` is passed through untouched and only the
+  // machine-keyed families supply one. The `.catch(console.warn)` these replaced meant a failed
+  // write was a line in a console nobody reads.
+  const queueRecord = (entityType, operation, record, machine) => mutateBusinessRecord(buildMutationEnvelope({
+    entityType, operation, machine, recordId: record.id, payload: record, syncMeta,
   }));
+  const queueIssue = (record, operation) => queueRecord("issue", operation, record);
 
   const handleSaveIssue = (form) => {
     const next = upsertIssue(issues, form);
@@ -120,7 +131,7 @@ const PrimaryGroutApp = () => {
     const row = reading.id ? reading : { ...reading, id: makeInstId("rd"), enteredBy: "manual" };
     const next = reading.id ? instReadings.map((r) => (r.id === row.id ? row : r)) : [row, ...instReadings];
     setInstReadings(next); persistCache(STORE.readings, next);
-    apiCall(reading.id ? "updateInstReading" : "addInstReading", row).catch((e) => console.warn("inst reading sync:", e.message));
+    queueRecord("instReading", reading.id ? "update" : "create", row);
   };
   // kind: "done" | "na" | "cancel" — default "done" เพื่อไม่ break v1 schedule view ที่เรียก
   // onMark({ ...s, isMeasured:true, measuredAt: today() }) แบบ 1 argument (toggle done เดิม)
@@ -131,14 +142,14 @@ const PrimaryGroutApp = () => {
       kind === "cancel" ? cancelMeasurement(instSchedules, sched.id) :
       markMeasurementDone(instSchedules, sched.id, measuredAtISO ?? sched.measuredAt);
     setInstSchedules(next); persistCache(STORE.schedules, next);
-    changed.forEach((row) => {
-      apiCall("saveInstSchedule", row).catch((e) => console.warn("inst schedule sync:", e.message));
-    });
+    // one mutation per schedule row, not one batch: marking a measurement can move several rows at
+    // once, and the queue orders per record — a row the server refuses must strand only itself
+    changed.forEach((row) => queueRecord("instSchedule", "update", row));
   };
   const handleUpdateInstrument = (ins) => {
     const next = instInstruments.map((i) => (i.id === ins.id ? ins : i));
     setInstInstruments(next); persistCache(STORE.instruments, next);
-    apiCall("updateInstrument", ins).catch((e) => console.warn("inst update sync:", e.message));
+    queueRecord("instrument", "update", ins);
   };
 
   // Offline-first hydration: the cached snapshot renders immediately, then the server refresh
@@ -317,7 +328,13 @@ const PrimaryGroutApp = () => {
     // queues correctly and then simply never appears, until a refresh — a save the crew watched
     // succeed and cannot see, which is the failure this whole task exists to prevent. Say so.
     if (!setter) {
-      if (process.env.NODE_ENV !== "production") console.warn(`applyOptimisticRecord has no setter for ${entityType}; the queued write will not show until the next refresh`);
+      // The families App does not mirror keep their own state and have already updated it by the
+      // time the write is queued — issues, daily reports, prep tasks, configs, instruments,
+      // readings, schedules. Anything else arriving here queues correctly and then never appears
+      // until a refresh, which is a save the crew watched succeed and cannot see.
+      if (!SELF_RENDERED_ENTITY_TYPES.has(entityType) && process.env.NODE_ENV !== "production") {
+        console.warn(`applyOptimisticRecord has no setter for ${entityType}; the queued write will not show until the next refresh`);
+      }
       return;
     }
     setter(prev => applyOptimisticRow(prev, operation, record));

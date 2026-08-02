@@ -144,12 +144,17 @@ export function useOfflineData(machine, deps = {}) {
   useEffect(() => {
     if (!repository || typeof repository.subscribe !== "function") return undefined;
     return repository.subscribe(event => {
-      // The ONE place that knows which events rewrote the stored row. `retried` is its own status
-      // rather than the successor's real `pending`, because an ordinary `mutate` is pending too and
-      // must NOT land here: App already mirrors those, and re-reading per queued write would
-      // re-render every list on every save.
+      // Which events rewrote the stored row. `retried` is its own status rather than the successor's
+      // real `pending`, because an ordinary `mutate` is pending too and must NOT land here: App
+      // already mirrors those, and re-reading per queued write would re-render every list on save.
+      //
+      // `rewroteRecord` is the STORE's own answer, set when a refusal or a conflict put a deleted
+      // record's key back. Spelling that rule a second time here — "a delete reaching a stuck
+      // status" — is how this branch has lost a fix in every round; the side that did the writing
+      // is the side that knows.
       const rewrote = event
-        && ((event.type === "conflict" && event.status === "resolved")
+        && (event.rewroteRecord
+          || (event.type === "conflict" && event.status === "resolved")
           || (event.type === "mutation" && (event.status === "discarded" || event.status === "retried")));
       if (!rewrote) return;
       // NOT `++requestRef.current`. Claiming a new generation invalidates whatever hydrate or

@@ -1220,3 +1220,128 @@ test("keeping the server's row stamps the history in the same transaction that c
 
   expect((await repository.getMutation(queued.requestId))).toMatchObject({ status: "synced", strategy: "server" });
 });
+
+test("re-arming a refused delete hides its record again", async () => {
+  // The refusal restores the record's key. Nothing took it back out when the crew pressed
+  // ลองส่งใหม่: `retryMutationAsSuccessor` was the one enqueue path that never patched the snapshot,
+  // so the merge hid the ring while the stored snapshot still named it — and the ring popped back
+  // onto the data log at the moment the crew pressed the button meaning delete it anyway.
+  const repository = makeRepository({
+    fetchServerSnapshot: async () => ({ segments: [{ id: "seg-P96", ringNo: "P96", installType: "Permanent" }] }),
+  });
+  await repository.refresh("TBM1");
+  const removal = await repository.mutate(segment("P96", { operation: "delete" }));
+  await repository.updateMutation(removal.requestId, { status: "permanent_error", nextAttemptAt: null, lastError: { code: "PERMANENT", message: "ลบไม่ได้" } });
+  expect((await repository.load("TBM1")).data.segments.map(row => row.ringNo)).toEqual(["P96"]);
+
+  await repository.retryMutation(removal.requestId, { payload: { id: "seg-P96", ringNo: "P96", installType: "Permanent" } });
+
+  expect((await repository.load("TBM1")).data.segments).toEqual([]);
+});
+
+test("keeping this device's row on a conflicted delete hides the record again", async () => {
+  // The same hole in the sibling enqueue path, reached from the conflict resolver instead.
+  const repository = makeRepository({
+    fetchServerSnapshot: async () => ({ segments: [{ id: "seg-P97", ringNo: "P97", installType: "Permanent" }] }),
+  });
+  await repository.refresh("TBM1");
+  const removal = await repository.mutate(segment("P97", { operation: "delete" }));
+  await repository.applyConflict(removal.requestId, { status: "conflict", currentVersion: 4, serverRecord: { id: "seg-P97", ringNo: "P97", installType: "Permanent" } });
+  expect((await repository.load("TBM1")).data.segments.map(row => row.ringNo)).toEqual(["P97"]);
+
+  await repository.resolveConflict(removal.requestId, { strategy: "local" });
+
+  expect((await repository.load("TBM1")).data.segments).toEqual([]);
+});
+
+test("a refusal that puts a record back says so on its event", async () => {
+  // The store half of "a refused delete stops hiding its record" was fixed without the screen half,
+  // and nothing re-reads on its own: the hook hydrates on mount and machine switch only. The store
+  // is the side that did the writing, so it is the side that says it happened.
+  const repository = makeRepository({
+    fetchServerSnapshot: async () => ({ segments: [{ id: "seg-P98", ringNo: "P98", installType: "Permanent" }] }),
+  });
+  await repository.refresh("TBM1");
+  const removal = await repository.mutate(segment("P98", { operation: "delete" }));
+  const events = [];
+  repository.subscribe(event => events.push(event));
+
+  await repository.updateMutation(removal.requestId, { status: "permanent_error", nextAttemptAt: null, lastError: { code: "PERMANENT", message: "ลบไม่ได้" } });
+
+  expect(events.some(event => event.rewroteRecord)).toBe(true);
+});
+
+test("a conflict that puts a record back says so on its event too", async () => {
+  const repository = makeRepository({
+    fetchServerSnapshot: async () => ({ segments: [{ id: "seg-P99", ringNo: "P99", installType: "Permanent" }] }),
+  });
+  await repository.refresh("TBM1");
+  const removal = await repository.mutate(segment("P99", { operation: "delete" }));
+  const events = [];
+  repository.subscribe(event => events.push(event));
+
+  await repository.applyConflict(removal.requestId, { status: "conflict", currentVersion: 4, serverRecord: { id: "seg-P99" } });
+
+  expect(events.some(event => event.rewroteRecord)).toBe(true);
+});
+
+test("an ordinary refusal does not claim it rewrote a record", async () => {
+  // Only a delete that stopped hiding one did. Every refused segment edit claiming it would
+  // re-render every list on every failed attempt.
+  const repository = makeRepository();
+  const queued = await repository.mutate(segment("P100"));
+  const events = [];
+  repository.subscribe(event => events.push(event));
+
+  await repository.updateMutation(queued.requestId, { status: "validation_error", nextAttemptAt: null, lastError: { code: "VALIDATION", message: "ring ไม่ถูกต้อง" } });
+
+  expect(events.some(event => event.rewroteRecord)).toBe(false);
+});
+
+test("a refusal does not restore a record another delete is still taking away", async () => {
+  // The restore has to read the write that speaks for the record — the newest still queued — which
+  // is how the confirmation and the merge both decide. Reading THIS mutation instead put the key
+  // back while a PENDING delete was still hiding the row.
+  const repository = makeRepository({
+    fetchServerSnapshot: async () => ({ segments: [{ id: "seg-P101", ringNo: "P101", installType: "Permanent" }] }),
+  });
+  await repository.refresh("TBM1");
+  const first = await repository.mutate(segment("P101", { operation: "delete" }));
+  await repository.updateMutation(first.requestId, { status: "permanent_error", nextAttemptAt: null, lastError: { code: "PERMANENT", message: "ลบไม่ได้" } });
+  const second = await repository.mutate(segment("P101", { operation: "delete" }));
+
+  await repository.updateMutation(first.requestId, { status: "validation_error", nextAttemptAt: null, lastError: { code: "VALIDATION", message: "ยังลบไม่ได้" } });
+
+  expect((await repository.load("TBM1")).data.segments).toEqual([]);
+  expect((await repository.getMutation(second.requestId)).status).toBe("pending");
+});
+
+test("a conflicted delete's resolver dialog says whether the record really comes back", async () => {
+  // The conflict row carries its own `restoresRow`, and it is the one the resolver renders.
+  const repository = makeRepository({
+    fetchServerSnapshot: async () => ({ segments: [{ id: "seg-P102", ringNo: "P102", installType: "Permanent" }] }),
+  });
+  await repository.refresh("TBM1");
+  const first = await repository.mutate(segment("P102", { operation: "delete" }));
+  await repository.applyConflict(first.requestId, { status: "conflict", currentVersion: 4, serverRecord: { id: "seg-P102" } });
+  await repository.mutate(segment("P102", { operation: "delete" }));
+
+  const view = await repository.getSyncCenter();
+  const conflict = view.conflicts.find(item => item.requestId === first.requestId);
+
+  expect(conflict.restoresRow).toBe(false);
+  expect(discardOutcomeText(conflict)).toContain("ยังมีคำสั่งลบอีกรายการรออยู่");
+});
+
+test("keeping the server's row closes the conflict in the same breath as the confirmation", async () => {
+  // Two transactions left a window where a kill produced a SYNCED mutation under an OPEN conflict:
+  // the panel offered all three buttons and two of them rejected with `Unknown open conflict`.
+  const repository = makeRepository();
+  const queued = await repository.mutate(segment("P103"));
+  await repository.applyConflict(queued.requestId, { status: "conflict", currentVersion: 2, serverRecord: { id: "seg-P103" } });
+
+  await repository.resolveConflict(queued.requestId, { strategy: "server" });
+
+  expect((await repository.getConflict(queued.requestId)).status).toBe("resolved");
+  expect((await repository.getSyncCenter()).conflicts).toEqual([]);
+});

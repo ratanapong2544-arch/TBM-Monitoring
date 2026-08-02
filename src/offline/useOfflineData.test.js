@@ -811,3 +811,28 @@ test("a manual refresh that finishes after a machine switch does not decide for 
   expect(load.mock.calls.length).toBe(readsBefore + 1);
   hook.unmount();
 });
+
+test("an event that says it rewrote a record makes the screen re-read", async () => {
+  // The store answers whether it put a deleted record's key back; the hook takes that answer rather
+  // than spelling the rule again. Without it, a refused delete corrected the store while the data
+  // log went on hiding a ring that is alive on the sheet — for the session, since nothing else
+  // re-reads.
+  let listener;
+  let rows = [];
+  const repository = {
+    load: async machine => ({ data: { machine, segments: rows }, source: "indexeddb", fetchedAt: "cache", stale: true }),
+    refresh: async machine => ({ data: { machine, segments: [] }, source: "server", fetchedAt: "server", stale: false }),
+    subscribe: handler => { listener = handler; return () => { listener = null; }; },
+    getSyncSummary: async () => ({ online: true, pending: 0, syncing: 0, conflicts: 0, errors: 0, blocked: 0, lastSyncedAt: null }),
+  };
+
+  const hook = renderHook(props => useOfflineData(props.machine, { repository }), { machine: "TBM1" });
+  await act(async () => {});
+  rows = [{ id: "s1", ringNo: "P1", machine: "TBM1" }];
+
+  await act(async () => { listener({ type: "mutation", requestId: "r1", status: "permanent_error", rewroteRecord: true }); });
+  await act(async () => {});
+
+  expect(hook.last().data.segments.map(row => row.ringNo)).toEqual(["P1"]);
+  hook.unmount();
+});

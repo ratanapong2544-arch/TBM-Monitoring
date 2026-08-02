@@ -160,7 +160,10 @@ export function createRepository(deps = {}) {
   async function applyConflict(requestId, response, options) {
     const conflict = await saveConflict(await openDb(), requestId, response, options);
     if (!conflict) return null;
-    emit({ type: "conflict", requestId, conflictId: conflict.conflictId });
+    // `rewroteRecord` when the store put a deleted record's key back: a conflicted delete stops
+    // hiding its row, and the screen has to hear that or the data log goes on hiding a ring that is
+    // alive on the sheet for the rest of the session — nothing else re-reads.
+    emit({ type: "conflict", requestId, conflictId: conflict.conflictId, rewroteRecord: Boolean(conflict.restoredRecord) });
     return conflict;
   }
 
@@ -180,9 +183,10 @@ export function createRepository(deps = {}) {
       await applySyncSuccess(
         conflict.requestId,
         { record: conflict.serverRecord, version: conflict.currentVersion, updatedAt: conflict.serverRecord && conflict.serverRecord.updatedAt },
-        { fromServerRecord: true, strategy },
+        // the conflict closes in the SAME transaction as the confirmation, so a kill cannot leave a
+        // synced write under an open conflict
+        { fromServerRecord: true, strategy, closeConflict: { conflictId, update: { resolvedAt: now(), strategy, before, after: conflict.serverRecord } } },
       );
-      await resolveStoredConflict(db, conflictId, { resolvedAt: now(), strategy, before, after: conflict.serverRecord });
       // Announced like the other two strategies. Without this the one branch that means KEEP THE
       // RING was the one branch nothing on screen heard about: `applySyncSuccess` emits a `sync`
       // event, which is not what a screen re-read listens for, so the ring came back in the store
@@ -384,7 +388,9 @@ export function createRepository(deps = {}) {
     // arrives here; conflicts were the only stuck writes the crew could see.
     async updateMutation(requestId, update, options) {
       const mutation = await updateMutation(await openDb(), requestId, update, options);
-      if (mutation) emit({ type: "mutation", requestId, status: mutation.status, domainKey: mutation.domainKey });
+      // same as `applyConflict`: a REFUSED delete stops hiding its row, and this is the only path
+      // that reaches `validation_error` and `permanent_error`
+      if (mutation) emit({ type: "mutation", requestId, status: mutation.status, domainKey: mutation.domainKey, rewroteRecord: Boolean(mutation.restoredRecord) });
       return mutation;
     },
     applySyncSuccess,

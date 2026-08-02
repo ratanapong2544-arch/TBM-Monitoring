@@ -132,3 +132,15 @@ test("a row that cannot move is counted once, not as travelling as well", async 
 
   await expect(getSyncCounts(db)).resolves.toMatchObject({ syncing: 0, blocked: 1 });
 });
+
+test("a delete whose claim has expired is not in flight, so it stops hiding its record", () => {
+  // The merge already refused to treat an abandoned claim as in flight, and its comment records that
+  // the lease test had been written twice before. A third caller asking without it would let a
+  // worker that died mid-post keep a record off every screen on this device.
+  const now = Date.parse("2026-08-02T10:00:00.000Z");
+  const claimed = { operation: "delete", status: "syncing", leaseExpiresAt: "2026-08-02T10:05:00.000Z" };
+  const abandoned = { operation: "delete", status: "syncing", leaseExpiresAt: "2026-08-02T09:55:00.000Z" };
+
+  expect(hidesRecord(claimed, now)).toBe(true);
+  expect(hidesRecord(abandoned, now)).toBe(false);
+});

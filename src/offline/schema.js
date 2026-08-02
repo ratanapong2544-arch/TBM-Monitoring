@@ -71,10 +71,17 @@ export function isRetryableErrorStatus(status) {
  * key comes back (`restoreDeletedKey`) — and they asked it differently: one with the status, one
  * without. Same rule, one spelling, because this branch's recurring defect is a rule that lives in
  * two places and gets moved in one.
+ *
+ * A SYNCING claim whose lease has expired is NOT in flight — it is abandoned, and whatever it was
+ * doing has to become visible again. `newestUnresolvedByRecord` says the same thing in the merge and
+ * its comment records that the lease test had already been written twice; putting it here keeps the
+ * third caller from being a third spelling.
  */
-export function hidesRecord(mutation) {
-  return Boolean(mutation) && mutation.operation === "delete"
-    && (mutation.status === MUTATION_STATUS.PENDING || mutation.status === MUTATION_STATUS.SYNCING);
+export function hidesRecord(mutation, now = Date.now()) {
+  if (!mutation || mutation.operation !== "delete") return false;
+  if (mutation.status === MUTATION_STATUS.PENDING) return true;
+  if (mutation.status !== MUTATION_STATUS.SYNCING) return false;
+  return !mutation.leaseExpiresAt || Date.parse(mutation.leaseExpiresAt) > now;
 }
 
 // Finished with: the queue will never touch it again, for any reason.

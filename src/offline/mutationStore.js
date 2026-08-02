@@ -310,17 +310,28 @@ export async function claimDueMutations(db, { owner, now, leaseMs }) {
  * how this branch has lost a fix in every review round.
  */
 async function restoreIfNoLongerHiding(transaction, mutation, next) {
-  if (mutation.operation !== "delete" || hidesRecord(next)) return;
+  if (mutation.operation !== "delete" || hidesRecord(next)) return false;
   const snapshots = transaction.objectStore(STORES.snapshots);
-  const stored = await requestResult(snapshots.getAll());
-  restoreDeletedKey(snapshots, stored, mutation, optimisticEntityKey(mutation.domainKey, mutation.recordId), next);
+  // `newestFollower`, not `next`: the row that speaks for the record is the newest write still
+  // queued for it, which is how `confirmMutation` and `discardMutation` both decide. A second delete
+  // behind this one means the record is still going, and restoring the key would leave the store
+  // contradicting both the merge and the confirmation the crew reads.
+  const [stored, all] = await Promise.all([
+    requestResult(snapshots.getAll()),
+    requestResult(transaction.objectStore(STORES.mutations).getAll()),
+  ]);
+  const standing = newestFollower(all, mutation) || next;
+  if (hidesRecord(standing)) return false;
+  restoreDeletedKey(snapshots, stored, mutation, optimisticEntityKey(mutation.domainKey, mutation.recordId), standing);
+  return true;
 }
 
 export async function updateMutation(db, requestId, update, { owner } = {}) {
-  // The snapshot stores are in scope for one case only — a delete that stops hiding its record, see
-  // below — but a transaction's stores are fixed when it opens, so they are named here and left
-  // unread for every other write.
-  const transaction = db.transaction([STORES.mutations, STORES.entities, STORES.snapshots], "readwrite");
+  // `snapshots` is in scope for one case only — a delete that stops hiding its record, see
+  // `restoreIfNoLongerHiding` — but a transaction's stores are fixed when it opens, so it is named
+  // here and left unread for every other write. Not `entities`: the restore writes snapshot key
+  // lists alone, and naming a store widens the lock on the hottest status-write path for nothing.
+  const transaction = db.transaction([STORES.mutations, STORES.snapshots], "readwrite");
   const store = transaction.objectStore(STORES.mutations);
   const mutation = await requestResult(store.get(requestId));
   if (!mutation) {
@@ -333,17 +344,27 @@ export async function updateMutation(db, requestId, update, { owner } = {}) {
   }
   const nextStatus = update.status || mutation.status;
   const next = { ...mutation, ...update, ...(nextStatus === MUTATION_STATUS.SYNCING ? {} : { syncOwner: null, leaseExpiresAt: null }) };
-  await restoreIfNoLongerHiding(transaction, mutation, next);
+  // `restoredRecord` rides back to the caller so the repository can say so on the event: the store
+  // half of "a refused delete stops hiding its record" was fixed without the screen half, and
+  // nothing re-reads on its own — `useOfflineData` hydrates on mount and machine switch only.
+  const restored = await restoreIfNoLongerHiding(transaction, mutation, next);
   store.put(next);
   await complete(transaction);
-  return next;
+  return restored ? { ...next, restoredRecord: true } : next;
 }
 
-export async function confirmMutation(db, requestId, response, { owner, confirmedAtLocal, resolvesToDeleted, strategy } = {}) {
+export async function confirmMutation(db, requestId, response, { owner, confirmedAtLocal, resolvesToDeleted, strategy, closeConflict } = {}) {
   // whether the record is gone afterwards. The caller decides, because a conflict resolved in the
   // server's favour replays this path with the server's record and the operation no longer says.
   const leavesDeleted = mutation => (resolvesToDeleted ? resolvesToDeleted(mutation, response) : mutation.operation === "delete");
-  const transaction = db.transaction([STORES.entities, STORES.mutations, STORES.snapshots], "readwrite");
+  // `conflicts` only when this confirmation IS a resolution. The two used to be separate
+  // transactions, and a kill between them left a SYNCED mutation under an OPEN conflict: the panel
+  // offered all three buttons and two of them rejected with `Unknown open conflict`, while ประวัติ
+  // listed the same write as superseded. One transaction, so that window does not exist.
+  const transaction = db.transaction(
+    closeConflict ? [STORES.entities, STORES.mutations, STORES.snapshots, STORES.conflicts] : [STORES.entities, STORES.mutations, STORES.snapshots],
+    "readwrite",
+  );
   const mutationStore = transaction.objectStore(STORES.mutations);
   const entityStore = transaction.objectStore(STORES.entities);
   const snapshotStoreHandle = transaction.objectStore(STORES.snapshots);
@@ -470,14 +491,19 @@ export async function confirmMutation(db, requestId, response, { owner, confirme
     // counter reading zero, until a successful getData.
     restoreDeletedKey(snapshotStoreHandle, snapshots, mutation, optimisticEntityKey(mutation.domainKey, mutation.recordId));
   }
+  if (closeConflict) {
+    const conflicts = transaction.objectStore(STORES.conflicts);
+    const stored = await requestResult(conflicts.get(closeConflict.conflictId));
+    if (stored) conflicts.put({ ...stored, ...closeConflict.update, status: "resolved" });
+  }
   await complete(transaction);
   return next;
 }
 
 export async function saveConflict(db, requestId, response, { owner } = {}) {
-  // entities and snapshots for `restoreIfNoLongerHiding`: a CONFLICTED delete has stopped hiding its
-  // record too, and conflict is the commoner refusal of the two.
-  const transaction = db.transaction([STORES.mutations, STORES.conflicts, STORES.entities, STORES.snapshots], "readwrite");
+  // `snapshots` for `restoreIfNoLongerHiding`: a CONFLICTED delete has stopped hiding its record
+  // too, and conflict is the commoner refusal of the two.
+  const transaction = db.transaction([STORES.mutations, STORES.conflicts, STORES.snapshots], "readwrite");
   const mutations = transaction.objectStore(STORES.mutations);
   const conflicts = transaction.objectStore(STORES.conflicts);
   const mutation = await requestResult(mutations.get(requestId));
@@ -502,11 +528,11 @@ export async function saveConflict(db, requestId, response, { owner } = {}) {
     createdAt: mutation.createdAtLocal,
   };
   const next = { ...mutation, status: MUTATION_STATUS.CONFLICT, lastError: null, syncOwner: null, leaseExpiresAt: null };
-  await restoreIfNoLongerHiding(transaction, mutation, next);
+  const restored = await restoreIfNoLongerHiding(transaction, mutation, next);
   mutations.put(next);
   conflicts.put(conflict);
   await complete(transaction);
-  return conflict;
+  return restored ? { ...conflict, restoredRecord: true } : conflict;
 }
 
 export async function resolveStoredConflict(db, conflictId, update) {
@@ -539,15 +565,17 @@ function carryPhotosFrom(original, payload) {
 }
 
 export async function resolveConflictAndEnqueue(db, { conflictId, originalRequestId, successor, resolvedAt, strategy, before, after }) {
-  const transaction = db.transaction([STORES.entities, STORES.mutations, STORES.conflicts, STORES.syncMeta], "readwrite");
+  const transaction = db.transaction([STORES.entities, STORES.mutations, STORES.conflicts, STORES.syncMeta, STORES.snapshots], "readwrite");
   const entities = transaction.objectStore(STORES.entities);
   const mutations = transaction.objectStore(STORES.mutations);
   const conflicts = transaction.objectStore(STORES.conflicts);
   const sequenceStore = transaction.objectStore(STORES.syncMeta);
-  const [conflict, original, sequence] = await Promise.all([
+  const snapshotStoreHandle = transaction.objectStore(STORES.snapshots);
+  const [conflict, original, sequence, snapshots] = await Promise.all([
     requestResult(conflicts.get(conflictId)),
     requestResult(mutations.get(originalRequestId)),
     requestResult(sequenceStore.get("mutationSequence")),
+    requestResult(snapshotStoreHandle.getAll()),
   ]);
   if (!conflict || conflict.status !== "open" || !original || original.requestId !== conflict.requestId || original.status !== MUTATION_STATUS.CONFLICT) {
     transaction.abort();
@@ -586,6 +614,12 @@ export async function resolveConflictAndEnqueue(db, { conflictId, originalReques
     resolutionRequestId: mutation.requestId,
   });
   sequenceStore.put({ key: "mutationSequence", value: mutation.queueSequence });
+  // The third enqueue path, patching the keys like the first. A successor is a queued write like any
+  // other, and for a DELETE that means taking the record's key back out: since the refusal restores
+  // it, "เก็บของเครื่องนี้ (ส่งใหม่)" on a conflicted delete otherwise put the ring back on the data
+  // log at the moment the crew pressed the button meaning delete it anyway — the merge hid it, the
+  // stored snapshot still named it, and the two disagreed until the next successful getData.
+  patchSnapshotKeys(snapshotStoreHandle, entities, snapshots, mutation);
   await complete(transaction);
   return { mutation, entity, original: resolvedOriginal };
 }
@@ -594,13 +628,15 @@ export async function resolveConflictAndEnqueue(db, { conflictId, originalReques
 // because GAS stores its response per requestId, so re-posting the original would replay the same
 // terminal error; the original is retained as an audit record pointing at its retry.
 export async function retryMutationAsSuccessor(db, { originalRequestId, successor, retriedAt }) {
-  const transaction = db.transaction([STORES.entities, STORES.mutations, STORES.syncMeta], "readwrite");
+  const transaction = db.transaction([STORES.entities, STORES.mutations, STORES.syncMeta, STORES.snapshots], "readwrite");
   const entities = transaction.objectStore(STORES.entities);
   const mutations = transaction.objectStore(STORES.mutations);
   const sequenceStore = transaction.objectStore(STORES.syncMeta);
-  const [original, sequence] = await Promise.all([
+  const snapshotStoreHandle = transaction.objectStore(STORES.snapshots);
+  const [original, sequence, snapshots] = await Promise.all([
     requestResult(mutations.get(originalRequestId)),
     requestResult(sequenceStore.get("mutationSequence")),
+    requestResult(snapshotStoreHandle.getAll()),
   ]);
   const retryable = original && isRetryableErrorStatus(original.status);
   if (!retryable) { transaction.abort(); throw new Error(`Mutation ${originalRequestId} is not a retryable error`); }
@@ -618,6 +654,8 @@ export async function retryMutationAsSuccessor(db, { originalRequestId, successo
   mutations.put(mutation);
   entities.put(entity);
   sequenceStore.put({ key: "mutationSequence", value: mutation.queueSequence });
+  // like the other two enqueue paths — see `resolveConflictAndEnqueue`
+  patchSnapshotKeys(snapshotStoreHandle, entities, snapshots, mutation);
   await complete(transaction);
   return { mutation, entity };
 }

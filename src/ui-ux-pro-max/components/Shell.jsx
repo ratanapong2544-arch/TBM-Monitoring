@@ -56,6 +56,10 @@ export default function Shell({
   currentRingNum,
   globalFilter,
   isViewer = false,
+  // The sync status button, and the panels behind it. Passed in rather than imported: this layer is
+  // the design system, and the offline stack is the app.
+  statusButton = null,
+  offlineOverlays = null,
   children,
 }) {
   const showIssues = ISSUE_TABS.includes(active.tab); // viewer ก็เห็น (read-only) — ส่ง readOnly ไป rail
@@ -100,6 +104,8 @@ export default function Shell({
           onMachineChange={onMachineChange}
           rightSlot={
             <div className="flex items-center gap-2">
+              {/* on every tab, because a stuck write is not a fact about one page */}
+              {statusButton}
               {isViewer && (
                 <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-navy bg-cyan-tint border border-line px-2 py-1 rounded-badge whitespace-nowrap">
                   <Eye size={13} /> Viewer
@@ -131,6 +137,10 @@ export default function Shell({
 
       <BottomNav items={mobileItems} activeTab={active.tab} activeModule={active.module} onNavigate={onNavigate} onMore={isViewer ? undefined : () => setMoreOpen(true)} />
       <MoreSheet open={moreOpen} onClose={() => setMoreOpen(false)} onNavigate={onNavigate} />
+
+      {/* At the root, above BottomNav (z-40) and MoreSheet (z-50), so a phone and a desktop show the
+          same panels from the same state rather than one copy per layout. */}
+      {offlineOverlays}
 
       {showIssues && (
         <>

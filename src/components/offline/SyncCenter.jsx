@@ -51,7 +51,7 @@ function Empty({ children }) {
   return <li className="px-3 py-6 text-sm text-ink-3 text-center">{children}</li>;
 }
 
-export default function SyncCenter({ open, onClose, summary, load, onSyncNow, onResolve }) {
+export default function SyncCenter({ open, onClose, summary, load, onSyncNow, onResolve, installPanel = null }) {
   const [tab, setTab] = useState("pending");
   const [view, setView] = useState({ pending: [], blocked: [], errors: [], conflicts: [], recent: [] });
   const [syncing, setSyncing] = useState(false);
@@ -162,7 +162,10 @@ export default function SyncCenter({ open, onClose, summary, load, onSyncNow, on
             : <Empty>ยังไม่มีรายการที่ส่งสำเร็จ</Empty>)}
         </ul>
 
-        <div className="px-4 py-3 border-t border-line">
+        <div className="px-4 py-3 border-t border-line space-y-2">
+          {/* Beside the offline explanation rather than on a settings page: the crew reads about
+              installing at the moment they are looking at why a write has not gone. */}
+          {installPanel}
           <button
             type="button"
             onClick={syncNow}

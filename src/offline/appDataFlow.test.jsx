@@ -1031,3 +1031,26 @@ test("an empty response leaves the prep tasks and daily reports the cache alread
   expect(app.text()).toContain("IS2 ที่แคชไว้");
   app.unmount();
 });
+
+test("the sync status button is on every page, and opens the Sync Center", async () => {
+  // Step 7: `TopBar.rightSlot` on every tab, panels at the Shell root. A stuck write is not a fact
+  // about one page, and a crew who has to find the right screen to learn about it will not.
+  const repository = makeRepository({
+    getSyncSummary: async () => ({ online: true, pending: 2, syncing: 0, conflicts: 0, errors: 0, blocked: 0, lastSyncedAt: null }),
+    getSyncCenter: async () => ({ pending: [], blocked: [], errors: [], conflicts: [], recent: [] }),
+  });
+
+  const app = renderApp(repository);
+  await act(async () => {});
+  const button = pattern => [...app.container.querySelectorAll("button")].find(b => pattern.test(b.textContent));
+
+  expect(button(/กำลังส่ง/)).toBeTruthy();
+  await act(async () => { button(/Work Plan/).dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+  expect(button(/กำลังส่ง/)).toBeTruthy(); // still there on another tab
+
+  await act(async () => { button(/กำลังส่ง/).dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+  await act(async () => {});
+
+  expect(app.text()).toContain("สถานะการซิงก์");
+  app.unmount();
+});

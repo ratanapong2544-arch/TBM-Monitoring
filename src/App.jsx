@@ -33,6 +33,7 @@ import { isViewerMode, VIEWER_TABS } from "./utils/viewerMode";
 import { useOfflineData } from "./offline/useOfflineData";
 import { applyServerRows } from "./offline/serverDeletions";
 import { businessEnvelope } from "./offline/businessWrites";
+import { useOfflineControls } from "./components/offline/OfflineControls";
 import { useOffline } from "./offline/OfflineProvider";
 import { toSyncVersion } from "./offline/syncVersion";
 import { applyOptimisticRow, stripQueuedPhotos } from "./offline/displayRecord";
@@ -182,6 +183,8 @@ const PrimaryGroutApp = () => {
   // replaces it. The repository owns the fetch, the race guard and the stale flag, so this effect
   // only mirrors `data` into the existing state contracts (write migration lands in Tasks 8-9).
   const offlineData = useOfflineData(activeMachine);
+  // the sync status button and the panels behind it, sharing one open/close state
+  const offlineControls = useOfflineControls();
   const { repository, runner, syncSummary } = useOffline();
 
   useEffect(() => {
@@ -513,6 +516,8 @@ const PrimaryGroutApp = () => {
 
   return (
     <Shell
+      statusButton={offlineControls.button}
+      offlineOverlays={offlineControls.overlays}
       active={{ tab: activeTab, module: currentModule }}
       onNavigate={handleNavigate}
       title={pageTitle}

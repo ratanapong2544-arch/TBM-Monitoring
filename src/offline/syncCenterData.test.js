@@ -281,3 +281,43 @@ test("a conflict's two records do not carry photo bytes to the screen either", a
   expect(JSON.stringify(row.serverRecord)).not.toContain("BBBB");
   expect(row.localRecord.ringNo).toBe("P3");
 });
+
+test("resolving a conflict by hand keeps the photo too", async () => {
+  // The other successor path, and the one with no shipped coverage: the resolver's textarea is fed
+  // the same stripped record, so a manual resolution had exactly the same hole.
+  const photo = `data:image/jpeg;base64,${"C".repeat(300)}`;
+  const excav = `data:image/jpeg;base64,${"D".repeat(300)}`;
+  const repository = makeRepository();
+  const queued = await repository.mutate(buildMutationEnvelope({
+    entityType: "grout", operation: "update", machine: "TBM1", recordId: "g-4",
+    payload: { ringNo: "P4", groutPass: "Primary", note: "เดิม", imageBase64: photo, imageName: "a.jpg", excavImageBase64: excav, excavImageName: "b.jpg" },
+    syncMeta: {},
+  }));
+  await repository.applyConflict(queued.requestId, { status: "conflict", currentVersion: 4, serverRecord: { id: "g-4", ringNo: "P4" } });
+
+  const [row] = (await repository.getSyncCenter()).conflicts;
+  const resolved = await repository.resolveConflict(row.conflictId, { strategy: "manual", payload: { ...row.localRecord, note: "แก้แล้ว" } });
+
+  const successor = await repository.getMutation(resolved.requestId);
+  expect(successor.payload.note).toBe("แก้แล้ว");
+  expect(successor.payload.imageBase64).toBe(photo);
+  expect(successor.payload.excavImageBase64).toBe(excav);
+});
+
+test("clearing the photo's name is how a crew removes it", async () => {
+  // The base64 key is never shown, so the name is the only handle. GAS needs both to upload
+  // anything, so bytes with no name would ride the tunnel link for nothing and upload nothing.
+  const photo = `data:image/jpeg;base64,${"E".repeat(300)}`;
+  const repository = makeRepository();
+  const queued = await repository.mutate(buildMutationEnvelope({
+    entityType: "grout", operation: "update", machine: "TBM1", recordId: "g-5",
+    payload: { ringNo: "P5", groutPass: "Primary", imageBase64: photo, imageName: "a.jpg" }, syncMeta: {},
+  }));
+  await repository.updateMutation(queued.requestId, { status: "validation_error", nextAttemptAt: null, lastError: { code: "VALIDATION", message: "ผิด" } });
+  const [row] = (await repository.getSyncCenter()).errors;
+
+  const retried = await repository.retryMutation(queued.requestId, { payload: { ...row.payload, imageName: "" } });
+
+  const successor = await repository.getMutation(retried.requestId);
+  expect(successor.payload.imageBase64).toBeUndefined();
+});

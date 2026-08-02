@@ -47,6 +47,11 @@ export function useOfflineControls() {
       await repository.retryMutation(target.requestId, options);
     } catch (error) {
       alert("ส่งใหม่ไม่สำเร็จ: " + (error && error.message ? error.message : error));
+      // RE-THROWN. Swallowing it made every retry look accepted, so the editor closed on a refusal
+      // and threw away the corrected values the crew had just typed — on the only non-destructive
+      // exit a validation error has. The component's own comment said it stayed open; the wiring
+      // was what made that false.
+      throw error;
     }
   }, [repository]);
 

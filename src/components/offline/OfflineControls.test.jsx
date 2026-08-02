@@ -207,3 +207,41 @@ test("discarding from the conflict resolver re-reads the list too", async () => 
   expect(view.container.textContent).toContain("ไม่มีรายการขัดแย้ง");
   view.unmount();
 });
+
+test("a refused retry keeps the corrected values on screen", async () => {
+  // The only non-destructive exit a validation error has. The component said the editor stayed open
+  // until the retry was accepted; the wiring caught every rejection into an alert, so it always
+  // looked accepted and the crew's typing was thrown away.
+  const alerted = jest.spyOn(window, "alert").mockImplementation(() => {});
+  try {
+    global.__offline.repository.getSyncCenter = jest.fn(async () => ({
+      ...emptyView,
+      errors: [{
+        requestId: "request-P48", entityType: "segment", machine: "TBM1", recordId: "P48",
+        domainKey: "segment:TBM1:P48:Permanent", status: "validation_error",
+        lastError: { message: "ring ซ้ำ" }, payload: { ringNo: "P48", installType: "Permanent" },
+      }],
+    }));
+    global.__offline.repository.retryMutation = jest.fn(async () => { throw new Error("Retry payload changes the record identity"); });
+    const view = render();
+    await openCentre(view);
+    await click(button(view.container, /ติดค้าง/));
+    await click(button(view.container, /แก้ค่าแล้วส่งใหม่/));
+
+    const field = view.container.querySelector("textarea");
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value").set.call(field, '{"ringNo":"P49","installType":"Permanent"}');
+      field.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await click(button(view.container, /ส่งค่าที่แก้/));
+    await act(async () => {});
+
+    expect(alerted).toHaveBeenCalledWith(expect.stringContaining("ส่งใหม่ไม่สำเร็จ"));
+    const stillOpen = view.container.querySelector("textarea");
+    expect(stillOpen).toBeTruthy();
+    expect(stillOpen.value).toContain("P49"); // their typing, not the refused original
+    view.unmount();
+  } finally {
+    alerted.mockRestore();
+  }
+});

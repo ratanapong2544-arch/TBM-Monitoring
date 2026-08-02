@@ -232,8 +232,12 @@ export default function SyncCenter({ open, onClose, summary, load, onSyncNow, on
                         // The editor stays open until the retry is ACCEPTED. Closing it first meant a
                         // refusal — a corrected payload that names a different record, which the
                         // store rejects — threw the crew's typing away and reopened the original.
-                        await act(onRetry, row, { payload });
-                        setEditing(null);
+                        // caught here, not swallowed upstream: a refusal keeps the editor open with
+                        // the crew's typing in it, and `retry` has already said why
+                        try {
+                          await act(onRetry, row, { payload });
+                          setEditing(null);
+                        } catch (error) { /* the alert came from the seam; the draft stays */ }
                       }}
                     />
                   )}

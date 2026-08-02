@@ -449,11 +449,16 @@ export async function resolveStoredConflict(db, conflictId, update) {
 // corrected retry, or a manual conflict resolution, silently destroyed the picture of the ring.
 function carryPhotosFrom(original, payload) {
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) return payload;
-  return PHOTOS.reduce((carried, [base64]) => (
-    carried[base64] === undefined && original && original.payload && original.payload[base64] !== undefined
-      ? { ...carried, [base64]: original.payload[base64] }
-      : carried
-  ), { ...payload });
+  return PHOTOS.reduce((carried, [base64, name]) => {
+    if (carried[base64] !== undefined) return carried; // the crew supplied their own
+    const bytes = original && original.payload ? original.payload[base64] : undefined;
+    if (bytes === undefined) return carried;
+    // Only while the row still NAMES the photo. Clearing `imageName` is how a crew removes one from
+    // this editor — the base64 key is never shown to them — and GAS needs both keys to upload
+    // anything, so bytes with no name would ride the wire for nothing and upload nothing.
+    if (!carried[name]) return carried;
+    return { ...carried, [base64]: bytes };
+  }, { ...payload });
 }
 
 export async function resolveConflictAndEnqueue(db, { conflictId, originalRequestId, successor, resolvedAt, strategy, before, after }) {

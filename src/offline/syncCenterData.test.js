@@ -677,3 +677,94 @@ test("throwing away a create takes the edits queued behind it, rather than stran
   expect(view.discarded.map(row => row.recordId)).toEqual(["seg-P101", "seg-P101"]);
   expect((await repository.load("TBM1")).data.segments).toEqual([]);
 });
+
+test("keeping the server's row on a conflicted delete also keeps the version it was confirmed at", async () => {
+  // `confirmMutation` writes the same snapshot twice in one transaction — the confirmed version
+  // first, the restored key second — and an IndexedDB put replaces the whole record. Built from a
+  // copy read at the top of the transaction, the second write threw the version away: after a
+  // relaunch the next edit of that ring stamped baseVersion 0 against a server that had moved on,
+  // and the conflict that came back parked at the head of the ring's domain.
+  const repository = makeRepository({
+    fetchServerSnapshot: async machine => ({ status: "success", machine, segments: [{ id: "seg-P12", ringNo: "P12", installType: "Permanent" }] }),
+  });
+  await repository.refresh("TBM1");
+  const queued = await repository.mutate(buildMutationEnvelope({
+    entityType: "segment", operation: "delete", machine: "TBM1", recordId: "seg-P12",
+    payload: { id: "seg-P12", ringNo: "P12", installType: "Permanent" },
+    syncMeta: { "segment:TBM1:P12:Permanent": { version: 1 } },
+  }));
+  await repository.applyConflict(queued.requestId, { status: "conflict", currentVersion: 12, serverRecord: { id: "seg-P12", ringNo: "P12", installType: "Permanent" } });
+
+  await repository.resolveConflict(queued.requestId, { strategy: "server" });
+
+  const { data } = await repository.load("TBM1");
+  expect(data.segments.map(row => row.ringNo)).toEqual(["P12"]); // the ring the crew chose to keep
+  expect(data.syncMeta["segment:TBM1:P12:Permanent"]).toMatchObject({ version: 12 }); // and its version
+});
+
+test("a getData in flight does not drop the ring the crew chose to keep", async () => {
+  // The crew must be online to have received a conflict at all, and `useOfflineData` fires a refresh
+  // on mount and on every machine switch — a full payload over the tunnel link is tens of seconds.
+  // `deletePending` asked the OPERATION, so a delete resolved by keeping the server's row still read
+  // as a delete and the answer already travelling dropped the ring.
+  let deliver;
+  const repository = makeRepository({
+    fetchServerSnapshot: machine => new Promise(resolve => {
+      deliver = () => resolve({ status: "success", machine, segments: [{ id: "seg-P13", ringNo: "P13", installType: "Permanent" }] });
+    }),
+  });
+  const first = repository.refresh("TBM1");
+  deliver();
+  await first;
+
+  const queued = await repository.mutate(buildMutationEnvelope({
+    entityType: "segment", operation: "delete", machine: "TBM1", recordId: "seg-P13",
+    payload: { id: "seg-P13", ringNo: "P13", installType: "Permanent" },
+    syncMeta: { "segment:TBM1:P13:Permanent": { version: 1 } },
+  }));
+  const inFlight = repository.refresh("TBM1"); // the getData the crew is waiting on
+  await repository.applyConflict(queued.requestId, { status: "conflict", currentVersion: 6, serverRecord: { id: "seg-P13", ringNo: "P13", installType: "Permanent" } });
+  await repository.resolveConflict(queued.requestId, { strategy: "server" });
+  deliver();
+  const { data } = await inFlight;
+
+  expect(data.segments.map(row => row.ringNo)).toEqual(["P13"]);
+  expect((await repository.load("TBM1")).data.segments.map(row => row.ringNo)).toEqual(["P13"]);
+});
+
+test("the restored key is added once, and only to the machines that own the record", async () => {
+  // Two guards inside the restore, both load-bearing: without the dedupe a refresh-then-discard
+  // renders the ring twice, and without `scopesFor` a TBM1 ring appears on TBM2's data log.
+  const repository = makeRepository({
+    fetchServerSnapshot: async machine => ({
+      status: "success", machine,
+      segments: machine === "TBM1" ? [{ id: "seg-P14", ringNo: "P14", installType: "Permanent" }] : [{ id: "seg-Q1", ringNo: "Q1", installType: "Permanent" }],
+    }),
+  });
+  await repository.refresh("TBM1");
+  await repository.refresh("TBM2");
+  const queued = await repository.mutate(buildMutationEnvelope({
+    entityType: "segment", operation: "delete", machine: "TBM1", recordId: "seg-P14",
+    payload: { id: "seg-P14", ringNo: "P14", installType: "Permanent" },
+    syncMeta: { "segment:TBM1:P14:Permanent": { version: 1 } },
+  }));
+  await repository.updateMutation(queued.requestId, { status: "permanent_error", nextAttemptAt: null, lastError: { code: "PERMANENT" } });
+
+  await repository.discardMutation(queued.requestId);
+
+  expect((await repository.load("TBM1")).data.segments.map(row => row.ringNo)).toEqual(["P14"]); // once
+  expect((await repository.load("TBM2")).data.segments.map(row => row.ringNo)).toEqual(["Q1"]);  // not there
+});
+
+test("a conflict is never offered as something to resend", async () => {
+  // The server has moved the record on: resending the same values reproduces the conflict. It has to
+  // be decided, and `resolveConflict` is where that happens.
+  const repository = makeRepository();
+  const queued = await repository.mutate(segment("P86"));
+  await repository.applyConflict(queued.requestId, { status: "conflict", currentVersion: 3, serverRecord: { id: "seg-P86" } });
+
+  const view = await repository.getSyncCenter();
+  expect(view.errors).toEqual([]);
+  expect(view.conflicts).toHaveLength(1);
+  await expect(repository.retryMutation(queued.requestId)).rejects.toThrow(/not a retryable error/);
+});

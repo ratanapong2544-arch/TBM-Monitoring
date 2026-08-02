@@ -131,7 +131,12 @@ function patchSnapshotSyncMeta(snapshots, stored, mutation, version, deleted) {
     // `deleted` travels with the version because the next create on this key reads it: a tombstone
     // is not inert on the server, and a create that does not claim its version is refused.
     const entry = { ...current, version, deleted };
-    snapshots.put({ ...snapshot, syncMeta: { ...snapshot.syncMeta, [mutation.domainKey]: entry } });
+    // MUTATED, then put — the same reason `restoreDeletedKey` does. `confirmMutation` can write this
+    // one snapshot twice in a single transaction, and an IndexedDB put replaces the whole record, so
+    // two writers each spreading their own copy of the object read at the top means the second
+    // silently discards the first.
+    snapshot.syncMeta = { ...snapshot.syncMeta, [mutation.domainKey]: entry };
+    snapshots.put(snapshot);
   });
 }
 
@@ -315,7 +320,11 @@ export async function confirmMutation(db, requestId, response, { owner, confirme
   // confirmation landed, and it is what tells a snapshot write whether a response predates it.
   // `version` is the version the SERVER gave this write. Nothing stored it, so the Sync Center's
   // history could never print the "· เวอร์ชัน N" its own row was written to show.
-  const next = { ...mutation, status: MUTATION_STATUS.SYNCED, version: response.version ?? null, syncedAt: response.updatedAt || null, confirmedAtLocal: confirmedAtLocal || null, lastError: null, syncOwner: null, leaseExpiresAt: null };
+  // Stamped, not re-derived. `deletePending` in the merge asks the same question and asked it of the
+  // OPERATION, so a delete the crew resolved by keeping the server's row — the button that means
+  // KEEP THE RING — still read as a delete there, and a getData already in flight dropped the ring
+  // from the data log, both dashboards and the ring count until the next successful one.
+  const next = { ...mutation, status: MUTATION_STATUS.SYNCED, leavesDeleted: leavesDeleted(mutation), version: response.version ?? null, syncedAt: response.updatedAt || null, confirmedAtLocal: confirmedAtLocal || null, lastError: null, syncOwner: null, leaseExpiresAt: null };
   mutationStore.put(next);
   // Rebase what is still queued behind this one on the same record. Offline, a whole chain of edits
   // is stamped with the only version the device knows — the one the last full snapshot carried, or 0
@@ -756,9 +765,18 @@ function restoreDeletedKey(snapshots, stored, mutation, optimisticKey) {
   // and putting it in the other one shows TBM1's ring on TBM2's data log.
   scopesFor(stored, mutation).forEach(snapshot => {
     const keys = (snapshot.entityKeys && snapshot.entityKeys[field]) || [];
-    // already named: adding it again renders the ring twice
+    // Already named: adding it again renders the ring twice. Defensive — every path that reaches
+    // here has had the key removed by `patchSnapshotKeys` first, so no test can currently produce a
+    // list that still holds it, and this is left unpinned deliberately rather than pinned by a
+    // contrived one.
     if (keys.includes(optimisticKey)) return;
-    snapshots.put({ ...snapshot, entityKeys: { ...snapshot.entityKeys, [field]: [...keys, optimisticKey] } });
+    // MUTATED, then put. `confirmMutation` writes this same snapshot twice in one transaction —
+    // `patchSnapshotSyncMeta` first, this second — and an IndexedDB `put` replaces the whole record.
+    // Spreading a copy of the object read at the top of the transaction threw the confirmed version
+    // away: the next edit of that ring stamped `baseVersion: 0` against a server that had moved on,
+    // and the conflict that came back parked at the head of the ring's domain.
+    snapshot.entityKeys = { ...snapshot.entityKeys, [field]: [...keys, optimisticKey] };
+    snapshots.put(snapshot);
   });
 }
 
@@ -817,9 +835,14 @@ export async function discardMutation(db, requestId, { discardedAt } = {}) {
     if (kept) entities.put({ ...kept, payload: { ...kept.payload, syncStatus: MUTATION_STATUS.DISCARDED } });
     if (kept) restoreDeletedKey(snapshots, stored, mutation, optimisticKey);
   }
+  // every request this discard covers, not only the one the crew tapped: a cascaded follower can
+  // hold its own open conflict, and leaving it open is a row whose buttons can then only throw
   const conflicts = transaction.objectStore(STORES.conflicts);
-  const conflict = await requestResult(conflicts.get(requestId));
-  if (conflict && conflict.status === "open") conflicts.put({ ...conflict, status: "resolved", resolvedAt: discardedAt || null, strategy: "discard" });
+  const closing = [requestId, ...cascaded.map(item => item.requestId)];
+  await Promise.all(closing.map(async id => {
+    const conflict = await requestResult(conflicts.get(id));
+    if (conflict && conflict.status === "open") conflicts.put({ ...conflict, status: "resolved", resolvedAt: discardedAt || null, strategy: "discard" });
+  }));
   await complete(transaction);
   return mutation;
 }

@@ -1089,7 +1089,7 @@ test("the viewer link carries no sync controls and is not told to open them", as
     await act(async () => {});
 
     expect([...app.container.querySelectorAll("button")].some(b => /ต้องแก้/.test(b.textContent))).toBe(false);
-    expect(app.text()).not.toContain("เปิด “สถานะการซิงก์” เพื่อแก้");
+    expect(app.text()).not.toContain("เปิด “สถานะการซิงก์”"); // the string the code actually renders
     app.unmount();
   } finally {
     delete window.location;

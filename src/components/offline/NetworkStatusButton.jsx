@@ -2,6 +2,7 @@ import React from "react";
 import { CloudOff, RefreshCw, CloudCheck, AlertTriangle } from "lucide-react";
 
 import { stuckCount, travellingCount } from "../../offline/syncSummary";
+import { formatDisplayTime } from "../../utils/formatters";
 
 /**
  * The one control that is on every page, and the only place a crew underground learns that a write
@@ -12,13 +13,13 @@ import { stuckCount, travellingCount } from "../../offline/syncSummary";
  * are one number for that reason — three rings behind one conflict is three records nobody can fix
  * by waiting.
  */
+// The app's own formatter, like the Sync Center's — a second pair on two surfaces the crew reads
+// together is how one of them ends up in the browser's zone while the other is in Bangkok's.
 const timeLabel = value => {
   if (!value) return null;
   const parsed = Date.parse(value);
   if (Number.isNaN(parsed)) return null;
-  // Asia/Bangkok, like every other stamp in this app; a crew reading a UTC time would think the
-  // snapshot is seven hours older than it is.
-  return new Date(parsed).toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Bangkok" });
+  return formatDisplayTime(new Date(parsed));
 };
 
 export default function NetworkStatusButton({ summary, onOpen }) {

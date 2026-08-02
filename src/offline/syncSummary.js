@@ -15,3 +15,16 @@ export function travellingCount(summary) {
   const counts = summary || {};
   return (counts.pending || 0) + (counts.syncing || 0);
 }
+
+/**
+ * What discarding this write actually does to the row on screen — which differs by operation, and
+ * was written twice and wrong twice before it was written once.
+ *
+ * A CREATE's row goes: the sheet never had it. A DELETE's row COMES BACK: the delete is what was
+ * hiding it. An UPDATE's row stays as it is until the next getData replaces it with the server's.
+ */
+export function discardOutcomeText(operation) {
+  if (operation === "create") return "งานนี้จะไม่ถูกส่งขึ้นเซิร์ฟเวอร์อีก และจะหายไปจากหน้าจอของเครื่องนี้ เพราะยังไม่เคยมีอยู่บนชีต";
+  if (operation === "delete") return "การลบจะไม่ถูกส่งขึ้นเซิร์ฟเวอร์ — ริงนี้จะกลับมาแสดงบนหน้าจอ";
+  return "งานนี้จะไม่ถูกส่งขึ้นเซิร์ฟเวอร์อีก — ค่าที่บันทึกไว้จะยังอยู่บนหน้าจอจนกว่าจะดึงข้อมูลจากเซิร์ฟเวอร์ครั้งถัดไป";
+}

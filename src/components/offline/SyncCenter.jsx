@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import { X, RefreshCw, RotateCcw, Trash2, Pencil } from "lucide-react";
 
 import { formatDisplayDate, formatDisplayTime } from "../../utils/formatters";
+import { discardOutcomeText } from "../../offline/syncSummary";
 
 /**
  * Where a write that has not reached the sheet is looked at, and the only screen that can tell a
@@ -255,9 +256,7 @@ export default function SyncCenter({ open, onClose, summary, load, onSyncNow, on
                   )}
                   {onDiscard && confirmingDiscard === row.requestId && (
                     <div className="mt-2 rounded-input border border-code-d/40 bg-code-d/5 p-2">
-                      <div className="text-xs text-ink mb-2">{row.operation === "create"
-                          ? "งานนี้จะไม่ถูกส่งขึ้นเซิร์ฟเวอร์อีก และจะหายไปจากหน้าจอของเครื่องนี้ เพราะยังไม่เคยมีอยู่บนชีต"
-                          : "งานนี้จะไม่ถูกส่งขึ้นเซิร์ฟเวอร์อีก — ค่าที่บันทึกไว้จะยังอยู่บนหน้าจอจนกว่าจะดึงข้อมูลจากเซิร์ฟเวอร์ครั้งถัดไป"}</div>
+                      <div className="text-xs text-ink mb-2">{discardOutcomeText(row.operation)}</div>
                       <div className="flex gap-2">
                         <button type="button" onClick={() => { setConfirmingDiscard(null); act(onDiscard, row); }} className="flex-1 px-3 py-1.5 rounded-input text-xs font-semibold bg-code-d text-white">ยืนยันทิ้ง</button>
                         <button type="button" onClick={() => setConfirmingDiscard(null)} className="flex-1 px-3 py-1.5 rounded-input text-xs font-semibold text-ink-2 border border-line">ยกเลิก</button>

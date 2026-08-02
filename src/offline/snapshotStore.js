@@ -195,8 +195,14 @@ export async function writeServerSnapshot(db, machine, data, fetchedAt, requeste
     // optimistic copy is gone by then — a confirmed delete has no row left to describe — so nothing
     // else in this merge would notice, and the deleted ring came back onto the screen and into the
     // stored snapshot, surviving the relaunch.
+    // `leavesDeleted`, which `confirmMutation` stamps, NOT the operation. A delete the crew resolved
+    // by keeping the server's row — the button that means KEEP THE RING — is still `operation:
+    // "delete"`, and reading that dropped the ring from a getData already in flight: off the data
+    // log, both dashboards and the ring count until the next successful one, which underground is
+    // the next shift. `confirmMutation` asks the same question and asks it correctly; this was the
+    // second copy. The fallback is for rows confirmed by a build before the stamp existed.
     const confirmed = confirmedAfterRequest.get(slot);
-    if (confirmed && confirmed.operation === "delete") return true;
+    if (confirmed && (confirmed.leavesDeleted ?? confirmed.operation === "delete")) return true;
     const mutation = unresolvedByRecord.get(slot);
     if (!mutation || mutation.operation !== "delete") return false;
     // In flight it hides; stuck it shows. A delete the server refused is not on its way to anything,

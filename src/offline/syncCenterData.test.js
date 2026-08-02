@@ -1078,6 +1078,26 @@ test("a conflict whose write is gone can be cleared by reviewing it", async () =
   expect((await repository.getSyncSummary()).conflicts).toBe(0);
 });
 
+test("resolving a conflict whose write is gone says so, rather than throwing on a null", async () => {
+  // The panel gates the three buttons on `actionable`, which is false for exactly these rows, so
+  // this is not reachable from the UI — but the method is public and read `original.entityType` off
+  // a null. The two siblings were moved to "the MUTATION, not the id" in earlier rounds; this is the
+  // third.
+  const repository = makeRepository();
+  const db = await openOfflineDb();
+  await new Promise((resolve, reject) => {
+    const tx = db.transaction("conflicts", "readwrite");
+    tx.objectStore("conflicts").put({
+      conflictId: "orphan-3", requestId: "request-pruned", status: "open",
+      domainKey: "segment:TBM1:P60:Permanent", entityType: "segment", machine: "TBM1", recordId: "seg-P60",
+      localRecord: { ringNo: "P60" }, serverRecord: { ringNo: "P60" },
+    });
+    tx.oncomplete = resolve; tx.onerror = () => reject(tx.error);
+  });
+
+  await expect(repository.resolveConflict("orphan-3", { strategy: "local" })).rejects.toThrow(/no mutation to resolve/);
+});
+
 test("a conflict whose write is still queued cannot be waved away as reviewed", async () => {
   // Reviewing means "I compared the two by hand". A row that still has a write behind it has to be
   // decided, or the write sits unposted under a conflict the panel says is dealt with.
@@ -1412,6 +1432,17 @@ test("a ring whose refused delete survived a refresh is named once, not twice", 
 
   await repository.updateMutation(removal.requestId, { status: "validation_error", nextAttemptAt: null, lastError: { code: "VALIDATION", message: "ยังลบไม่ได้" } });
 
+  // the stored LIST, not `load()`: the refresh deletes the optimistic entity row, so a second name
+  // added by the broken guard is a dangling key that `readServerSnapshot`'s `.filter(Boolean)` hides
+  // — which is how this test passed with the guard reverted, pinning nothing.
+  const db = await openOfflineDb();
+  const snapshot = await new Promise((resolve, reject) => {
+    const tx = db.transaction("snapshots", "readonly");
+    const request = tx.objectStore("snapshots").getAll();
+    request.onsuccess = () => resolve(request.result.find(item => item.machine === "TBM1"));
+    request.onerror = () => reject(request.error);
+  });
+  expect(snapshot.entityKeys.segments).toHaveLength(1);
   expect((await repository.load("TBM1")).data.segments.map(row => row.ringNo)).toEqual(["P105"]);
 });
 

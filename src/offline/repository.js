@@ -174,8 +174,11 @@ export function createRepository(deps = {}) {
     if (!conflict || conflict.status !== "open") throw new Error(`Unknown open conflict ${conflictId}`);
     // legacyMigration files staging differences in the same store without a requestId; those are
     // reviewed against the legacy cache, not resolved through the mutation queue
-    if (!conflict.requestId) throw new Error(`Conflict ${conflictId} has no mutation to resolve; review the legacy staged records instead`);
-    const original = await getMutation(db, conflict.requestId);
+    const original = conflict.requestId ? await getMutation(db, conflict.requestId) : null;
+    // the MUTATION, not the id — the same move rounds 15 and 16 made in `actionable` and
+    // `reviewLegacyDifference`. An orphan (id present, write pruned) reached `original.entityType`
+    // and threw a TypeError instead of this sentence.
+    if (!original) throw new Error(`Conflict ${conflictId} has no mutation to resolve; review the legacy staged records instead`);
     const before = { serverRecord: conflict.serverRecord, localRecord: conflict.localRecord };
     if (strategy === "server") {
       // `fromServerRecord`: what the crew chose IS the server's row, so whether the record ends up
@@ -411,7 +414,12 @@ export function createRepository(deps = {}) {
       if (conflict.requestId && await getMutation(db, conflict.requestId)) {
         throw new Error(`Conflict ${conflictId} เป็นรายการที่รอส่ง — ต้องเลือกว่าจะเก็บของใคร`);
       }
-      await resolveStoredConflict(db, conflictId, { resolvedAt: now(), strategy: "reviewed", before: { serverRecord: conflict.server, localRecord: conflict.local }, after: null });
+      // both spellings, like `getSyncCenterView`: a legacy staged row says `local`/`server`, a
+      // queued one `localRecord`/`serverRecord`, and this now accepts both populations
+      await resolveStoredConflict(db, conflictId, {
+        resolvedAt: now(), strategy: "reviewed", after: null,
+        before: { serverRecord: conflict.serverRecord ?? conflict.server, localRecord: conflict.localRecord ?? conflict.local },
+      });
       // `reviewed`, not `resolved`: this writes to the conflicts store and nothing else, so the
       // screen has nothing to re-read. `resolved` is the predicate's word for "the stored row was
       // rewritten", and lending it to a review made that claim false.

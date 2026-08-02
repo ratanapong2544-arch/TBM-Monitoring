@@ -118,9 +118,20 @@ export function OfflineProvider({ children, deps = {} }) {
     })();
 
     const unsubscribe = repository.subscribe(() => { refreshSummary(); });
+    // The summary was recomputed only at boot and on a repository event, and the runner's own
+    // online/focus/visibilitychange listeners emit nothing when the queue is empty — there is no
+    // `offline` listener in the app at all. So a crew going underground with nothing queued kept
+    // reading the green "ซิงก์แล้ว" and "ออนไลน์" for as long as they recorded nothing, which is the
+    // one word on the one control they read to learn whether the link is up. `App`'s own strip asks
+    // the platform directly for exactly this reason; the button asked a cached answer.
+    const onConnectivityChange = () => { refreshSummary(); };
+    window.addEventListener("online", onConnectivityChange);
+    window.addEventListener("offline", onConnectivityChange);
     return () => {
       active = false;
       unsubscribe();
+      window.removeEventListener("online", onConnectivityChange);
+      window.removeEventListener("offline", onConnectivityChange);
       runner.stop();
     };
   }, [refreshSummary, repository, runner]);

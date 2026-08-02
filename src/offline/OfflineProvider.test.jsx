@@ -180,3 +180,46 @@ test("the summary comparison knows every field the summary has", async () => {
 
   expect(Object.keys(summary).sort()).toEqual([...SUMMARY_FIELDS].sort());
 });
+
+test("losing the link changes the word on the button, even with nothing queued", async () => {
+  // The summary was recomputed at boot and on repository events only, and the runner's own
+  // online/focus/visibilitychange listeners emit nothing when the queue is empty — so a crew going
+  // underground with nothing to send kept reading "ออนไลน์" on the one control they check to learn
+  // whether the link is up.
+  let onLine = true;
+  const { deps } = makeDeps({
+    createRepository: jest.fn(() => ({
+      getSyncSummary: jest.fn(async () => ({ online: onLine, pending: 0, syncing: 0, conflicts: 0, errors: 0, blocked: 0, lastSyncedAt: null })),
+      setSyncMetaValue: jest.fn(async () => {}),
+      subscribe: jest.fn(() => () => {}),
+    })),
+  });
+  const provider = renderProvider(deps);
+  await act(async () => {});
+  expect(provider.last().syncSummary.online).toBe(true);
+
+  onLine = false;
+  await act(async () => { window.dispatchEvent(new Event("offline")); });
+
+  expect(provider.last().syncSummary.online).toBe(false);
+  provider.unmount();
+});
+
+test("the connectivity listeners come off with the provider", async () => {
+  // A provider that keeps listening after unmount recomputes into a dead tree on every transition.
+  const added = [];
+  const removed = [];
+  const realAdd = window.addEventListener.bind(window);
+  const realRemove = window.removeEventListener.bind(window);
+  jest.spyOn(window, "addEventListener").mockImplementation((type, handler, options) => { added.push(type); return realAdd(type, handler, options); });
+  jest.spyOn(window, "removeEventListener").mockImplementation((type, handler, options) => { removed.push(type); return realRemove(type, handler, options); });
+  const { deps } = makeDeps();
+
+  const provider = renderProvider(deps);
+  await act(async () => {});
+  provider.unmount();
+
+  expect(added.filter(type => type === "offline")).toHaveLength(1);
+  expect(removed.filter(type => type === "offline")).toHaveLength(1);
+  expect(removed.filter(type => type === "online")).toHaveLength(1);
+});

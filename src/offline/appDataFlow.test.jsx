@@ -1054,3 +1054,20 @@ test("the sync status button is on every page, and opens the Sync Center", async
   expect(app.text()).toContain("สถานะการซิงก์");
   app.unmount();
 });
+
+test("the install panel is in the More sheet as well as the Sync Center", async () => {
+  // Step 5 names both surfaces. On a phone the More sheet is the discovery one.
+  const repository = makeRepository({
+    getSyncSummary: async () => ({ online: true, pending: 0, syncing: 0, conflicts: 0, errors: 0, blocked: 0, lastSyncedAt: null }),
+    getSyncCenter: async () => ({ pending: [], blocked: [], errors: [], conflicts: [], recent: [], superseded: [], discarded: [] }),
+  });
+
+  const app = renderApp(repository);
+  await act(async () => {});
+  const button = pattern => [...app.container.querySelectorAll("button")].find(b => pattern.test(b.textContent));
+
+  await act(async () => { button(/More/).dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+
+  expect(app.text()).toContain("ติดตั้งแอปบนมือถือ");
+  app.unmount();
+});

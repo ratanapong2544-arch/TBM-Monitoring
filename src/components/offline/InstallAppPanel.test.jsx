@@ -61,3 +61,11 @@ test("an Android still waiting for the browser is told to wait, not given a dead
   expect(view.container.textContent).toContain("เบราว์เซอร์ยังไม่พร้อม");
   view.unmount();
 });
+
+test("the desktop guidance shows the link it tells the crew to open", () => {
+  const view = render(<InstallAppPanel install={{ mode: "share-link", canPrompt: false, promptInstall: () => {} }} url="https://tbm.example/app" />);
+
+  expect(view.container.textContent).toContain("https://tbm.example/app");
+  expect(button(view.container, /คัดลอกลิงก์/)).toBeTruthy();
+  view.unmount();
+});

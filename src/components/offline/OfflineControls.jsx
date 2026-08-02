@@ -35,9 +35,10 @@ export function useOfflineControls() {
     }
   }, [repository]);
 
-  const retry = useCallback(async target => {
+  const retry = useCallback(async (target, options) => {
     try {
-      await repository.retryMutation(target.requestId);
+      // the corrected values when the crew edited them, the original when they just resent
+      await repository.retryMutation(target.requestId, options);
     } catch (error) {
       alert("ส่งใหม่ไม่สำเร็จ: " + (error && error.message ? error.message : error));
     }

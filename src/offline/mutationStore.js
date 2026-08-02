@@ -605,10 +605,14 @@ export async function getSyncCenterView(db, { recentLimit = 50 } = {}) {
   return {
     pending: queued.filter(item => !blockedDomains.has(item.domainKey)).sort(byQueueOrder).map(rowOf),
     blocked: queued.filter(item => blockedDomains.has(item.domainKey)).sort(byQueueOrder).map(rowOf),
+    // The payload rides along for these and only these: a validation error means the server refused
+    // THESE VALUES, so the crew has to see and correct them. Resending them unchanged reproduces the
+    // refusal, and the mutation stays the head of its record — so re-entering it through the normal
+    // form does not help either; the new write just queues behind the stuck one.
     errors: mutations
       .filter(item => item.status === MUTATION_STATUS.VALIDATION_ERROR || item.status === MUTATION_STATUS.PERMANENT_ERROR)
       .sort(byQueueOrder)
-      .map(rowOf),
+      .map(item => ({ ...rowOf(item), payload: item.payload })),
     // Both sides, so the crew compares rather than guesses, WITH the three facts design §9 names:
     // when the server's copy was written, by which device, and when this one saved its own. A
     // comparison without them cannot tell "someone else edited this an hour ago" from "I edited it

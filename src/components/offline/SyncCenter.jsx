@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { X, RefreshCw, RotateCcw, Trash2 } from "lucide-react";
+import { X, RefreshCw, RotateCcw, Trash2, Pencil } from "lucide-react";
 
 import { formatDisplayDate, formatDisplayTime } from "../../utils/formatters";
 
@@ -60,6 +60,40 @@ function Empty({ children }) {
   return <li className="px-3 py-6 text-sm text-ink-3 text-center">{children}</li>;
 }
 
+/**
+ * The values the server refused, in front of the crew, so they can be corrected and sent again.
+ *
+ * `repository.retryMutation` already takes a payload and re-checks that it still names the same
+ * record; without a way to reach it, a validation error had exactly two outcomes — resend the
+ * refused values, or destroy the record on this device.
+ */
+function PayloadEditor({ payload, error, onCancel, onSubmit }) {
+  const [draft, setDraft] = useState(() => JSON.stringify(payload, null, 2));
+  const parsed = () => {
+    try {
+      const value = JSON.parse(draft);
+      return value && typeof value === "object" && !Array.isArray(value) ? value : null;
+    } catch (parseError) {
+      return null;
+    }
+  };
+  return (
+    <div className="mt-2">
+      <textarea
+        value={draft}
+        onChange={event => setDraft(event.target.value)}
+        rows={6}
+        className="w-full border border-line rounded-input px-2 py-1.5 text-xs font-mono bg-surface text-ink focus:outline-none focus:border-navy resize-none"
+      />
+      {error && <div className="text-xs text-code-d mt-1">{error}</div>}
+      <div className="flex gap-2 mt-1.5">
+        <button type="button" onClick={() => onSubmit(parsed())} disabled={!draft.trim()} className="px-3 py-1.5 rounded-input text-xs font-semibold bg-navy text-white disabled:opacity-50">ส่งค่าที่แก้</button>
+        <button type="button" onClick={onCancel} className="px-3 py-1.5 rounded-input text-xs font-semibold text-ink-2 border border-line">ยกเลิก</button>
+      </div>
+    </div>
+  );
+}
+
 export default function SyncCenter({ open, onClose, summary, load, onSyncNow, onResolve, onRetry, onDiscard, installPanel = null }) {
   const [tab, setTab] = useState("pending");
   const [view, setView] = useState({ pending: [], blocked: [], errors: [], conflicts: [], recent: [], superseded: [], discarded: [] });
@@ -67,6 +101,11 @@ export default function SyncCenter({ open, onClose, summary, load, onSyncNow, on
   // Discard is the one destructive action here, so it takes a second deliberate tap — the same rule
   // the conflict resolver applies, for the same reason.
   const [confirmingDiscard, setConfirmingDiscard] = useState(null);
+  // The values the crew is correcting, keyed by request id. A validation error is about THESE
+  // values, so resending them unchanged is refused identically — the only way out that is not
+  // destructive is to edit them.
+  const [editing, setEditing] = useState(null);
+  const [editError, setEditError] = useState(null);
 
   const refresh = useCallback(async () => {
     if (!load) return;
@@ -74,6 +113,14 @@ export default function SyncCenter({ open, onClose, summary, load, onSyncNow, on
   }, [load]);
 
   useEffect(() => { if (open) refresh(); }, [open, refresh]);
+
+  // Re-read after anything that changes what this panel is showing. Without it a discarded row stays
+  // listed with live buttons while the status button's count has already dropped: the two surfaces
+  // disagree, and the second tap reaches a store guard that refuses it as "ยังไม่ติดค้าง".
+  const act = async (action, ...args) => {
+    if (!action) return;
+    try { await action(...args); } finally { await refresh(); }
+  };
 
   if (!open) return null;
 
@@ -88,7 +135,9 @@ export default function SyncCenter({ open, onClose, summary, load, onSyncNow, on
     pending: (view.pending || []).length,
     errors: stuckRows.length,
     conflicts: (view.conflicts || []).length,
-    recent: (view.recent || []).length,
+    // what the tab SHOWS, not one of the three groups on it — a badge reading none over a list of
+    // rows is a badge the crew stops reading
+    recent: (view.recent || []).length + (view.superseded || []).length + (view.discarded || []).length,
   };
 
   return (
@@ -111,6 +160,7 @@ export default function SyncCenter({ open, onClose, summary, load, onSyncNow, on
             <button
               key={item.id}
               type="button"
+              data-tab={item.id}
               onClick={() => setTab(item.id)}
               className={`px-3 py-1.5 rounded-input text-xs font-semibold whitespace-nowrap transition-colors ${tab === item.id ? "bg-navy text-white" : "text-ink-2 hover:bg-surface-alt"}`}
             >
@@ -147,11 +197,21 @@ export default function SyncCenter({ open, onClose, summary, load, onSyncNow, on
                     ? `เซิร์ฟเวอร์ปฏิเสธ: ${row.lastError.message}`
                     : "รออยู่หลังรายการที่ติดค้างของ record เดียวกัน — จะไม่ถูกส่งจนกว่าตัวหน้าจะแก้"}
                 >
+                  {/* Which fields the server named. `syncRunner` stores them for exactly this, and
+                      a message without them tells the crew something is wrong but not where. */}
+                  {refused && row.lastError.fields && row.lastError.fields.length > 0 && (
+                    <div className="text-xs text-code-d mt-1">ฟิลด์ที่ต้องแก้: {row.lastError.fields.join(", ")}</div>
+                  )}
                   {refused && (
-                    <div className="flex gap-2 mt-2">
+                    <div className="flex gap-2 mt-2 flex-wrap">
                       {onRetry && (
-                        <button type="button" onClick={() => onRetry(row)} className="inline-flex items-center gap-1 px-3 py-1.5 rounded-input text-xs font-semibold border border-navy text-navy">
+                        <button type="button" onClick={() => act(onRetry, row)} className="inline-flex items-center gap-1 px-3 py-1.5 rounded-input text-xs font-semibold border border-navy text-navy">
                           <RotateCcw size={13} /> ลองส่งใหม่
+                        </button>
+                      )}
+                      {onRetry && row.payload && editing !== row.requestId && (
+                        <button type="button" onClick={() => { setEditing(row.requestId); setEditError(null); }} className="inline-flex items-center gap-1 px-3 py-1.5 rounded-input text-xs font-semibold border border-navy text-navy">
+                          <Pencil size={13} /> แก้ค่าแล้วส่งใหม่
                         </button>
                       )}
                       {onDiscard && confirmingDiscard !== row.requestId && (
@@ -161,11 +221,24 @@ export default function SyncCenter({ open, onClose, summary, load, onSyncNow, on
                       )}
                     </div>
                   )}
+                  {editing === row.requestId && (
+                    <PayloadEditor
+                      payload={row.payload}
+                      error={editError}
+                      onCancel={() => { setEditing(null); setEditError(null); }}
+                      onSubmit={payload => {
+                        if (!payload) { setEditError("อ่านค่าไม่ได้ — ต้องเป็น JSON ของ record นี้"); return; }
+                        setEditing(null);
+                        setEditError(null);
+                        act(onRetry, row, { payload });
+                      }}
+                    />
+                  )}
                   {onDiscard && confirmingDiscard === row.requestId && (
                     <div className="mt-2 rounded-input border border-code-d/40 bg-code-d/5 p-2">
                       <div className="text-xs text-ink mb-2">งานนี้จะไม่ถูกส่งขึ้นเซิร์ฟเวอร์อีก และจะหายไปจากหน้าจอของเครื่องนี้</div>
                       <div className="flex gap-2">
-                        <button type="button" onClick={() => { setConfirmingDiscard(null); onDiscard(row); }} className="flex-1 px-3 py-1.5 rounded-input text-xs font-semibold bg-code-d text-white">ยืนยันทิ้ง</button>
+                        <button type="button" onClick={() => { setConfirmingDiscard(null); act(onDiscard, row); }} className="flex-1 px-3 py-1.5 rounded-input text-xs font-semibold bg-code-d text-white">ยืนยันทิ้ง</button>
                         <button type="button" onClick={() => setConfirmingDiscard(null)} className="flex-1 px-3 py-1.5 rounded-input text-xs font-semibold text-ink-2 border border-line">ยกเลิก</button>
                       </div>
                     </div>

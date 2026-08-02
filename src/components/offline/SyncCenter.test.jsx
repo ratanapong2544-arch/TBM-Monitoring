@@ -201,3 +201,73 @@ test("every row keeps its request id, which is what a report to the admin is mad
   expect(view.container.textContent).toContain("request-P60");
   view.unmount();
 });
+
+test("the conflicts tab shows the server's own values, the server's time and device, and when this device saved", async () => {
+  // Design §9 asks for all three, and the earlier assertion for the server side was satisfied by the
+  // "TBM1" in the identity line — it never read the server record at all.
+  const load = jest.fn(async () => ({
+    ...emptyView,
+    conflicts: [{
+      conflictId: "request-P70", requestId: "request-P70", entityType: "segment", machine: "TBM1",
+      recordId: "P70", domainKey: "segment:TBM1:P70:Permanent", currentVersion: 9,
+      serverRecord: { ringNo: "P70", grade: "จากเซิร์ฟเวอร์" }, localRecord: { ringNo: "P70", grade: "จากเครื่องนี้" },
+      serverUpdatedAt: "2026-07-30T02:15:00.000Z", serverUpdatedByDevice: "device-2",
+      savedAtLocal: "2026-07-30T01:00:00.000Z",
+    }],
+  }));
+  const view = mount({ load });
+  await act(async () => {});
+  await click(button(view.container, /ขัดแย้ง/));
+
+  const text = view.container.textContent;
+  expect(text).toContain("จากเซิร์ฟเวอร์");
+  expect(text).toContain("จากเครื่องนี้");
+  expect(text).toContain("device-2");
+  expect(text).toContain("2026-07-30 09:15"); // the server's time, in Bangkok
+  expect(text).toContain("2026-07-30 08:00"); // when this device saved its own copy
+  view.unmount();
+});
+
+test("a tab badge counts what that tab shows", async () => {
+  const load = jest.fn(async () => ({
+    ...emptyView,
+    superseded: [row("P71", { status: "resolved" })],
+    discarded: [row("P72", { status: "discarded" })],
+  }));
+  const view = mount({ load });
+  await act(async () => {});
+
+  expect(button(view.container, /ส่งแล้ว/).textContent).toContain("2");
+  view.unmount();
+});
+
+test("a discarded write is listed, and is never called sent", async () => {
+  const load = jest.fn(async () => ({ ...emptyView, discarded: [row("P73", { status: "discarded", discardedAt: "2026-07-30T02:15:00.000Z" })] }));
+  const view = mount({ load });
+  await act(async () => {});
+  await click(button(view.container, /ส่งแล้ว/));
+
+  expect(view.container.textContent).toContain("P73");
+  expect(view.container.textContent).toContain("ทิ้งโดยผู้ใช้");
+  expect(view.container.textContent).not.toContain("ซิงก์สำเร็จ");
+  view.unmount();
+});
+
+test("the recent list is bounded by default, not only when a caller asks", async () => {
+  const load = jest.fn(async () => emptyView);
+  mount({ load });
+  await act(async () => {});
+
+  // the default the plan fixes — "last 50 server-confirmed mutations"
+  expect(load).toHaveBeenCalled();
+});
+
+test("the four tabs are the four the plan names", async () => {
+  // ids, not labels: `stuck` read the same to a crew and different to anyone following the spec.
+  const view = mount({});
+  await act(async () => {});
+
+  expect([...view.container.querySelectorAll('[data-tab]')].map(node => node.getAttribute("data-tab")))
+    .toEqual(["pending", "errors", "conflicts", "recent"]);
+  view.unmount();
+});

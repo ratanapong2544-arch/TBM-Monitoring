@@ -101,7 +101,59 @@ test("retrying a refused write reaches repository.retryMutation", async () => {
   await click(button(view.container, /ติดค้าง/));
   await click(button(view.container, /ลองส่งใหม่/));
 
-  expect(global.__offline.repository.retryMutation).toHaveBeenCalledWith("request-P44");
+  expect(global.__offline.repository.retryMutation).toHaveBeenCalledWith("request-P44", undefined);
+  view.unmount();
+});
+
+test("corrected values reach repository.retryMutation as the payload", async () => {
+  // A validation error is about the values. Resending them unchanged is refused identically, and
+  // the mutation stays the head of its record — so re-entering it through the normal form does not
+  // help either. Editing here is the only way out that is not destructive.
+  global.__offline.repository.getSyncCenter = jest.fn(async () => ({
+    ...emptyView,
+    errors: [{
+      requestId: "request-P45", entityType: "segment", machine: "TBM1", recordId: "P45",
+      domainKey: "segment:TBM1:P45:Permanent", status: "validation_error",
+      lastError: { message: "ring ซ้ำ", fields: ["ringNo"] },
+      payload: { ringNo: "P45", installType: "Permanent" },
+    }],
+  }));
+  const view = render();
+  await openCentre(view);
+  await click(button(view.container, /ติดค้าง/));
+
+  expect(view.container.textContent).toContain("ฟิลด์ที่ต้องแก้: ringNo");
+  await click(button(view.container, /แก้ค่าแล้วส่งใหม่/));
+  const field = view.container.querySelector("textarea");
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value").set.call(field, '{"ringNo":"P46","installType":"Permanent"}');
+    field.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await click(button(view.container, /ส่งค่าที่แก้/));
+
+  expect(global.__offline.repository.retryMutation).toHaveBeenCalledWith("request-P45", { payload: { ringNo: "P46", installType: "Permanent" } });
+  view.unmount();
+});
+
+test("the list is re-read after an action, so it stops offering what is already gone", async () => {
+  // Without it a discarded row stays listed with live buttons while the status button's count has
+  // already dropped — the two surfaces disagree, and the second tap hits a store guard.
+  let discarded = false;
+  global.__offline.repository.getSyncCenter = jest.fn(async () => (discarded ? emptyView : {
+    ...emptyView,
+    errors: [{ requestId: "request-P47", entityType: "segment", machine: "TBM1", recordId: "P47", domainKey: "segment:TBM1:P47:Permanent", status: "permanent_error", lastError: { message: "ถูกปฏิเสธ" } }],
+  }));
+  global.__offline.repository.discardMutation = jest.fn(async () => { discarded = true; });
+  const view = render();
+  await openCentre(view);
+  await click(button(view.container, /ติดค้าง/));
+
+  await click(button(view.container, /ทิ้งรายการนี้/));
+  await click(button(view.container, /ยืนยันทิ้ง/));
+  await act(async () => {});
+
+  expect(view.container.textContent).not.toContain("P47");
+  expect(view.container.textContent).toContain("ไม่มีรายการติดค้าง");
   view.unmount();
 });
 

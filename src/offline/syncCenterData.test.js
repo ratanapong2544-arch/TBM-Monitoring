@@ -177,3 +177,43 @@ test("a conflict carries the server's time and device, and when this device save
   expect(row.serverUpdatedByDevice).toBe("device-2");
   expect(row.savedAtLocal).toBe("2026-08-02T00:00:00.000Z");
 });
+
+test("a refused row carries the values the server refused, so they can be corrected", async () => {
+  // A validation error is about THESE values. Without them on the row the only offers are resend
+  // (refused identically) and discard (destroys the record locally), which is the same dead end the
+  // errors tab had before it grew buttons.
+  const repository = makeRepository();
+  const queued = await repository.mutate(segment("P80"));
+  await repository.updateMutation(queued.requestId, {
+    status: "validation_error", nextAttemptAt: null,
+    lastError: { code: "VALIDATION", fields: ["ringNo"], message: "ring ซ้ำ" },
+  });
+
+  const [row] = (await repository.getSyncCenter()).errors;
+
+  expect(row.payload).toEqual(expect.objectContaining({ ringNo: "P80" }));
+  expect(row.lastError.fields).toEqual(["ringNo"]);
+});
+
+test("the recent list keeps the last 50 by default", async () => {
+  // The plan fixes the number, and only an explicit `recentLimit` was exercised — the default could
+  // have been anything.
+  const repository = makeRepository();
+  const db = await openOfflineDb();
+  await new Promise((resolve, reject) => {
+    const transaction = db.transaction("mutations", "readwrite");
+    const store = transaction.objectStore("mutations");
+    for (let index = 0; index < 60; index += 1) {
+      store.put({
+        requestId: `synced-${index}`, status: "synced", queueSequence: index,
+        confirmedAtLocal: `2026-08-02T00:${String(index).padStart(2, "0")}:00.000Z`,
+        entityType: "segment", operation: "update", machine: "TBM1", recordId: `seg-S${index}`,
+        domainKey: `segment:TBM1:S${index}:Permanent`, payload: {},
+      });
+    }
+    transaction.oncomplete = resolve;
+    transaction.onerror = () => reject(transaction.error);
+  });
+
+  expect((await repository.getSyncCenter()).recent).toHaveLength(50);
+});

@@ -39,7 +39,10 @@ export default function NetworkStatusButton({ summary, onOpen }) {
       <Icon size={16} />
       {offline && <span>ออฟไลน์</span>}
       {travelling > 0 && <span>{travelling} กำลังส่ง</span>}
-      {stuck > 0 && <span>{stuck} ติดค้าง</span>}
+      {/* not "ติดค้าง": the Sync Center has a tab by that name holding a SMALLER number (errors and
+          the rows stranded behind them, without the conflicts), and a crew reading 3 here and
+          "ติดค้าง (2)" one tap later has to work out that nothing was lost. */}
+      {stuck > 0 && <span>{stuck} ต้องแก้</span>}
       {/* A device with nothing queued says so. A bare "0" reads as a count of something. */}
       {!offline && travelling === 0 && stuck === 0 && <span>ซิงก์แล้ว</span>}
       {at && <span className="text-ink-3 font-normal">{at}</span>}

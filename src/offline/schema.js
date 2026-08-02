@@ -55,6 +55,12 @@ export const stuckStatuses = Object.freeze(new Set([
   MUTATION_STATUS.CONFLICT, MUTATION_STATUS.VALIDATION_ERROR, MUTATION_STATUS.PERMANENT_ERROR,
 ]));
 
+// A stuck write the crew can send again. A CONFLICT is not one: the server has moved the record on,
+// so it has to be decided rather than resent, and `resolveConflict` is where that happens.
+export function isRetryableErrorStatus(status) {
+  return stuckStatuses.has(status) && status !== MUTATION_STATUS.CONFLICT;
+}
+
 // Finished with: the queue will never touch it again, for any reason.
 export function isFinishedStatus(status) {
   return isTerminalStatus(status) || status === MUTATION_STATUS.DISCARDED;

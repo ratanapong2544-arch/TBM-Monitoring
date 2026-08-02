@@ -4,7 +4,7 @@ import { getOrCreateDeviceId as defaultGetDeviceId } from "./device";
 import { reconcileLegacyStage as defaultReconcileLegacy } from "./legacyMigration";
 import { MACHINE_ENTITY_TYPES, makeDomainKey } from "./domainKey";
 import { claimDueMutations, confirmMutation, discardMutation as discardStoredMutation, getConflict, getEntity, getMutation, getSyncCenterView, getSyncCounts, listDueMutations, putOptimisticMutation, resolveConflictAndEnqueue, resolveStoredConflict, retryMutationAsSuccessor, saveConflict, setLastSyncedAt, setSyncMetaValue, updateMutation } from "./mutationStore";
-import { MUTATION_STATUS, stuckStatuses } from "./schema";
+import { isRetryableErrorStatus, MUTATION_STATUS } from "./schema";
 import { emptyServerData, normalizeServerData as defaultNormalizeServerData } from "./normalizeServerData";
 import { readServerSnapshot as defaultReadServerSnapshot, writeServerSnapshot as defaultWriteServerSnapshot } from "./snapshotStore";
 
@@ -327,7 +327,7 @@ export function createRepository(deps = {}) {
       const db = await openDb();
       const original = await getMutation(db, requestId);
       if (!original) throw new Error(`Unknown mutation ${requestId}`);
-      if (!stuckStatuses.has(original.status) || original.status === MUTATION_STATUS.CONFLICT) {
+      if (!isRetryableErrorStatus(original.status)) {
         throw new Error(`Mutation ${requestId} is ${original.status}, not a retryable error`);
       }
       const successorInput = {

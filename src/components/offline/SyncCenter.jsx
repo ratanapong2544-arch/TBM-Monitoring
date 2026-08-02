@@ -255,7 +255,7 @@ export default function SyncCenter({ open, onClose, summary, load, onSyncNow, on
                   )}
                   {onDiscard && confirmingDiscard === row.requestId && (
                     <div className="mt-2 rounded-input border border-code-d/40 bg-code-d/5 p-2">
-                      <div className="text-xs text-ink mb-2">งานนี้จะไม่ถูกส่งขึ้นเซิร์ฟเวอร์อีก และจะหายไปจากหน้าจอของเครื่องนี้</div>
+                      <div className="text-xs text-ink mb-2">งานนี้จะไม่ถูกส่งขึ้นเซิร์ฟเวอร์อีก — ค่าที่บันทึกไว้จะยังอยู่บนหน้าจอจนกว่าจะดึงข้อมูลจากเซิร์ฟเวอร์ครั้งถัดไป</div>
                       <div className="flex gap-2">
                         <button type="button" onClick={() => { setConfirmingDiscard(null); act(onDiscard, row); }} className="flex-1 px-3 py-1.5 rounded-input text-xs font-semibold bg-code-d text-white">ยืนยันทิ้ง</button>
                         <button type="button" onClick={() => setConfirmingDiscard(null)} className="flex-1 px-3 py-1.5 rounded-input text-xs font-semibold text-ink-2 border border-line">ยกเลิก</button>

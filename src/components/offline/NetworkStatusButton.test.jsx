@@ -30,7 +30,7 @@ test("the counts the crew can act on are on the button itself", () => {
 
   const label = view.container.textContent;
   expect(label).toContain("3"); // on its way
-  expect(label).toContain("7"); // stuck: conflicts + errors + blocked, the number that needs a person
+  expect(label).toContain("7 ต้องแก้"); // conflicts + errors + blocked — the number that needs a person, under a word the panel does not reuse
   view.unmount();
 });
 

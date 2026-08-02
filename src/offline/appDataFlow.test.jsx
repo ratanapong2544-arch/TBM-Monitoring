@@ -1088,11 +1088,44 @@ test("the viewer link carries no sync controls and is not told to open them", as
     const app = renderApp(repository);
     await act(async () => {});
 
-    expect([...app.container.querySelectorAll("button")].some(b => /ติดค้าง/.test(b.textContent))).toBe(false);
+    expect([...app.container.querySelectorAll("button")].some(b => /ต้องแก้/.test(b.textContent))).toBe(false);
     expect(app.text()).not.toContain("เปิด “สถานะการซิงก์” เพื่อแก้");
     app.unmount();
   } finally {
     delete window.location;
     window.location = { ...window.location, search };
   }
+});
+
+test("a legacy difference can be marked reviewed from the running app", async () => {
+  // The wire that makes the ตรวจแล้ว button exist: `SyncCenter`'s own tests mount it with their own
+  // handler, so removing `onReview` from `OfflineControls` left the user-facing half unpinned.
+  const reviewed = jest.fn(async () => ({ status: "resolved" }));
+  let cleared = false;
+  const legacy = {
+    conflictId: "legacy:tbmIssues:issue:GLOBAL:issue-9", requestId: null, actionable: false,
+    entityType: "issue", machine: "GLOBAL", recordId: "issue-9", domainKey: "issue:GLOBAL:issue-9",
+    localRecord: { id: "issue-9", title: "ในเครื่อง" }, serverRecord: { id: "issue-9", title: "บนเซิร์ฟเวอร์" },
+    reason: "legacy_local_difference", currentVersion: null,
+  };
+  const repository = makeRepository({
+    getSyncSummary: async () => ({ online: true, pending: 0, syncing: 0, conflicts: cleared ? 0 : 1, errors: 0, blocked: 0, lastSyncedAt: null }),
+    getSyncCenter: async () => ({ pending: [], blocked: [], errors: [], conflicts: cleared ? [] : [legacy], recent: [], superseded: [], discarded: [] }),
+    reviewLegacyDifference: async id => { cleared = true; return reviewed(id); },
+  });
+
+  const app = renderApp(repository);
+  await act(async () => {});
+  const button = pattern => [...app.container.querySelectorAll("button")].find(b => pattern.test(b.textContent));
+  await act(async () => { button(/ต้องแก้/).dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+  await act(async () => {});
+  await act(async () => { button(/ขัดแย้ง/).dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+
+  expect(app.text()).toContain("issue-9");
+  await act(async () => { button(/ตรวจแล้ว/).dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+  await act(async () => {});
+
+  expect(reviewed).toHaveBeenCalledWith("legacy:tbmIssues:issue:GLOBAL:issue-9");
+  expect(app.text()).toContain("ไม่มีรายการขัดแย้ง");
+  app.unmount();
 });

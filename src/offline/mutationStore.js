@@ -1,4 +1,4 @@
-import { isFinishedStatus, isTerminalStatus, MUTATION_STATUS, stuckStatuses, STORES } from "./schema";
+import { isFinishedStatus, isRetryableErrorStatus, isTerminalStatus, MUTATION_STATUS, stuckStatuses, STORES } from "./schema";
 import { entityKeyForRecord, isOptimisticKey, optimisticEntityKey } from "./entityKeys";
 import { PHOTOS } from "./displayRecord";
 import { toSyncVersion } from "./syncVersion";
@@ -531,7 +531,7 @@ export async function retryMutationAsSuccessor(db, { originalRequestId, successo
     requestResult(mutations.get(originalRequestId)),
     requestResult(sequenceStore.get("mutationSequence")),
   ]);
-  const retryable = original && stuckStatuses.has(original.status) && original.status !== MUTATION_STATUS.CONFLICT;
+  const retryable = original && isRetryableErrorStatus(original.status);
   if (!retryable) { transaction.abort(); throw new Error(`Mutation ${originalRequestId} is not a retryable error`); }
   const mutation = {
     ...successor,
@@ -655,7 +655,7 @@ export async function getSyncCenterView(db, { recentLimit = 50 } = {}) {
     // refusal, and the mutation stays the head of its record — so re-entering it through the normal
     // form does not help either; the new write just queues behind the stuck one.
     errors: mutations
-      .filter(item => stuckStatuses.has(item.status) && item.status !== MUTATION_STATUS.CONFLICT)
+      .filter(item => isRetryableErrorStatus(item.status))
       .sort(byQueueOrder)
       .map(item => ({ ...rowOf(item), payload: withoutPhotoBytes(item.payload) })),
     // Both sides, so the crew compares rather than guesses, WITH the three facts design §9 names:
@@ -730,7 +730,7 @@ export async function getSyncCenterView(db, { recentLimit = 50 } = {}) {
  * read as neither, and a row marked synced would read as the wrong one.
  */
 export async function discardMutation(db, requestId, { discardedAt } = {}) {
-  const transaction = db.transaction([STORES.mutations, STORES.entities, STORES.conflicts], "readwrite");
+  const transaction = db.transaction([STORES.mutations, STORES.entities, STORES.conflicts, STORES.snapshots], "readwrite");
   const mutations = transaction.objectStore(STORES.mutations);
   const [mutation, allMutations] = await Promise.all([
     requestResult(mutations.get(requestId)),
@@ -738,6 +738,17 @@ export async function discardMutation(db, requestId, { discardedAt } = {}) {
   ]);
   if (!mutation) { transaction.abort(); throw new Error(`Unknown mutation ${requestId}`); }
   if (!stuckStatuses.has(mutation.status)) { transaction.abort(); throw new Error(`Mutation ${requestId} ยังไม่ติดค้าง — ทิ้งได้เฉพาะรายการที่ส่งไม่ได้แล้ว`); }
+  // Throwing away the CREATE while an edit of the same record is still queued leaves that edit
+  // posting against a row the sheet has never held: it is refused when it gets there, and until then
+  // the panel calls it "รอส่งขึ้นเซิร์ฟเวอร์". Discard the later ones first, or discard none.
+  const followers = allMutations.filter(item => item.requestId !== requestId
+    && item.domainKey === mutation.domainKey
+    && String(item.recordId) === String(mutation.recordId)
+    && !isFinishedStatus(item.status));
+  if (mutation.operation === "create" && followers.length) {
+    transaction.abort();
+    throw new Error(`ทิ้งไม่ได้: ยังมีรายการของ record นี้รออยู่อีก ${followers.length} รายการ — ทิ้งรายการหลังก่อน`);
+  }
 
   mutations.put({ ...mutation, status: MUTATION_STATUS.DISCARDED, discardedAt: discardedAt || null, syncOwner: null, leaseExpiresAt: null, nextAttemptAt: null });
 
@@ -752,12 +763,7 @@ export async function discardMutation(db, requestId, { discardedAt } = {}) {
   // write was about, unless it was a CREATE, which is the one case where no server row exists.
   const entities = transaction.objectStore(STORES.entities);
   const optimisticKey = optimisticEntityKey(mutation.domainKey, mutation.recordId);
-  const survivor = allMutations
-    .filter(item => item.requestId !== requestId
-      && item.domainKey === mutation.domainKey
-      && String(item.recordId) === String(mutation.recordId) // same spelling as `newestOutstanding`
-      && !isFinishedStatus(item.status))
-    .sort((left, right) => (right.queueSequence || 0) - (left.queueSequence || 0))[0];
+  const survivor = [...followers].sort((left, right) => (right.queueSequence || 0) - (left.queueSequence || 0))[0];
   if (survivor) {
     entities.put(optimisticEntity(survivor));
   } else if (mutation.operation === "create") {
@@ -769,6 +775,23 @@ export async function discardMutation(db, requestId, { discardedAt } = {}) {
     // ever, badged as still on its way, and a correction another crew made later never arrived.
     const kept = await requestResult(entities.get(optimisticKey));
     if (kept) entities.put({ ...kept, payload: { ...kept.payload, syncStatus: MUTATION_STATUS.DISCARDED } });
+    // A DELETE took this record's key OUT of every snapshot's list when it was queued, because the
+    // row was meant to be going. Thrown away, the record is staying — and `readServerSnapshot`
+    // rebuilds each collection from those lists alone, so without putting the key back the ring is
+    // missing from the data log, both dashboards and the ring count on every relaunch until a
+    // successful getData, which underground is the next shift.
+    if (kept && mutation.operation === "delete") {
+      const field = FIELD_FOR_ENTITY_TYPE.get(mutation.entityType);
+      if (field) {
+        const snapshots = transaction.objectStore(STORES.snapshots);
+        const stored = await requestResult(snapshots.getAll());
+        scopesFor(stored, mutation).forEach(snapshot => {
+          const keys = (snapshot.entityKeys && snapshot.entityKeys[field]) || [];
+          if (keys.includes(optimisticKey)) return;
+          snapshots.put({ ...snapshot, entityKeys: { ...snapshot.entityKeys, [field]: [...keys, optimisticKey] } });
+        });
+      }
+    }
   }
   const conflicts = transaction.objectStore(STORES.conflicts);
   const conflict = await requestResult(conflicts.get(requestId));

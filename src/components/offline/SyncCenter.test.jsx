@@ -332,3 +332,23 @@ test("a queue the panel could not read is said so, not reported as empty", async
   expect(view.container.textContent).toContain("IndexedDB upgrade blocked by another tab");
   view.unmount();
 });
+
+test("the review action is offered only where it applies", async () => {
+  // A queued conflict has to be decided, not marked reviewed: pressing it there alerts
+  // "เป็นรายการที่รอส่ง" and nothing happens.
+  const load = jest.fn(async () => ({
+    ...emptyView,
+    conflicts: [{
+      conflictId: "request-P99", requestId: "request-P99", actionable: true,
+      entityType: "segment", machine: "TBM1", recordId: "P99", domainKey: "segment:TBM1:P99:Permanent",
+      currentVersion: 3, serverRecord: { ringNo: "P99" }, localRecord: { ringNo: "P99" },
+    }],
+  }));
+  const view = mount({ load });
+  await act(async () => {});
+  await click(button(view.container, /ขัดแย้ง/));
+
+  expect(button(view.container, /เลือกว่าจะเก็บอันไหน/)).toBeTruthy();
+  expect(button(view.container, /ตรวจแล้ว/)).toBeUndefined();
+  view.unmount();
+});

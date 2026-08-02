@@ -586,3 +586,60 @@ test("a legacy row is listed as unactionable by the store, not only by the scree
   expect(row.actionable).toBe(false);
   expect(row.savedAtLocal).toBeNull();
 });
+
+test("discarding a refused delete puts the ring back on the offline screen", async () => {
+  // Queuing a delete takes the record's key out of every snapshot's list and deletes the cached
+  // server row, because the row is meant to be going. When the delete is refused and then thrown
+  // away, the record is staying — so it has to be back in the list, or `readServerSnapshot` rebuilds
+  // the collection without it and the ring is missing from the data log, both dashboards and the
+  // ring count on every relaunch until a successful getData, which underground is the next shift.
+  const repository = makeRepository({
+    fetchServerSnapshot: async machine => ({ status: "success", machine, segments: [{ id: "seg-P9", ringNo: "P9", installType: "Permanent" }] }),
+  });
+  await repository.refresh("TBM1");
+  const queued = await repository.mutate(buildMutationEnvelope({
+    entityType: "segment", operation: "delete", machine: "TBM1", recordId: "seg-P9",
+    payload: { id: "seg-P9", ringNo: "P9", installType: "Permanent" },
+    syncMeta: { "segment:TBM1:P9:Permanent": { version: 1 } },
+  }));
+  await repository.updateMutation(queued.requestId, { status: "permanent_error", nextAttemptAt: null, lastError: { code: "PERMANENT" } });
+
+  await repository.discardMutation(queued.requestId);
+
+  expect((await repository.load("TBM1")).data.segments.map(row => row.ringNo)).toEqual(["P9"]);
+});
+
+test("a create cannot be thrown away while an edit of the same record is still queued", async () => {
+  // The survivor would then post an update against a row the sheet has never held — refused when it
+  // gets there, and until then the panel calls it "รอส่งขึ้นเซิร์ฟเวอร์".
+  const repository = makeRepository();
+  const created = await repository.mutate(buildMutationEnvelope({
+    entityType: "segment", operation: "create", machine: "TBM1", recordId: "seg-P100",
+    payload: { id: "seg-P100", ringNo: "P100", installType: "Permanent" }, syncMeta: {},
+  }));
+  await repository.mutate(buildMutationEnvelope({
+    entityType: "segment", operation: "update", machine: "TBM1", recordId: "seg-P100",
+    payload: { id: "seg-P100", ringNo: "P100", installType: "Permanent", note: "แก้ทีหลัง" }, syncMeta: {},
+  }));
+  await repository.updateMutation(created.requestId, { status: "permanent_error", nextAttemptAt: null, lastError: { code: "PERMANENT" } });
+
+  await expect(repository.discardMutation(created.requestId)).rejects.toThrow(/ทิ้งรายการหลังก่อน/);
+});
+
+test("an already reviewed difference cannot be reviewed again", async () => {
+  const repository = makeRepository();
+  const db = await openOfflineDb();
+  await new Promise((resolve, reject) => {
+    const transaction = db.transaction("conflicts", "readwrite");
+    transaction.objectStore("conflicts").put({
+      conflictId: "legacy:tbmIssues:issue:GLOBAL:issue-7", status: "open",
+      reason: "legacy_local_difference", domainKey: "issue:GLOBAL:issue-7",
+      local: { id: "issue-7" }, server: { id: "issue-7" }, legacyKey: "tbmIssues",
+    });
+    transaction.oncomplete = resolve;
+    transaction.onerror = () => reject(transaction.error);
+  });
+  await repository.reviewLegacyDifference("legacy:tbmIssues:issue:GLOBAL:issue-7");
+
+  await expect(repository.reviewLegacyDifference("legacy:tbmIssues:issue:GLOBAL:issue-7")).rejects.toThrow(/Unknown open conflict/);
+});

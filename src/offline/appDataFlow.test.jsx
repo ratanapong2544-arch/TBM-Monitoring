@@ -93,7 +93,7 @@ function optimisticShape(input) {
     ...input,
     domainKey: makeDomainKey(input),
     status: MUTATION_STATUS.PENDING,
-  }, MUTATION_STATUS.PENDING).payload;
+  }).payload;
 }
 
 beforeEach(() => {

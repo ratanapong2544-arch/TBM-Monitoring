@@ -255,7 +255,7 @@ export default function SyncCenter({ open, onClose, summary, load, onSyncNow, on
                   )}
                   {onDiscard && confirmingDiscard === row.requestId && (
                     <div className="mt-2 rounded-input border border-code-d/40 bg-code-d/5 p-2">
-                      <div className="text-xs text-ink mb-2">{discardOutcomeText(row.operation, row.cascadeCount)}</div>
+                      <div className="text-xs text-ink mb-2">{discardOutcomeText(row)}</div>
                       <div className="flex gap-2">
                         <button type="button" onClick={() => { setConfirmingDiscard(null); act(onDiscard, row); }} className="flex-1 px-3 py-1.5 rounded-input text-xs font-semibold bg-code-d text-white">ยืนยันทิ้ง</button>
                         <button type="button" onClick={() => setConfirmingDiscard(null)} className="flex-1 px-3 py-1.5 rounded-input text-xs font-semibold text-ink-2 border border-line">ยกเลิก</button>
@@ -294,7 +294,12 @@ export default function SyncCenter({ open, onClose, summary, load, onSyncNow, on
                 {!conflict.actionable && (
                   <div className="mt-2">
                     <div className="text-xs text-ink-2">ข้อมูลเดิมในเครื่องต่างจากเซิร์ฟเวอร์ — เทียบสองฝั่งด้านบน แล้วแก้ในหน้าบันทึกข้อมูลถ้าต้องแก้</div>
-                    {onReview && (
+                    {/* `!conflict.requestId`, not just `onReview`: `reviewLegacyDifference` throws
+                        for a conflict that HAS a requestId, so an orphaned row — one whose mutation
+                        was pruned after a kill mid-resolution — was given exactly one button, and
+                        that button could only fail. It lists, because the record is what the crew is
+                        deciding about; it simply offers nothing that would throw. */}
+                    {onReview && !conflict.requestId && (
                       <button type="button" onClick={() => act(onReview, conflict)} className="mt-2 px-3 py-1.5 rounded-input text-xs font-semibold border border-navy text-navy">
                         ตรวจแล้ว
                       </button>

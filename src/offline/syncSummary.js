@@ -40,10 +40,12 @@ export function travellingCount(summary) {
  * What discarding this write actually does to the row on screen — which differs by operation, and
  * was written twice and wrong twice before it was written once.
  *
- * A CREATE's row goes: the sheet never had it. A DELETE's row COMES BACK: the delete is what was
- * hiding it. An UPDATE's row stays as it is until the next getData replaces it with the server's.
+ * A CREATE's row goes: the sheet never had it. A DELETE's row comes back — unless another delete is
+ * queued behind it, which the store answers as `restoresRow` on the row itself. An UPDATE's row
+ * stays as it is until the next getData replaces it with the server's.
  */
-export function discardOutcomeText(operation, cascadeCount = 0) {
+export function discardOutcomeText(row) {
+  const { operation, cascadeCount = 0, restoresRow } = row || {};
   if (operation === "create") {
     // The cascade is part of what the crew is consenting to. Discarding a create takes every write
     // still queued for that record with it — they can only ever post an edit against a row the sheet
@@ -52,6 +54,13 @@ export function discardOutcomeText(operation, cascadeCount = 0) {
     const also = cascadeCount > 0 ? ` และรายการอื่นของข้อมูลนี้อีก ${cascadeCount} รายการจะถูกทิ้งไปด้วย` : "";
     return `งานนี้จะไม่ถูกส่งขึ้นเซิร์ฟเวอร์อีก และจะหายไปจากหน้าจอของเครื่องนี้ เพราะยังไม่เคยมีอยู่บนชีต${also}`;
   }
-  if (operation === "delete") return "การลบจะไม่ถูกส่งขึ้นเซิร์ฟเวอร์ — ข้อมูลนี้จะกลับมาแสดงบนหน้าจอ";
+  if (operation === "delete") {
+    // Whether the row really comes back is the STORE's answer, carried on the row as `restoresRow`.
+    // A second delete standing behind this one means the record is still going, and the restore
+    // deliberately does not run — so promising it here was a confirmation the app then broke.
+    return restoresRow === false
+      ? "การลบนี้จะไม่ถูกส่งขึ้นเซิร์ฟเวอร์ — แต่ยังมีคำสั่งลบอีกรายการรออยู่ ข้อมูลนี้จึงยังไม่กลับมาแสดงบนหน้าจอ"
+      : "การลบจะไม่ถูกส่งขึ้นเซิร์ฟเวอร์ — ข้อมูลนี้จะกลับมาแสดงบนหน้าจอ";
+  }
   return "งานนี้จะไม่ถูกส่งขึ้นเซิร์ฟเวอร์อีก — ค่าที่บันทึกไว้จะยังอยู่บนหน้าจอจนกว่าจะดึงข้อมูลจากเซิร์ฟเวอร์ครั้งถัดไป";
 }

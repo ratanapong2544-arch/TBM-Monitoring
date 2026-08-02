@@ -941,7 +941,7 @@ test("the discard confirmation counts every write it takes with it", async () =>
   const row = view.errors.find(item => item.requestId === created.requestId);
 
   expect(row.cascadeCount).toBe(2);
-  expect(discardOutcomeText(row.operation, row.cascadeCount)).toContain("2");
+  expect(discardOutcomeText(row)).toContain("2");
   // and the store really does take them: the count is not decoration
   await repository.discardMutation(created.requestId);
   expect((await repository.getSyncCenter()).pending).toEqual([]);
@@ -1156,4 +1156,67 @@ test("a conflict whose write is gone offers nothing to press", async () => {
 
   expect(orphan).toBeTruthy();
   expect(orphan.actionable).toBe(false);
+});
+
+test("a refused delete stops hiding its record in the STORE, not only in the next getData", async () => {
+  // The merge honoured "on its way it hides, stuck it shows"; the durable store never heard the
+  // transition. Queuing a delete takes the key out of every snapshot list and `readServerSnapshot`
+  // rebuilds each collection from those lists — so with the delete refused the Sync Center said
+  // "เซิร์ฟเวอร์ปฏิเสธ" while the data log, both dashboards and the ring count went on hiding the
+  // ring, across relaunches, until a successful getData. Underground that is the next shift.
+  const repository = makeRepository({
+    fetchServerSnapshot: async () => ({ segments: [{ id: "seg-P92", ringNo: "P92", installType: "Permanent" }] }),
+  });
+  await repository.refresh("TBM1");
+  const removal = await repository.mutate(segment("P92", { operation: "delete" }));
+  expect((await repository.load("TBM1")).data.segments).toEqual([]); // on its way: hidden
+
+  await repository.updateMutation(removal.requestId, { status: "permanent_error", nextAttemptAt: null, lastError: { code: "PERMANENT", message: "ลบไม่ได้" } });
+
+  expect((await repository.load("TBM1")).data.segments.map(row => row.ringNo)).toEqual(["P92"]);
+});
+
+test("a conflicted delete stops hiding its record too", async () => {
+  // The more common refusal, and `hidesRecord` is false for `conflict` as well.
+  const repository = makeRepository({
+    fetchServerSnapshot: async () => ({ segments: [{ id: "seg-P93", ringNo: "P93", installType: "Permanent" }] }),
+  });
+  await repository.refresh("TBM1");
+  const removal = await repository.mutate(segment("P93", { operation: "delete" }));
+
+  await repository.applyConflict(removal.requestId, { status: "conflict", currentVersion: 3, serverRecord: { id: "seg-P93", ringNo: "P93", installType: "Permanent" } });
+
+  expect((await repository.load("TBM1")).data.segments.map(row => row.ringNo)).toEqual(["P93"]);
+});
+
+test("the discard confirmation does not promise a row the store will not put back", async () => {
+  // `restoresRow` is the store's own answer, from the same predicate the restore uses. Answering
+  // from the operation alone promised "ข้อมูลนี้จะกลับมาแสดงบนหน้าจอ" for a delete whose record is
+  // still going, because a second delete stands behind it.
+  const repository = makeRepository({
+    fetchServerSnapshot: async () => ({ segments: [{ id: "seg-P94", ringNo: "P94", installType: "Permanent" }] }),
+  });
+  await repository.refresh("TBM1");
+  const first = await repository.mutate(segment("P94", { operation: "delete" }));
+  await repository.updateMutation(first.requestId, { status: "permanent_error", nextAttemptAt: null, lastError: { code: "PERMANENT", message: "ลบไม่ได้" } });
+  await repository.mutate(segment("P94", { operation: "delete" }));
+
+  const view = await repository.getSyncCenter();
+  const row = view.errors.find(item => item.requestId === first.requestId);
+
+  expect(row.restoresRow).toBe(false);
+  expect(discardOutcomeText(row)).not.toContain("ข้อมูลนี้จะกลับมาแสดงบนหน้าจอ");
+  expect(discardOutcomeText(row)).toContain("ยังมีคำสั่งลบอีกรายการรออยู่");
+});
+
+test("keeping the server's row stamps the history in the same transaction that confirms it", async () => {
+  // The stamp followed in a second transaction, so a kill in between left a SYNCED mutation with no
+  // strategy — which ประวัติ then lists as "ซิงก์สำเร็จ" for a write that never reached the sheet.
+  const repository = makeRepository();
+  const queued = await repository.mutate(segment("P95"));
+  await repository.applyConflict(queued.requestId, { status: "conflict", currentVersion: 2, serverRecord: { id: "seg-P95" } });
+
+  await repository.resolveConflict(queued.requestId, { strategy: "server" });
+
+  expect((await repository.getMutation(queued.requestId))).toMatchObject({ status: "synced", strategy: "server" });
 });

@@ -295,8 +295,32 @@ export async function claimDueMutations(db, { owner, now, leaseMs }) {
   return claimed;
 }
 
+/**
+ * A delete that has stopped hiding its record puts the record's key back.
+ *
+ * "On its way it hides; stuck it shows" was enforced on the getData path alone. Queuing a delete
+ * takes the record's key out of every snapshot list, and `readServerSnapshot` rebuilds each
+ * collection from those lists — so once the server REFUSED the delete, the Sync Center said
+ * "เซิร์ฟเวอร์ปฏิเสธ" while the data log, both dashboards and the ring count went on hiding the
+ * record, across relaunches, until a successful getData. Underground that is the next shift, and it
+ * is one record answered two opposite ways on two screens.
+ *
+ * Every function that can change a mutation's status calls this — `updateMutation` and
+ * `saveConflict`, the refusal and the conflict — because a rule with two entrances and one guard is
+ * how this branch has lost a fix in every review round.
+ */
+async function restoreIfNoLongerHiding(transaction, mutation, next) {
+  if (mutation.operation !== "delete" || hidesRecord(next)) return;
+  const snapshots = transaction.objectStore(STORES.snapshots);
+  const stored = await requestResult(snapshots.getAll());
+  restoreDeletedKey(snapshots, stored, mutation, optimisticEntityKey(mutation.domainKey, mutation.recordId), next);
+}
+
 export async function updateMutation(db, requestId, update, { owner } = {}) {
-  const transaction = db.transaction(STORES.mutations, "readwrite");
+  // The snapshot stores are in scope for one case only — a delete that stops hiding its record, see
+  // below — but a transaction's stores are fixed when it opens, so they are named here and left
+  // unread for every other write.
+  const transaction = db.transaction([STORES.mutations, STORES.entities, STORES.snapshots], "readwrite");
   const store = transaction.objectStore(STORES.mutations);
   const mutation = await requestResult(store.get(requestId));
   if (!mutation) {
@@ -309,12 +333,13 @@ export async function updateMutation(db, requestId, update, { owner } = {}) {
   }
   const nextStatus = update.status || mutation.status;
   const next = { ...mutation, ...update, ...(nextStatus === MUTATION_STATUS.SYNCING ? {} : { syncOwner: null, leaseExpiresAt: null }) };
+  await restoreIfNoLongerHiding(transaction, mutation, next);
   store.put(next);
   await complete(transaction);
   return next;
 }
 
-export async function confirmMutation(db, requestId, response, { owner, confirmedAtLocal, resolvesToDeleted } = {}) {
+export async function confirmMutation(db, requestId, response, { owner, confirmedAtLocal, resolvesToDeleted, strategy } = {}) {
   // whether the record is gone afterwards. The caller decides, because a conflict resolved in the
   // server's favour replays this path with the server's record and the operation no longer says.
   const leavesDeleted = mutation => (resolvesToDeleted ? resolvesToDeleted(mutation, response) : mutation.operation === "delete");
@@ -341,7 +366,10 @@ export async function confirmMutation(db, requestId, response, { owner, confirme
   // OPERATION, so a delete the crew resolved by keeping the server's row — the button that means
   // KEEP THE RING — still read as a delete there, and a getData already in flight dropped the ring
   // from the data log, both dashboards and the ring count until the next successful one.
-  const next = { ...mutation, status: MUTATION_STATUS.SYNCED, leavesDeleted: leavesDeleted(mutation), version: response.version ?? null, syncedAt: response.updatedAt || null, confirmedAtLocal: confirmedAtLocal || null, lastError: null, syncOwner: null, leaseExpiresAt: null };
+  // `strategy` rides along rather than following in a second transaction: a kill between the two
+  // left a SYNCED mutation with no strategy, which ประวัติ then lists as "ซิงก์สำเร็จ" for a write
+  // that never reached the sheet.
+  const next = { ...mutation, status: MUTATION_STATUS.SYNCED, ...(strategy ? { strategy } : {}), leavesDeleted: leavesDeleted(mutation), version: response.version ?? null, syncedAt: response.updatedAt || null, confirmedAtLocal: confirmedAtLocal || null, lastError: null, syncOwner: null, leaseExpiresAt: null };
   mutationStore.put(next);
   // Rebase what is still queued behind this one on the same record. Offline, a whole chain of edits
   // is stamped with the only version the device knows — the one the last full snapshot carried, or 0
@@ -447,7 +475,9 @@ export async function confirmMutation(db, requestId, response, { owner, confirme
 }
 
 export async function saveConflict(db, requestId, response, { owner } = {}) {
-  const transaction = db.transaction([STORES.mutations, STORES.conflicts], "readwrite");
+  // entities and snapshots for `restoreIfNoLongerHiding`: a CONFLICTED delete has stopped hiding its
+  // record too, and conflict is the commoner refusal of the two.
+  const transaction = db.transaction([STORES.mutations, STORES.conflicts, STORES.entities, STORES.snapshots], "readwrite");
   const mutations = transaction.objectStore(STORES.mutations);
   const conflicts = transaction.objectStore(STORES.conflicts);
   const mutation = await requestResult(mutations.get(requestId));
@@ -471,7 +501,9 @@ export async function saveConflict(db, requestId, response, { owner } = {}) {
     currentUpdatedByDevice: response.currentUpdatedByDevice ?? null,
     createdAt: mutation.createdAtLocal,
   };
-  mutations.put({ ...mutation, status: MUTATION_STATUS.CONFLICT, lastError: null, syncOwner: null, leaseExpiresAt: null });
+  const next = { ...mutation, status: MUTATION_STATUS.CONFLICT, lastError: null, syncOwner: null, leaseExpiresAt: null };
+  await restoreIfNoLongerHiding(transaction, mutation, next);
+  mutations.put(next);
   conflicts.put(conflict);
   await complete(transaction);
   return conflict;
@@ -619,6 +651,13 @@ export function cascadeOf(mutations, mutation) {
   return mutation.operation === "create" ? followersOf(mutations, mutation) : [];
 }
 
+// The write that speaks for the record once THIS one is gone: the newest still queued for it. Both
+// the discard itself and the confirmation the crew reads have to agree on which row that is.
+export function newestFollower(mutations, mutation) {
+  return [...followersOf(mutations, mutation)]
+    .sort((left, right) => (right.queueSequence || 0) - (left.queueSequence || 0))[0] || null;
+}
+
 export function followersOf(mutations, mutation) {
   return mutations.filter(item => item.requestId !== mutation.requestId
     && item.domainKey === mutation.domainKey
@@ -716,6 +755,11 @@ export async function getSyncCenterView(db, { recentLimit = 50 } = {}) {
     // how many other queued writes go with it if this one is discarded — nothing for anything but a
     // create, since only a create's followers cascade
     cascadeCount: cascadeOf(mutations, item).length,
+    // Whether discarding this one really puts the record back on screen. The confirmation used to
+    // answer from the operation alone and promised "ข้อมูลนี้จะกลับมาแสดงบนหน้าจอ" for every delete
+    // — but a second delete standing behind this one means the record is still going, and the store
+    // deliberately does not restore it. Answered where the rule lives, with the same predicate.
+    restoresRow: item.operation !== "delete" || !hidesRecord(newestFollower(mutations, item)),
     attemptCount: item.attemptCount || 0,
     nextAttemptAt: item.nextAttemptAt || null,
     lastError: item.lastError || null,
@@ -754,6 +798,7 @@ export async function getSyncCenterView(db, { recentLimit = 50 } = {}) {
         requestId: conflict.requestId || null,
         operation: mutation ? mutation.operation : null,
         cascadeCount: mutation ? cascadeOf(mutations, mutation).length : 0,
+        restoresRow: !mutation || mutation.operation !== "delete" || !hidesRecord(newestFollower(mutations, mutation)),
         // No mutation behind it means the write actions do not apply: nothing to resolve through the
         // queue and nothing to discard. A legacy staged difference is reviewed, not resolved.
         // The MUTATION, not the id: the line above contemplates a conflict whose mutation is gone,
@@ -904,9 +949,7 @@ export async function discardMutation(db, requestId, { discardedAt } = {}) {
     ...item, status: MUTATION_STATUS.DISCARDED, discardedAt: discardedAt || null,
     syncOwner: null, leaseExpiresAt: null, nextAttemptAt: null,
   }));
-  const survivor = [...followers]
-    .filter(item => !cascaded.includes(item))
-    .sort((left, right) => (right.queueSequence || 0) - (left.queueSequence || 0))[0];
+  const survivor = newestFollower(followers.filter(item => !cascaded.includes(item)), { requestId: null, domainKey: mutation.domainKey, recordId: mutation.recordId });
   if (survivor) {
     entities.put(optimisticEntity(survivor));
   } else if (mutation.operation === "create") {

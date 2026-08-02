@@ -180,7 +180,7 @@ export function createRepository(deps = {}) {
       await applySyncSuccess(
         conflict.requestId,
         { record: conflict.serverRecord, version: conflict.currentVersion, updatedAt: conflict.serverRecord && conflict.serverRecord.updatedAt },
-        { fromServerRecord: true },
+        { fromServerRecord: true, strategy },
       );
       await resolveStoredConflict(db, conflictId, { resolvedAt: now(), strategy, before, after: conflict.serverRecord });
       // Announced like the other two strategies. Without this the one branch that means KEEP THE
@@ -188,9 +188,6 @@ export function createRepository(deps = {}) {
       // event, which is not what a screen re-read listens for, so the ring came back in the store
       // and stayed off the data log.
       emit({ type: "conflict", requestId: conflict.requestId, conflictId, status: "resolved" });
-      // stamped so the history can say the crew's values were dropped in favour of the server's,
-      // rather than listing it beside the writes that actually reached the sheet
-      await updateMutation(db, conflict.requestId, { strategy });
       return { status: "resolved" };
     }
     if (strategy === "manual" && (!payload || typeof payload !== "object")) throw new Error("Manual conflict resolution requires payload");

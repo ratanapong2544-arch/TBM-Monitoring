@@ -400,6 +400,13 @@ export async function confirmMutation(db, requestId, response, { owner, confirme
     .sort((left, right) => (right.queueSequence || 0) - (left.queueSequence || 0))[0];
   if (newestOutstanding) {
     entityStore.put(optimisticEntity(newestOutstanding));
+    // The same hole round 11 closed in `discardMutation`, in the sibling function that shares this
+    // helper: the restore sat in the LAST branch only. So "เก็บของเซิร์ฟเวอร์" on a conflicted
+    // delete — the button that means KEEP THE RING — put the row back and left it named by no
+    // snapshot whenever anything else was still queued for that record, which is exactly what a
+    // retry or a resolution successor is. `patchSnapshotSyncMeta` above is outside the branches and
+    // this was not, so the version was remembered for a ring that had vanished from the data log.
+    restoreDeletedKey(snapshotStoreHandle, snapshots, mutation, optimisticEntityKey(mutation.domainKey, mutation.recordId), newestOutstanding);
   } else if (confirmedLeavesDeleted) {
     // a confirmed delete has no row left to describe. Writing one would leave an entity nothing
     // points at — `patchSnapshotKeys` took its key out of the list when the delete was queued — and
@@ -813,8 +820,14 @@ export async function getSyncCenterView(db, { recentLimit = 50 } = {}) {
  * underground is the next shift. One function because it was two before, and the second one was
  * written a review round after the first.
  */
-function restoreDeletedKey(snapshots, stored, mutation, optimisticKey) {
+function restoreDeletedKey(snapshots, stored, mutation, optimisticKey, standingRow) {
   if (!snapshots || mutation.operation !== "delete") return;
+  // `standingRow` is the write whose values the entity row now holds — the newest one still queued
+  // for that record. If IT is a delete, the record is going after all and naming it again would put
+  // a row back on the data log that the crew has asked twice to remove. The module's rule everywhere
+  // else is that the newest write speaks for the row; this is that rule, decided in the one place
+  // that knows whether the key comes back rather than spelled at each call site.
+  if (standingRow && standingRow.operation === "delete") return;
   const field = FIELD_FOR_ENTITY_TYPE.get(mutation.entityType);
   if (!field) return;
   // `scopesFor`, not every stored snapshot: a machine-scoped ring belongs to its own machine's list
@@ -903,7 +916,7 @@ export async function discardMutation(db, requestId, { discardedAt } = {}) {
   // row back and left it named by no snapshot: gone from the data log, both dashboards and the ring
   // count, across relaunches, while the confirmation the crew had just read said the opposite.
   // `restoreDeletedKey` no-ops for anything but a delete and for a key already named.
-  if (survivor || kept) restoreDeletedKey(snapshots, stored, mutation, optimisticKey);
+  if (survivor || kept) restoreDeletedKey(snapshots, stored, mutation, optimisticKey, survivor);
   // every request this discard covers, not only the one the crew tapped: a cascaded follower can
   // hold its own open conflict, and leaving it open is a row whose buttons can then only throw
   openConflicts.forEach(conflict => {

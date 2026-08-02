@@ -1,7 +1,7 @@
 import "fake-indexeddb/auto";
 if (!global.structuredClone) global.structuredClone = value => JSON.parse(JSON.stringify(value));
 import { closeOfflineDb, deleteOfflineDbForTests, openOfflineDb } from "./db";
-import { claimDueMutations, getConflict, getEntity, getMutation, listDueMutations, putOptimisticMutation, splitByBlocked, updateMutation } from "./mutationStore";
+import { claimDueMutations, getConflict, getEntity, getMutation, getSyncCounts, listDueMutations, putOptimisticMutation, splitByBlocked, updateMutation } from "./mutationStore";
 
 beforeEach(async () => { await deleteOfflineDbForTests(); });
 afterEach(async () => { await deleteOfflineDbForTests(); });
@@ -89,4 +89,19 @@ test("a queued write behind a stuck head is blocked whether or not it is already
 
   expect(split.blocked.map(row => row.requestId)).toEqual(["b", "c"]);
   expect(split.moving.map(row => row.requestId)).toEqual(["d", "e"]);
+});
+
+test("the status button's blocked count comes from the same split as the panel's list", async () => {
+  // `getSyncCounts` had its own PENDING-only filter; re-inlining one leaves every repository-level
+  // test green, because the runner cannot put a SYNCING row behind a stuck head. The store can, so
+  // the counts can be asked directly — which is the only way this rule is pinnable at all.
+  const db = await openOfflineDb();
+  const head = { ...mutation, requestId: "req-head", recordId: "segment-1" };
+  const behind = { ...mutation, requestId: "req-behind", recordId: "segment-1" };
+  await putOptimisticMutation(db, head);
+  await putOptimisticMutation(db, behind);
+  await updateMutation(db, head.requestId, { status: "conflict", nextAttemptAt: null });
+  await updateMutation(db, behind.requestId, { status: "syncing" });
+
+  await expect(getSyncCounts(db)).resolves.toMatchObject({ blocked: 1, pending: 0 });
 });

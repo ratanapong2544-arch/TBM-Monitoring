@@ -446,10 +446,11 @@ test("a route config is project-wide and reaches every machine's snapshot", () =
   expect(snapshot.routeProjectTotal).toBe(13600);
 });
 
-test("the merged view is handed over before the write can fail", async () => {
-  // `writeServerSnapshot` is the only place that knows how the sheet's rows and this device's queued
-  // ones become one view. A caller whose commit dies on quota still has to render that view — see
-  // `refresh`'s catch — so the merge is handed over before the put, not returned after it.
+test("the merged view handed over is the same one the caller would have got back", async () => {
+  // WHEN it is handed over is the sibling test below, with a commit that actually fails — this one
+  // would stay green with the handover moved after the commit, and saying otherwise in its title is
+  // how a test comes to be trusted for a rule it does not check. What this pins is the CONTENT: the
+  // view carries this device's queued rows, and it is the same object the success path returns.
   const db = await openOfflineDb();
   await putOptimisticMutation(db, {
     requestId: "request-merge-1", entityType: "segment", operation: "create", machine: "TBM1",

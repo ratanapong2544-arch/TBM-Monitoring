@@ -1074,3 +1074,44 @@ test("a reviewed legacy difference does not claim it rewrote a record", async ()
   expect(events.some(event => event.type === "conflict" && event.status === "resolved")).toBe(false);
   expect(events.some(event => event.type === "conflict" && event.status === "reviewed")).toBe(true);
 });
+
+test("keeping the server's row on a conflicted delete puts the record back even with a write still queued", async () => {
+  // The round-11 hole, in the sibling function: `confirmMutation`'s restore sat in the last branch
+  // only, so whenever anything was still queued for the record — which is what a retry or a
+  // resolution successor is — the row came back named by no snapshot. `patchSnapshotSyncMeta` is
+  // outside the branches, so the device remembered the version of a ring that had left the data log.
+  // The successor must come from a Sync Center button: `mutate` patches the snapshot by itself.
+  const repository = makeRepository({
+    fetchServerSnapshot: async () => ({ segments: [{ id: "seg-P50", ringNo: "P50", installType: "Permanent" }] }),
+  });
+  await repository.refresh("TBM1");
+  const edit1 = await repository.mutate(segment("P50", { payload: { ringNo: "P50", installType: "Permanent", grade: "B" } }));
+  const removal = await repository.mutate(segment("P50", { operation: "delete" }));
+  await repository.updateMutation(edit1.requestId, { status: "validation_error", nextAttemptAt: null, lastError: { code: "VALIDATION", message: "grade ไม่ถูกต้อง" } });
+  await repository.retryMutation(edit1.requestId, { payload: { id: "seg-P50", ringNo: "P50", installType: "Permanent", grade: "C" } });
+  await repository.applyConflict(removal.requestId, { status: "conflict", currentVersion: 9, serverRecord: { id: "seg-P50", ringNo: "P50", installType: "Permanent" } });
+
+  await repository.resolveConflict(removal.requestId, { strategy: "server" });
+
+  const cached = await repository.load("TBM1");
+  expect(cached.data.segments.map(row => row.ringNo)).toEqual(["P50"]);
+});
+
+test("a record the crew has asked twice to delete does not come back when the first delete is discarded", async () => {
+  // "the record is staying" is the newest queued write's answer, not the discarded one's. A second
+  // delete standing behind the first means it is going, and naming its key again would put it back
+  // on the data log after the crew asked to remove it twice.
+  const repository = makeRepository({
+    fetchServerSnapshot: async () => ({ segments: [{ id: "seg-P56", ringNo: "P56", installType: "Permanent" }] }),
+  });
+  await repository.refresh("TBM1");
+  const first = await repository.mutate(segment("P56", { operation: "delete" }));
+  await repository.updateMutation(first.requestId, { status: "permanent_error", nextAttemptAt: null, lastError: { code: "PERMANENT", message: "ลบไม่ได้" } });
+  // a stuck delete stops hiding the row, so the crew sees it again and asks a second time
+  await repository.mutate(segment("P56", { operation: "delete" }));
+
+  await repository.discardMutation(first.requestId);
+
+  const cached = await repository.load("TBM1");
+  expect(cached.data.segments).toEqual([]);
+});

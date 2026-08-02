@@ -207,9 +207,21 @@ export async function writeServerSnapshot(db, machine, data, fetchedAt, requeste
     // `mutationStore` that has to answer the same question about the same row.
     return hidesRecord(unresolvedByRecord.get(slot));
   };
-  const preserveLocal = record => Boolean(unresolvedStatus(record))
-    || Boolean(confirmedAfterRequest.get(slotForRow(record)))
-    || (!terminalRecords.has(slotForRow(record)) && UNRESOLVED_STATUSES.has(record.payload && record.payload.syncStatus));
+  // A stuck delete's local copy has nothing worth preserving. `hiddenByDelete` above already says
+  // it in this same function — "that copy is a tombstone, not a value" — and enforces it on its own
+  // path; `preserveLocal` keys off STATUS, so a refused or conflicted delete counted as unresolved
+  // work and its payload beat every incoming server row. It only became reachable when the refused
+  // delete's key came back: the ring then rendered, and rendered from the tombstone. For a
+  // CONFLICTED delete the server has moved on by definition, so the data log showed values the
+  // conflict panel one tap away was already contradicting.
+  const isStuckDeleteCopy = record => {
+    const mutation = unresolvedByRecord.get(slotForRow(record));
+    return Boolean(mutation) && mutation.operation === "delete" && !hidesRecord(mutation);
+  };
+  const preserveLocal = record => !isStuckDeleteCopy(record)
+    && (Boolean(unresolvedStatus(record))
+      || Boolean(confirmedAfterRequest.get(slotForRow(record)))
+      || (!terminalRecords.has(slotForRow(record)) && UNRESOLVED_STATUSES.has(record.payload && record.payload.syncStatus)));
   // The local copy of ONE record: its queued copy if it has one, else whatever the last refresh
   // cached for it. Answering this per ring gave every row of a ring the same copy, so the rest were
   // dropped from the merge and their keys — and their queued rows — deleted with them.

@@ -1,6 +1,6 @@
 import { makeDomainKey } from "./domainKey";
 import { isLegacyOptimisticKey, isOptimisticKey, optimisticEntityKey, optimisticRecordIdOf } from "./entityKeys";
-import { DB_NAME, DB_VERSION, MUTATION_STATUS, STORES } from "./schema";
+import { DB_NAME, DB_VERSION, MUTATION_STATUS, STORES, hidesRecord } from "./schema";
 import { FIELD_FOR_ENTITY_TYPE, isMachineScopedEntityType, newestUnresolvedByRecord } from "./snapshotStore";
 
 let openDbPromise;
@@ -57,14 +57,11 @@ function recordScopeOptimisticKeys(transaction) {
 // unresolved mutation for the RECORD, which is where the lease test and the newest-wins ordering
 // live. Written out separately here, either copy could be changed with the other half's tests still
 // green, and a device state where the upgrade hides a row the first refresh shows is one rule
-// disagreeing with itself. What is left here is the only part that differs: PENDING/SYNCING is the
-// whole of "on its way", so in flight it hides and stuck it shows. A delete the server refused is
-// not travelling anywhere, and hiding its row would take a record off every screen on this device
-// while it sits on the sheet, with nothing to see and nothing to press before Task 10.
+// disagreeing with itself. The rest is `hidesRecord` — this held a fourth inline copy of it, which
+// is the shape that has cost this branch a fix in most review rounds.
 function tombstonedKeys(mutations, canonicalDomainKey, now) {
   return new Set([...newestUnresolvedByRecord(mutations, canonicalDomainKey, now).values()]
-    .filter(mutation => mutation.operation === "delete"
-      && (mutation.status === MUTATION_STATUS.PENDING || mutation.status === MUTATION_STATUS.SYNCING))
+    .filter(mutation => hidesRecord(mutation, now))
     .map(mutation => optimisticEntityKey(canonicalDomainKey(mutation), mutation.recordId)));
 }
 

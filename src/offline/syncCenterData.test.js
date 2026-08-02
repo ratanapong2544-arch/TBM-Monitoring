@@ -1056,6 +1056,38 @@ test("discarding a create does not throw away another record's queued write on t
   expect((await repository.getMutation(theirs.requestId)).status).toBe("pending");
 });
 
+test("a conflict whose write is gone can be cleared by reviewing it", async () => {
+  // It has no mutation, so the three write actions cannot apply — and refusing the review as well
+  // left it counted in "ต้องแก้" for the life of the install with no button that works. The MUTATION
+  // decides, not the id.
+  const repository = makeRepository();
+  const db = await openOfflineDb();
+  await new Promise((resolve, reject) => {
+    const tx = db.transaction("conflicts", "readwrite");
+    tx.objectStore("conflicts").put({
+      conflictId: "orphan-2", requestId: "request-vanished", status: "open",
+      domainKey: "segment:TBM1:P58:Permanent", entityType: "segment", machine: "TBM1", recordId: "seg-P58",
+      localRecord: { ringNo: "P58" }, serverRecord: { ringNo: "P58" },
+    });
+    tx.oncomplete = resolve; tx.onerror = () => reject(tx.error);
+  });
+  expect((await repository.getSyncSummary()).conflicts).toBe(1);
+
+  await repository.reviewLegacyDifference("orphan-2");
+
+  expect((await repository.getSyncSummary()).conflicts).toBe(0);
+});
+
+test("a conflict whose write is still queued cannot be waved away as reviewed", async () => {
+  // Reviewing means "I compared the two by hand". A row that still has a write behind it has to be
+  // decided, or the write sits unposted under a conflict the panel says is dealt with.
+  const repository = makeRepository();
+  const queued = await repository.mutate(segment("P59"));
+  await repository.applyConflict(queued.requestId, { status: "conflict", currentVersion: 2, serverRecord: { id: "seg-P59" } });
+
+  await expect(repository.reviewLegacyDifference(queued.requestId)).rejects.toThrow();
+});
+
 test("a reviewed legacy difference does not claim it rewrote a record", async () => {
   // `resolved` is the screen's word for "the stored row changed, re-read it". A review writes to the
   // conflicts store and nothing else.
@@ -1344,4 +1376,69 @@ test("keeping the server's row closes the conflict in the same breath as the con
 
   expect((await repository.getConflict(queued.requestId)).status).toBe("resolved");
   expect((await repository.getSyncCenter()).conflicts).toEqual([]);
+});
+
+test("a refused delete's row shows the sheet's values, not the copy the delete was carrying", async () => {
+  // `hiddenByDelete` says it in the merge — "that copy is a tombstone, not a value" — and
+  // `preserveLocal` keyed off STATUS, so a refused delete counted as unresolved work and its payload
+  // beat every incoming server row. It only became reachable once the refused delete's key came
+  // back: the ring rendered, and rendered from the tombstone. For a CONFLICTED delete the server has
+  // moved on by definition, so the data log contradicted the conflict panel one tap away.
+  let sheet = [{ id: "seg-P104", ringNo: "P104", installType: "Permanent", grade: "v1" }];
+  const repository = makeRepository({ fetchServerSnapshot: async () => ({ segments: sheet }) });
+  await repository.refresh("TBM1");
+  const removal = await repository.mutate(segment("P104", { operation: "delete", payload: { ringNo: "P104", installType: "Permanent", grade: "v1" } }));
+  await repository.updateMutation(removal.requestId, { status: "permanent_error", nextAttemptAt: null, lastError: { code: "PERMANENT", message: "ลบไม่ได้" } });
+
+  sheet = [{ id: "seg-P104", ringNo: "P104", installType: "Permanent", grade: "v2" }];
+  await repository.refresh("TBM1");
+
+  const rows = (await repository.load("TBM1")).data.segments;
+  expect(rows.map(row => row.ringNo)).toEqual(["P104"]);
+  expect(rows[0].grade).toBe("v2");
+});
+
+test("a ring whose refused delete survived a refresh is named once, not twice", async () => {
+  // The refresh puts the SERVER key back in the list; the restore then asked only about its own
+  // optimistic key and added a second name for one ring. "Already named" is a question about the
+  // RECORD, the way `patchSnapshotKeys` asks it.
+  const repository = makeRepository({
+    fetchServerSnapshot: async () => ({ segments: [{ id: "seg-P105", ringNo: "P105", installType: "Permanent" }] }),
+  });
+  await repository.refresh("TBM1");
+  const removal = await repository.mutate(segment("P105", { operation: "delete" }));
+  await repository.updateMutation(removal.requestId, { status: "permanent_error", nextAttemptAt: null, lastError: { code: "PERMANENT", message: "ลบไม่ได้" } });
+  await repository.refresh("TBM1");
+
+  await repository.updateMutation(removal.requestId, { status: "validation_error", nextAttemptAt: null, lastError: { code: "VALIDATION", message: "ยังลบไม่ได้" } });
+
+  expect((await repository.load("TBM1")).data.segments.map(row => row.ringNo)).toEqual(["P105"]);
+});
+
+test("keeping the server's row confirms and closes in ONE transaction", async () => {
+  // The end state was the same under the two-transaction form this replaced, so asserting it pinned
+  // nothing. What only one transaction can give is that no window exists between them — recorded
+  // here from the store scopes the resolution actually opens.
+  const scopes = [];
+  const repository = makeRepository({
+    openDb: async () => {
+      const db = await openOfflineDb();
+      if (db.__scopeTracked) return db;
+      const real = db.transaction.bind(db);
+      db.transaction = (stores, mode) => { scopes.push({ stores: [].concat(stores), mode }); return real(stores, mode); };
+      db.__scopeTracked = true;
+      return db;
+    },
+  });
+  const queued = await repository.mutate(segment("P106"));
+  await repository.applyConflict(queued.requestId, { status: "conflict", currentVersion: 2, serverRecord: { id: "seg-P106" } });
+  scopes.length = 0;
+
+  await repository.resolveConflict(queued.requestId, { strategy: "server" });
+
+  const writes = scopes.filter(entry => entry.mode === "readwrite");
+  expect(writes.some(entry => entry.stores.includes("mutations") && entry.stores.includes("conflicts"))).toBe(true);
+  // and nothing WRITES the conflict on its own afterwards — a readonly look-up is not a window
+  expect(writes.filter(entry => entry.stores.includes("conflicts") && !entry.stores.includes("mutations"))).toEqual([]);
+  expect((await repository.getConflict(queued.requestId)).status).toBe("resolved");
 });

@@ -405,7 +405,12 @@ export function createRepository(deps = {}) {
       const db = await openDb();
       const conflict = await getConflict(db, conflictId);
       if (!conflict || conflict.status !== "open") throw new Error(`Unknown open conflict ${conflictId}`);
-      if (conflict.requestId) throw new Error(`Conflict ${conflictId} เป็นรายการที่รอส่ง — ต้องเลือกว่าจะเก็บของใคร`);
+      // The MUTATION, not the id. A conflict whose write is gone — pruned after a device was killed
+      // mid-resolution by an older build — has nothing to choose between either, and refusing it
+      // here left it counted in "ต้องแก้" for the life of the install with no button that works.
+      if (conflict.requestId && await getMutation(db, conflict.requestId)) {
+        throw new Error(`Conflict ${conflictId} เป็นรายการที่รอส่ง — ต้องเลือกว่าจะเก็บของใคร`);
+      }
       await resolveStoredConflict(db, conflictId, { resolvedAt: now(), strategy: "reviewed", before: { serverRecord: conflict.server, localRecord: conflict.local }, after: null });
       // `reviewed`, not `resolved`: this writes to the conflicts store and nothing else, so the
       // screen has nothing to re-read. `resolved` is the predicate's word for "the stored row was

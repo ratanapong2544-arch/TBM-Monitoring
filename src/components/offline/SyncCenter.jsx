@@ -294,12 +294,12 @@ export default function SyncCenter({ open, onClose, summary, load, onSyncNow, on
                 {!conflict.actionable && (
                   <div className="mt-2">
                     <div className="text-xs text-ink-2">ข้อมูลเดิมในเครื่องต่างจากเซิร์ฟเวอร์ — เทียบสองฝั่งด้านบน แล้วแก้ในหน้าบันทึกข้อมูลถ้าต้องแก้</div>
-                    {/* `!conflict.requestId`, not just `onReview`: `reviewLegacyDifference` throws
-                        for a conflict that HAS a requestId, so an orphaned row — one whose mutation
-                        was pruned after a kill mid-resolution — was given exactly one button, and
-                        that button could only fail. It lists, because the record is what the crew is
-                        deciding about; it simply offers nothing that would throw. */}
-                    {onReview && !conflict.requestId && (
+                    {/* This branch is `!actionable`, which means there is no mutation behind the row
+                        — either a legacy staged difference or a write that was pruned after a kill
+                        mid-resolution. `reviewLegacyDifference` accepts both, so both get the one
+                        action they have; before it did, the second kind was counted in "ต้องแก้" for
+                        the life of the install with no button that could clear it. */}
+                    {onReview && (
                       <button type="button" onClick={() => act(onReview, conflict)} className="mt-2 px-3 py-1.5 rounded-input text-xs font-semibold border border-navy text-navy">
                         ตรวจแล้ว
                       </button>

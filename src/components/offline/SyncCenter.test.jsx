@@ -465,10 +465,10 @@ test("a refused row with no error attached does not take the panel down with it"
   view.unmount();
 });
 
-test("a conflict whose write is gone is not offered the review button, which would only throw", async () => {
-  // `reviewLegacyDifference` refuses any conflict that has a requestId. An orphan — a row whose
-  // mutation was pruned after a kill mid-resolution — is not actionable either, so it used to get
-  // exactly one button and that button could only fail, leaving the conflict count stuck for good.
+test("a conflict whose write is gone can still be cleared", async () => {
+  // It has no mutation, so the three write actions do not apply — but it must not sit in "ต้องแก้"
+  // for the life of the install either. `reviewLegacyDifference` accepts it now (it asks for the
+  // MUTATION, not the id), so the row gets the one action it has.
   const load = jest.fn(async () => ({
     ...emptyView,
     conflicts: [{
@@ -477,11 +477,14 @@ test("a conflict whose write is gone is not offered the review button, which wou
       localRecord: { ringNo: "P57" }, serverRecord: { ringNo: "P57" },
     }],
   }));
-  const view = mount({ load, onReview: jest.fn() });
+  const onReview = jest.fn();
+  const view = { ...mount({ load, onReview }), onReview };
   await act(async () => {});
   await click(button(view.container, /ขัดแย้ง/));
 
   expect(view.container.textContent).toContain("P57");
-  expect(button(view.container, /ตรวจแล้ว/)).toBeUndefined();
+  expect(button(view.container, /เก็บของเซิร์ฟเวอร์/)).toBeUndefined(); // no mutation to resolve through
+  await click(button(view.container, /ตรวจแล้ว/));
+  expect(view.onReview).toHaveBeenCalled();
   view.unmount();
 });

@@ -368,10 +368,12 @@ export async function confirmMutation(db, requestId, response, { owner, confirme
   const mutationStore = transaction.objectStore(STORES.mutations);
   const entityStore = transaction.objectStore(STORES.entities);
   const snapshotStoreHandle = transaction.objectStore(STORES.snapshots);
-  const [mutation, mutations, snapshots] = await Promise.all([
+  const conflictStore = closeConflict ? transaction.objectStore(STORES.conflicts) : null;
+  const [mutation, mutations, snapshots, storedConflict] = await Promise.all([
     requestResult(mutationStore.get(requestId)),
     requestResult(mutationStore.getAll()),
     requestResult(snapshotStoreHandle.getAll()),
+    conflictStore ? requestResult(conflictStore.get(closeConflict.conflictId)) : null,
   ]);
   if (!mutation) { transaction.abort(); throw new Error(`Unknown mutation ${requestId}`); }
   if (owner && (mutation.status !== MUTATION_STATUS.SYNCING || mutation.syncOwner !== owner)) {
@@ -491,11 +493,9 @@ export async function confirmMutation(db, requestId, response, { owner, confirme
     // counter reading zero, until a successful getData.
     restoreDeletedKey(snapshotStoreHandle, snapshots, mutation, optimisticEntityKey(mutation.domainKey, mutation.recordId));
   }
-  if (closeConflict) {
-    const conflicts = transaction.objectStore(STORES.conflicts);
-    const stored = await requestResult(conflicts.get(closeConflict.conflictId));
-    if (stored) conflicts.put({ ...stored, ...closeConflict.update, status: "resolved" });
-  }
+  // read in the opening batch like everything else — this module states the rule three times and
+  // `discardMutation` follows it verbatim
+  if (storedConflict) conflictStore.put({ ...storedConflict, ...closeConflict.update, status: "resolved" });
   await complete(transaction);
   return next;
 }
@@ -925,8 +925,11 @@ function restoreDeletedKey(snapshots, stored, mutation, optimisticKey, standingR
     const keys = (snapshot.entityKeys && snapshot.entityKeys[field]) || [];
     // Already named: adding it again renders the ring twice. Reachable — `deletePending` does not
     // hide a delete that is stuck, so any refresh while it sits conflicted puts the key back, and
-    // the crew is online by definition to have received that conflict.
-    if (keys.includes(optimisticKey)) return;
+    // the crew is online by definition to have received that conflict. Asked about the RECORD, the
+    // way `patchSnapshotKeys` asks it: after such a refresh the list holds the SERVER key for this
+    // record, not the optimistic one, and comparing only the optimistic key added a second name for
+    // one ring — the duplicate row this whole feature exists to prevent.
+    if (keys.some(key => entityKeyForRecord(key, mutation.domainKey, mutation.recordId))) return;
     // MUTATED, then put. `confirmMutation` writes this same snapshot twice in one transaction —
     // `patchSnapshotSyncMeta` first, this second — and an IndexedDB `put` replaces the whole record.
     // The two are safe together only because BOTH mutate the object read at the top of the

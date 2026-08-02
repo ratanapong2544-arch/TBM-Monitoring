@@ -733,8 +733,9 @@ test("a getData in flight does not drop the ring the crew chose to keep", async 
 });
 
 test("the restored key is added once, and only to the machines that own the record", async () => {
-  // Two guards inside the restore, both load-bearing: without the dedupe a refresh-then-discard
-  // renders the ring twice, and without `scopesFor` a TBM1 ring appears on TBM2's data log.
+  // `scopesFor`: without it a TBM1 ring appears on TBM2's data log. The dedupe is exercised by the
+  // test below, which puts a refresh between the conflict and the resolution — this one has no
+  // refresh in between, so the key is absent and that branch is never entered.
   const repository = makeRepository({
     fetchServerSnapshot: async machine => ({
       status: "success", machine,
@@ -767,4 +768,62 @@ test("a conflict is never offered as something to resend", async () => {
   expect(view.errors).toEqual([]);
   expect(view.conflicts).toHaveLength(1);
   await expect(repository.retryMutation(queued.requestId)).rejects.toThrow(/not a retryable error/);
+});
+
+test("a ring kept after a refresh landed mid-conflict is listed once, not twice", async () => {
+  // `deletePending` does not hide a delete that is stuck, so a refresh while the delete sits
+  // conflicted puts its key back — and the crew is online by definition to have received that
+  // conflict. Adding the key again on resolution rendered the ring twice on the data log.
+  const repository = makeRepository({
+    fetchServerSnapshot: async machine => ({ status: "success", machine, segments: [{ id: "seg-P15", ringNo: "P15", installType: "Permanent" }] }),
+  });
+  await repository.refresh("TBM1");
+  const queued = await repository.mutate(buildMutationEnvelope({
+    entityType: "segment", operation: "delete", machine: "TBM1", recordId: "seg-P15",
+    payload: { id: "seg-P15", ringNo: "P15", installType: "Permanent" },
+    syncMeta: { "segment:TBM1:P15:Permanent": { version: 1 } },
+  }));
+  await repository.applyConflict(queued.requestId, { status: "conflict", currentVersion: 3, serverRecord: { id: "seg-P15", ringNo: "P15", installType: "Permanent" } });
+  await repository.refresh("TBM1"); // lands while the delete is stuck, so the key comes back
+
+  await repository.resolveConflict(queued.requestId, { strategy: "server" });
+
+  expect((await repository.load("TBM1")).data.segments.map(row => row.ringNo)).toEqual(["P15"]);
+});
+
+test("a confirmed delete leaves no ghost row behind", async () => {
+  // Nothing pinned this at all: with the entity delete disabled the relaunch data log returned the
+  // deleted ring, flagged `deleted: true`, where it should return nothing.
+  const repository = makeRepository({
+    fetchServerSnapshot: async machine => ({ status: "success", machine, segments: [{ id: "seg-P16", ringNo: "P16", installType: "Permanent" }] }),
+  });
+  await repository.refresh("TBM1");
+  const queued = await repository.mutate(buildMutationEnvelope({
+    entityType: "segment", operation: "delete", machine: "TBM1", recordId: "seg-P16",
+    payload: { id: "seg-P16", ringNo: "P16", installType: "Permanent" },
+    syncMeta: { "segment:TBM1:P16:Permanent": { version: 1 } },
+  }));
+
+  await repository.applySyncSuccess(queued.requestId, { status: "success", version: 2, record: { id: "seg-P16", deleted: true } });
+
+  expect((await repository.load("TBM1")).data.segments).toEqual([]);
+});
+
+test("throwing away a create closes the conflict a cascaded follower was holding", async () => {
+  const repository = makeRepository();
+  const created = await repository.mutate(buildMutationEnvelope({
+    entityType: "segment", operation: "create", machine: "TBM1", recordId: "seg-P102",
+    payload: { id: "seg-P102", ringNo: "P102", installType: "Permanent" }, syncMeta: {},
+  }));
+  const follower = await repository.mutate(buildMutationEnvelope({
+    entityType: "segment", operation: "update", machine: "TBM1", recordId: "seg-P102",
+    payload: { id: "seg-P102", ringNo: "P102", installType: "Permanent", note: "แก้" }, syncMeta: {},
+  }));
+  await repository.applyConflict(follower.requestId, { status: "conflict", currentVersion: 2, serverRecord: { id: "seg-P102" } });
+  await repository.updateMutation(created.requestId, { status: "permanent_error", nextAttemptAt: null, lastError: { code: "PERMANENT" } });
+
+  await repository.discardMutation(created.requestId);
+
+  expect((await repository.getSyncSummary()).conflicts).toBe(0);
+  expect((await repository.getSyncCenter()).conflicts).toEqual([]);
 });

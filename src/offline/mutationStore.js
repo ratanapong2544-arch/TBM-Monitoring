@@ -31,6 +31,23 @@ function requestResult(request) {
 // gone on the next launch, and the version the server confirmed for it is forgotten too. Start the
 // scope here rather than lose either. `fetchedAt: null` is the truth about it: nothing has come from
 // the server for this machine yet.
+// A synthesised scope is a NEW object every call, so two writers in one transaction that both
+// synthesise get different objects and the second `put` discards the first — the same race the
+// mutate-then-put discipline closes for stored ones. Memoised against the `stored` array, which is
+// read once per transaction, so both writers see one object.
+const synthesisedScopes = new WeakMap();
+
+function synthesiseScope(stored, machine) {
+  let byMachine = synthesisedScopes.get(stored);
+  if (!byMachine) { byMachine = new Map(); synthesisedScopes.set(stored, byMachine); }
+  let scope = byMachine.get(machine);
+  if (!scope) {
+    scope = { scopeKey: snapshotScopeKey(machine), machine, fetchedAt: null, entityKeys: {} };
+    byMachine.set(machine, scope);
+  }
+  return scope;
+}
+
 function scopesFor(stored, mutation) {
   const machineScoped = isMachineScopedEntityType(mutation.entityType);
   const scoped = machineScoped ? stored.filter(snapshot => snapshot.machine === mutation.machine) : stored;
@@ -44,7 +61,7 @@ function scopesFor(stored, mutation) {
   // already non-empty and the write filed into TBM1's snapshot alone — leaving it off TBM2's screen,
   // which is the machine the crew is on. `patchSnapshotConfig` ten lines down had this right.
   if (!mutation.machine || scoped.some(snapshot => snapshot.machine === mutation.machine)) return scoped;
-  return [...scoped, { scopeKey: snapshotScopeKey(mutation.machine), machine: mutation.machine, fetchedAt: null, entityKeys: {} }];
+  return [...scoped, synthesiseScope(stored, mutation.machine)];
 }
 
 // A config is a singleton, not a row: there is no entity key to add to a list, so the value goes
@@ -59,7 +76,7 @@ function patchSnapshotConfig(snapshots, stored, mutation) {
   // page on such a machine (the load-failure banner is additive, every view renders under it), and
   // with no snapshot `routeConfigFor` shows `DEFAULT_ROUTE_LEGS` in place of what they saved.
   const scopes = recordMachine && !stored.some(snapshot => snapshot.machine === recordMachine)
-    ? [...stored, { scopeKey: snapshotScopeKey(recordMachine), machine: recordMachine, fetchedAt: null, entityKeys: {} }]
+    ? [...stored, synthesiseScope(stored, recordMachine)]
     : stored;
   scopes.forEach(snapshot => {
     const applied = applyConfigToSnapshot(snapshot, mutation.entityType, mutation.payload, recordMachine, snapshot.machine);
@@ -765,10 +782,9 @@ function restoreDeletedKey(snapshots, stored, mutation, optimisticKey) {
   // and putting it in the other one shows TBM1's ring on TBM2's data log.
   scopesFor(stored, mutation).forEach(snapshot => {
     const keys = (snapshot.entityKeys && snapshot.entityKeys[field]) || [];
-    // Already named: adding it again renders the ring twice. Defensive — every path that reaches
-    // here has had the key removed by `patchSnapshotKeys` first, so no test can currently produce a
-    // list that still holds it, and this is left unpinned deliberately rather than pinned by a
-    // contrived one.
+    // Already named: adding it again renders the ring twice. Reachable — `deletePending` does not
+    // hide a delete that is stuck, so any refresh while it sits conflicted puts the key back, and
+    // the crew is online by definition to have received that conflict.
     if (keys.includes(optimisticKey)) return;
     // MUTATED, then put. `confirmMutation` writes this same snapshot twice in one transaction —
     // `patchSnapshotSyncMeta` first, this second — and an IndexedDB `put` replaces the whole record.

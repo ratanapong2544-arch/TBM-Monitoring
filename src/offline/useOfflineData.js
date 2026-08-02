@@ -100,6 +100,28 @@ export function useOfflineData(machine, deps = {}) {
     hydrate(token);
   }, [hydrate, machine]);
 
+  // Two crew actions change what is on screen WITHOUT going through `mutate` — throwing a write
+  // away, and resolving a conflict. Both rewrite the stored snapshot and neither returns a row for
+  // App to mirror, so without this the Sync Center's own confirmation was a promise the app never
+  // kept: "เก็บของเซิร์ฟเวอร์" is the button that means KEEP THE RING, and the ring stayed off the
+  // data log until the next successful getData — underground, the next shift.
+  // A CACHE read, not a fetch: it is exactly the store those two actions just wrote, and it works
+  // with no link. Anything that goes through `mutate` is excluded — App already mirrors those, and
+  // re-reading per queued write would re-render every list on every save.
+  useEffect(() => {
+    if (!repository || typeof repository.subscribe !== "function") return undefined;
+    return repository.subscribe(event => {
+      const rewrote = event
+        && ((event.type === "conflict" && event.status === "resolved")
+          || (event.type === "mutation" && event.status === "discarded"));
+      if (!rewrote) return;
+      const token = ++requestRef.current;
+      Promise.resolve(repository.load(machineRef.current))
+        .then(cached => { if (cached) applyIfCurrent(token, { data: cached.data, source: cached.source, fetchedAt: cached.fetchedAt, stale: cached.stale }); })
+        .catch(() => { /* the panel already said what failed */ });
+    });
+  }, [applyIfCurrent, repository]);
+
   const refresh = useCallback(async () => {
     if (!repository) return null;
     // A callback captured while another machine was active must not fetch for it, let alone apply

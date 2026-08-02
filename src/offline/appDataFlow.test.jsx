@@ -1129,3 +1129,53 @@ test("a legacy difference can be marked reviewed from the running app", async ()
   expect(app.text()).toContain("ไม่มีรายการขัดแย้ง");
   app.unmount();
 });
+
+test("keeping the server's row on a conflicted delete puts the ring back on the screen, not just in the store", async () => {
+  // The button means KEEP THE RING, and the panel says so. Neither `discardMutation` nor
+  // `resolveConflict` returns a row for App to mirror, and `useOfflineData` re-read only on mount,
+  // machine switch and an explicit refresh — so the store had the ring back and the data log did
+  // not, until the next successful getData, which underground is the next shift.
+  let listeners = [];
+  let rows = [];
+  const repository = makeRepository({
+    load: async machine => ({ data: cached(machine, { segments: rows }), source: "indexeddb", fetchedAt: "x", stale: true }),
+    refresh: async () => { throw new Error("NETWORK"); },
+    subscribe: listener => { listeners.push(listener); return () => { listeners = listeners.filter(item => item !== listener); }; },
+    getSyncSummary: async () => ({ online: true, pending: 0, syncing: 0, conflicts: 0, errors: 0, blocked: 0, lastSyncedAt: null }),
+  });
+
+  const app = renderApp(repository);
+  await act(async () => {});
+  // the live header derives the next ring from the last one it holds, so an empty machine names none
+  expect(app.text()).not.toContain("P644");
+
+  // the resolution lands in the store, and the repository says so
+  rows = [{ id: "seg-P643", ringNo: "P643", machine: "TBM1", installType: "Permanent" }];
+  await act(async () => { listeners.forEach(listener => listener({ type: "conflict", conflictId: "c1", status: "resolved" })); });
+  await act(async () => {});
+
+  expect(app.text()).toContain("P644"); // P643 is back, so the next ring is named again
+  app.unmount();
+});
+
+test("a discarded write's screen change lands without a refresh too", async () => {
+  let listeners = [];
+  let rows = [{ id: "seg-P644", ringNo: "P644", machine: "TBM1", installType: "Permanent" }];
+  const repository = makeRepository({
+    load: async machine => ({ data: cached(machine, { segments: rows }), source: "indexeddb", fetchedAt: "x", stale: true }),
+    refresh: async () => { throw new Error("NETWORK"); },
+    subscribe: listener => { listeners.push(listener); return () => { listeners = listeners.filter(item => item !== listener); }; },
+    getSyncSummary: async () => ({ online: true, pending: 0, syncing: 0, conflicts: 0, errors: 0, blocked: 0, lastSyncedAt: null }),
+  });
+
+  const app = renderApp(repository);
+  await act(async () => {});
+  expect(app.text()).toContain("P645"); // the ring after the one on screen
+
+  rows = []; // the discarded create's row is gone from the store
+  await act(async () => { listeners.forEach(listener => listener({ type: "mutation", requestId: "r1", status: "discarded" })); });
+  await act(async () => {});
+
+  expect(app.text()).not.toContain("P645");
+  app.unmount();
+});

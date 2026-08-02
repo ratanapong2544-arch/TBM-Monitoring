@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from "react";
 import { X } from "lucide-react";
 import { discardOutcomeText } from "../../offline/syncSummary";
+import { QUEUE_STAMPED_KEYS } from "../../offline/entityKeys";
 
 /**
  * The one screen where a crew decides between their own record and the server's.
@@ -15,8 +16,9 @@ import { discardOutcomeText } from "../../offline/syncSummary";
  */
 const fieldsOf = (left, right) => {
   const keys = new Set([...Object.keys(left || {}), ...Object.keys(right || {})]);
-  // the queue's own bookkeeping is not the crew's data and would only be noise here
-  ["recordId", "entityType", "domainKey", "version", "syncStatus"].forEach(key => keys.delete(key));
+  // the queue's own bookkeeping is not the crew's data and would only be noise here — the same list
+  // the envelope strips, imported rather than spelled a second time
+  QUEUE_STAMPED_KEYS.forEach(key => keys.delete(key));
   return [...keys];
 };
 

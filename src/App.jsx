@@ -476,7 +476,8 @@ const PrimaryGroutApp = () => {
     // both, when both are true: they are different facts, and collapsing them understated how much
     // work is unsendable while a stuck head sits in front of it
     const queueNote = [
-      stuck > 0 ? `${stuck} รายการติดค้าง ยังไม่ขึ้นเซิร์ฟเวอร์ — เปิด “สถานะการซิงก์” เพื่อแก้` : null,
+      // the viewer link has no status button (Shell hides it), so it is not told to open one
+      stuck > 0 ? `${stuck} รายการติดค้าง ยังไม่ขึ้นเซิร์ฟเวอร์${isViewer ? "" : " — เปิด “สถานะการซิงก์” เพื่อแก้"}` : null,
       waiting > 0 ? `${waiting} รายการรอซิงก์ขึ้นเซิร์ฟเวอร์` : null,
     ].filter(Boolean).join(" · ") || null;
     const withQueue = notice => (queueNote ? { ...notice, text: `${notice.text} · ${queueNote}` } : notice);

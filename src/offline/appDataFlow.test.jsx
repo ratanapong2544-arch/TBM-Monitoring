@@ -1071,3 +1071,28 @@ test("the install panel is in the More sheet as well as the Sync Center", async 
   expect(app.text()).toContain("ติดตั้งแอปบนมือถือ");
   app.unmount();
 });
+
+test("the viewer link carries no sync controls and is not told to open them", async () => {
+  // `?view=1` is the owner's read-only link. A crew member opening it on their own working phone
+  // would otherwise get live retry and discard over their OWN unsent rings, and a status line
+  // pointing at a button that is not there.
+  const search = window.location.search;
+  delete window.location;
+  window.location = { ...window.location, search: "?view=1", origin: "http://localhost", pathname: "/" };
+  try {
+    const repository = makeRepository({
+      getSyncSummary: async () => ({ online: true, pending: 0, syncing: 0, conflicts: 2, errors: 0, blocked: 0, lastSyncedAt: null }),
+      getSyncCenter: async () => ({ pending: [], blocked: [], errors: [], conflicts: [], recent: [], superseded: [], discarded: [] }),
+    });
+
+    const app = renderApp(repository);
+    await act(async () => {});
+
+    expect([...app.container.querySelectorAll("button")].some(b => /ติดค้าง/.test(b.textContent))).toBe(false);
+    expect(app.text()).not.toContain("เปิด “สถานะการซิงก์” เพื่อแก้");
+    app.unmount();
+  } finally {
+    delete window.location;
+    window.location = { ...window.location, search };
+  }
+});

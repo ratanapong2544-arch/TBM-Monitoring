@@ -4,7 +4,7 @@ import { getOrCreateDeviceId as defaultGetDeviceId } from "./device";
 import { reconcileLegacyStage as defaultReconcileLegacy } from "./legacyMigration";
 import { MACHINE_ENTITY_TYPES, makeDomainKey } from "./domainKey";
 import { claimDueMutations, confirmMutation, discardMutation as discardStoredMutation, getConflict, getEntity, getMutation, getSyncCenterView, getSyncCounts, listDueMutations, putOptimisticMutation, resolveConflictAndEnqueue, resolveStoredConflict, retryMutationAsSuccessor, saveConflict, setLastSyncedAt, setSyncMetaValue, updateMutation } from "./mutationStore";
-import { MUTATION_STATUS } from "./schema";
+import { MUTATION_STATUS, stuckStatuses } from "./schema";
 import { emptyServerData, normalizeServerData as defaultNormalizeServerData } from "./normalizeServerData";
 import { readServerSnapshot as defaultReadServerSnapshot, writeServerSnapshot as defaultWriteServerSnapshot } from "./snapshotStore";
 
@@ -327,7 +327,7 @@ export function createRepository(deps = {}) {
       const db = await openDb();
       const original = await getMutation(db, requestId);
       if (!original) throw new Error(`Unknown mutation ${requestId}`);
-      if (![MUTATION_STATUS.VALIDATION_ERROR, MUTATION_STATUS.PERMANENT_ERROR].includes(original.status)) {
+      if (!stuckStatuses.has(original.status) || original.status === MUTATION_STATUS.CONFLICT) {
         throw new Error(`Mutation ${requestId} is ${original.status}, not a retryable error`);
       }
       const successorInput = {
@@ -365,6 +365,19 @@ export function createRepository(deps = {}) {
     applyConflict,
     async getSyncSummary() { return { online: Boolean(online()), ...(await getSyncCounts(await openDb())) }; },
     async getSyncCenter(options) { return getSyncCenterView(await openDb(), options); },
+    // A staged legacy difference is not a queued write: there is no mutation to resolve and nothing
+    // to discard, so nothing could ever clear it and the status strip counted it for ever on every
+    // upgraded phone. Reviewing is the action it actually has — the crew has compared the two and
+    // carried anything that mattered into the record by hand.
+    async reviewLegacyDifference(conflictId) {
+      const db = await openDb();
+      const conflict = await getConflict(db, conflictId);
+      if (!conflict || conflict.status !== "open") throw new Error(`Unknown open conflict ${conflictId}`);
+      if (conflict.requestId) throw new Error(`Conflict ${conflictId} เป็นรายการที่รอส่ง — ต้องเลือกว่าจะเก็บของใคร`);
+      await resolveStoredConflict(db, conflictId, { resolvedAt: now(), strategy: "reviewed", before: { serverRecord: conflict.server, localRecord: conflict.local }, after: null });
+      emit({ type: "conflict", conflictId, status: "resolved" });
+      return { status: "resolved" };
+    },
     async discardMutation(requestId) {
       const mutation = await discardStoredMutation(await openDb(), requestId, { discardedAt: now() });
       emit({ type: "mutation", requestId, status: MUTATION_STATUS.DISCARDED, domainKey: mutation.domainKey });

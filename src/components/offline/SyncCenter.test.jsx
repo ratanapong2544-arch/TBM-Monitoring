@@ -29,7 +29,7 @@ const emptyView = { pending: [], blocked: [], errors: [], conflicts: [], recent:
 
 function mount(props = {}) {
   const load = props.load || jest.fn(async () => emptyView);
-  const view = render(<SyncCenter open onClose={() => {}} summary={{ online: true, pending: 0, syncing: 0, conflicts: 0, errors: 0, blocked: 0, lastSyncedAt: null }} load={load} onSyncNow={() => {}} onResolve={() => {}} {...props} />);
+  const view = render(<SyncCenter open onClose={() => {}} summary={{ online: true, pending: 0, syncing: 0, conflicts: 0, errors: 0, blocked: 0, lastSyncedAt: null }} load={load} onSyncNow={() => {}} onResolve={() => {}} onReview={() => {}} {...props} />);
   return { ...view, load };
 }
 
@@ -315,7 +315,20 @@ test("a legacy difference is shown for review and offers no write actions", asyn
   await click(button(view.container, /ขัดแย้ง/));
 
   expect(view.container.textContent).toContain("issue-1");
-  expect(view.container.textContent).toContain("ตรวจแล้วแก้ในหน้าบันทึกข้อมูล");
+  expect(view.container.textContent).toContain("เทียบสองฝั่งด้านบน");
+  expect(button(view.container, /ตรวจแล้ว/)).toBeTruthy(); // the one action it does have
   expect(button(view.container, /เลือกว่าจะเก็บอันไหน/)).toBeUndefined();
+  view.unmount();
+});
+
+test("a queue the panel could not read is said so, not reported as empty", async () => {
+  // The button beside it is still showing a count read before the failure, so an empty list here is
+  // the panel asserting something it could not check.
+  const load = jest.fn(async () => { throw new Error("IndexedDB upgrade blocked by another tab"); });
+  const view = mount({ load });
+  await act(async () => {});
+
+  expect(view.container.textContent).toContain("อ่านคิวในเครื่องไม่ได้");
+  expect(view.container.textContent).toContain("IndexedDB upgrade blocked by another tab");
   view.unmount();
 });

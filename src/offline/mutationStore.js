@@ -755,11 +755,21 @@ export async function discardMutation(db, requestId, { discardedAt } = {}) {
   const survivor = allMutations
     .filter(item => item.requestId !== requestId
       && item.domainKey === mutation.domainKey
-      && item.recordId === mutation.recordId
+      && String(item.recordId) === String(mutation.recordId) // same spelling as `newestOutstanding`
       && !isFinishedStatus(item.status))
     .sort((left, right) => (right.queueSequence || 0) - (left.queueSequence || 0))[0];
-  if (survivor) entities.put(optimisticEntity(survivor));
-  else if (mutation.operation === "create") entities.delete(optimisticKey);
+  if (survivor) {
+    entities.put(optimisticEntity(survivor));
+  } else if (mutation.operation === "create") {
+    entities.delete(optimisticKey);
+  } else {
+    // The row stays so the ring does not vanish, but it has to say what it now IS. `preserveLocal`
+    // reads the STORED row's `syncStatus`, not the mutation, so a kept row still stamped "pending"
+    // made every later refresh replace the sheet's row with the values the crew threw away — for
+    // ever, badged as still on its way, and a correction another crew made later never arrived.
+    const kept = await requestResult(entities.get(optimisticKey));
+    if (kept) entities.put({ ...kept, payload: { ...kept.payload, syncStatus: MUTATION_STATUS.DISCARDED } });
+  }
   const conflicts = transaction.objectStore(STORES.conflicts);
   const conflict = await requestResult(conflicts.get(requestId));
   if (conflict && conflict.status === "open") conflicts.put({ ...conflict, status: "resolved", resolvedAt: discardedAt || null, strategy: "discard" });

@@ -305,9 +305,16 @@ device upgrading with legacy data that differs from the sheet gets a permanent n
 launch, that nothing in the app can clear — the Sync Center that resolves it is Task 10.
 
 The text is not wrong: a legacy difference genuinely is a local record the sheet does not have. But
-it is unclearable, and the crew is told to call the admin with no way to say what about. **Either
-Task 10 ships with Tasks 7-9, or the pilot devices need their legacy state checked first.** That is
-a decision for whoever schedules the pilot; it is recorded here rather than made here.
+it is unclearable, and the crew is told to call the admin with no way to say what about. **Task 10 has shipped and it does NOT resolve one.** A legacy difference has no mutation behind it,
+so `resolveConflict` refuses it and `discardMutation` cannot find it; reconciliation leaves an
+already-open one exactly as it is on every later pass. Task 10 added the one action it can have —
+"ตรวจแล้ว" (`repository.reviewLegacyDifference`), which marks the stored conflict resolved once the
+crew has compared the two sides and carried anything that mattered into the record by hand. Without
+it the notice was permanent on every upgraded phone.
+
+So the choice this item offered is gone: the remaining question for the pilot is only whether those
+devices' legacy state is checked before they go underground, because clearing each difference is a
+person looking at it.
 
 Two behaviours were added to make the wiring safe, both pinned:
 

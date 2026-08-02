@@ -354,22 +354,33 @@ test("discarding the head of a record lets everything queued behind it move agai
 
   await repository.discardMutation(head.requestId);
 
-  const due = await repository.getDueMutations({ now: Date.now() });
+  const due = await repository.getDueMutations(Date.now());
   expect(due.map(item => item.requestId)).toEqual([behind.requestId]);
 });
 
 test("discarding one write does not take another write's row off the screen", async () => {
   // The optimistic entity key is per RECORD, not per request. Deleting it unconditionally destroyed
   // the on-screen row of the write still queued for that same ring.
+  // The DISCARDED one is queued last, so its own values are what the row currently shows — which is
+  // the only arrangement where handing the row back to the survivor is observable. Discarding the
+  // first one is invisible either way, because the second already overwrote the row.
   const repository = makeRepository();
-  const head = await repository.mutate(segment("P644"));
-  await repository.mutate(segment("P644"));
-  await repository.updateMutation(head.requestId, { status: "permanent_error", nextAttemptAt: null, lastError: { code: "PERMANENT" } });
+  await repository.mutate(buildMutationEnvelope({
+    entityType: "segment", operation: "update", machine: "TBM1", recordId: "seg-P644",
+    payload: { id: "seg-P644", ringNo: "P644", installType: "Permanent", note: "ตัวที่ยังรอส่ง" }, syncMeta: {},
+  }));
+  const last = await repository.mutate(buildMutationEnvelope({
+    entityType: "segment", operation: "update", machine: "TBM1", recordId: "seg-P644",
+    payload: { id: "seg-P644", ringNo: "P644", installType: "Permanent", note: "ตัวที่ถูกทิ้ง" }, syncMeta: {},
+  }));
+  await repository.updateMutation(last.requestId, { status: "permanent_error", nextAttemptAt: null, lastError: { code: "PERMANENT" } });
 
-  await repository.discardMutation(head.requestId);
+  await repository.discardMutation(last.requestId);
 
   const { data } = await repository.load("TBM1");
   expect(data.segments.map(row => row.ringNo)).toEqual(["P644"]);
+  // and it shows the write that is still going, not the one that was thrown away
+  expect(data.segments[0].note).toBe("ตัวที่ยังรอส่ง");
 });
 
 test("discarding a correction does not take the ring the sheet already holds off the screen", async () => {
@@ -448,4 +459,130 @@ test("keeping the server's row is not listed as a successful send of this device
   const view = await repository.getSyncCenter();
   expect(view.recent).toEqual([]);
   expect(view.superseded.map(row => row.recordId)).toEqual(["seg-P82"]);
+});
+
+test("a discarded correction stops masking the ring the sheet holds", async () => {
+  // Keeping the row was right — deleting it took the whole ring off the data log. But the kept row
+  // was still stamped `pending`, and `preserveLocal` reads THAT, not the mutation. So every refresh
+  // replaced the sheet's row with the values the crew threw away, for ever: the data log, both
+  // dashboards and the ring count all showed the discarded copy, badged as still on its way, and a
+  // correction another crew made later never arrived.
+  let serverNote = "SERVER TRUTH";
+  const repository = makeRepository({
+    fetchServerSnapshot: async machine => ({ status: "success", machine, segments: [{ id: "seg-P8", ringNo: "P8", installType: "Permanent", note: serverNote }] }),
+  });
+  await repository.refresh("TBM1");
+  const queued = await repository.mutate(buildMutationEnvelope({
+    entityType: "segment", operation: "update", machine: "TBM1", recordId: "seg-P8",
+    payload: { id: "seg-P8", ringNo: "P8", installType: "Permanent", note: "CREW REFUSED VALUE" },
+    syncMeta: { "segment:TBM1:P8:Permanent": { version: 1 } },
+  }));
+  await repository.updateMutation(queued.requestId, { status: "validation_error", nextAttemptAt: null, lastError: { code: "VALIDATION" } });
+  await repository.discardMutation(queued.requestId);
+
+  // offline the ring is still there — that is the loss the kept row exists to prevent
+  expect((await repository.load("TBM1")).data.segments[0].ringNo).toBe("P8");
+
+  serverNote = "CORRECTED BY ANOTHER CREW";
+  const { data } = await repository.refresh("TBM1");
+
+  expect(data.segments[0].note).toBe("CORRECTED BY ANOTHER CREW");
+  expect((await repository.load("TBM1")).data.segments[0].note).toBe("CORRECTED BY ANOTHER CREW");
+});
+
+test("a legacy difference can be marked reviewed, and stops counting once it is", async () => {
+  // Nothing in the app could clear one: `resolveConflict` refuses a conflict with no mutation and
+  // `discardMutation` is keyed by request id, so the strip read "N รายการติดค้าง" for ever on every
+  // upgraded phone while the panel it pointed at said to fix it somewhere else. Reviewing is the
+  // action that exists for it — the difference has already been carried into the record by hand.
+  const repository = makeRepository();
+  const db = await openOfflineDb();
+  await new Promise((resolve, reject) => {
+    const transaction = db.transaction("conflicts", "readwrite");
+    transaction.objectStore("conflicts").put({
+      conflictId: "legacy:tbmIssues:issue:GLOBAL:issue-9",
+      status: "open", reason: "legacy_local_difference", domainKey: "issue:GLOBAL:issue-9",
+      local: { id: "issue-9", title: "ในเครื่อง" }, server: { id: "issue-9", title: "บนเซิร์ฟเวอร์" },
+      legacyKey: "tbmIssues", createdAtLocal: "2026-08-02T00:00:00.000Z",
+    });
+    transaction.oncomplete = resolve;
+    transaction.onerror = () => reject(transaction.error);
+  });
+  expect((await repository.getSyncSummary()).conflicts).toBe(1);
+
+  await repository.reviewLegacyDifference("legacy:tbmIssues:issue:GLOBAL:issue-9");
+
+  expect((await repository.getSyncCenter()).conflicts).toEqual([]);
+  expect((await repository.getSyncSummary()).conflicts).toBe(0);
+});
+
+test("reviewing refuses a conflict that is a queued write, because that one has to be decided", async () => {
+  const repository = makeRepository();
+  const queued = await repository.mutate(segment("P83"));
+  await repository.applyConflict(queued.requestId, { status: "conflict", currentVersion: 2, serverRecord: { id: "seg-P83" } });
+
+  await expect(repository.reviewLegacyDifference(queued.requestId)).rejects.toThrow(/เลือก|queued/);
+});
+
+test("discarding a create takes its row off the screen, since no server row is behind it", async () => {
+  // The one case where deleting is right: nothing on the sheet corresponds to it, so a kept row
+  // would be a ring that never existed sitting in the data log for ever.
+  const repository = makeRepository();
+  const queued = await repository.mutate(buildMutationEnvelope({
+    entityType: "segment", operation: "create", machine: "TBM1", recordId: "seg-new",
+    payload: { id: "seg-new", ringNo: "P99", installType: "Permanent" }, syncMeta: {},
+  }));
+  await repository.updateMutation(queued.requestId, { status: "permanent_error", nextAttemptAt: null, lastError: { code: "PERMANENT" } });
+
+  await repository.discardMutation(queued.requestId);
+
+  expect((await repository.load("TBM1")).data.segments).toEqual([]);
+});
+
+test("discarding a conflicted write closes its conflict too", async () => {
+  // Otherwise the row leaves the ขัดแย้ง tab's source and stays in the count for ever.
+  const repository = makeRepository();
+  const queued = await repository.mutate(segment("P84"));
+  await repository.applyConflict(queued.requestId, { status: "conflict", currentVersion: 3, serverRecord: { id: "seg-P84" } });
+
+  await repository.discardMutation(queued.requestId);
+
+  expect((await repository.getSyncSummary()).conflicts).toBe(0);
+  expect((await repository.getSyncCenter()).conflicts).toEqual([]);
+});
+
+test("a discarded write cannot overwrite a row another write has since confirmed", async () => {
+  // `newestOutstanding` decides which copy the confirmation leaves on screen; asking
+  // `isTerminalStatus` there would let a discarded mutation count as outstanding and put the values
+  // the crew threw away back over a confirmed row.
+  const repository = makeRepository();
+  const first = await repository.mutate(segment("P85"));
+  const second = await repository.mutate(segment("P85"));
+  await repository.updateMutation(second.requestId, { status: "permanent_error", nextAttemptAt: null, lastError: { code: "PERMANENT" } });
+  await repository.discardMutation(second.requestId);
+
+  await repository.applySyncSuccess(first.requestId, { status: "success", version: 5, record: { id: "seg-P85", ringNo: "P85", note: "ยืนยันแล้ว" } });
+
+  const { data } = await repository.load("TBM1");
+  expect(data.segments[0].note).toBe("ยืนยันแล้ว");
+});
+
+test("a legacy row is listed as unactionable by the store, not only by the screen", async () => {
+  const repository = makeRepository();
+  const db = await openOfflineDb();
+  await new Promise((resolve, reject) => {
+    const transaction = db.transaction("conflicts", "readwrite");
+    transaction.objectStore("conflicts").put({
+      conflictId: "legacy:tbmIssues:issue:GLOBAL:issue-5", status: "open",
+      reason: "legacy_local_difference", domainKey: "issue:GLOBAL:issue-5",
+      local: { id: "issue-5" }, server: { id: "issue-5" }, legacyKey: "tbmIssues",
+    });
+    transaction.oncomplete = resolve;
+    transaction.onerror = () => reject(transaction.error);
+  });
+
+  const [row] = (await repository.getSyncCenter()).conflicts;
+
+  expect(row.actionable).toBe(false);
+  expect(row.savedAtLocal).toBeNull();
 });

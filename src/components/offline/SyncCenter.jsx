@@ -94,7 +94,7 @@ function PayloadEditor({ payload, error, onCancel, onSubmit }) {
   );
 }
 
-export default function SyncCenter({ open, onClose, summary, load, onSyncNow, onResolve, onRetry, onDiscard, installPanel = null }) {
+export default function SyncCenter({ open, onClose, summary, load, onSyncNow, onResolve, onRetry, onDiscard, onReview, installPanel = null }) {
   const [tab, setTab] = useState("pending");
   const [view, setView] = useState({ pending: [], blocked: [], errors: [], conflicts: [], recent: [], superseded: [], discarded: [] });
   const [syncing, setSyncing] = useState(false);
@@ -292,7 +292,14 @@ export default function SyncCenter({ open, onClose, summary, load, onSyncNow, on
                     resolve through the queue and nothing to discard, and offering either threw. It
                     is reviewed here and cleared by the next reconciliation. */}
                 {!conflict.actionable && (
-                  <div className="mt-2 text-xs text-ink-2">ข้อมูลเดิมในเครื่องต่างจากเซิร์ฟเวอร์ — ตรวจแล้วแก้ในหน้าบันทึกข้อมูลของ record นี้</div>
+                  <div className="mt-2">
+                    <div className="text-xs text-ink-2">ข้อมูลเดิมในเครื่องต่างจากเซิร์ฟเวอร์ — เทียบสองฝั่งด้านบน แล้วแก้ในหน้าบันทึกข้อมูลถ้าต้องแก้</div>
+                    {onReview && (
+                      <button type="button" onClick={() => act(onReview, conflict)} className="mt-2 px-3 py-1.5 rounded-input text-xs font-semibold border border-navy text-navy">
+                        ตรวจแล้ว
+                      </button>
+                    )}
+                  </div>
                 )}
                 {onResolve && conflict.actionable && (
                   <button

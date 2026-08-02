@@ -55,6 +55,15 @@ export function useOfflineControls() {
     }
   }, [repository]);
 
+  const review = useCallback(async target => {
+    try {
+      await repository.reviewLegacyDifference(target.conflictId);
+      setReloadToken(token => token + 1);
+    } catch (error) {
+      alert("บันทึกว่าตรวจแล้วไม่สำเร็จ: " + (error && error.message ? error.message : error));
+    }
+  }, [repository]);
+
   const discard = useCallback(async target => {
     try {
       await repository.discardMutation(target.requestId);
@@ -77,6 +86,7 @@ export function useOfflineControls() {
         onResolve={setConflict}
         onRetry={retry}
         onDiscard={discard}
+        onReview={review}
         installPanel={<InstallAppPanel install={install} />}
       />
       {conflict && (

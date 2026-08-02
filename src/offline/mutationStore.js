@@ -609,8 +609,11 @@ export async function getSyncCenterView(db, { recentLimit = 50 } = {}) {
       .filter(item => item.status === MUTATION_STATUS.VALIDATION_ERROR || item.status === MUTATION_STATUS.PERMANENT_ERROR)
       .sort(byQueueOrder)
       .map(rowOf),
-    // Both sides, so the crew compares rather than guesses. A conflict whose mutation has been
-    // pruned still lists — the record is what they are deciding about, not the request.
+    // Both sides, so the crew compares rather than guesses, WITH the three facts design §9 names:
+    // when the server's copy was written, by which device, and when this one saved its own. A
+    // comparison without them cannot tell "someone else edited this an hour ago" from "I edited it
+    // twice". A conflict whose mutation has been pruned still lists — the record is what they are
+    // deciding about, not the request.
     conflicts: [...conflictByRequest.values()].map(conflict => {
       const mutation = mutations.find(item => item.requestId === conflict.requestId);
       return {
@@ -621,7 +624,10 @@ export async function getSyncCenterView(db, { recentLimit = 50 } = {}) {
         serverRecord: conflict.serverRecord || null,
         localRecord: conflict.localRecord || (mutation && mutation.payload) || null,
         reason: conflict.reason || null,
-        createdAtLocal: conflict.createdAtLocal || null,
+        // `createdAt` is what `saveConflict` writes; reading `createdAtLocal` gave a null every time
+        savedAtLocal: conflict.createdAt || null,
+        serverUpdatedAt: conflict.currentUpdatedAt || null,
+        serverUpdatedByDevice: conflict.currentUpdatedByDevice || null,
       };
     }),
     // "discarded" is its own answer. Neither sent nor waiting — the crew threw it away, and the
@@ -630,8 +636,15 @@ export async function getSyncCenterView(db, { recentLimit = 50 } = {}) {
       .filter(item => item.status === MUTATION_STATUS.DISCARDED)
       .sort(byQueueOrder)
       .map(item => ({ ...rowOf(item), discardedAt: item.discardedAt || null })),
+    // Replaced, not sent. `RESOLVED` marks the mutation a conflict resolution or a retry queued a
+    // successor for — the server refused it and never confirmed it. Listing it with the synced ones
+    // put one ring on screen twice at once: "กำลังส่ง" for the successor, "ซิงก์สำเร็จ" for this.
+    superseded: mutations
+      .filter(item => item.status === MUTATION_STATUS.RESOLVED)
+      .sort(byQueueOrder)
+      .map(item => ({ ...rowOf(item), resolvedAt: item.resolvedAt || null, strategy: item.strategy || null })),
     recent: mutations
-      .filter(item => item.status === MUTATION_STATUS.SYNCED || item.status === MUTATION_STATUS.RESOLVED)
+      .filter(item => item.status === MUTATION_STATUS.SYNCED)
       .sort(newestFirst)
       .slice(0, recentLimit)
       .map(item => ({ ...rowOf(item), confirmedAtLocal: item.confirmedAtLocal || null, version: item.version ?? null })),

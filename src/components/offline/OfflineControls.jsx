@@ -35,6 +35,14 @@ export function useOfflineControls() {
     }
   }, [repository]);
 
+  const retry = useCallback(async target => {
+    try {
+      await repository.retryMutation(target.requestId);
+    } catch (error) {
+      alert("ส่งใหม่ไม่สำเร็จ: " + (error && error.message ? error.message : error));
+    }
+  }, [repository]);
+
   const discard = useCallback(async target => {
     try {
       await repository.discardMutation(target.requestId);
@@ -54,6 +62,8 @@ export function useOfflineControls() {
         load={load}
         onSyncNow={syncNow}
         onResolve={setConflict}
+        onRetry={retry}
+        onDiscard={discard}
         installPanel={<InstallAppPanel install={install} />}
       />
       {conflict && (
@@ -68,5 +78,5 @@ export function useOfflineControls() {
     </>
   );
 
-  return { button, overlays };
+  return { button, overlays, installPanel: <InstallAppPanel install={install} /> };
 }

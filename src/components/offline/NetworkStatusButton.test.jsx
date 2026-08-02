@@ -50,3 +50,12 @@ test("tapping it opens the Sync Center", async () => {
   expect(onOpen).toHaveBeenCalledTimes(1);
   view.unmount();
 });
+
+test("the last-sync time is Bangkok's, not the browser's", () => {
+  // 01:30Z is 08:30 in Bangkok. A crew reading a UTC stamp would think the snapshot is seven hours
+  // older than it is, and every other time in this app is Bangkok's.
+  const view = render(<NetworkStatusButton summary={summary({ lastSyncedAt: "2026-08-02T01:30:00.000Z" })} onOpen={() => {}} />);
+
+  expect(view.container.textContent).toContain("08:30");
+  view.unmount();
+});

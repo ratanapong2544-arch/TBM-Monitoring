@@ -113,3 +113,91 @@ test("the conflicts tab shows both sides of the record", async () => {
   expect(view.container.textContent).toContain("B"); // the server's
   view.unmount();
 });
+
+test("a refused write can be retried or thrown away from the errors tab", async () => {
+  // The tab was a list with no controls: a refused write could not be retried, edited or discarded
+  // from anywhere in the app, so it stayed a permanent number in the status strip.
+  const onRetry = jest.fn(async () => {});
+  const onDiscard = jest.fn(async () => {});
+  const load = jest.fn(async () => ({
+    ...emptyView,
+    errors: [row("P43", { status: "validation_error", lastError: { code: "VALIDATION", message: "ring ซ้ำ" } })],
+  }));
+  const view = mount({ load, onRetry, onDiscard });
+  await act(async () => {});
+  await click(button(view.container, /ติดค้าง/));
+
+  await click(button(view.container, /ลองส่งใหม่/));
+  expect(onRetry).toHaveBeenCalledWith(expect.objectContaining({ recordId: "P43" }));
+
+  // discarding is the destructive one and takes a second action here too
+  await click(button(view.container, /ทิ้งรายการนี้/));
+  expect(onDiscard).not.toHaveBeenCalled();
+  await click(button(view.container, /ยืนยันทิ้ง/));
+  expect(onDiscard).toHaveBeenCalledWith(expect.objectContaining({ recordId: "P43" }));
+  view.unmount();
+});
+
+test("a pending row says when it will be tried again, and syncing is not the same word as waiting", async () => {
+  const load = jest.fn(async () => ({
+    ...emptyView,
+    pending: [
+      row("P50", { nextAttemptAt: "2026-08-02T03:30:00.000Z", attemptCount: 2 }),
+      row("P51", { status: "syncing" }),
+    ],
+  }));
+  const view = mount({ load });
+  await act(async () => {});
+
+  expect(view.container.textContent).toContain("ลองใหม่");
+  expect(view.container.textContent).toContain("กำลังส่งอยู่");
+  view.unmount();
+});
+
+test("timestamps read the same as every other date in the app", async () => {
+  // `th-TH` resolves to the Buddhist calendar, so `dateStyle: "short"` printed 2569 truncated to
+  // "69" — a date that reads as 1969 and disagrees with every other stamp on screen.
+  const load = jest.fn(async () => ({
+    ...emptyView,
+    recent: [row("P52", { status: "synced", confirmedAtLocal: "2026-07-30T02:15:00.000Z", version: 3 })],
+  }));
+  const view = mount({ load });
+  await act(async () => {});
+  await click(button(view.container, /ส่งแล้ว/));
+
+  expect(view.container.textContent).toContain("2026-07-30");
+  expect(view.container.textContent).not.toContain("/69");
+  view.unmount();
+});
+
+test("a replaced write is shown as replaced, never as sent", async () => {
+  const load = jest.fn(async () => ({
+    ...emptyView,
+    superseded: [row("P53", { status: "resolved", strategy: "local" })],
+  }));
+  const view = mount({ load });
+  await act(async () => {});
+  await click(button(view.container, /ส่งแล้ว/));
+
+  expect(view.container.textContent).toContain("แทนที่ด้วยรายการใหม่");
+  expect(view.container.textContent).not.toContain("ซิงก์สำเร็จ");
+  view.unmount();
+});
+
+test("the header says whether the device is offline, and when it last synced", async () => {
+  const view = mount({ summary: { online: false, pending: 0, syncing: 0, conflicts: 0, errors: 0, blocked: 0, lastSyncedAt: "2026-07-30T02:15:00.000Z" } });
+  await act(async () => {});
+
+  expect(view.container.textContent).toContain("ออฟไลน์");
+  expect(view.container.textContent).toContain("2026-07-30");
+  view.unmount();
+});
+
+test("every row keeps its request id, which is what a report to the admin is made of", async () => {
+  const load = jest.fn(async () => ({ ...emptyView, pending: [row("P60")] }));
+  const view = mount({ load });
+  await act(async () => {});
+
+  expect(view.container.textContent).toContain("request-P60");
+  view.unmount();
+});

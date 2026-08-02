@@ -142,3 +142,38 @@ test("discarded writes are pruned with the confirmed ones rather than kept for e
   const view = await repository.getSyncCenter();
   expect(view.discarded.length).toBe(200);
 });
+
+test("a write the server never confirmed is not listed as sent", async () => {
+  // `RESOLVED` is set on the mutation the crew REPLACED — the server refused it, a successor was
+  // queued in its place, and it was never confirmed. Listing it beside the synced ones put the same
+  // ring on screen twice at once: "กำลังส่ง" for the successor and "ซิงก์สำเร็จ" for the original.
+  const repository = makeRepository();
+  const queued = await repository.mutate(segment("P77"));
+  await repository.applyConflict(queued.requestId, { status: "conflict", currentVersion: 3, serverRecord: { id: "seg-P77", ringNo: "P77" } });
+  await repository.resolveConflict(queued.requestId, { strategy: "local" });
+
+  const view = await repository.getSyncCenter();
+
+  expect(view.recent).toEqual([]);
+  expect(view.pending.map(r => r.recordId)).toEqual(["seg-P77"]); // the successor, and only it
+  expect(view.superseded.map(r => r.recordId)).toEqual(["seg-P77"]);
+});
+
+test("a conflict carries the server's time and device, and when this device saved its own copy", async () => {
+  // Design §9: a field-by-field comparison with server time, local save time and device label.
+  // `saveConflict` stores all three on purpose; the row was dropping them.
+  const repository = makeRepository();
+  const queued = await repository.mutate(segment("P78"));
+  await repository.applyConflict(queued.requestId, {
+    status: "conflict", currentVersion: 5,
+    serverRecord: { id: "seg-P78", ringNo: "P78" },
+    currentUpdatedAt: "2026-08-02T03:00:00.000Z",
+    currentUpdatedByDevice: "device-2",
+  });
+
+  const [row] = (await repository.getSyncCenter()).conflicts;
+
+  expect(row.serverUpdatedAt).toBe("2026-08-02T03:00:00.000Z");
+  expect(row.serverUpdatedByDevice).toBe("device-2");
+  expect(row.savedAtLocal).toBe("2026-08-02T00:00:00.000Z");
+});

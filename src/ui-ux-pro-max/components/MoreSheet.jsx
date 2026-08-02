@@ -1,7 +1,9 @@
 import React from "react";
 import { NAV_GROUPS, MOBILE_MORE_TABS } from "./navModel";
 
-export default function MoreSheet({ open, onClose, onNavigate }) {
+// `footer` is where the app hangs things that are not navigation — the install panel, today. Passed
+// in rather than imported: this file is the design system and the PWA stack is the app.
+export default function MoreSheet({ open, onClose, onNavigate, footer = null }) {
   if (!open) return null;
 
   // Collect items whose tab is in MOBILE_MORE_TABS
@@ -50,6 +52,7 @@ export default function MoreSheet({ open, onClose, onNavigate }) {
             </div>
           ))}
         </div>
+        {footer && <div className="px-4 pb-4">{footer}</div>}
       </div>
     </div>
   );

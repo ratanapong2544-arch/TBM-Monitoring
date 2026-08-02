@@ -60,6 +60,9 @@ export default function Shell({
   // the design system, and the offline stack is the app.
   statusButton = null,
   offlineOverlays = null,
+  // "ติดตั้งแอป" belongs in both places the plan names: the status centre, and here — MoreSheet is
+  // the discovery surface on a phone, which is the device this is for.
+  moreSheetFooter = null,
   children,
 }) {
   const showIssues = ISSUE_TABS.includes(active.tab); // viewer ก็เห็น (read-only) — ส่ง readOnly ไป rail
@@ -136,7 +139,7 @@ export default function Shell({
       </div>
 
       <BottomNav items={mobileItems} activeTab={active.tab} activeModule={active.module} onNavigate={onNavigate} onMore={isViewer ? undefined : () => setMoreOpen(true)} />
-      <MoreSheet open={moreOpen} onClose={() => setMoreOpen(false)} onNavigate={onNavigate} />
+      <MoreSheet open={moreOpen} onClose={() => setMoreOpen(false)} onNavigate={onNavigate} footer={moreSheetFooter} />
 
       {/* At the root, above BottomNav (z-40) and MoreSheet (z-50), so a phone and a desktop show the
           same panels from the same state rather than one copy per layout. */}

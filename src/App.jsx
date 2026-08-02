@@ -518,6 +518,7 @@ const PrimaryGroutApp = () => {
     <Shell
       statusButton={offlineControls.button}
       offlineOverlays={offlineControls.overlays}
+      moreSheetFooter={offlineControls.installPanel}
       active={{ tab: activeTab, module: currentModule }}
       onNavigate={handleNavigate}
       title={pageTitle}

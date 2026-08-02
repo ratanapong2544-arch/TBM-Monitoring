@@ -1,5 +1,7 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { X, RefreshCw } from "lucide-react";
+import { X, RefreshCw, RotateCcw, Trash2 } from "lucide-react";
+
+import { formatDisplayDate, formatDisplayTime } from "../../utils/formatters";
 
 /**
  * Where a write that has not reached the sheet is looked at, and the only screen that can tell a
@@ -13,18 +15,25 @@ import { X, RefreshCw } from "lucide-react";
  * Every row names its record. `Step 4`: never hide the record identifier, machine, entity type or
  * request id in diagnostic detail.
  */
+// The plan's four: pending, errors, conflicts, recent. `errors` also carries the rows stranded
+// behind a refused head — stuck for the same reason and cleared by the same fix — but labelled as
+// waiting on another record rather than as refused themselves.
 const TABS = [
   { id: "pending", label: "กำลังส่ง" },
-  { id: "stuck", label: "ติดค้าง" },
+  { id: "errors", label: "ติดค้าง" },
   { id: "conflicts", label: "ขัดแย้ง" },
   { id: "recent", label: "ส่งแล้ว" },
 ];
 
+// The app's own formatters, not a new pair. `th-TH` resolves to the Buddhist calendar, so
+// `dateStyle: "short"` printed 2569 truncated to "69" — a date that reads as 1969 and disagrees
+// with every other stamp on screen.
 const stamp = value => {
   if (!value) return "";
   const parsed = Date.parse(value);
   if (Number.isNaN(parsed)) return "";
-  return new Date(parsed).toLocaleString("th-TH", { dateStyle: "short", timeStyle: "short", timeZone: "Asia/Bangkok" });
+  const at = new Date(parsed);
+  return `${formatDisplayDate(at)} ${formatDisplayTime(at)}`;
 };
 
 function RecordLine({ row }) {
@@ -51,10 +60,13 @@ function Empty({ children }) {
   return <li className="px-3 py-6 text-sm text-ink-3 text-center">{children}</li>;
 }
 
-export default function SyncCenter({ open, onClose, summary, load, onSyncNow, onResolve, installPanel = null }) {
+export default function SyncCenter({ open, onClose, summary, load, onSyncNow, onResolve, onRetry, onDiscard, installPanel = null }) {
   const [tab, setTab] = useState("pending");
-  const [view, setView] = useState({ pending: [], blocked: [], errors: [], conflicts: [], recent: [] });
+  const [view, setView] = useState({ pending: [], blocked: [], errors: [], conflicts: [], recent: [], superseded: [], discarded: [] });
   const [syncing, setSyncing] = useState(false);
+  // Discard is the one destructive action here, so it takes a second deliberate tap — the same rule
+  // the conflict resolver applies, for the same reason.
+  const [confirmingDiscard, setConfirmingDiscard] = useState(null);
 
   const refresh = useCallback(async () => {
     if (!load) return;
@@ -74,7 +86,7 @@ export default function SyncCenter({ open, onClose, summary, load, onSyncNow, on
   const stuckRows = [...(view.errors || []), ...(view.blocked || [])];
   const counts = {
     pending: (view.pending || []).length,
-    stuck: stuckRows.length,
+    errors: stuckRows.length,
     conflicts: (view.conflicts || []).length,
     recent: (view.recent || []).length,
   };
@@ -111,27 +123,69 @@ export default function SyncCenter({ open, onClose, summary, load, onSyncNow, on
           {tab === "pending" && ((view.pending || []).length
             ? view.pending.map(row => (
               // "saved on this device" is not "on the sheet", and the whole branch turns on the crew
-              // being told which one they have.
-              <Row key={row.requestId} row={row} note="บันทึกในเครื่องแล้ว · รอส่งขึ้นเซิร์ฟเวอร์" />
-            ))
-            : <Empty>ไม่มีรายการรอส่ง</Empty>)}
-
-          {tab === "stuck" && (stuckRows.length
-            ? stuckRows.map(row => (
+              // being told which one they have. A row in flight says so, and one waiting says when it
+              // will be tried again — "รอ" with no when is what makes a crew re-enter a record.
               <Row
                 key={row.requestId}
                 row={row}
-                tone="text-code-d"
-                note={row.lastError && row.lastError.message
-                  ? `เซิร์ฟเวอร์ปฏิเสธ: ${row.lastError.message}`
-                  : "รออยู่หลังรายการที่ติดค้างของ record เดียวกัน — จะไม่ถูกส่งจนกว่าตัวหน้าจะแก้"}
+                note={row.status === "syncing"
+                  ? "บันทึกในเครื่องแล้ว · กำลังส่งอยู่"
+                  : `บันทึกในเครื่องแล้ว · รอส่งขึ้นเซิร์ฟเวอร์${row.nextAttemptAt ? ` · ลองใหม่ ${stamp(row.nextAttemptAt)}` : ""}${row.attemptCount ? ` · พยายามแล้ว ${row.attemptCount} ครั้ง` : ""}`}
               />
             ))
+            : <Empty>ไม่มีรายการรอส่ง</Empty>)}
+
+          {tab === "errors" && (stuckRows.length
+            ? stuckRows.map(row => {
+              const refused = Boolean(row.lastError && row.lastError.message);
+              return (
+                <Row
+                  key={row.requestId}
+                  row={row}
+                  tone="text-code-d"
+                  note={refused
+                    ? `เซิร์ฟเวอร์ปฏิเสธ: ${row.lastError.message}`
+                    : "รออยู่หลังรายการที่ติดค้างของ record เดียวกัน — จะไม่ถูกส่งจนกว่าตัวหน้าจะแก้"}
+                >
+                  {refused && (
+                    <div className="flex gap-2 mt-2">
+                      {onRetry && (
+                        <button type="button" onClick={() => onRetry(row)} className="inline-flex items-center gap-1 px-3 py-1.5 rounded-input text-xs font-semibold border border-navy text-navy">
+                          <RotateCcw size={13} /> ลองส่งใหม่
+                        </button>
+                      )}
+                      {onDiscard && confirmingDiscard !== row.requestId && (
+                        <button type="button" onClick={() => setConfirmingDiscard(row.requestId)} className="inline-flex items-center gap-1 px-3 py-1.5 rounded-input text-xs font-semibold text-code-d">
+                          <Trash2 size={13} /> ทิ้งรายการนี้
+                        </button>
+                      )}
+                    </div>
+                  )}
+                  {onDiscard && confirmingDiscard === row.requestId && (
+                    <div className="mt-2 rounded-input border border-code-d/40 bg-code-d/5 p-2">
+                      <div className="text-xs text-ink mb-2">งานนี้จะไม่ถูกส่งขึ้นเซิร์ฟเวอร์อีก และจะหายไปจากหน้าจอของเครื่องนี้</div>
+                      <div className="flex gap-2">
+                        <button type="button" onClick={() => { setConfirmingDiscard(null); onDiscard(row); }} className="flex-1 px-3 py-1.5 rounded-input text-xs font-semibold bg-code-d text-white">ยืนยันทิ้ง</button>
+                        <button type="button" onClick={() => setConfirmingDiscard(null)} className="flex-1 px-3 py-1.5 rounded-input text-xs font-semibold text-ink-2 border border-line">ยกเลิก</button>
+                      </div>
+                    </div>
+                  )}
+                </Row>
+              );
+            })
             : <Empty>ไม่มีรายการติดค้าง</Empty>)}
 
           {tab === "conflicts" && ((view.conflicts || []).length
             ? view.conflicts.map(conflict => (
-              <Row key={conflict.conflictId} row={conflict} tone="text-code-c" note={`เซิร์ฟเวอร์แก้ไปแล้ว (เวอร์ชัน ${conflict.currentVersion ?? "-"})`}>
+              <Row
+                key={conflict.conflictId}
+                row={conflict}
+                tone="text-code-c"
+                note={`เซิร์ฟเวอร์แก้ไปแล้ว (เวอร์ชัน ${conflict.currentVersion ?? "-"})`
+                  + (conflict.serverUpdatedAt ? ` · เมื่อ ${stamp(conflict.serverUpdatedAt)}` : "")
+                  + (conflict.serverUpdatedByDevice ? ` · โดย ${conflict.serverUpdatedByDevice}` : "")
+                  + (conflict.savedAtLocal ? ` · เครื่องนี้บันทึกไว้ ${stamp(conflict.savedAtLocal)}` : "")}
+              >
                 <div className="grid grid-cols-2 gap-2 mt-2 text-xs">
                   <div className="bg-surface-alt rounded-input p-2">
                     <div className="text-ink-3 mb-1">ในเครื่องนี้</div>
@@ -155,10 +209,20 @@ export default function SyncCenter({ open, onClose, summary, load, onSyncNow, on
             ))
             : <Empty>ไม่มีรายการขัดแย้ง</Empty>)}
 
-          {tab === "recent" && ((view.recent || []).length
-            ? view.recent.map(row => (
-              <Row key={row.requestId} row={row} tone="text-code-a" note={`ซิงก์สำเร็จ ${stamp(row.confirmedAtLocal)}${row.version != null ? ` · เวอร์ชัน ${row.version}` : ""}`} />
-            ))
+          {tab === "recent" && ((view.recent || []).length + (view.superseded || []).length + (view.discarded || []).length
+            ? [
+              ...(view.recent || []).map(row => (
+                <Row key={row.requestId} row={row} tone="text-code-a" note={`ซิงก์สำเร็จ ${stamp(row.confirmedAtLocal)}${row.version != null ? ` · เวอร์ชัน ${row.version}` : ""}`} />
+              )),
+              // Replaced and thrown-away writes are history too, and each is its own fact. Neither
+              // reached the sheet, so neither may borrow the word that means it did.
+              ...(view.superseded || []).map(row => (
+                <Row key={row.requestId} row={row} tone="text-ink-2" note={`แทนที่ด้วยรายการใหม่${row.strategy ? ` (${row.strategy})` : ""}`} />
+              )),
+              ...(view.discarded || []).map(row => (
+                <Row key={row.requestId} row={row} tone="text-ink-3" note={`ทิ้งโดยผู้ใช้${row.discardedAt ? ` ${stamp(row.discardedAt)}` : ""} — ไม่ได้ส่งขึ้นเซิร์ฟเวอร์`} />
+              )),
+            ]
             : <Empty>ยังไม่มีรายการที่ส่งสำเร็จ</Empty>)}
         </ul>
 

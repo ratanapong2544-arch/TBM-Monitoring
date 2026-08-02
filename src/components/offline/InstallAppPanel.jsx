@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import { Download, Share, Smartphone } from "lucide-react";
 
 /**
@@ -12,8 +12,16 @@ import { Download, Share, Smartphone } from "lucide-react";
  * The iPhone steps are fixed by the plan and are in that order: Safari, Share, Add to Home Screen.
  * Safari is named because the steps do not exist in Chrome on iOS.
  */
-export default function InstallAppPanel({ install, className = "" }) {
+export default function InstallAppPanel({ install, className = "", url }) {
+  const [copied, setCopied] = useState(false);
   const mode = install && install.mode;
+  const appUrl = url || (typeof window !== "undefined" && window.location ? window.location.origin : "");
+  const copyLink = async () => {
+    try {
+      if (navigator && navigator.clipboard) await navigator.clipboard.writeText(appUrl);
+      setCopied(true);
+    } catch (error) { /* the URL is on screen either way */ }
+  };
   if (!mode || mode === "installed") return null;
 
   return (
@@ -35,10 +43,12 @@ export default function InstallAppPanel({ install, className = "" }) {
         </button>
       )}
 
+      {/* `display:flex` on an <li> replaces `display:list-item`, which drops the marker AND stops the
+          counter — step 3 then renders as "2.". The icon goes inside a span instead. */}
       {mode === "ios-instructions" && (
         <ol className="text-xs text-ink space-y-1.5 list-decimal list-inside">
           <li>เปิดลิงก์ด้วย Safari</li>
-          <li className="flex items-center gap-1.5"><span>2.</span><Share size={14} /> <span>กด Share</span></li>
+          <li><span className="inline-flex items-center gap-1.5"><Share size={14} /> กด Share</span></li>
           <li>เลือก “เพิ่มไปยังหน้าจอโฮม”</li>
         </ol>
       )}
@@ -50,9 +60,14 @@ export default function InstallAppPanel({ install, className = "" }) {
       )}
 
       {mode === "share-link" && (
-        <p className="text-xs text-ink-2">
-          เปิดลิงก์นี้บนมือถือเพื่อติดตั้ง — บนคอมพิวเตอร์ใช้งานได้ตามปกติแต่ติดตั้งไม่ได้
-        </p>
+        <div className="text-xs text-ink-2 space-y-1.5">
+          <p>เปิดลิงก์นี้บนมือถือเพื่อติดตั้ง — บนคอมพิวเตอร์ใช้งานได้ตามปกติแต่ติดตั้งไม่ได้</p>
+          {/* the link itself, because "open this link" without the link is not guidance */}
+          <code className="block break-all bg-surface border border-line rounded-input px-2 py-1 text-ink font-mono">{appUrl}</code>
+          <button type="button" onClick={copyLink} className="text-navy font-semibold">
+            {copied ? "คัดลอกแล้ว" : "คัดลอกลิงก์"}
+          </button>
+        </div>
       )}
     </div>
   );

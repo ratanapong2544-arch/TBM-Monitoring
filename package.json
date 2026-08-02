@@ -36,6 +36,9 @@
     "test:gas-sync": "node --test tools/gas-sync-contract.test.cjs",
     "eject": "react-scripts eject"
   },
+  "jest": {
+    "globalSetup": "<rootDir>/tools/jest-global-setup.js"
+  },
   "browserslist": [
     ">0.2%",
     "not dead",

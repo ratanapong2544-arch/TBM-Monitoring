@@ -232,6 +232,52 @@ test("a refused write with a photo does not carry its bytes into the panel", asy
 
   const [row] = (await repository.getSyncCenter()).errors;
 
-  expect(row.payload.imageBase64).not.toContain("AAAA");
+  expect(row.payload.imageBase64).toBeUndefined(); // omitted, not marked — a marker is round-trippable
   expect(row.payload.ringNo).toBe("P1"); // the values the crew has to correct are still there
+});
+
+test("editing a refused write keeps the photo that was never on screen to edit", async () => {
+  // The editor cannot show megabytes of base64, so a payload without them means "I did not touch
+  // the photo" — never "remove it". A marker string here went to the sheet AS the photo while
+  // `imageName` survived beside it, and GAS's `invalidSyncImage_` then refused the successor for
+  // ever: the ring dead-ended with discard as its only way out, and the picture was gone.
+  const photo = `data:image/jpeg;base64,${"A".repeat(400)}`;
+  const repository = makeRepository();
+  const queued = await repository.mutate(buildMutationEnvelope({
+    entityType: "grout", operation: "update", machine: "TBM1", recordId: "g-2",
+    payload: { ringNo: "P2", groutPass: "Primary", note: "ผิด", imageBase64: photo, imageName: "ring.jpg" },
+    syncMeta: {},
+  }));
+  await repository.updateMutation(queued.requestId, { status: "validation_error", nextAttemptAt: null, lastError: { code: "VALIDATION", message: "ผิด" } });
+
+  const [row] = (await repository.getSyncCenter()).errors;
+  expect(row.payload.imageBase64).toBeUndefined(); // never handed to the textarea
+  expect(row.payload.imageName).toBe("ring.jpg");
+
+  const retried = await repository.retryMutation(queued.requestId, { payload: { ...row.payload, note: "แก้แล้ว" } });
+
+  const successor = await repository.getMutation(retried.requestId);
+  expect(successor.payload.note).toBe("แก้แล้ว");
+  expect(successor.payload.imageBase64).toBe(photo); // re-attached, byte for byte
+});
+
+test("a conflict's two records do not carry photo bytes to the screen either", async () => {
+  // `SyncCenter` renders both into a <pre> the moment the tab opens, and `ConflictResolver` loads
+  // either into a controlled textarea.
+  const photo = `data:image/jpeg;base64,${"B".repeat(400)}`;
+  const repository = makeRepository();
+  const queued = await repository.mutate(buildMutationEnvelope({
+    entityType: "grout", operation: "update", machine: "TBM1", recordId: "g-3",
+    payload: { ringNo: "P3", groutPass: "Primary", imageBase64: photo }, syncMeta: {},
+  }));
+  await repository.applyConflict(queued.requestId, {
+    status: "conflict", currentVersion: 2,
+    serverRecord: { id: "g-3", ringNo: "P3", imageBase64: photo },
+  });
+
+  const [row] = (await repository.getSyncCenter()).conflicts;
+
+  expect(JSON.stringify(row.localRecord)).not.toContain("BBBB");
+  expect(JSON.stringify(row.serverRecord)).not.toContain("BBBB");
+  expect(row.localRecord.ringNo).toBe("P3");
 });

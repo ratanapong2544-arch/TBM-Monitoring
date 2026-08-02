@@ -299,7 +299,7 @@ export default function SyncCenter({ open, onClose, summary, load, onSyncNow, on
                 <Row key={row.requestId} row={row} tone="text-ink-3" note={`ทิ้งโดยผู้ใช้${row.discardedAt ? ` ${stamp(row.discardedAt)}` : ""} — ไม่ได้ส่งขึ้นเซิร์ฟเวอร์`} />
               )),
             ]
-            : <Empty>ยังไม่มีรายการที่ส่งสำเร็จ</Empty>)}
+            : <Empty>ยังไม่มีประวัติ</Empty>)}
         </ul>
 
         <div className="px-4 py-3 border-t border-line space-y-2">

@@ -188,3 +188,22 @@ test("resolving a conflict re-reads the list, so the row stops being offered", a
   expect(view.container.textContent).toContain("ไม่มีรายการขัดแย้ง");
   view.unmount();
 });
+
+test("discarding from the conflict resolver re-reads the list too", async () => {
+  // The resolver has four exits and only three were pinned; its discard is the fourth.
+  let gone = false;
+  global.__offline.repository.getSyncCenter = jest.fn(async () => (gone ? emptyView : { ...emptyView, conflicts: [conflictRow] }));
+  global.__offline.repository.discardMutation = jest.fn(async () => { gone = true; });
+  const view = render();
+  await openCentre(view);
+  await click(button(view.container, /ขัดแย้ง/));
+  await click(button(view.container, /เลือกว่าจะเก็บอันไหน/));
+
+  await click(button(view.container, /ทิ้งงานนี้/));
+  await click(button(view.container, /ยืนยันทิ้ง/));
+  await act(async () => {});
+
+  expect(view.container.textContent).not.toContain("request-P41");
+  expect(view.container.textContent).toContain("ไม่มีรายการขัดแย้ง");
+  view.unmount();
+});

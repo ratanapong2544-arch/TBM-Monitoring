@@ -443,6 +443,19 @@ export async function resolveStoredConflict(db, conflictId, update) {
   return next;
 }
 
+// The photo bytes come back from the original unless the incoming payload carries its own. Neither
+// editor that produces one can show them — they are megabytes and both are controlled textareas —
+// so a payload without them means "I did not touch the photo", never "remove it". Without this a
+// corrected retry, or a manual conflict resolution, silently destroyed the picture of the ring.
+function carryPhotosFrom(original, payload) {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return payload;
+  return PHOTOS.reduce((carried, [base64]) => (
+    carried[base64] === undefined && original && original.payload && original.payload[base64] !== undefined
+      ? { ...carried, [base64]: original.payload[base64] }
+      : carried
+  ), { ...payload });
+}
+
 export async function resolveConflictAndEnqueue(db, { conflictId, originalRequestId, successor, resolvedAt, strategy, before, after }) {
   const transaction = db.transaction([STORES.entities, STORES.mutations, STORES.conflicts, STORES.syncMeta], "readwrite");
   const entities = transaction.objectStore(STORES.entities);
@@ -458,8 +471,10 @@ export async function resolveConflictAndEnqueue(db, { conflictId, originalReques
     transaction.abort();
     throw new Error(`Unknown open conflict ${conflictId}`);
   }
+  const payload = carryPhotosFrom(original, successor.payload);
   const mutation = {
     ...successor,
+    payload,
     status: MUTATION_STATUS.PENDING,
     attemptCount: 0,
     nextAttemptAt: null,
@@ -509,6 +524,7 @@ export async function retryMutationAsSuccessor(db, { originalRequestId, successo
   if (!retryable) { transaction.abort(); throw new Error(`Mutation ${originalRequestId} is not a retryable error`); }
   const mutation = {
     ...successor,
+    payload: carryPhotosFrom(original, successor.payload),
     status: MUTATION_STATUS.PENDING,
     attemptCount: 0,
     nextAttemptAt: null,
@@ -583,10 +599,15 @@ export async function getSyncCenterView(db, { recentLimit = 50 } = {}) {
   // anything at all. The Sync Center puts a payload in a controlled textarea that re-serialises it
   // on every keystroke, which is the worst place in the app to hand them to.
   const withoutPhotoBytes = payload => {
-    if (!payload || typeof payload !== "object") return payload;
+    if (!payload || typeof payload !== "object" || Array.isArray(payload)) return payload;
     if (!PHOTOS.some(([base64]) => payload[base64])) return payload;
     const clean = { ...payload };
-    PHOTOS.forEach(([base64]) => { if (clean[base64]) clean[base64] = "[รูปภาพ — แก้ในหน้าบันทึกข้อมูล]"; });
+    // OMITTED, not replaced. A marker string is round-trippable: `retryMutation` replaces the
+    // payload wholesale, so the marker went to the sheet as the photo while `imageName` survived
+    // beside it, and GAS's `invalidSyncImage_` then refused the successor for ever — the record
+    // dead-ended with discard as its only exit. Omitting means `retryMutationAsSuccessor` can see
+    // that the editor never carried the bytes and re-attach the originals.
+    PHOTOS.forEach(([base64]) => { delete clean[base64]; });
     return clean;
   };
 
@@ -639,8 +660,10 @@ export async function getSyncCenterView(db, { recentLimit = 50 } = {}) {
         requestId: conflict.requestId,
         ...(mutation ? identity(mutation) : { entityType: conflict.entityType, machine: conflict.machine || "GLOBAL", recordId: conflict.recordId, domainKey: conflict.domainKey }),
         currentVersion: conflict.currentVersion ?? null,
-        serverRecord: conflict.serverRecord || null,
-        localRecord: conflict.localRecord || (mutation && mutation.payload) || null,
+        // Both sides go through the same strip: `SyncCenter` renders them into a <pre> the moment
+        // the tab opens, and `ConflictResolver` loads either into a controlled textarea.
+        serverRecord: withoutPhotoBytes(conflict.serverRecord) || null,
+        localRecord: withoutPhotoBytes(conflict.localRecord || (mutation && mutation.payload)) || null,
         reason: conflict.reason || null,
         // `createdAt` is what `saveConflict` writes; reading `createdAtLocal` gave a null every time
         savedAtLocal: conflict.createdAt || null,

@@ -274,3 +274,25 @@ test("a row still in flight is not called synced either", async () => {
   expect(view.container.textContent).not.toContain("ซิงก์สำเร็จ");
   view.unmount();
 });
+
+test("a stranded row says why it cannot move, which is not the same as being refused", async () => {
+  // The row's presence was pinned and its explanation was not. "รอ" with no reason reads as a
+  // pending row the crew should wait on, when in fact nothing will happen until the head is fixed.
+  const load = jest.fn(async () => ({ ...emptyView, blocked: [row("P95")] }));
+  const view = mount({ load });
+  await act(async () => {});
+  await click(button(view.container, /ติดค้าง/));
+
+  expect(view.container.textContent).toContain("รออยู่หลังรายการที่ติดค้างของ record เดียวกัน");
+  expect(view.container.textContent).not.toContain("เซิร์ฟเวอร์ปฏิเสธ");
+  view.unmount();
+});
+
+test("the history tab's empty state does not speak only of sends", async () => {
+  const view = mount({});
+  await act(async () => {});
+  await click(button(view.container, /ประวัติ/));
+
+  expect(view.container.textContent).toContain("ยังไม่มีประวัติ");
+  view.unmount();
+});

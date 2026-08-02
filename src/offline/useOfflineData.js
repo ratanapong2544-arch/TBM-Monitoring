@@ -50,6 +50,19 @@ export function useOfflineData(machine, deps = {}) {
   // the machine the latest hydration belongs to, so a callback captured for another one can be
   // recognised as stale
   const machineRef = useRef(machine);
+  // `hydrate` keeps `serverSettled` as a local so a slow IndexedDB read cannot put an older snapshot
+  // back over a server-confirmed one. The subscription re-read is a THIRD writer into the same
+  // state and cannot see that local, so it gets the same guard in a form both can reach:
+  //   - `serverGenerationRef` counts server answers applied. The re-read captures it before its read
+  //     and drops the result if a fetch landed meanwhile — that read was issued against the store as
+  //     it was BEFORE the server wrote it.
+  //   - `cachePersistedRef` is false while the last fetch could not write the cache (quota, private
+  //     browsing). Then the snapshot store holds less than the screen does, and re-reading it takes
+  //     rings off the data log — while the strip still says the data is server-fresh. The screen
+  //     keeps what it has instead; it is already telling the crew "บันทึกลงเครื่องไม่ได้", and a
+  //     row that lingers until the next fetch is the recoverable end of this.
+  const serverGenerationRef = useRef(0);
+  const cachePersistedRef = useRef(true);
 
   const applyIfCurrent = useCallback((token, update) => {
     if (requestRef.current !== token) return;
@@ -79,6 +92,8 @@ export function useOfflineData(machine, deps = {}) {
       .then(() => repository.refresh(machine))
       .then(fresh => {
         serverSettled = true;
+        serverGenerationRef.current += 1;
+        cachePersistedRef.current = !fresh.cacheError;
         applyIfCurrent(token, { data: fresh.data, source: fresh.source, fetchedAt: fresh.fetchedAt, stale: Boolean(fresh.stale), refreshing: false, loading: false, error: null, cacheError: fresh.cacheError || null });
         syncAfterRefresh();
         return true;
@@ -122,6 +137,9 @@ export function useOfflineData(machine, deps = {}) {
       // queue is not durable, and that the data on screen is old. It also drops the server answer
       // already travelling. A passenger of the current generation is what this is.
       const token = requestRef.current;
+      // captured BEFORE the read, compared after: see `serverGenerationRef` above
+      const generation = serverGenerationRef.current;
+      if (!cachePersistedRef.current) return;
       Promise.resolve(repository.load(machineRef.current))
         // `data` ONLY. `repository.load` always answers `source: "indexeddb", stale: true`, so
         // carrying its provenance overwrote what the last FETCH established — and nothing sets that
@@ -129,7 +147,10 @@ export function useOfflineData(machine, deps = {}) {
         // the app told an online crew "เชื่อมต่อเซิร์ฟเวอร์ไม่ได้ — แสดงข้อมูลที่บันทึกไว้" for the
         // rest of the session: the answer to "is my work on the sheet?" became a standing lie, on
         // the screen they were sent to precisely to find that out.
-        .then(cached => { if (cached) applyIfCurrent(token, { data: cached.data }); })
+        .then(cached => {
+          if (!cached || serverGenerationRef.current !== generation) return;
+          applyIfCurrent(token, { data: cached.data });
+        })
         // Nothing surfaces this: the Sync Center's own error is about a different call on a
         // different store. The screen keeps what it had, which is the safe end of a cache read that
         // was only ever an optimisation over waiting for the next refresh.
@@ -146,6 +167,8 @@ export function useOfflineData(machine, deps = {}) {
     setState(previous => ({ ...previous, refreshing: true, error: null }));
     try {
       const fresh = await repository.refresh(machine);
+      serverGenerationRef.current += 1;
+      cachePersistedRef.current = !fresh.cacheError;
       // `loading` must be cleared here too: claiming the token above invalidated any in-flight
       // hydrate, whose passes carried the only other `loading:false`, so omitting it left the app
       // on its splash screen forever.

@@ -1,6 +1,7 @@
 import { fetchServerSnapshot as defaultFetchServerSnapshot } from "./apiTransport";
 import { openOfflineDb as defaultOpenDb } from "./db";
 import { getOrCreateDeviceId as defaultGetDeviceId } from "./device";
+import { withoutQueueStamps } from "./entityKeys";
 import { reconcileLegacyStage as defaultReconcileLegacy } from "./legacyMigration";
 import { MACHINE_ENTITY_TYPES, makeDomainKey } from "./domainKey";
 import { claimDueMutations, confirmMutation, discardMutation as discardStoredMutation, getConflict, getEntity, getMutation, getSyncCenterView, getSyncCounts, listDueMutations, putOptimisticMutation, resolveConflictAndEnqueue, resolveStoredConflict, retryMutationAsSuccessor, saveConflict, setLastSyncedAt, setSyncMetaValue, updateMutation } from "./mutationStore";
@@ -193,7 +194,14 @@ export function createRepository(deps = {}) {
       return { status: "resolved" };
     }
     if (strategy === "manual" && (!payload || typeof payload !== "object")) throw new Error("Manual conflict resolution requires payload");
-    const nextPayload = strategy === "local" ? (original && original.payload) : payload;
+    // STRIPPED, like every payload `buildMutationEnvelope` produces. GAS's JSON-blob path copies
+    // every payload key into the sheet cell, so a `syncStatus: "pending"` riding along on a manual
+    // resolution makes `preserveLocal` read the server's row as this device's unsynced work and
+    // freeze it on every other phone. `ConflictResolver` prefills its draft from the conflict's own
+    // records and the server's always carries `version`, so this is the ordinary path, not an
+    // exotic one: the stripping lived only in `buildMutationEnvelope`, and the two write paths
+    // Task 10 added — resolve and retry — both take a payload straight from the crew.
+    const nextPayload = withoutQueueStamps(strategy === "local" ? (original && original.payload) : payload);
     // the successor's key is recomputed from its fields rather than inherited, so a stored key from
     // an older build cannot make its own resolution unresolvable
     const successorInput = {
@@ -343,7 +351,7 @@ export function createRepository(deps = {}) {
       const successorInput = {
         entityType: original.entityType, operation: original.operation, machine: original.machine,
         recordId: original.recordId, baseVersion: original.baseVersion,
-        payload: payload && typeof payload === "object" ? payload : original.payload, actorId: original.actorId,
+        payload: withoutQueueStamps(payload && typeof payload === "object" ? payload : original.payload), actorId: original.actorId,
       };
       const domainKey = requireMutationEnvelope(successorInput);
       if (domainKey !== original.domainKey) throw new Error(`Retry payload changes the record identity from ${original.domainKey} to ${domainKey}`);

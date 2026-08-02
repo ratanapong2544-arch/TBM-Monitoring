@@ -589,6 +589,29 @@ function blockedDomainsOf(mutations) {
   return new Set(mutations.filter(item => stuckStatuses.has(item.status)).map(item => item.domainKey));
 }
 
+// Rows that are queued but cannot move, and the ones that can. The two surfaces asked this the same
+// way and from different sets — the button from PENDING alone, the panel from PENDING or SYNCING —
+// so the same row could be counted as travelling by one and filed under ติดค้าง by the other. It is
+// unreachable today (`claimDueMutations` claims domain heads only, and a stuck head is never
+// claimable again) and it stops being a question at all if there is one function.
+function splitByBlocked(mutations, blockedDomains) {
+  const queued = mutations.filter(item => item.status === MUTATION_STATUS.PENDING || item.status === MUTATION_STATUS.SYNCING);
+  return {
+    moving: queued.filter(item => !blockedDomains.has(item.domainKey)),
+    blocked: queued.filter(item => blockedDomains.has(item.domainKey)),
+  };
+}
+
+// Writes for the same record that a discard of THIS one takes with it. `discardMutation` cascades
+// them and the confirmation the crew reads has to name how many — the same question in two places,
+// asked once here.
+export function followersOf(mutations, mutation) {
+  return mutations.filter(item => item.requestId !== mutation.requestId
+    && item.domainKey === mutation.domainKey
+    && String(item.recordId) === String(mutation.recordId)
+    && !isFinishedStatus(item.status));
+}
+
 export async function getSyncCounts(db) {
   const transaction = db.transaction([STORES.mutations, STORES.conflicts, STORES.syncMeta], "readonly");
   const [mutations, conflicts, syncMeta] = await Promise.all([
@@ -603,10 +626,9 @@ export async function getSyncCounts(db) {
   // straight untruth. Until Task 10 can resolve the head, the honest number is how many records
   // cannot move: three rings stranded behind one conflict is three, not one.
   const blockedDomains = blockedDomainsOf(mutations);
-  const isBlocked = item => blockedDomains.has(item.domainKey);
-  const pending = mutations.filter(item => item.status === MUTATION_STATUS.PENDING);
+  const split = splitByBlocked(mutations, blockedDomains);
   return {
-    pending: pending.filter(item => !isBlocked(item)).length,
+    pending: split.moving.filter(item => item.status === MUTATION_STATUS.PENDING).length,
     // not filtered: a SYNCING mutation cannot share a domain with a stuck one. `claimDueMutations`
     // returns one head per domain and a conflicted or refused head is never claimable again, so
     // nothing behind it can be in flight.
@@ -615,7 +637,7 @@ export async function getSyncCounts(db) {
     errors: mutations.filter(item => isRetryableErrorStatus(item.status)).length,
     // queued behind a head that will never move, so reported with the stuck ones rather than as work
     // still travelling
-    blocked: pending.filter(isBlocked).length,
+    blocked: split.blocked.length,
     lastSyncedAt: syncMeta && syncMeta.value || null,
   };
 }
@@ -669,12 +691,15 @@ export async function getSyncCenterView(db, { recentLimit = 50 } = {}) {
   const byQueueOrder = (left, right) => (left.queueSequence || 0) - (right.queueSequence || 0);
   const newestFirst = (left, right) => String(right.confirmedAtLocal || "").localeCompare(String(left.confirmedAtLocal || ""));
 
-  const queued = mutations.filter(item => item.status === MUTATION_STATUS.PENDING || item.status === MUTATION_STATUS.SYNCING);
+  const split = splitByBlocked(mutations, blockedDomains);
   const rowOf = item => ({
     ...identity(item),
     status: item.status,
     operation: item.operation,
     createdAtLocal: item.createdAtLocal,
+    // how many other queued writes go with it if this one is discarded — nothing for anything but a
+    // create, since only a create's followers cascade
+    cascadeCount: item.operation === "create" ? followersOf(mutations, item).length : 0,
     attemptCount: item.attemptCount || 0,
     nextAttemptAt: item.nextAttemptAt || null,
     lastError: item.lastError || null,
@@ -686,8 +711,8 @@ export async function getSyncCenterView(db, { recentLimit = 50 } = {}) {
   const openConflicts = conflicts.filter(item => item.status === "open");
   const mutationByRequest = new Map(mutations.map(item => [item.requestId, item]));
   return {
-    pending: queued.filter(item => !blockedDomains.has(item.domainKey)).sort(byQueueOrder).map(rowOf),
-    blocked: queued.filter(item => blockedDomains.has(item.domainKey)).sort(byQueueOrder).map(rowOf),
+    pending: split.moving.sort(byQueueOrder).map(rowOf),
+    blocked: split.blocked.sort(byQueueOrder).map(rowOf),
     // The payload rides along for these and only these: a validation error means the server refused
     // THESE VALUES, so the crew has to see and correct them. Resending them unchanged reproduces the
     // refusal, and the mutation stays the head of its record — so re-entering it through the normal
@@ -712,6 +737,7 @@ export async function getSyncCenterView(db, { recentLimit = 50 } = {}) {
         conflictId: conflict.conflictId,
         requestId: conflict.requestId || null,
         operation: mutation ? mutation.operation : null,
+        cascadeCount: mutation && mutation.operation === "create" ? followersOf(mutations, mutation).length : 0,
         // No mutation behind it means the write actions do not apply: nothing to resolve through the
         // queue and nothing to discard. A legacy staged difference is reviewed, not resolved.
         actionable: Boolean(conflict.requestId),
@@ -813,10 +839,7 @@ export async function discardMutation(db, requestId, { discardedAt } = {}) {
   ]);
   if (!mutation) { transaction.abort(); throw new Error(`Unknown mutation ${requestId}`); }
   if (!stuckStatuses.has(mutation.status)) { transaction.abort(); throw new Error(`Mutation ${requestId} ยังไม่ติดค้าง — ทิ้งได้เฉพาะรายการที่ส่งไม่ได้แล้ว`); }
-  const followers = allMutations.filter(item => item.requestId !== requestId
-    && item.domainKey === mutation.domainKey
-    && String(item.recordId) === String(mutation.recordId)
-    && !isFinishedStatus(item.status));
+  const followers = followersOf(allMutations, mutation);
   // Throwing away the CREATE takes its followers with it. They can only ever post an edit against a
   // row the sheet has never held — refused when they get there, and called "รอส่งขึ้นเซิร์ฟเวอร์"
   // until then. Refusing the discard instead left the record with no exit at all: the follower is

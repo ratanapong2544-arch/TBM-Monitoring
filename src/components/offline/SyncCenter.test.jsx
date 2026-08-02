@@ -287,7 +287,9 @@ test("a stranded row says why it cannot move, which is not the same as being ref
   // id in it — and the captured sheet has seven ids over sixteen rows, so two rows of one ring block
   // each other. Telling the crew to go fix "the same record" points them at a row whose id is
   // printed right beside it and is not the stuck one.
-  expect(view.container.textContent).toContain("รออยู่หลังรายการที่ติดค้างของริงเดียวกัน");
+  expect(view.container.textContent).toContain("รออยู่หลังรายการที่ติดค้างของข้อมูลชุดเดียวกัน");
+  // and NOT "ริง": this list holds issues, daily reports, prep tasks and instrument readings too
+  expect(view.container.textContent).not.toMatch(/ติดค้างของริง/);
   expect(view.container.textContent).not.toContain("เซิร์ฟเวอร์ปฏิเสธ");
   view.unmount();
 });

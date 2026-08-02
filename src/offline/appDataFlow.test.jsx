@@ -1142,8 +1142,8 @@ test("keeping the server's row on a conflicted delete puts the ring back on the 
     refresh: async () => { throw new Error("NETWORK"); },
     subscribe: listener => { listeners.push(listener); return () => { listeners = listeners.filter(item => item !== listener); }; },
     getSyncSummary: async () => ({ online: true, pending: 0, syncing: 0, conflicts: 0, errors: 0, blocked: 0, lastSyncedAt: null }),
-    // HAND-FIRED, deliberately: this file's repository is a fake throughout, so what it emits is
-    // this test's own choice and proves nothing about the real one. That the `server` strategy
+    // HAND-FIRED, deliberately: THIS test's repository is a fake, so what it emits is this test's
+    // own choice and proves nothing about the real one. That the `server` strategy
     // actually emits this is pinned where it can be — against a real repository over a real store,
     // in `syncCenterData.test.js` › "keeping the server's row announces itself".
     resolveConflict: async () => { listeners.forEach(listener => listener({ type: "conflict", requestId: "r1", conflictId: "c1", status: "resolved" })); return { status: "resolved" }; },

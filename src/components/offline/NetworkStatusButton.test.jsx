@@ -72,12 +72,15 @@ test("a snapshot from another day is dated, not just clocked", async () => {
   jest.useRealTimers();
 });
 
-test("a snapshot from today is not cluttered with today's date", async () => {
+test("today's stamp is dated too, because midnight is not an event", async () => {
+  // Dating it only when it is not today would be the same untruth wearing a disguise: the
+  // comparison runs during render, and this button re-renders only when a queue count changes — so
+  // a phone sitting idle across midnight would go on showing a bare clock for yesterday.
   jest.useFakeTimers().setSystemTime(new Date("2026-08-02T11:00:00.000Z"));
   const view = render(<NetworkStatusButton summary={summary({ online: false, lastSyncedAt: "2026-08-02T01:30:00.000Z" })} onOpen={() => {}} />);
 
   expect(view.container.textContent).toContain("08:30");
-  expect(view.container.textContent).not.toMatch(/2569|2026/);
+  expect(view.container.textContent).toMatch(/2569|2026/);
   view.unmount();
   jest.useRealTimers();
 });

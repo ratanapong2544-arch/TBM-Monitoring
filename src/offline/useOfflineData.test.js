@@ -531,3 +531,72 @@ test("a cache re-read after a machine switch reads the machine now on screen", a
   expect(hook.last().data.segments.every(row => row.machine === "TBM2")).toBe(true);
   hook.unmount();
 });
+
+test("a device that cannot write its cache does not re-read it and lose the data log", async () => {
+  // Quota, or private browsing: `writeServerSnapshot` throws, the fetch still returns the rings and
+  // reports `cacheError`. The snapshot store then holds LESS than the screen does. One tap on
+  // ยืนยันทิ้ง used to re-read it and take every ring off the data log, both dashboards and the ring
+  // count — while `source` still read "server" and the strip still said the data was fresh. A row
+  // that lingers until the next fetch is the recoverable end of this; a wiped data log is not.
+  let listener;
+  const repository = {
+    load: async machine => ({ data: { machine, segments: [] }, source: "indexeddb", fetchedAt: null, stale: true }),
+    refresh: async machine => ({
+      data: { machine, segments: [{ id: "s1", ringNo: "P1", machine }, { id: "s2", ringNo: "P2", machine }] },
+      source: "server", fetchedAt: "server", stale: false, cacheError: new Error("QuotaExceededError"),
+    }),
+    subscribe: handler => { listener = handler; return () => { listener = null; }; },
+    getSyncSummary: async () => ({ online: true, pending: 0, syncing: 0, conflicts: 0, errors: 0, blocked: 0, lastSyncedAt: null }),
+  };
+
+  const hook = renderHook(props => useOfflineData(props.machine, { repository }), { machine: "TBM1" });
+  await act(async () => {});
+  expect(hook.last().data.segments).toHaveLength(2);
+
+  await act(async () => { listener({ type: "mutation", requestId: "r1", status: "discarded" }); });
+  await act(async () => {});
+
+  expect(hook.last().data.segments.map(row => row.ringNo)).toEqual(["P1", "P2"]);
+  hook.unmount();
+});
+
+test("a re-read that settles after a fetch does not put the older snapshot back", async () => {
+  // `hydrate` states this invariant and enforces it with a local, `serverSettled`. The subscription
+  // re-read is a THIRD writer into the same state and cannot see that local, so it needed the same
+  // guard in a form both can reach. Without it the crew taps discard, the launch fetch answers
+  // while the cache read is still out, and the rings the server just confirmed are replaced by
+  // whatever the store held before it was written.
+  // The LAUNCH fetch, not `refresh()`: `refresh()` claims a new request token, which drops the
+  // re-read on its own and would make this test prove nothing. `hydrate`'s server pass shares the
+  // token with the re-read, and it is the pass in flight when a crew opens the panel at the start of
+  // a shift.
+  let listener;
+  let releaseCache;
+  let releaseServer;
+  const rings = machine => [{ id: "s1", ringNo: "P1", machine }, { id: "s2", ringNo: "P2", machine }, { id: "s3", ringNo: "P3", machine }];
+  let cacheCall = 0;
+  const repository = {
+    load: machine => {
+      cacheCall += 1;
+      if (cacheCall === 1) return Promise.resolve({ data: { machine, segments: [] }, source: "indexeddb", fetchedAt: null, stale: true });
+      return new Promise(resolve => { releaseCache = () => resolve({ data: { machine, segments: [{ id: "s1", ringNo: "P1", machine }] }, source: "indexeddb", fetchedAt: "cache", stale: true }); });
+    },
+    refresh: machine => new Promise(resolve => { releaseServer = () => resolve({ data: { machine, segments: rings(machine) }, source: "server", fetchedAt: "server", stale: false }); }),
+    subscribe: handler => { listener = handler; return () => { listener = null; }; },
+    getSyncSummary: async () => ({ online: true, pending: 0, syncing: 0, conflicts: 0, errors: 0, blocked: 0, lastSyncedAt: null }),
+  };
+
+  const hook = renderHook(props => useOfflineData(props.machine, { repository }), { machine: "TBM1" });
+  await act(async () => {});
+  // the re-read goes out while the launch fetch is still travelling...
+  await act(async () => { listener({ type: "conflict", requestId: "r1", conflictId: "c1", status: "resolved" }); });
+  // ...the fetch lands...
+  await act(async () => { releaseServer(); });
+  // ...and only then does the cache answer, with what the store held before the fetch wrote it
+  await act(async () => { releaseCache(); });
+  await act(async () => {});
+
+  expect(hook.last().data.segments.map(row => row.ringNo)).toEqual(["P1", "P2", "P3"]);
+  expect(hook.last()).toMatchObject({ source: "server", stale: false });
+  hook.unmount();
+});

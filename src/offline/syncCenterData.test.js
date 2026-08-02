@@ -3,6 +3,7 @@ if (!global.structuredClone) global.structuredClone = value => JSON.parse(JSON.s
 import { deleteOfflineDbForTests, openOfflineDb } from "./db";
 import { buildMutationEnvelope } from "./mutationEnvelope";
 import { createRepository } from "./repository";
+import { discardOutcomeText } from "./syncSummary";
 
 beforeEach(async () => { await deleteOfflineDbForTests(); });
 afterEach(async () => { await deleteOfflineDbForTests(); });
@@ -882,4 +883,82 @@ test("keeping the server's row remembers BOTH the ring and the version it was co
 
   expect(snapshot.entityKeys.segments).toContain("entity:optimistic:segment:TBM1:P90:Permanent:id:seg-P90");
   expect(snapshot.syncMeta["segment:TBM1:P90:Permanent"]).toMatchObject({ version: 4, deleted: false });
+});
+
+test("a manually resolved conflict posts the record, not the queue's bookkeeping", async () => {
+  // `withoutQueueStamps` exists because GAS's JSON-blob path copies every payload key into the sheet
+  // cell: a `syncStatus: "pending"` riding along makes `preserveLocal` read the server's row as this
+  // device's unsynced work and freeze it on every other phone. It lived in `buildMutationEnvelope`
+  // alone, and the resolver prefills its draft from the conflict's own records — the server's always
+  // carries `version` — so this is the ordinary path through the new screen, not an exotic input.
+  const repository = makeRepository();
+  const queued = await repository.mutate(segment("P41"));
+  await repository.applyConflict(queued.requestId, { status: "conflict", currentVersion: 9, serverRecord: { id: "seg-P41", ringNo: "P41", installType: "Permanent", grade: "B", version: 9, syncStatus: "synced" } });
+
+  const successor = await repository.resolveConflict(queued.requestId, {
+    strategy: "manual",
+    payload: { id: "seg-P41", ringNo: "P41", installType: "Permanent", grade: "C", version: 9, syncStatus: "synced", domainKey: "segment:TBM1:P41:Permanent", entityType: "segment" },
+  });
+
+  const posted = (await repository.getSyncCenter()).pending.find(row => row.requestId === successor.requestId);
+  const stored = await repository.getMutation(successor.requestId);
+  expect(posted).toBeTruthy();
+  ["version", "syncStatus", "domainKey", "entityType", "recordId"].forEach(key => {
+    expect(Object.keys(stored.payload)).not.toContain(key);
+  });
+  expect(stored.payload).toMatchObject({ ringNo: "P41", grade: "C" });
+});
+
+test("a retried write posts the corrected record, not the queue's bookkeeping", async () => {
+  // The Sync Center's payload editor hands back whatever it was showing, and the row it was showing
+  // came from a stored mutation — but a crew correcting a refused write can paste, and the retry
+  // path had no stripping of its own either.
+  const repository = makeRepository();
+  const queued = await repository.mutate(segment("P42"));
+  await repository.updateMutation(queued.requestId, { status: "validation_error", nextAttemptAt: null, lastError: { code: "VALIDATION", message: "ring ไม่ถูกต้อง" } });
+
+  const successor = await repository.retryMutation(queued.requestId, {
+    payload: { id: "seg-P42", ringNo: "P42", installType: "Permanent", grade: "C", version: 4, syncStatus: "pending" },
+  });
+
+  const stored = await repository.getMutation(successor.requestId);
+  ["version", "syncStatus"].forEach(key => expect(Object.keys(stored.payload)).not.toContain(key));
+  expect(stored.payload).toMatchObject({ ringNo: "P42", grade: "C" });
+});
+
+test("the discard confirmation counts every write it takes with it", async () => {
+  // Discarding a CREATE cascades every write still queued for that record — they can only ever post
+  // an edit against a row the sheet has never held. A crew that queued a create and two corrections
+  // was told one write was going and lost three.
+  const repository = makeRepository();
+  const created = await repository.mutate(segment("P43", { operation: "create" }));
+  await repository.mutate(segment("P43"));
+  await repository.mutate(segment("P43"));
+  await repository.updateMutation(created.requestId, { status: "validation_error", nextAttemptAt: null, lastError: { code: "VALIDATION", message: "ring ไม่ถูกต้อง" } });
+
+  const view = await repository.getSyncCenter();
+  const row = view.errors.find(item => item.requestId === created.requestId);
+
+  expect(row.cascadeCount).toBe(2);
+  expect(discardOutcomeText(row.operation, row.cascadeCount)).toContain("2");
+  // and the store really does take them: the count is not decoration
+  await repository.discardMutation(created.requestId);
+  expect((await repository.getSyncCenter()).pending).toEqual([]);
+});
+
+test("the two surfaces count the same rows as blocked", async () => {
+  // The button's number and the panel's list were built from two filters over two different sets.
+  // They agree today only because a SYNCING row cannot share a domain with a stuck one; one helper
+  // means they cannot stop agreeing.
+  const repository = makeRepository();
+  const head = await repository.mutate(segment("P44"));
+  await repository.mutate(segment("P44"));
+  await repository.mutate(segment("P45"));
+  await repository.updateMutation(head.requestId, { status: "conflict", nextAttemptAt: null });
+
+  const counts = await repository.getSyncSummary();
+  const view = await repository.getSyncCenter();
+
+  expect(counts.blocked).toBe(view.blocked.length);
+  expect(view.blocked.map(row => row.recordId)).toEqual(["seg-P44"]);
 });

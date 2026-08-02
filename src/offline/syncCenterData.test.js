@@ -827,3 +827,30 @@ test("throwing away a create closes the conflict a cascaded follower was holding
   expect((await repository.getSyncSummary()).conflicts).toBe(0);
   expect((await repository.getSyncCenter()).conflicts).toEqual([]);
 });
+
+test("keeping the server's row announces itself, so the screen can hear it", async () => {
+  // The two other strategies emit a resolved conflict and this one did not: `applySyncSuccess`
+  // emits a `sync` event, which no screen re-read listens for, so the ring came back in the store
+  // and stayed off the data log — on the one branch that means KEEP THE RING.
+  const repository = makeRepository();
+  const events = [];
+  repository.subscribe(event => events.push(event));
+  const queued = await repository.mutate(segment("P87"));
+  await repository.applyConflict(queued.requestId, { status: "conflict", currentVersion: 2, serverRecord: { id: "seg-P87" } });
+
+  await repository.resolveConflict(queued.requestId, { strategy: "server" });
+
+  expect(events.some(event => event.type === "conflict" && event.status === "resolved")).toBe(true);
+});
+
+test("keeping the server's row does not claim the device synced", async () => {
+  // Nothing left this device. Moving the stamp made the status button read "ออฟไลน์" and
+  // "ซิงก์ล่าสุด HH:MM" side by side.
+  const repository = makeRepository();
+  const queued = await repository.mutate(segment("P88"));
+  await repository.applyConflict(queued.requestId, { status: "conflict", currentVersion: 2, serverRecord: { id: "seg-P88" } });
+
+  await repository.resolveConflict(queued.requestId, { strategy: "server" });
+
+  expect((await repository.getSyncSummary()).lastSyncedAt).toBeNull();
+});

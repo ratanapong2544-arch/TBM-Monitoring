@@ -127,11 +127,16 @@ export function createRepository(deps = {}) {
     };
   }
 
+  // `fromServerRecord` means the crew chose the server's row: nothing left this device, so the
+  // "ซิงก์ล่าสุด" stamp must not move. Resolving a conflict underground otherwise set it from the
+  // device's own clock, and the status button then read "ออฟไลน์ · ซิงก์ล่าสุด HH:MM" together.
   async function applySyncSuccess(requestId, response, options) {
     const resolvesToDeleted = makeResolvesToDeleted(options);
     const mutation = await confirmMutation(await openDb(), requestId, response, { ...options, confirmedAtLocal: now(), resolvesToDeleted });
     if (!mutation) return null;
-    await setLastSyncedAt(await openDb(), response.updatedAt || now());
+    // Not for a resolution that kept the server's row: nothing left this device, and moving the
+    // stamp made the status button read "ออฟไลน์" and "ซิงก์ล่าสุด HH:MM" side by side.
+    if (!(options && options.fromServerRecord)) await setLastSyncedAt(await openDb(), response.updatedAt || now());
     // The confirmed version has to reach whoever stamps the NEXT mutation's `baseVersion`. Without
     // it a second edit of the same record in one session is still stamped with the version the last
     // full snapshot carried, the server sees base ≠ current and answers `conflict` — for a row
@@ -177,6 +182,11 @@ export function createRepository(deps = {}) {
         { fromServerRecord: true },
       );
       await resolveStoredConflict(db, conflictId, { resolvedAt: now(), strategy, before, after: conflict.serverRecord });
+      // Announced like the other two strategies. Without this the one branch that means KEEP THE
+      // RING was the one branch nothing on screen heard about: `applySyncSuccess` emits a `sync`
+      // event, which is not what a screen re-read listens for, so the ring came back in the store
+      // and stayed off the data log.
+      emit({ type: "conflict", requestId: conflict.requestId, conflictId, status: "resolved" });
       // stamped so the history can say the crew's values were dropped in favour of the server's,
       // rather than listing it beside the writes that actually reached the sheet
       await updateMutation(db, conflict.requestId, { strategy });

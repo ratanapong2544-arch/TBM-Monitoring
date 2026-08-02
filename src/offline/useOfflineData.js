@@ -115,10 +115,19 @@ export function useOfflineData(machine, deps = {}) {
         && ((event.type === "conflict" && event.status === "resolved")
           || (event.type === "mutation" && event.status === "discarded"));
       if (!rewrote) return;
-      const token = ++requestRef.current;
+      // NOT `++requestRef.current`. Claiming a new generation invalidates whatever hydrate or
+      // refresh is in flight, and this apply carries none of what those passes own — no
+      // `loading:false`, no `refreshing:false`. Stranding them leaves the app on its splash, or
+      // stuck on "กำลังอัปเดตข้อมูล…" which MASKS the two lines that matter underground: that the
+      // queue is not durable, and that the data on screen is old. It also drops the server answer
+      // already travelling. A passenger of the current generation is what this is.
+      const token = requestRef.current;
       Promise.resolve(repository.load(machineRef.current))
         .then(cached => { if (cached) applyIfCurrent(token, { data: cached.data, source: cached.source, fetchedAt: cached.fetchedAt, stale: cached.stale }); })
-        .catch(() => { /* the panel already said what failed */ });
+        // Nothing surfaces this: the Sync Center's own error is about a different call on a
+        // different store. The screen keeps what it had, which is the safe end of a cache read that
+        // was only ever an optimisation over waiting for the next refresh.
+        .catch(() => {});
     });
   }, [applyIfCurrent, repository]);
 

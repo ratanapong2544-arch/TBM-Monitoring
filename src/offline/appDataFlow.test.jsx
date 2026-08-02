@@ -1142,6 +1142,8 @@ test("keeping the server's row on a conflicted delete puts the ring back on the 
     refresh: async () => { throw new Error("NETWORK"); },
     subscribe: listener => { listeners.push(listener); return () => { listeners = listeners.filter(item => item !== listener); }; },
     getSyncSummary: async () => ({ online: true, pending: 0, syncing: 0, conflicts: 0, errors: 0, blocked: 0, lastSyncedAt: null }),
+    // the real one emits what the real one emits; this fake stands in only for the store write
+    resolveConflict: async () => { listeners.forEach(listener => listener({ type: "conflict", requestId: "r1", conflictId: "c1", status: "resolved" })); return { status: "resolved" }; },
   });
 
   const app = renderApp(repository);
@@ -1149,9 +1151,11 @@ test("keeping the server's row on a conflicted delete puts the ring back on the 
   // the live header derives the next ring from the last one it holds, so an empty machine names none
   expect(app.text()).not.toContain("P644");
 
-  // the resolution lands in the store, and the repository says so
+  // A HAND-FIRED event here would be a test of a shape the server strategy never sends — which is
+  // how the previous round signed this off while the one branch that means KEEP THE RING emitted
+  // nothing at all. The event has to come from the repository's own resolve.
   rows = [{ id: "seg-P643", ringNo: "P643", machine: "TBM1", installType: "Permanent" }];
-  await act(async () => { listeners.forEach(listener => listener({ type: "conflict", conflictId: "c1", status: "resolved" })); });
+  await act(async () => { await repository.resolveConflict("c1", { strategy: "server" }); });
   await act(async () => {});
 
   expect(app.text()).toContain("P644"); // P643 is back, so the next ring is named again

@@ -446,3 +446,34 @@ test("stops updating state after unmount", async () => {
 
   expect(hook.renders.length).toBe(renderCount);
 });
+
+test("a cache re-read does not strand the refresh it arrives during", async () => {
+  // The re-read must be a PASSENGER of the current generation. Claiming a new one invalidates the
+  // hydrate or refresh in flight, and this apply carries none of what those passes own — so
+  // `refreshing` stuck true and App showed "กำลังอัปเดตข้อมูล…" for the session, masking the two
+  // lines that matter underground: that the queue is not durable, and that the data is old. It also
+  // dropped the server answer already travelling.
+  let deliver;
+  let listener;
+  const repository = {
+    load: async machine => ({ data: { machine, segments: [{ id: "s1", ringNo: "P1", machine }] }, source: "indexeddb", fetchedAt: "cache", stale: true }),
+    refresh: machine => new Promise(resolve => {
+      deliver = () => resolve({ data: { machine, segments: [{ id: "s1", ringNo: "P1", machine }, { id: "s2", ringNo: "P2", machine }] }, source: "server", fetchedAt: "server", stale: false });
+    }),
+    subscribe: handler => { listener = handler; return () => { listener = null; }; },
+    getSyncSummary: async () => ({ online: true, pending: 0, syncing: 0, conflicts: 0, errors: 0, blocked: 0, lastSyncedAt: null }),
+  };
+
+  const hook = renderHook(props => useOfflineData(props.machine, { repository }), { machine: "TBM1" });
+  await act(async () => {});
+  await act(async () => { listener({ type: "mutation", requestId: "r1", status: "discarded" }); });
+  await act(async () => {});
+  deliver();
+  await act(async () => {});
+
+  expect(hook.last().refreshing).toBe(false);
+  expect(hook.last().loading).toBe(false);
+  expect(hook.last().source).toBe("server");
+  expect(hook.last().data.segments.map(row => row.ringNo)).toEqual(["P1", "P2"]);
+  hook.unmount();
+});

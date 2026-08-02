@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from "react";
 import { X } from "lucide-react";
 import { discardOutcomeText } from "../../offline/syncSummary";
-import { QUEUE_STAMPED_KEYS } from "../../offline/entityKeys";
+
 
 /**
  * The one screen where a crew decides between their own record and the server's.
@@ -14,11 +14,17 @@ import { QUEUE_STAMPED_KEYS } from "../../offline/entityKeys";
  * only way a recorded write leaves this device without reaching the sheet, so it takes two
  * deliberate actions rather than one tap on a phone in a wet glove.
  */
+// The queue's own bookkeeping, which is not the crew's data and would only be noise in a
+// field-by-field comparison of a ring.
+const HIDDEN_FROM_COMPARISON = ["recordId", "entityType", "domainKey", "version", "syncStatus"];
+
 const fieldsOf = (left, right) => {
   const keys = new Set([...Object.keys(left || {}), ...Object.keys(right || {})]);
-  // the queue's own bookkeeping is not the crew's data and would only be noise here — the same list
-  // the envelope strips, imported rather than spelled a second time
-  QUEUE_STAMPED_KEYS.forEach(key => keys.delete(key));
+  // Its OWN list, deliberately not `QUEUE_STAMPED_KEYS`. That one answers "what does the envelope
+  // strip on the way out", and a key added to it — `machine` is the obvious candidate — would then
+  // silently disappear from the comparison the crew is deciding on, which is the opposite of what
+  // hiding the queue's bookkeeping is for.
+  HIDDEN_FROM_COMPARISON.forEach(key => keys.delete(key));
   return [...keys];
 };
 

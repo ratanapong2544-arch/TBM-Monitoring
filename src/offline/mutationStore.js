@@ -583,6 +583,12 @@ export async function retryMutationAsSuccessor(db, { originalRequestId, successo
   return { mutation, entity };
 }
 
+// Which records cannot move: the status button's number and the ติดค้าง tab's list are the same
+// question asked twice, and each had its own copy of the answer.
+function blockedDomainsOf(mutations) {
+  return new Set(mutations.filter(item => stuckStatuses.has(item.status)).map(item => item.domainKey));
+}
+
 export async function getSyncCounts(db) {
   const transaction = db.transaction([STORES.mutations, STORES.conflicts, STORES.syncMeta], "readonly");
   const [mutations, conflicts, syncMeta] = await Promise.all([
@@ -596,7 +602,7 @@ export async function getSyncCounts(db) {
   // posted — it sits on screen marked pending, forever, and counting it as "on its way" is a
   // straight untruth. Until Task 10 can resolve the head, the honest number is how many records
   // cannot move: three rings stranded behind one conflict is three, not one.
-  const blockedDomains = new Set(mutations.filter(item => stuckStatuses.has(item.status)).map(item => item.domainKey));
+  const blockedDomains = blockedDomainsOf(mutations);
   const isBlocked = item => blockedDomains.has(item.domainKey);
   const pending = mutations.filter(item => item.status === MUTATION_STATUS.PENDING);
   return {
@@ -659,7 +665,7 @@ export async function getSyncCenterView(db, { recentLimit = 50 } = {}) {
     recordId: item.recordId,
     domainKey: item.domainKey,
   });
-  const blockedDomains = new Set(mutations.filter(item => stuckStatuses.has(item.status)).map(item => item.domainKey));
+  const blockedDomains = blockedDomainsOf(mutations);
   const byQueueOrder = (left, right) => (left.queueSequence || 0) - (right.queueSequence || 0);
   const newestFirst = (left, right) => String(right.confirmedAtLocal || "").localeCompare(String(left.confirmedAtLocal || ""));
 

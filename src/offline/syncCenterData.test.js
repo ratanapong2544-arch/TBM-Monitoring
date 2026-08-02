@@ -339,3 +339,113 @@ test("a corrected payload that carries its own photo keeps that one, not the ori
 
   expect((await repository.getMutation(retried.requestId)).payload.imageBase64).toBe(replacement);
 });
+
+test("discarding the head of a record lets everything queued behind it move again", async () => {
+  // Offline, a crew saves one ring twice — In Progress at excavation, Completed at install — and
+  // both queue on the same record. The head is refused terminally. Discard is the ONE action the
+  // panel offers to unjam it, and `domainHeads` filtered on `isTerminalStatus`, which DISCARDED is
+  // not: the discarded write stayed the head for ever, nothing behind it was ever posted again, and
+  // the counts reclassified the stranded one from "ติดค้าง" to "กำลังส่ง". The Completed record for
+  // that ring never reached the sheet and nothing on the device said so.
+  const repository = makeRepository();
+  const head = await repository.mutate(segment("P643"));
+  const behind = await repository.mutate(segment("P643"));
+  await repository.updateMutation(head.requestId, { status: "permanent_error", nextAttemptAt: null, lastError: { code: "PERMANENT", message: "ถูกปฏิเสธ" } });
+
+  await repository.discardMutation(head.requestId);
+
+  const due = await repository.getDueMutations({ now: Date.now() });
+  expect(due.map(item => item.requestId)).toEqual([behind.requestId]);
+});
+
+test("discarding one write does not take another write's row off the screen", async () => {
+  // The optimistic entity key is per RECORD, not per request. Deleting it unconditionally destroyed
+  // the on-screen row of the write still queued for that same ring.
+  const repository = makeRepository();
+  const head = await repository.mutate(segment("P644"));
+  await repository.mutate(segment("P644"));
+  await repository.updateMutation(head.requestId, { status: "permanent_error", nextAttemptAt: null, lastError: { code: "PERMANENT" } });
+
+  await repository.discardMutation(head.requestId);
+
+  const { data } = await repository.load("TBM1");
+  expect(data.segments.map(row => row.ringNo)).toEqual(["P644"]);
+});
+
+test("discarding a correction does not take the ring the sheet already holds off the screen", async () => {
+  // `patchSnapshotKeys` replaces the cached SERVER key with the optimistic one when a write is
+  // queued, so after a refused edit the optimistic copy is this device's only copy of that ring.
+  // Deleting it on discard made the whole ring vanish from the data log for the rest of the shift —
+  // and the predictable response, re-entering it, is the duplicate row this branch exists to stop.
+  const repository = makeRepository({
+    fetchServerSnapshot: async machine => ({ status: "success", machine, segments: [{ id: "seg-P7", ringNo: "P7", installType: "Permanent", machine }] }),
+  });
+  await repository.refresh("TBM1");
+  const queued = await repository.mutate(buildMutationEnvelope({
+    entityType: "segment", operation: "update", machine: "TBM1", recordId: "seg-P7",
+    payload: { id: "seg-P7", ringNo: "P7", installType: "Permanent", note: "แก้" },
+    syncMeta: { "segment:TBM1:P7:Permanent": { version: 1 } },
+  }));
+  await repository.updateMutation(queued.requestId, { status: "validation_error", nextAttemptAt: null, lastError: { code: "VALIDATION" } });
+
+  await repository.discardMutation(queued.requestId);
+
+  const { data } = await repository.load("TBM1");
+  expect(data.segments.map(row => row.ringNo)).toEqual(["P7"]);
+});
+
+test("legacy staged differences are listed one per record, and cannot be acted on as if they were writes", async () => {
+  // `legacyMigration` files its differences in the same store with NO requestId and its own field
+  // names. Keyed on `requestId` they all collapsed onto `undefined`: the count said three, the tab
+  // showed one blank row, and both of its buttons threw — `resolveConflict` has no mutation to
+  // resolve and `discardMutation(undefined)` is an unknown mutation. This is the state open item 3k
+  // says Task 10 exists to clear.
+  const repository = makeRepository();
+  const db = await openOfflineDb();
+  await new Promise((resolve, reject) => {
+    const transaction = db.transaction("conflicts", "readwrite");
+    const store = transaction.objectStore("conflicts");
+    ["issue-1", "issue-2"].forEach(id => store.put({
+      conflictId: `legacy:tbmIssues:issue:GLOBAL:${id}`,
+      status: "open", reason: "legacy_local_difference",
+      domainKey: `issue:GLOBAL:${id}`,
+      local: { id, title: `ในเครื่อง ${id}` },
+      server: { id, title: `บนเซิร์ฟเวอร์ ${id}` },
+      legacyKey: "tbmIssues",
+      createdAtLocal: "2026-08-02T00:00:00.000Z",
+    }));
+    transaction.oncomplete = resolve;
+    transaction.onerror = () => reject(transaction.error);
+  });
+
+  const view = await repository.getSyncCenter();
+
+  expect(view.conflicts).toHaveLength(2);
+  expect(view.conflicts.map(row => row.recordId).sort()).toEqual(["issue-1", "issue-2"]);
+  expect(view.conflicts[0].localRecord).toBeTruthy();
+  expect(view.conflicts[0].serverRecord).toBeTruthy();
+  // and they carry no requestId, which is what tells the panel not to offer the write actions
+  expect(view.conflicts.every(row => !row.requestId)).toBe(true);
+});
+
+test("a confirmed write records the version the server gave it", async () => {
+  const repository = makeRepository();
+  const queued = await repository.mutate(segment("P81"));
+  await repository.applySyncSuccess(queued.requestId, { status: "success", version: 9, record: { id: "seg-P81" } });
+
+  expect((await repository.getSyncCenter()).recent[0].version).toBe(9);
+});
+
+test("keeping the server's row is not listed as a successful send of this device's values", async () => {
+  // `applySyncSuccess` marks the mutation SYNCED because the record is settled — but nothing this
+  // device wrote reached the sheet, and ประวัติ said "ซิงก์สำเร็จ" for values that were dropped.
+  const repository = makeRepository();
+  const queued = await repository.mutate(segment("P82"));
+  await repository.applyConflict(queued.requestId, { status: "conflict", currentVersion: 4, serverRecord: { id: "seg-P82", ringNo: "P82" } });
+
+  await repository.resolveConflict(queued.requestId, { strategy: "server" });
+
+  const view = await repository.getSyncCenter();
+  expect(view.recent).toEqual([]);
+  expect(view.superseded.map(row => row.recordId)).toEqual(["seg-P82"]);
+});

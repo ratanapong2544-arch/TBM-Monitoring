@@ -27,7 +27,7 @@ const click = async el => { if (!el) throw new Error("no such control"); await a
 const button = (container, pattern) => [...container.querySelectorAll("button")].find(b => pattern.test(b.textContent));
 
 const conflictRow = {
-  conflictId: "request-P41", requestId: "request-P41", entityType: "segment", machine: "TBM1",
+  conflictId: "request-P41", requestId: "request-P41", actionable: true, entityType: "segment", machine: "TBM1",
   recordId: "P41", domainKey: "segment:TBM1:P41:Permanent", currentVersion: 9,
   serverRecord: { ringNo: "P41", grade: "B" }, localRecord: { ringNo: "P41", grade: "A" },
 };

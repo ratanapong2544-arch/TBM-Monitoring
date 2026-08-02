@@ -98,7 +98,7 @@ test("the conflicts tab shows both sides of the record", async () => {
   const load = jest.fn(async () => ({
     ...emptyView,
     conflicts: [{
-      conflictId: "request-P47", requestId: "request-P47", entityType: "segment", machine: "TBM1",
+      conflictId: "request-P47", requestId: "request-P47", actionable: true, entityType: "segment", machine: "TBM1",
       recordId: "P47", domainKey: "segment:TBM1:P47:Permanent", currentVersion: 9,
       serverRecord: { ringNo: "P47", grade: "B" }, localRecord: { ringNo: "P47", grade: "A" },
     }],
@@ -208,7 +208,7 @@ test("the conflicts tab shows the server's own values, the server's time and dev
   const load = jest.fn(async () => ({
     ...emptyView,
     conflicts: [{
-      conflictId: "request-P70", requestId: "request-P70", entityType: "segment", machine: "TBM1",
+      conflictId: "request-P70", requestId: "request-P70", actionable: true, entityType: "segment", machine: "TBM1",
       recordId: "P70", domainKey: "segment:TBM1:P70:Permanent", currentVersion: 9,
       serverRecord: { ringNo: "P70", grade: "จากเซิร์ฟเวอร์" }, localRecord: { ringNo: "P70", grade: "จากเครื่องนี้" },
       serverUpdatedAt: "2026-07-30T02:15:00.000Z", serverUpdatedByDevice: "device-2",
@@ -294,5 +294,28 @@ test("the history tab's empty state does not speak only of sends", async () => {
   await click(button(view.container, /ประวัติ/));
 
   expect(view.container.textContent).toContain("ยังไม่มีประวัติ");
+  view.unmount();
+});
+
+test("a legacy difference is shown for review and offers no write actions", async () => {
+  // It has no mutation behind it: `resolveConflict` would throw "has no mutation to resolve" and
+  // `discardMutation(undefined)` "Unknown mutation undefined". Offering either was a button that
+  // could only fail.
+  const load = jest.fn(async () => ({
+    ...emptyView,
+    conflicts: [{
+      conflictId: "legacy:tbmIssues:issue:GLOBAL:issue-1", requestId: null, actionable: false,
+      entityType: "issue", machine: "GLOBAL", recordId: "issue-1", domainKey: "issue:GLOBAL:issue-1",
+      localRecord: { id: "issue-1", title: "ในเครื่อง" }, serverRecord: { id: "issue-1", title: "บนเซิร์ฟเวอร์" },
+      reason: "legacy_local_difference", currentVersion: null,
+    }],
+  }));
+  const view = mount({ load });
+  await act(async () => {});
+  await click(button(view.container, /ขัดแย้ง/));
+
+  expect(view.container.textContent).toContain("issue-1");
+  expect(view.container.textContent).toContain("ตรวจแล้วแก้ในหน้าบันทึกข้อมูล");
+  expect(button(view.container, /เลือกว่าจะเก็บอันไหน/)).toBeUndefined();
   view.unmount();
 });

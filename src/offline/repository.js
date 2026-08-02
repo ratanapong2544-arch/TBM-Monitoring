@@ -177,6 +177,9 @@ export function createRepository(deps = {}) {
         { fromServerRecord: true },
       );
       await resolveStoredConflict(db, conflictId, { resolvedAt: now(), strategy, before, after: conflict.serverRecord });
+      // stamped so the history can say the crew's values were dropped in favour of the server's,
+      // rather than listing it beside the writes that actually reached the sheet
+      await updateMutation(db, conflict.requestId, { strategy });
       return { status: "resolved" };
     }
     if (strategy === "manual" && (!payload || typeof payload !== "object")) throw new Error("Manual conflict resolution requires payload");

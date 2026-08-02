@@ -469,13 +469,14 @@ const PrimaryGroutApp = () => {
     // `blocked` counts what is queued behind a stuck head: never posted, so never "on its way"
     const stuck = (syncSummary.conflicts || 0) + (syncSummary.errors || 0) + (syncSummary.blocked || 0);
     const waiting = (syncSummary.pending || 0) + (syncSummary.syncing || 0);
-    // Task 10's Sync Center is where a stuck write gets resolved; until then the crew at least
-    // learns it happened. Its row stays on screen looking recorded while the sheet has never seen
-    // it, and the queue orders per record, so everything they do to that ring waits behind it.
+    // Task 10's Sync Center is where a stuck write gets resolved, and the button that opens it is in
+    // the bar beside this line — so this says where to go rather than telling the crew to call
+    // someone. Its row stays on screen looking recorded while the sheet has never seen it, and the
+    // queue orders per record, so everything they do to that ring waits behind it.
     // both, when both are true: they are different facts, and collapsing them understated how much
     // work is unsendable while a stuck head sits in front of it
     const queueNote = [
-      stuck > 0 ? `${stuck} รายการติดค้าง ยังไม่ขึ้นเซิร์ฟเวอร์ — แจ้งผู้ดูแลระบบ` : null,
+      stuck > 0 ? `${stuck} รายการติดค้าง ยังไม่ขึ้นเซิร์ฟเวอร์ — เปิด “สถานะการซิงก์” เพื่อแก้` : null,
       waiting > 0 ? `${waiting} รายการรอซิงก์ขึ้นเซิร์ฟเวอร์` : null,
     ].filter(Boolean).join(" · ") || null;
     const withQueue = notice => (queueNote ? { ...notice, text: `${notice.text} · ${queueNote}` } : notice);

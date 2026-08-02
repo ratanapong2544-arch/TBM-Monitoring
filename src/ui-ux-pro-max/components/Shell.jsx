@@ -107,8 +107,11 @@ export default function Shell({
           onMachineChange={onMachineChange}
           rightSlot={
             <div className="flex items-center gap-2">
-              {/* on every tab, because a stuck write is not a fact about one page */}
-              {statusButton}
+              {/* On every tab, because a stuck write is not a fact about one page — but not in the
+                  viewer link: that browser has its own queue, and a crew member opening the owner's
+                  link on their working phone would get live retry and discard over their own
+                  unsent rings. */}
+              {!isViewer && statusButton}
               {isViewer && (
                 <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-navy bg-cyan-tint border border-line px-2 py-1 rounded-badge whitespace-nowrap">
                   <Eye size={13} /> Viewer

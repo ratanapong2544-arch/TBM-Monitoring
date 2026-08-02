@@ -1,4 +1,4 @@
-import { isTerminalStatus, MUTATION_STATUS, STORES } from "./schema";
+import { isFinishedStatus, isTerminalStatus, MUTATION_STATUS, stuckStatuses, STORES } from "./schema";
 import { entityKeyForRecord, isOptimisticKey, optimisticEntityKey } from "./entityKeys";
 import { PHOTOS } from "./displayRecord";
 import { toSyncVersion } from "./syncVersion";
@@ -234,8 +234,12 @@ export async function listDueMutations(db, now) {
     .sort((left, right) => (left.queueSequence || 0) - (right.queueSequence || 0) || String(left.createdAtLocal).localeCompare(String(right.createdAtLocal)));
 }
 
+// `domainHeads` asks "is this write still in the way", which a DISCARDED one is not — the crew threw
+// it away precisely so the record could move. Asking `isTerminalStatus` left it as the head for
+// ever: everything queued behind it was never posted again, while the counts reclassified those
+// rows from "ติดค้าง" to "กำลังส่ง" and said nothing.
 function isTerminal(mutation) {
-  return isTerminalStatus(mutation.status);
+  return isFinishedStatus(mutation.status);
 }
 
 function domainHeads(mutations) {
@@ -309,7 +313,9 @@ export async function confirmMutation(db, requestId, response, { owner, confirme
   // `syncedAt` is the SERVER's clock, which is the right thing to show a crew and the wrong thing to
   // compare against anything local. `confirmedAtLocal` is this device's own reading of when the
   // confirmation landed, and it is what tells a snapshot write whether a response predates it.
-  const next = { ...mutation, status: MUTATION_STATUS.SYNCED, syncedAt: response.updatedAt || null, confirmedAtLocal: confirmedAtLocal || null, lastError: null, syncOwner: null, leaseExpiresAt: null };
+  // `version` is the version the SERVER gave this write. Nothing stored it, so the Sync Center's
+  // history could never print the "· เวอร์ชัน N" its own row was written to show.
+  const next = { ...mutation, status: MUTATION_STATUS.SYNCED, version: response.version ?? null, syncedAt: response.updatedAt || null, confirmedAtLocal: confirmedAtLocal || null, lastError: null, syncOwner: null, leaseExpiresAt: null };
   mutationStore.put(next);
   // Rebase what is still queued behind this one on the same record. Offline, a whole chain of edits
   // is stamped with the only version the device knows — the one the last full snapshot carried, or 0
@@ -525,7 +531,7 @@ export async function retryMutationAsSuccessor(db, { originalRequestId, successo
     requestResult(mutations.get(originalRequestId)),
     requestResult(sequenceStore.get("mutationSequence")),
   ]);
-  const retryable = original && (original.status === MUTATION_STATUS.VALIDATION_ERROR || original.status === MUTATION_STATUS.PERMANENT_ERROR);
+  const retryable = original && stuckStatuses.has(original.status) && original.status !== MUTATION_STATUS.CONFLICT;
   if (!retryable) { transaction.abort(); throw new Error(`Mutation ${originalRequestId} is not a retryable error`); }
   const mutation = {
     ...successor,
@@ -558,9 +564,7 @@ export async function getSyncCounts(db) {
   // posted — it sits on screen marked pending, forever, and counting it as "on its way" is a
   // straight untruth. Until Task 10 can resolve the head, the honest number is how many records
   // cannot move: three rings stranded behind one conflict is three, not one.
-  const blockedDomains = new Set(mutations
-    .filter(item => item.status === MUTATION_STATUS.CONFLICT || item.status === MUTATION_STATUS.VALIDATION_ERROR || item.status === MUTATION_STATUS.PERMANENT_ERROR)
-    .map(item => item.domainKey));
+  const blockedDomains = new Set(mutations.filter(item => stuckStatuses.has(item.status)).map(item => item.domainKey));
   const isBlocked = item => blockedDomains.has(item.domainKey);
   const pending = mutations.filter(item => item.status === MUTATION_STATUS.PENDING);
   return {
@@ -623,10 +627,7 @@ export async function getSyncCenterView(db, { recentLimit = 50 } = {}) {
     recordId: item.recordId,
     domainKey: item.domainKey,
   });
-  const isStuck = item => item.status === MUTATION_STATUS.CONFLICT
-    || item.status === MUTATION_STATUS.VALIDATION_ERROR
-    || item.status === MUTATION_STATUS.PERMANENT_ERROR;
-  const blockedDomains = new Set(mutations.filter(isStuck).map(item => item.domainKey));
+  const blockedDomains = new Set(mutations.filter(item => stuckStatuses.has(item.status)).map(item => item.domainKey));
   const byQueueOrder = (left, right) => (left.queueSequence || 0) - (right.queueSequence || 0);
   const newestFirst = (left, right) => String(right.confirmedAtLocal || "").localeCompare(String(left.confirmedAtLocal || ""));
 
@@ -641,7 +642,11 @@ export async function getSyncCenterView(db, { recentLimit = 50 } = {}) {
     lastError: item.lastError || null,
   });
 
-  const conflictByRequest = new Map(conflicts.filter(item => item.status === "open").map(item => [item.requestId, item]));
+  // Every open conflict, listed once. `legacyMigration` files its staged differences in this same
+  // store with NO requestId — keyed on that, all of them collapsed onto `undefined` and the tab
+  // showed a single blank row while the count said three.
+  const openConflicts = conflicts.filter(item => item.status === "open");
+  const mutationByRequest = new Map(mutations.map(item => [item.requestId, item]));
   return {
     pending: queued.filter(item => !blockedDomains.has(item.domainKey)).sort(byQueueOrder).map(rowOf),
     blocked: queued.filter(item => blockedDomains.has(item.domainKey)).sort(byQueueOrder).map(rowOf),
@@ -650,7 +655,7 @@ export async function getSyncCenterView(db, { recentLimit = 50 } = {}) {
     // refusal, and the mutation stays the head of its record — so re-entering it through the normal
     // form does not help either; the new write just queues behind the stuck one.
     errors: mutations
-      .filter(item => item.status === MUTATION_STATUS.VALIDATION_ERROR || item.status === MUTATION_STATUS.PERMANENT_ERROR)
+      .filter(item => stuckStatuses.has(item.status) && item.status !== MUTATION_STATUS.CONFLICT)
       .sort(byQueueOrder)
       .map(item => ({ ...rowOf(item), payload: withoutPhotoBytes(item.payload) })),
     // Both sides, so the crew compares rather than guesses, WITH the three facts design §9 names:
@@ -658,20 +663,32 @@ export async function getSyncCenterView(db, { recentLimit = 50 } = {}) {
     // comparison without them cannot tell "someone else edited this an hour ago" from "I edited it
     // twice". A conflict whose mutation has been pruned still lists — the record is what they are
     // deciding about, not the request.
-    conflicts: [...conflictByRequest.values()].map(conflict => {
-      const mutation = mutations.find(item => item.requestId === conflict.requestId);
+    conflicts: openConflicts.map(conflict => {
+      const mutation = conflict.requestId ? mutationByRequest.get(conflict.requestId) : null;
+      // A legacy row spells its two sides `local`/`server`; a queued one `localRecord`/`serverRecord`.
+      // Reading only the queued names gave the crew two panels of `null` to choose between.
+      const localRecord = conflict.localRecord ?? conflict.local ?? (mutation && mutation.payload) ?? null;
+      const serverRecord = conflict.serverRecord ?? conflict.server ?? null;
       return {
         conflictId: conflict.conflictId,
-        requestId: conflict.requestId,
-        ...(mutation ? identity(mutation) : { entityType: conflict.entityType, machine: conflict.machine || "GLOBAL", recordId: conflict.recordId, domainKey: conflict.domainKey }),
+        requestId: conflict.requestId || null,
+        // No mutation behind it means the write actions do not apply: nothing to resolve through the
+        // queue and nothing to discard. A legacy staged difference is reviewed, not resolved.
+        actionable: Boolean(conflict.requestId),
+        ...(mutation ? identity(mutation) : {
+          entityType: conflict.entityType || String(conflict.domainKey || "").split(":")[0] || null,
+          machine: conflict.machine || String(conflict.domainKey || "").split(":")[1] || "GLOBAL",
+          recordId: conflict.recordId ?? (localRecord && localRecord.id) ?? String(conflict.domainKey || "").split(":").slice(2).join(":"),
+          domainKey: conflict.domainKey,
+        }),
         currentVersion: conflict.currentVersion ?? null,
         // Both sides go through the same strip: `SyncCenter` renders them into a <pre> the moment
         // the tab opens, and `ConflictResolver` loads either into a controlled textarea.
-        serverRecord: withoutPhotoBytes(conflict.serverRecord) || null,
-        localRecord: withoutPhotoBytes(conflict.localRecord || (mutation && mutation.payload)) || null,
+        serverRecord: withoutPhotoBytes(serverRecord) || null,
+        localRecord: withoutPhotoBytes(localRecord) || null,
         reason: conflict.reason || null,
-        // `createdAt` is what `saveConflict` writes; reading `createdAtLocal` gave a null every time
-        savedAtLocal: conflict.createdAt || null,
+        // `createdAt` is what `saveConflict` writes and `createdAtLocal` what `legacyMigration` does
+        savedAtLocal: conflict.createdAt || conflict.createdAtLocal || null,
         serverUpdatedAt: conflict.currentUpdatedAt || null,
         serverUpdatedByDevice: conflict.currentUpdatedByDevice || null,
       };
@@ -686,11 +703,14 @@ export async function getSyncCenterView(db, { recentLimit = 50 } = {}) {
     // successor for — the server refused it and never confirmed it. Listing it with the synced ones
     // put one ring on screen twice at once: "กำลังส่ง" for the successor, "ซิงก์สำเร็จ" for this.
     superseded: mutations
-      .filter(item => item.status === MUTATION_STATUS.RESOLVED)
+      .filter(item => item.status === MUTATION_STATUS.RESOLVED || (item.status === MUTATION_STATUS.SYNCED && item.strategy === "server"))
       .sort(byQueueOrder)
       .map(item => ({ ...rowOf(item), resolvedAt: item.resolvedAt || null, strategy: item.strategy || null })),
+    // `strategy: "server"` means the crew chose the server's row and their own values were dropped:
+    // `applySyncSuccess` marks the mutation SYNCED, but nothing this device wrote reached the sheet,
+    // so it belongs with the replaced ones rather than borrowing the word that means it went.
     recent: mutations
-      .filter(item => item.status === MUTATION_STATUS.SYNCED)
+      .filter(item => item.status === MUTATION_STATUS.SYNCED && item.strategy !== "server")
       .sort(newestFirst)
       .slice(0, recentLimit)
       .map(item => ({ ...rowOf(item), confirmedAtLocal: item.confirmedAtLocal || null, version: item.version ?? null })),
@@ -712,17 +732,34 @@ export async function getSyncCenterView(db, { recentLimit = 50 } = {}) {
 export async function discardMutation(db, requestId, { discardedAt } = {}) {
   const transaction = db.transaction([STORES.mutations, STORES.entities, STORES.conflicts], "readwrite");
   const mutations = transaction.objectStore(STORES.mutations);
-  const mutation = await requestResult(mutations.get(requestId));
+  const [mutation, allMutations] = await Promise.all([
+    requestResult(mutations.get(requestId)),
+    requestResult(mutations.getAll()),
+  ]);
   if (!mutation) { transaction.abort(); throw new Error(`Unknown mutation ${requestId}`); }
-  const stuck = mutation.status === MUTATION_STATUS.CONFLICT
-    || mutation.status === MUTATION_STATUS.VALIDATION_ERROR
-    || mutation.status === MUTATION_STATUS.PERMANENT_ERROR;
-  if (!stuck) { transaction.abort(); throw new Error(`Mutation ${requestId} ยังไม่ติดค้าง — ทิ้งได้เฉพาะรายการที่ส่งไม่ได้แล้ว`); }
+  if (!stuckStatuses.has(mutation.status)) { transaction.abort(); throw new Error(`Mutation ${requestId} ยังไม่ติดค้าง — ทิ้งได้เฉพาะรายการที่ส่งไม่ได้แล้ว`); }
 
   mutations.put({ ...mutation, status: MUTATION_STATUS.DISCARDED, discardedAt: discardedAt || null, syncOwner: null, leaseExpiresAt: null, nextAttemptAt: null });
-  // the optimistic row goes with it: the crew chose not to send this, so showing their copy as
-  // unsynced work would put it back on every screen with no way to move it
-  transaction.objectStore(STORES.entities).delete(optimisticEntityKey(mutation.domainKey, mutation.recordId));
+
+  // The optimistic key is per RECORD, not per request, and deleting it unconditionally lost rows
+  // that had nothing to do with this write:
+  //   - another mutation still queued for the same ring rendered from it, and its row vanished;
+  //   - and for an UPDATE, `patchSnapshotKeys` has already replaced the cached SERVER key with this
+  //     one, so it is the device's only copy of a ring the sheet holds. Discarding a refused
+  //     correction took the whole ring off the data log for the rest of the shift, and the
+  //     predictable response — re-enter it — is the duplicate row Tasks 7-9 exist to stop.
+  // So: hand the row to whatever is still queued for that record; failing that, keep the values the
+  // write was about, unless it was a CREATE, which is the one case where no server row exists.
+  const entities = transaction.objectStore(STORES.entities);
+  const optimisticKey = optimisticEntityKey(mutation.domainKey, mutation.recordId);
+  const survivor = allMutations
+    .filter(item => item.requestId !== requestId
+      && item.domainKey === mutation.domainKey
+      && item.recordId === mutation.recordId
+      && !isFinishedStatus(item.status))
+    .sort((left, right) => (right.queueSequence || 0) - (left.queueSequence || 0))[0];
+  if (survivor) entities.put(optimisticEntity(survivor));
+  else if (mutation.operation === "create") entities.delete(optimisticKey);
   const conflicts = transaction.objectStore(STORES.conflicts);
   const conflict = await requestResult(conflicts.get(requestId));
   if (conflict && conflict.status === "open") conflicts.put({ ...conflict, status: "resolved", resolvedAt: discardedAt || null, strategy: "discard" });

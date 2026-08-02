@@ -46,6 +46,20 @@ export function isTerminalStatus(status) {
 // what the merge and the confirmed-after-request ordering ask about; this is what the RETENTION
 // window asks about, and a discarded write belongs in it — never claimable, never counted, and
 // otherwise the one row class that grows without bound on a phone that is never reinstalled.
+// A write that will never be posted again, whatever put it in that state. Spelled out in six
+// places before this — `getSyncCounts`, `getSyncCenterView`, `discardMutation`,
+// `retryMutationAsSuccessor`, `repository.retryMutation` and `domainHeads` — and `domainHeads` was
+// the copy that got missed: it asked `isTerminalStatus`, which DISCARDED is not, so a discarded head
+// blocked its own record for ever.
+export const stuckStatuses = Object.freeze(new Set([
+  MUTATION_STATUS.CONFLICT, MUTATION_STATUS.VALIDATION_ERROR, MUTATION_STATUS.PERMANENT_ERROR,
+]));
+
+// Finished with: the queue will never touch it again, for any reason.
+export function isFinishedStatus(status) {
+  return isTerminalStatus(status) || status === MUTATION_STATUS.DISCARDED;
+}
+
 export const prunableStatuses = Object.freeze(new Set([
   MUTATION_STATUS.SYNCED, MUTATION_STATUS.RESOLVED, MUTATION_STATUS.DISCARDED,
 ]));

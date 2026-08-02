@@ -107,9 +107,13 @@ export default function SyncCenter({ open, onClose, summary, load, onSyncNow, on
   const [editing, setEditing] = useState(null);
   const [editError, setEditError] = useState(null);
 
+  const [readError, setReadError] = useState(null);
   const refresh = useCallback(async () => {
     if (!load) return;
-    try { setView(await load()); } catch (error) { /* the panel must open even if the read fails */ }
+    // The panel must open even if the read fails — but it must not then say the queue is empty. That
+    // is the state `openDb` rejects in (quota, private browsing, an upgrade blocked by another tab),
+    // and the button beside it is still showing a count read before the failure.
+    try { setView(await load()); setReadError(null); } catch (error) { setReadError(error); }
   }, [load]);
 
   useEffect(() => { if (open) refresh(); }, [open, refresh]);
@@ -169,6 +173,11 @@ export default function SyncCenter({ open, onClose, summary, load, onSyncNow, on
           ))}
         </div>
 
+        {readError && (
+          <div className="px-4 py-3 text-xs text-code-d border-b border-line">
+            อ่านคิวในเครื่องไม่ได้ — รายการด้านล่างอาจไม่ครบ: {readError.message || String(readError)}
+          </div>
+        )}
         <ul className="flex-1 overflow-y-auto">
           {tab === "pending" && ((view.pending || []).length
             ? view.pending.map(row => (
@@ -279,7 +288,13 @@ export default function SyncCenter({ open, onClose, summary, load, onSyncNow, on
                     <pre className="whitespace-pre-wrap break-words text-ink">{JSON.stringify(conflict.serverRecord, null, 1)}</pre>
                   </div>
                 </div>
-                {onResolve && (
+                {/* A legacy staged difference has no mutation behind it: there is nothing to
+                    resolve through the queue and nothing to discard, and offering either threw. It
+                    is reviewed here and cleared by the next reconciliation. */}
+                {!conflict.actionable && (
+                  <div className="mt-2 text-xs text-ink-2">ข้อมูลเดิมในเครื่องต่างจากเซิร์ฟเวอร์ — ตรวจแล้วแก้ในหน้าบันทึกข้อมูลของ record นี้</div>
+                )}
+                {onResolve && conflict.actionable && (
                   <button
                     type="button"
                     onClick={() => onResolve(conflict)}
@@ -300,7 +315,14 @@ export default function SyncCenter({ open, onClose, summary, load, onSyncNow, on
               // Replaced and thrown-away writes are history too, and each is its own fact. Neither
               // reached the sheet, so neither may borrow the word that means it did.
               ...(view.superseded || []).map(row => (
-                <Row key={row.requestId} row={row} tone="text-ink-2" note={`แทนที่ด้วยรายการใหม่${row.strategy ? ` (${row.strategy})` : ""}`} />
+                <Row
+                  key={row.requestId}
+                  row={row}
+                  tone="text-ink-2"
+                  note={row.strategy === "server"
+                    ? "เลือกเก็บของเซิร์ฟเวอร์ — ค่าที่บันทึกในเครื่องนี้ไม่ได้ถูกส่ง"
+                    : `แทนที่ด้วยรายการใหม่${row.strategy ? ` (${row.strategy})` : ""}`}
+                />
               )),
               ...(view.discarded || []).map(row => (
                 <Row key={row.requestId} row={row} tone="text-ink-3" note={`ทิ้งโดยผู้ใช้${row.discardedAt ? ` ${stamp(row.discardedAt)}` : ""} — ไม่ได้ส่งขึ้นเซิร์ฟเวอร์`} />

@@ -402,6 +402,12 @@ export async function confirmMutation(db, requestId, response, { owner, confirme
         syncStatus: MUTATION_STATUS.SYNCED,
       },
     });
+    // The record is STAYING. If it got here through a delete — the crew pressed "เก็บของเซิร์ฟเวอร์"
+    // on a conflicted one, which is the button that means keep the ring — its key came out of every
+    // snapshot's list when the delete was queued, and putting the row back without the key leaves it
+    // named by nothing: the ring is off the data log, both dashboards and the ring count, with every
+    // counter reading zero, until a successful getData.
+    restoreDeletedKey(snapshotStoreHandle, snapshots, mutation, optimisticEntityKey(mutation.domainKey, mutation.recordId));
   }
   await complete(transaction);
   return next;
@@ -574,7 +580,7 @@ export async function getSyncCounts(db) {
     // nothing behind it can be in flight.
     syncing: mutations.filter(item => item.status === MUTATION_STATUS.SYNCING).length,
     conflicts: conflicts.filter(item => item.status === "open").length,
-    errors: mutations.filter(item => item.status === MUTATION_STATUS.VALIDATION_ERROR || item.status === MUTATION_STATUS.PERMANENT_ERROR).length,
+    errors: mutations.filter(item => isRetryableErrorStatus(item.status)).length,
     // queued behind a head that will never move, so reported with the stuck ones rather than as work
     // still travelling
     blocked: pending.filter(isBlocked).length,
@@ -664,6 +670,7 @@ export async function getSyncCenterView(db, { recentLimit = 50 } = {}) {
     // twice". A conflict whose mutation has been pruned still lists — the record is what they are
     // deciding about, not the request.
     conflicts: openConflicts.map(conflict => {
+      // the operation decides what discarding does to the row, and the resolver has to say which
       const mutation = conflict.requestId ? mutationByRequest.get(conflict.requestId) : null;
       // A legacy row spells its two sides `local`/`server`; a queued one `localRecord`/`serverRecord`.
       // Reading only the queued names gave the crew two panels of `null` to choose between.
@@ -672,6 +679,7 @@ export async function getSyncCenterView(db, { recentLimit = 50 } = {}) {
       return {
         conflictId: conflict.conflictId,
         requestId: conflict.requestId || null,
+        operation: mutation ? mutation.operation : null,
         // No mutation behind it means the write actions do not apply: nothing to resolve through the
         // queue and nothing to discard. A legacy staged difference is reviewed, not resolved.
         actionable: Boolean(conflict.requestId),
@@ -729,26 +737,46 @@ export async function getSyncCenterView(db, { recentLimit = 50 } = {}) {
  * recorded this at all, and "discarded" is a different fact from "sent" — a row that vanished would
  * read as neither, and a row marked synced would read as the wrong one.
  */
+/**
+ * Put a deleted record's key back into the snapshots that named it.
+ *
+ * Queuing a delete takes the key OUT of every snapshot's list and drops the cached server row,
+ * because the row is meant to be going. Every path that decides the record is STAYING has to undo
+ * that — discarding the delete, and choosing the server's row for a conflicted one — or
+ * `readServerSnapshot`, which rebuilds each collection from those lists alone, leaves the ring
+ * missing from the data log, both dashboards and the ring count until a successful getData, which
+ * underground is the next shift. One function because it was two before, and the second one was
+ * written a review round after the first.
+ */
+function restoreDeletedKey(snapshots, stored, mutation, optimisticKey) {
+  if (!snapshots || mutation.operation !== "delete") return;
+  const field = FIELD_FOR_ENTITY_TYPE.get(mutation.entityType);
+  if (!field) return;
+  // `scopesFor`, not every stored snapshot: a machine-scoped ring belongs to its own machine's list
+  // and putting it in the other one shows TBM1's ring on TBM2's data log.
+  scopesFor(stored, mutation).forEach(snapshot => {
+    const keys = (snapshot.entityKeys && snapshot.entityKeys[field]) || [];
+    // already named: adding it again renders the ring twice
+    if (keys.includes(optimisticKey)) return;
+    snapshots.put({ ...snapshot, entityKeys: { ...snapshot.entityKeys, [field]: [...keys, optimisticKey] } });
+  });
+}
+
 export async function discardMutation(db, requestId, { discardedAt } = {}) {
   const transaction = db.transaction([STORES.mutations, STORES.entities, STORES.conflicts, STORES.snapshots], "readwrite");
   const mutations = transaction.objectStore(STORES.mutations);
-  const [mutation, allMutations] = await Promise.all([
+  const snapshots = transaction.objectStore(STORES.snapshots);
+  const [mutation, allMutations, stored] = await Promise.all([
     requestResult(mutations.get(requestId)),
     requestResult(mutations.getAll()),
+    requestResult(snapshots.getAll()),
   ]);
   if (!mutation) { transaction.abort(); throw new Error(`Unknown mutation ${requestId}`); }
   if (!stuckStatuses.has(mutation.status)) { transaction.abort(); throw new Error(`Mutation ${requestId} ยังไม่ติดค้าง — ทิ้งได้เฉพาะรายการที่ส่งไม่ได้แล้ว`); }
-  // Throwing away the CREATE while an edit of the same record is still queued leaves that edit
-  // posting against a row the sheet has never held: it is refused when it gets there, and until then
-  // the panel calls it "รอส่งขึ้นเซิร์ฟเวอร์". Discard the later ones first, or discard none.
   const followers = allMutations.filter(item => item.requestId !== requestId
     && item.domainKey === mutation.domainKey
     && String(item.recordId) === String(mutation.recordId)
     && !isFinishedStatus(item.status));
-  if (mutation.operation === "create" && followers.length) {
-    transaction.abort();
-    throw new Error(`ทิ้งไม่ได้: ยังมีรายการของ record นี้รออยู่อีก ${followers.length} รายการ — ทิ้งรายการหลังก่อน`);
-  }
 
   mutations.put({ ...mutation, status: MUTATION_STATUS.DISCARDED, discardedAt: discardedAt || null, syncOwner: null, leaseExpiresAt: null, nextAttemptAt: null });
 
@@ -763,7 +791,19 @@ export async function discardMutation(db, requestId, { discardedAt } = {}) {
   // write was about, unless it was a CREATE, which is the one case where no server row exists.
   const entities = transaction.objectStore(STORES.entities);
   const optimisticKey = optimisticEntityKey(mutation.domainKey, mutation.recordId);
-  const survivor = [...followers].sort((left, right) => (right.queueSequence || 0) - (left.queueSequence || 0))[0];
+  // Throwing away the CREATE takes its followers with it. They can only ever post an edit against a
+  // row the sheet has never held — refused when they get there, and called "รอส่งขึ้นเซิร์ฟเวอร์"
+  // until then. Refusing the discard instead left the record with no exit at all: the follower is
+  // PENDING, so it cannot be discarded either and the panel offers it no button, and both rows sat
+  // in the count for the life of the install.
+  const cascaded = mutation.operation === "create" ? followers : [];
+  cascaded.forEach(item => mutations.put({
+    ...item, status: MUTATION_STATUS.DISCARDED, discardedAt: discardedAt || null,
+    syncOwner: null, leaseExpiresAt: null, nextAttemptAt: null,
+  }));
+  const survivor = [...followers]
+    .filter(item => !cascaded.includes(item))
+    .sort((left, right) => (right.queueSequence || 0) - (left.queueSequence || 0))[0];
   if (survivor) {
     entities.put(optimisticEntity(survivor));
   } else if (mutation.operation === "create") {
@@ -775,23 +815,7 @@ export async function discardMutation(db, requestId, { discardedAt } = {}) {
     // ever, badged as still on its way, and a correction another crew made later never arrived.
     const kept = await requestResult(entities.get(optimisticKey));
     if (kept) entities.put({ ...kept, payload: { ...kept.payload, syncStatus: MUTATION_STATUS.DISCARDED } });
-    // A DELETE took this record's key OUT of every snapshot's list when it was queued, because the
-    // row was meant to be going. Thrown away, the record is staying — and `readServerSnapshot`
-    // rebuilds each collection from those lists alone, so without putting the key back the ring is
-    // missing from the data log, both dashboards and the ring count on every relaunch until a
-    // successful getData, which underground is the next shift.
-    if (kept && mutation.operation === "delete") {
-      const field = FIELD_FOR_ENTITY_TYPE.get(mutation.entityType);
-      if (field) {
-        const snapshots = transaction.objectStore(STORES.snapshots);
-        const stored = await requestResult(snapshots.getAll());
-        scopesFor(stored, mutation).forEach(snapshot => {
-          const keys = (snapshot.entityKeys && snapshot.entityKeys[field]) || [];
-          if (keys.includes(optimisticKey)) return;
-          snapshots.put({ ...snapshot, entityKeys: { ...snapshot.entityKeys, [field]: [...keys, optimisticKey] } });
-        });
-      }
-    }
+    if (kept) restoreDeletedKey(snapshots, stored, mutation, optimisticKey);
   }
   const conflicts = transaction.objectStore(STORES.conflicts);
   const conflict = await requestResult(conflicts.get(requestId));

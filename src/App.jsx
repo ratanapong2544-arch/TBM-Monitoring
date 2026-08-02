@@ -33,6 +33,7 @@ import { isViewerMode, VIEWER_TABS } from "./utils/viewerMode";
 import { useOfflineData } from "./offline/useOfflineData";
 import { applyServerRows } from "./offline/serverDeletions";
 import { businessEnvelope } from "./offline/businessWrites";
+import { stuckCount, travellingCount } from "./offline/syncSummary";
 import { useOfflineControls } from "./components/offline/OfflineControls";
 import { useOffline } from "./offline/OfflineProvider";
 import { toSyncVersion } from "./offline/syncVersion";
@@ -467,8 +468,8 @@ const PrimaryGroutApp = () => {
     // fault: sitting last, it could never appear while the device was offline, which is the one
     // situation it was written for.
     // `blocked` counts what is queued behind a stuck head: never posted, so never "on its way"
-    const stuck = (syncSummary.conflicts || 0) + (syncSummary.errors || 0) + (syncSummary.blocked || 0);
-    const waiting = (syncSummary.pending || 0) + (syncSummary.syncing || 0);
+    const stuck = stuckCount(syncSummary);
+    const waiting = travellingCount(syncSummary);
     // Task 10's Sync Center is where a stuck write gets resolved, and the button that opens it is in
     // the bar beside this line — so this says where to go rather than telling the crew to call
     // someone. Its row stays on screen looking recorded while the sheet has never seen it, and the
@@ -477,7 +478,7 @@ const PrimaryGroutApp = () => {
     // work is unsendable while a stuck head sits in front of it
     const queueNote = [
       // the viewer link has no status button (Shell hides it), so it is not told to open one
-      stuck > 0 ? `${stuck} รายการติดค้าง ยังไม่ขึ้นเซิร์ฟเวอร์${isViewer ? "" : " — เปิด “สถานะการซิงก์” เพื่อแก้"}` : null,
+      stuck > 0 ? `${stuck} รายการต้องแก้ ยังไม่ขึ้นเซิร์ฟเวอร์${isViewer ? "" : " — เปิด “สถานะการซิงก์”"}` : null,
       waiting > 0 ? `${waiting} รายการรอซิงก์ขึ้นเซิร์ฟเวอร์` : null,
     ].filter(Boolean).join(" · ") || null;
     const withQueue = notice => (queueNote ? { ...notice, text: `${notice.text} · ${queueNote}` } : notice);

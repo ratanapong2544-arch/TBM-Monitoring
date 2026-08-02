@@ -621,7 +621,7 @@ test("a write the queue cannot finish is said out loud", async () => {
   const app = renderApp(repository);
   await act(async () => {});
 
-  expect(app.text()).toContain("7 รายการติดค้าง");
+  expect(app.text()).toContain("7 รายการต้องแก้");
   app.unmount();
 });
 
@@ -638,7 +638,7 @@ test("the queue's state is said alongside the other notices, not instead of them
   await act(async () => {});
 
   expect(app.text()).toContain("บันทึกลงเครื่องไม่ได้"); // still the headline
-  expect(app.text()).toContain("1 รายการติดค้าง");       // and the queue is reported too
+  expect(app.text()).toContain("1 รายการต้องแก้");       // and the queue is reported too
   // stuck and waiting are different facts and both are true here: collapsing them understated how
   // much work is not on the sheet
   expect(app.text()).toContain("2 รายการรอซิงก์");

@@ -1,6 +1,8 @@
 import React from "react";
 import { CloudOff, RefreshCw, CloudCheck, AlertTriangle } from "lucide-react";
 
+import { stuckCount, travellingCount } from "../../offline/syncSummary";
+
 /**
  * The one control that is on every page, and the only place a crew underground learns that a write
  * has not moved.
@@ -21,8 +23,8 @@ const timeLabel = value => {
 
 export default function NetworkStatusButton({ summary, onOpen }) {
   const counts = summary || {};
-  const travelling = (counts.pending || 0) + (counts.syncing || 0);
-  const stuck = (counts.conflicts || 0) + (counts.errors || 0) + (counts.blocked || 0);
+  const travelling = travellingCount(counts);
+  const stuck = stuckCount(counts);
   const offline = counts.online === false;
   const at = timeLabel(counts.lastSyncedAt);
 

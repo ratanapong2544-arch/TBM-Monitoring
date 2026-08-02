@@ -146,7 +146,9 @@ export default function ConflictResolver({ conflict, onResolve, onDiscard, onClo
           )}
           {confirmingDiscard && (
             <div className="rounded-input border border-code-d/40 bg-code-d/5 p-3">
-              <div className="text-xs text-ink mb-2">งานนี้จะไม่ถูกส่งขึ้นเซิร์ฟเวอร์อีก — ค่าที่บันทึกไว้จะยังอยู่บนหน้าจอจนกว่าจะดึงข้อมูลจากเซิร์ฟเวอร์ครั้งถัดไป</div>
+              <div className="text-xs text-ink mb-2">{conflict.operation === "create"
+                          ? "งานนี้จะไม่ถูกส่งขึ้นเซิร์ฟเวอร์อีก และจะหายไปจากหน้าจอของเครื่องนี้ เพราะยังไม่เคยมีอยู่บนชีต"
+                          : "งานนี้จะไม่ถูกส่งขึ้นเซิร์ฟเวอร์อีก — ค่าที่บันทึกไว้จะยังอยู่บนหน้าจอจนกว่าจะดึงข้อมูลจากเซิร์ฟเวอร์ครั้งถัดไป"}</div>
               <div className="flex gap-2">
                 <button type="button" onClick={() => onDiscard(conflict)} className="flex-1 px-3 py-2 rounded-input text-xs font-semibold bg-code-d text-white">ยืนยันทิ้ง</button>
                 <button type="button" onClick={() => setConfirmingDiscard(false)} className="flex-1 px-3 py-2 rounded-input text-xs font-semibold text-ink-2 border border-line">ยกเลิก</button>

@@ -352,3 +352,27 @@ test("the review action is offered only where it applies", async () => {
   expect(button(view.container, /ตรวจแล้ว/)).toBeUndefined();
   view.unmount();
 });
+
+test("the discard confirmation says what discarding actually does to THIS row", async () => {
+  // An UPDATE keeps its row so the ring survives; a CREATE's row goes, because the sheet never had
+  // it. One sentence for both was wrong for one of them whichever way it was written.
+  const load = jest.fn(async () => ({
+    ...emptyView,
+    errors: [
+      row("P110", { status: "permanent_error", operation: "update", lastError: { message: "ถูกปฏิเสธ" } }),
+      row("P111", { status: "permanent_error", operation: "create", lastError: { message: "ถูกปฏิเสธ" } }),
+    ],
+  }));
+  const view = mount({ load, onDiscard: jest.fn(async () => {}) });
+  await act(async () => {});
+  await click(button(view.container, /ติดค้าง/));
+
+  const discardButtons = [...view.container.querySelectorAll("button")].filter(b => /ทิ้งรายการนี้/.test(b.textContent));
+  await click(discardButtons[0]);
+  expect(view.container.textContent).toContain("ค่าที่บันทึกไว้จะยังอยู่บนหน้าจอ");
+  await click(button(view.container, /ยกเลิก/));
+
+  await click([...view.container.querySelectorAll("button")].filter(b => /ทิ้งรายการนี้/.test(b.textContent))[1]);
+  expect(view.container.textContent).toContain("ยังไม่เคยมีอยู่บนชีต");
+  view.unmount();
+});

@@ -609,22 +609,6 @@ test("discarding a refused delete puts the ring back on the offline screen", asy
   expect((await repository.load("TBM1")).data.segments.map(row => row.ringNo)).toEqual(["P9"]);
 });
 
-test("a create cannot be thrown away while an edit of the same record is still queued", async () => {
-  // The survivor would then post an update against a row the sheet has never held — refused when it
-  // gets there, and until then the panel calls it "รอส่งขึ้นเซิร์ฟเวอร์".
-  const repository = makeRepository();
-  const created = await repository.mutate(buildMutationEnvelope({
-    entityType: "segment", operation: "create", machine: "TBM1", recordId: "seg-P100",
-    payload: { id: "seg-P100", ringNo: "P100", installType: "Permanent" }, syncMeta: {},
-  }));
-  await repository.mutate(buildMutationEnvelope({
-    entityType: "segment", operation: "update", machine: "TBM1", recordId: "seg-P100",
-    payload: { id: "seg-P100", ringNo: "P100", installType: "Permanent", note: "แก้ทีหลัง" }, syncMeta: {},
-  }));
-  await repository.updateMutation(created.requestId, { status: "permanent_error", nextAttemptAt: null, lastError: { code: "PERMANENT" } });
-
-  await expect(repository.discardMutation(created.requestId)).rejects.toThrow(/ทิ้งรายการหลังก่อน/);
-});
 
 test("an already reviewed difference cannot be reviewed again", async () => {
   const repository = makeRepository();
@@ -642,4 +626,54 @@ test("an already reviewed difference cannot be reviewed again", async () => {
   await repository.reviewLegacyDifference("legacy:tbmIssues:issue:GLOBAL:issue-7");
 
   await expect(repository.reviewLegacyDifference("legacy:tbmIssues:issue:GLOBAL:issue-7")).rejects.toThrow(/Unknown open conflict/);
+});
+
+test("keeping the server's row on a conflicted delete puts the ring back on the offline screen", async () => {
+  // The button means KEEP THE RING. Its key came out of every snapshot's list when the delete was
+  // queued, so putting the row back without the key left it named by nothing: gone from the data
+  // log, both dashboards and the ring count, with every counter reading zero and nothing saying so.
+  const repository = makeRepository({
+    fetchServerSnapshot: async machine => ({ status: "success", machine, segments: [{ id: "seg-P11", ringNo: "P11", installType: "Permanent" }] }),
+  });
+  await repository.refresh("TBM1");
+  const queued = await repository.mutate(buildMutationEnvelope({
+    entityType: "segment", operation: "delete", machine: "TBM1", recordId: "seg-P11",
+    payload: { id: "seg-P11", ringNo: "P11", installType: "Permanent" },
+    syncMeta: { "segment:TBM1:P11:Permanent": { version: 1 } },
+  }));
+  await repository.applyConflict(queued.requestId, {
+    status: "conflict", currentVersion: 4,
+    serverRecord: { id: "seg-P11", ringNo: "P11", installType: "Permanent", note: "อีกเครื่องแก้ไว้" },
+  });
+
+  await repository.resolveConflict(queued.requestId, { strategy: "server" });
+
+  const { data } = await repository.load("TBM1");
+  expect(data.segments.map(row => row.ringNo)).toEqual(["P11"]);
+  expect(data.segments[0].note).toBe("อีกเครื่องแก้ไว้");
+});
+
+test("throwing away a create takes the edits queued behind it, rather than stranding them", async () => {
+  // Refusing the discard left the record with NO exit: the follower is pending, so it cannot be
+  // discarded either and the panel offers it no button — both rows sat in the count for the life of
+  // the install. A follower of a create can only ever post against a row the sheet never held.
+  const repository = makeRepository();
+  const created = await repository.mutate(buildMutationEnvelope({
+    entityType: "segment", operation: "create", machine: "TBM1", recordId: "seg-P101",
+    payload: { id: "seg-P101", ringNo: "P101", installType: "Permanent" }, syncMeta: {},
+  }));
+  await repository.mutate(buildMutationEnvelope({
+    entityType: "segment", operation: "update", machine: "TBM1", recordId: "seg-P101",
+    payload: { id: "seg-P101", ringNo: "P101", installType: "Permanent", note: "แก้ทีหลัง" }, syncMeta: {},
+  }));
+  await repository.updateMutation(created.requestId, { status: "permanent_error", nextAttemptAt: null, lastError: { code: "PERMANENT" } });
+
+  await repository.discardMutation(created.requestId);
+
+  const view = await repository.getSyncCenter();
+  expect(view.pending).toEqual([]);
+  expect(view.errors).toEqual([]);
+  expect(view.blocked).toEqual([]);
+  expect(view.discarded.map(row => row.recordId)).toEqual(["seg-P101", "seg-P101"]);
+  expect((await repository.load("TBM1")).data.segments).toEqual([]);
 });

@@ -59,3 +59,25 @@ test("the last-sync time is Bangkok's, not the browser's", () => {
   expect(view.container.textContent).toContain("08:30");
   view.unmount();
 });
+
+test("a snapshot from another day is dated, not just clocked", async () => {
+  // "ออฟไลน์ 07:15" at six the next evening reads as fifteen minutes ago. The notice strip names
+  // both date and time for exactly this reason, and the Sync Center renders this same value as a
+  // full stamp one tap away.
+  jest.useFakeTimers().setSystemTime(new Date("2026-08-02T11:00:00.000Z"));
+  const view = render(<NetworkStatusButton summary={summary({ online: false, lastSyncedAt: "2026-08-01T00:15:00.000Z" })} onOpen={() => {}} />);
+
+  expect(view.container.textContent).toMatch(/2569|2026/); // the date, in whatever calendar the app formats
+  view.unmount();
+  jest.useRealTimers();
+});
+
+test("a snapshot from today is not cluttered with today's date", async () => {
+  jest.useFakeTimers().setSystemTime(new Date("2026-08-02T11:00:00.000Z"));
+  const view = render(<NetworkStatusButton summary={summary({ online: false, lastSyncedAt: "2026-08-02T01:30:00.000Z" })} onOpen={() => {}} />);
+
+  expect(view.container.textContent).toContain("08:30");
+  expect(view.container.textContent).not.toMatch(/2569|2026/);
+  view.unmount();
+  jest.useRealTimers();
+});

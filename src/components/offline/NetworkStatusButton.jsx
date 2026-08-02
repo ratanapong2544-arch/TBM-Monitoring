@@ -2,7 +2,7 @@ import React from "react";
 import { CloudOff, RefreshCw, CloudCheck, AlertTriangle } from "lucide-react";
 
 import { stuckCount, travellingCount } from "../../offline/syncSummary";
-import { formatDisplayTime } from "../../utils/formatters";
+import { formatDisplayDate, formatDisplayTime } from "../../utils/formatters";
 
 /**
  * The one control that is on every page, and the only place a crew underground learns that a write
@@ -13,13 +13,19 @@ import { formatDisplayTime } from "../../utils/formatters";
  * are one number for that reason — three rings behind one conflict is three records nobody can fix
  * by waiting.
  */
-// The app's own formatter, like the Sync Center's — a second pair on two surfaces the crew reads
+// The app's own formatters, like the Sync Center's — a second pair on two surfaces the crew reads
 // together is how one of them ends up in the browser's zone while the other is in Bangkok's.
+//
+// The DATE comes too once it is not today. A phone that last synced at 07:15 and then went
+// underground was showing "ออฟไลน์ 07:15" at six the next evening, which is the same untruth the
+// notice strip already guards against by naming both.
 const timeLabel = value => {
   if (!value) return null;
   const parsed = Date.parse(value);
   if (Number.isNaN(parsed)) return null;
-  return formatDisplayTime(new Date(parsed));
+  const at = new Date(parsed);
+  const day = formatDisplayDate(at);
+  return day === formatDisplayDate(new Date()) ? formatDisplayTime(at) : `${day} ${formatDisplayTime(at)}`;
 };
 
 export default function NetworkStatusButton({ summary, onOpen }) {

@@ -477,3 +477,57 @@ test("a cache re-read does not strand the refresh it arrives during", async () =
   expect(hook.last().data.segments.map(row => row.ringNo)).toEqual(["P1", "P2"]);
   hook.unmount();
 });
+
+test("a cache re-read does not tell an online device its data came from the cache", async () => {
+  // `repository.load` ALWAYS answers `source: "indexeddb", stale: true`. Carrying that provenance
+  // overwrote what the last FETCH established, and nothing sets it back — `hydrate` runs on mount
+  // and machine switch alone. One tap on ยืนยันทิ้ง and App's strip read
+  // "เชื่อมต่อเซิร์ฟเวอร์ไม่ได้ — แสดงข้อมูลที่บันทึกไว้" for the rest of the session, on a device
+  // that was online: the answer to "is my work on the sheet?" became a standing lie, on the screen
+  // the crew was sent to precisely to find that out.
+  let listener;
+  const repository = {
+    load: async machine => ({ data: { machine, segments: [{ id: "s1", ringNo: "P1", machine }] }, source: "indexeddb", fetchedAt: "cache", stale: true }),
+    refresh: async machine => ({ data: { machine, segments: [{ id: "s1", ringNo: "P1", machine }, { id: "s2", ringNo: "P2", machine }] }, source: "server", fetchedAt: "server", stale: false }),
+    subscribe: handler => { listener = handler; return () => { listener = null; }; },
+    getSyncSummary: async () => ({ online: true, pending: 0, syncing: 0, conflicts: 0, errors: 0, blocked: 0, lastSyncedAt: null }),
+  };
+
+  const hook = renderHook(props => useOfflineData(props.machine, { repository }), { machine: "TBM1" });
+  await act(async () => {});
+  expect(hook.last()).toMatchObject({ source: "server", stale: false });
+
+  await act(async () => { listener({ type: "mutation", requestId: "r1", status: "discarded" }); });
+  await act(async () => {});
+
+  // the rows the store now holds...
+  expect(hook.last().data.segments.map(row => row.ringNo)).toEqual(["P1"]);
+  // ...and still the truth about where the app last got its data
+  expect(hook.last()).toMatchObject({ source: "server", stale: false, fetchedAt: "server" });
+  hook.unmount();
+});
+
+test("a cache re-read after a machine switch reads the machine now on screen", async () => {
+  // The subscription is set up once — its deps are `[applyIfCurrent, repository]` — so the `machine`
+  // in its closure is permanently the first one. Reading that one hands TBM1's rows to a screen
+  // showing TBM2: rings from the other machine on the data log, under this machine's counters.
+  let listener;
+  const load = jest.fn(async machine => ({ data: { machine, segments: [{ id: "s1", ringNo: "P1", machine }] }, source: "indexeddb", fetchedAt: "cache", stale: true }));
+  const repository = {
+    load,
+    refresh: async machine => ({ data: { machine, segments: [] }, source: "server", fetchedAt: "server", stale: false }),
+    subscribe: handler => { listener = handler; return () => { listener = null; }; },
+    getSyncSummary: async () => ({ online: true, pending: 0, syncing: 0, conflicts: 0, errors: 0, blocked: 0, lastSyncedAt: null }),
+  };
+
+  const hook = renderHook(props => useOfflineData(props.machine, { repository }), { machine: "TBM1" });
+  await act(async () => {});
+  hook.rerender({ machine: "TBM2" });
+  await act(async () => {});
+  await act(async () => { listener({ type: "mutation", requestId: "r1", status: "discarded" }); });
+  await act(async () => {});
+
+  expect(load.mock.calls[load.mock.calls.length - 1][0]).toBe("TBM2");
+  expect(hook.last().data.segments.every(row => row.machine === "TBM2")).toBe(true);
+  hook.unmount();
+});

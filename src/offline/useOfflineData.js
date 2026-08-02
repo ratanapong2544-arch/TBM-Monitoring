@@ -123,7 +123,13 @@ export function useOfflineData(machine, deps = {}) {
       // already travelling. A passenger of the current generation is what this is.
       const token = requestRef.current;
       Promise.resolve(repository.load(machineRef.current))
-        .then(cached => { if (cached) applyIfCurrent(token, { data: cached.data, source: cached.source, fetchedAt: cached.fetchedAt, stale: cached.stale }); })
+        // `data` ONLY. `repository.load` always answers `source: "indexeddb", stale: true`, so
+        // carrying its provenance overwrote what the last FETCH established — and nothing sets that
+        // back, because `hydrate` runs on mount and machine switch alone. One tap on ยืนยันทิ้ง and
+        // the app told an online crew "เชื่อมต่อเซิร์ฟเวอร์ไม่ได้ — แสดงข้อมูลที่บันทึกไว้" for the
+        // rest of the session: the answer to "is my work on the sheet?" became a standing lie, on
+        // the screen they were sent to precisely to find that out.
+        .then(cached => { if (cached) applyIfCurrent(token, { data: cached.data }); })
         // Nothing surfaces this: the Sync Center's own error is about a different call on a
         // different store. The screen keeps what it had, which is the safe end of a cache read that
         // was only ever an optimisation over waiting for the next refresh.

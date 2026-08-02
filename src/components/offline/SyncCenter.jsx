@@ -205,7 +205,7 @@ export default function SyncCenter({ open, onClose, summary, load, onSyncNow, on
                   tone="text-code-d"
                   note={refused
                     ? `เซิร์ฟเวอร์ปฏิเสธ: ${row.lastError.message}`
-                    : "รออยู่หลังรายการที่ติดค้างของ record เดียวกัน — จะไม่ถูกส่งจนกว่าตัวหน้าจะแก้"}
+                    : "รออยู่หลังรายการที่ติดค้างของริงเดียวกัน — จะไม่ถูกส่งจนกว่าตัวหน้าจะแก้"}
                 >
                   {/* Which fields the server named. `syncRunner` stores them for exactly this, and
                       a message without them tells the crew something is wrong but not where. */}

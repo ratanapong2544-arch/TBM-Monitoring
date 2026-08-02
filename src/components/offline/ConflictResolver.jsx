@@ -68,8 +68,10 @@ export default function ConflictResolver({ conflict, onResolve, onDiscard, onClo
     onResolve(conflict, { strategy: "manual", payload });
   };
 
+  // z-85: above the update banner (z-80). On a phone this sheet is bottom-anchored and the banner
+  // sits at `bottom-20`, so a build deployed mid-shift covered the buttons a crew was deciding on.
   return (
-    <div className="fixed inset-0 z-[75] flex items-end sm:items-center justify-center print:hidden">
+    <div className="fixed inset-0 z-[85] flex items-end sm:items-center justify-center print:hidden">
       <div className="absolute inset-0 bg-navy-dark/45" onClick={onClose} />
       <div className="relative bg-surface rounded-t-modal sm:rounded-modal shadow-modal w-full sm:max-w-lg max-h-[88vh] flex flex-col">
         <div className="flex items-center justify-between px-4 py-3 border-b border-line">

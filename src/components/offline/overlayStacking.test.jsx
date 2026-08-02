@@ -22,4 +22,7 @@ test("every offline overlay stacks above the bottom nav and the more sheet", () 
   expect(syncCenter).toBeGreaterThan(floor);
   expect(resolver).toBeGreaterThan(syncCenter); // it opens over the centre
   expect(banner).toBeGreaterThan(floor);
+  // and the resolver above the banner: on a phone the resolver is bottom-anchored and the banner
+  // sits at `bottom-20`, so a build deployed mid-shift covered the buttons a crew was deciding on
+  expect(resolver).toBeGreaterThan(banner);
 });

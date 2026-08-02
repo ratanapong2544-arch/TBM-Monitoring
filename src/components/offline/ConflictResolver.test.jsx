@@ -108,3 +108,21 @@ test("the two sides are shown field by field, with the ones that differ marked",
   expect(view.container.querySelectorAll('[data-differs="true"]').length).toBe(1); // ringNo matches, grade does not
   view.unmount();
 });
+
+test("the comparison shows the fields the crew decides on, not the queue's own bookkeeping", async () => {
+  // A conflict saved by an older build carries whatever that build put in the record — `version`,
+  // `syncStatus`, `domainKey`. Those are not a disagreement about the ring; they are the queue
+  // talking to itself, and every one of them is a row the crew has to read past to find the field
+  // that actually differs.
+  const legacy = {
+    ...conflict,
+    localRecord: { ringNo: "P41", grade: "A", version: 8, syncStatus: "pending", domainKey: "segment:TBM1:P41:Permanent", recordId: "seg-P41", entityType: "segment" },
+    serverRecord: { ringNo: "P41", grade: "B", version: 9, syncStatus: "synced", domainKey: "segment:TBM1:P41:Permanent", recordId: "seg-P41", entityType: "segment" },
+  };
+  const view = mount({ conflict: legacy });
+
+  const rows = [...view.container.querySelectorAll("tbody tr")].map(tr => tr.textContent);
+  expect(rows.some(text => /grade/.test(text))).toBe(true);
+  expect(rows.some(text => /syncStatus|domainKey|entityType/.test(text))).toBe(false);
+  view.unmount();
+});

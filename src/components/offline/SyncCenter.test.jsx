@@ -283,7 +283,11 @@ test("a stranded row says why it cannot move, which is not the same as being ref
   await act(async () => {});
   await click(button(view.container, /ติดค้าง/));
 
-  expect(view.container.textContent).toContain("รออยู่หลังรายการที่ติดค้างของ record เดียวกัน");
+  // ริง, not "record": blocking is per DOMAIN — `segment:<machine>:<ring>:<installType>`, no record
+  // id in it — and the captured sheet has seven ids over sixteen rows, so two rows of one ring block
+  // each other. Telling the crew to go fix "the same record" points them at a row whose id is
+  // printed right beside it and is not the stuck one.
+  expect(view.container.textContent).toContain("รออยู่หลังรายการที่ติดค้างของริงเดียวกัน");
   expect(view.container.textContent).not.toContain("เซิร์ฟเวอร์ปฏิเสธ");
   view.unmount();
 });
@@ -374,5 +378,28 @@ test("the discard confirmation says what discarding actually does to THIS row", 
 
   await click([...view.container.querySelectorAll("button")].filter(b => /ทิ้งรายการนี้/.test(b.textContent))[1]);
   expect(view.container.textContent).toContain("ยังไม่เคยมีอยู่บนชีต");
+  view.unmount();
+});
+
+test("a discarded row leaves the list without waiting for anything else to re-render it", async () => {
+  // The panel re-reads after every action it performs. Without that the discarded row stays listed
+  // with live buttons while the status button's count has already dropped — and the second tap
+  // reaches the store guard that refuses it as "ยังไม่ติดค้าง", which reads as the discard failing.
+  let discarded = false;
+  const load = jest.fn(async () => (discarded
+    ? emptyView
+    : { ...emptyView, errors: [row("P77", { status: "validation_error", lastError: { code: "VALIDATION", message: "ring ไม่ถูกต้อง" } })] }));
+  const onDiscard = jest.fn(async () => { discarded = true; });
+  const view = mount({ load, onDiscard });
+  await act(async () => {});
+  await click(button(view.container, /ติดค้าง/));
+  expect(view.container.textContent).toContain("P77");
+
+  await click(button(view.container, /ทิ้งรายการนี้/));
+  await click(button(view.container, /ยืนยันทิ้ง/));
+  await act(async () => {});
+
+  expect(onDiscard).toHaveBeenCalledTimes(1);
+  expect(view.container.textContent).not.toContain("P77");
   view.unmount();
 });

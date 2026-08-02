@@ -817,6 +817,26 @@ export async function discardMutation(db, requestId, { discardedAt } = {}) {
     && item.domainKey === mutation.domainKey
     && String(item.recordId) === String(mutation.recordId)
     && !isFinishedStatus(item.status));
+  // Throwing away the CREATE takes its followers with it. They can only ever post an edit against a
+  // row the sheet has never held — refused when they get there, and called "รอส่งขึ้นเซิร์ฟเวอร์"
+  // until then. Refusing the discard instead left the record with no exit at all: the follower is
+  // PENDING, so it cannot be discarded either and the panel offers it no button, and both rows sat
+  // in the count for the life of the install.
+  const cascaded = mutation.operation === "create" ? followers : [];
+  const entities = transaction.objectStore(STORES.entities);
+  const conflicts = transaction.objectStore(STORES.conflicts);
+  const optimisticKey = optimisticEntityKey(mutation.domainKey, mutation.recordId);
+
+  // Second read batch, still BEFORE the first write. What to read depends on what the first batch
+  // said, so it cannot be one `Promise.all` — but reading after a write is what this module's rule
+  // is about: an `await` there can hand the transaction back to the event loop between the writes
+  // that have to land together, and a `TransactionInactiveError` reaches the crew as a discard that
+  // failed on the one write they pressed to get a record unstuck.
+  const closing = [requestId, ...cascaded.map(item => item.requestId)];
+  const [kept, openConflicts] = await Promise.all([
+    requestResult(entities.get(optimisticKey)),
+    Promise.all(closing.map(id => requestResult(conflicts.get(id)))),
+  ]);
 
   mutations.put({ ...mutation, status: MUTATION_STATUS.DISCARDED, discardedAt: discardedAt || null, syncOwner: null, leaseExpiresAt: null, nextAttemptAt: null });
 
@@ -829,14 +849,6 @@ export async function discardMutation(db, requestId, { discardedAt } = {}) {
   //     predictable response — re-enter it — is the duplicate row Tasks 7-9 exist to stop.
   // So: hand the row to whatever is still queued for that record; failing that, keep the values the
   // write was about, unless it was a CREATE, which is the one case where no server row exists.
-  const entities = transaction.objectStore(STORES.entities);
-  const optimisticKey = optimisticEntityKey(mutation.domainKey, mutation.recordId);
-  // Throwing away the CREATE takes its followers with it. They can only ever post an edit against a
-  // row the sheet has never held — refused when they get there, and called "รอส่งขึ้นเซิร์ฟเวอร์"
-  // until then. Refusing the discard instead left the record with no exit at all: the follower is
-  // PENDING, so it cannot be discarded either and the panel offers it no button, and both rows sat
-  // in the count for the life of the install.
-  const cascaded = mutation.operation === "create" ? followers : [];
   cascaded.forEach(item => mutations.put({
     ...item, status: MUTATION_STATUS.DISCARDED, discardedAt: discardedAt || null,
     syncOwner: null, leaseExpiresAt: null, nextAttemptAt: null,
@@ -853,18 +865,14 @@ export async function discardMutation(db, requestId, { discardedAt } = {}) {
     // reads the STORED row's `syncStatus`, not the mutation, so a kept row still stamped "pending"
     // made every later refresh replace the sheet's row with the values the crew threw away — for
     // ever, badged as still on its way, and a correction another crew made later never arrived.
-    const kept = await requestResult(entities.get(optimisticKey));
     if (kept) entities.put({ ...kept, payload: { ...kept.payload, syncStatus: MUTATION_STATUS.DISCARDED } });
     if (kept) restoreDeletedKey(snapshots, stored, mutation, optimisticKey);
   }
   // every request this discard covers, not only the one the crew tapped: a cascaded follower can
   // hold its own open conflict, and leaving it open is a row whose buttons can then only throw
-  const conflicts = transaction.objectStore(STORES.conflicts);
-  const closing = [requestId, ...cascaded.map(item => item.requestId)];
-  await Promise.all(closing.map(async id => {
-    const conflict = await requestResult(conflicts.get(id));
+  openConflicts.forEach(conflict => {
     if (conflict && conflict.status === "open") conflicts.put({ ...conflict, status: "resolved", resolvedAt: discardedAt || null, strategy: "discard" });
-  }));
+  });
   await complete(transaction);
   return mutation;
 }

@@ -854,3 +854,32 @@ test("keeping the server's row does not claim the device synced", async () => {
 
   expect((await repository.getSyncSummary()).lastSyncedAt).toBeNull();
 });
+
+test("keeping the server's row remembers BOTH the ring and the version it was confirmed at", async () => {
+  // Two writers, one transaction, one snapshot: `patchSnapshotSyncMeta` records the confirmed
+  // version, `restoreDeletedKey` puts the ring's key back. On a device that has never completed a
+  // getData the snapshot does not exist, so both write a SYNTHESISED scope — and an IndexedDB `put`
+  // replaces the whole record, so unless they are handed the same object the second one silently
+  // throws the first one's work away. It is the version that goes: the next edit of that ring then
+  // stamps a version the server has moved past, and the conflict that comes back blocks the domain.
+  const repository = makeRepository();
+  const queued = await repository.mutate(buildMutationEnvelope({
+    entityType: "segment", operation: "delete", machine: "TBM1", recordId: "seg-P90",
+    payload: { ringNo: "P90", installType: "Permanent" },
+    syncMeta: { "segment:TBM1:P90:Permanent": { version: 1 } },
+  }));
+  await repository.applyConflict(queued.requestId, { status: "conflict", currentVersion: 4, serverRecord: { id: "seg-P90", ringNo: "P90", installType: "Permanent" } });
+
+  await repository.resolveConflict(queued.requestId, { strategy: "server" });
+
+  const db = await openOfflineDb();
+  const snapshot = await new Promise((resolve, reject) => {
+    const tx = db.transaction("snapshots", "readonly");
+    const request = tx.objectStore("snapshots").getAll();
+    request.onsuccess = () => resolve(request.result.find(item => item.machine === "TBM1"));
+    request.onerror = () => reject(request.error);
+  });
+
+  expect(snapshot.entityKeys.segments).toContain("entity:optimistic:segment:TBM1:P90:Permanent:id:seg-P90");
+  expect(snapshot.syncMeta["segment:TBM1:P90:Permanent"]).toMatchObject({ version: 4, deleted: false });
+});

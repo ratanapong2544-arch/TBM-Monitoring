@@ -1142,7 +1142,10 @@ test("keeping the server's row on a conflicted delete puts the ring back on the 
     refresh: async () => { throw new Error("NETWORK"); },
     subscribe: listener => { listeners.push(listener); return () => { listeners = listeners.filter(item => item !== listener); }; },
     getSyncSummary: async () => ({ online: true, pending: 0, syncing: 0, conflicts: 0, errors: 0, blocked: 0, lastSyncedAt: null }),
-    // the real one emits what the real one emits; this fake stands in only for the store write
+    // HAND-FIRED, deliberately: this file's repository is a fake throughout, so what it emits is
+    // this test's own choice and proves nothing about the real one. That the `server` strategy
+    // actually emits this is pinned where it can be — against a real repository over a real store,
+    // in `syncCenterData.test.js` › "keeping the server's row announces itself".
     resolveConflict: async () => { listeners.forEach(listener => listener({ type: "conflict", requestId: "r1", conflictId: "c1", status: "resolved" })); return { status: "resolved" }; },
   });
 
@@ -1151,9 +1154,12 @@ test("keeping the server's row on a conflicted delete puts the ring back on the 
   // the live header derives the next ring from the last one it holds, so an empty machine names none
   expect(app.text()).not.toContain("P644");
 
-  // A HAND-FIRED event here would be a test of a shape the server strategy never sends — which is
-  // how the previous round signed this off while the one branch that means KEEP THE RING emitted
-  // nothing at all. The event has to come from the repository's own resolve.
+  // What this pins is App's HALF of the seam: given a resolved-conflict event, the data log renders
+  // the ring the crew kept without waiting for a refresh — which underground never comes. The other
+  // half, that the `server` strategy emits that event at all, is a separate test against the real
+  // repository; each side of a seam has to be pinned on its own, because two fakes agreeing is how
+  // the previous round signed this off while the one branch that means KEEP THE RING emitted
+  // nothing at all.
   rows = [{ id: "seg-P643", ringNo: "P643", machine: "TBM1", installType: "Permanent" }];
   await act(async () => { await repository.resolveConflict("c1", { strategy: "server" }); });
   await act(async () => {});

@@ -508,3 +508,26 @@ test("the merged view survives a commit that fails", async () => {
   expect(handed).toHaveLength(1);
   expect(handed[0].segments.map(row => row.ringNo).sort()).toEqual(["P1", "P98"]);
 });
+
+test("a refused delete stops hiding its row, so the crew can see what is still on the sheet", async () => {
+  // On its way it hides; stuck it shows. A delete the server refused is not on its way to anything,
+  // and keeping the row hidden takes it off this device's every screen while it sits on the sheet —
+  // permanently, with nothing to see and nothing to press.
+  const db = await openOfflineDb();
+  const removal = {
+    requestId: "request-hide-1", entityType: "segment", operation: "delete", machine: "TBM1",
+    recordId: "seg-P70", domainKey: "segment:TBM1:P70:Permanent", baseVersion: 3,
+    deviceId: "device-1", actorId: null, createdAtLocal: "2026-08-02T00:00:00.000Z",
+    payload: { ringNo: "P70", installType: "Permanent" },
+  };
+  await putOptimisticMutation(db, removal);
+  const server = { segments: [{ id: "seg-P70", ringNo: "P70", installType: "Permanent" }] };
+
+  const whileTravelling = await writeServerSnapshot(db, "TBM1", server, "2026-08-02T01:00:00.000Z", "2026-08-02T01:00:00.000Z");
+  expect(whileTravelling.segments.map(row => row.ringNo)).toEqual([]);
+
+  await updateMutation(db, removal.requestId, { status: "permanent_error", nextAttemptAt: null, lastError: { code: "PERMANENT", message: "ลบไม่ได้" } });
+  const onceStuck = await writeServerSnapshot(db, "TBM1", server, "2026-08-02T02:00:00.000Z", "2026-08-02T02:00:00.000Z");
+
+  expect(onceStuck.segments.map(row => row.ringNo)).toEqual(["P70"]);
+});

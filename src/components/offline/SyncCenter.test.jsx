@@ -440,3 +440,27 @@ test("a stranded row is not labelled refused just because it carries a last erro
   expect(button(view.container, /ส่งใหม่/)).toBeUndefined();
   view.unmount();
 });
+
+test("the tab badge counts stranded rows too, not only refused ones", async () => {
+  // A badge reading none over a list of rows is a badge the crew stops reading — the same rule the
+  // history tab's badge is held to.
+  const load = jest.fn(async () => ({ ...emptyView, blocked: [row("P81"), row("P82")] }));
+  const view = mount({ load });
+  await act(async () => {});
+
+  expect(view.container.textContent).toContain("ติดค้าง (2)");
+  view.unmount();
+});
+
+test("a refused row with no error attached does not take the panel down with it", async () => {
+  // `syncRunner` always writes one, but `updateMutation` is a public method carrying no such
+  // promise — and this is the screen a crew opens to find out whether their work reached the sheet.
+  const load = jest.fn(async () => ({ ...emptyView, errors: [row("P83", { status: "permanent_error", lastError: null })] }));
+  const view = mount({ load, onRetry: jest.fn(), onDiscard: jest.fn() });
+  await act(async () => {});
+  await click(button(view.container, /ติดค้าง/));
+
+  expect(view.container.textContent).toContain("P83");
+  expect(view.container.textContent).toContain("เซิร์ฟเวอร์ปฏิเสธ");
+  view.unmount();
+});

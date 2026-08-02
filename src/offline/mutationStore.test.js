@@ -1,6 +1,7 @@
 import "fake-indexeddb/auto";
 if (!global.structuredClone) global.structuredClone = value => JSON.parse(JSON.stringify(value));
 import { closeOfflineDb, deleteOfflineDbForTests, openOfflineDb } from "./db";
+import { hidesRecord } from "./schema";
 import { claimDueMutations, getConflict, getEntity, getMutation, getSyncCounts, listDueMutations, putOptimisticMutation, splitByBlocked, updateMutation } from "./mutationStore";
 
 beforeEach(async () => { await deleteOfflineDbForTests(); });
@@ -104,4 +105,30 @@ test("the status button's blocked count comes from the same split as the panel's
   await updateMutation(db, behind.requestId, { status: "syncing" });
 
   await expect(getSyncCounts(db)).resolves.toMatchObject({ blocked: 1, pending: 0 });
+});
+
+test("a queued delete hides its record on its way and shows it again once it is stuck", () => {
+  // The merge and the key restore both ask this, and they asked it differently — one with the
+  // status, one without. A delete the server refused is not on its way to anything, and keeping the
+  // row hidden would take it off this device's every screen while it sits on the sheet.
+  expect(hidesRecord({ operation: "delete", status: "pending" })).toBe(true);
+  expect(hidesRecord({ operation: "delete", status: "syncing" })).toBe(true);
+  expect(hidesRecord({ operation: "delete", status: "permanent_error" })).toBe(false);
+  expect(hidesRecord({ operation: "delete", status: "conflict" })).toBe(false);
+  expect(hidesRecord({ operation: "update", status: "pending" })).toBe(false);
+  expect(hidesRecord(null)).toBe(false);
+});
+
+test("a row that cannot move is counted once, not as travelling as well", async () => {
+  // The button adds `travellingCount` and `stuckCount` together. Counting SYNCING outside the split
+  // left the one row that could appear in both.
+  const db = await openOfflineDb();
+  const head = { ...mutation, requestId: "req-head-2", recordId: "segment-1" };
+  const behind = { ...mutation, requestId: "req-behind-2", recordId: "segment-1" };
+  await putOptimisticMutation(db, head);
+  await putOptimisticMutation(db, behind);
+  await updateMutation(db, head.requestId, { status: "conflict", nextAttemptAt: null });
+  await updateMutation(db, behind.requestId, { status: "syncing" });
+
+  await expect(getSyncCounts(db)).resolves.toMatchObject({ syncing: 0, blocked: 1 });
 });

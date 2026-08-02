@@ -61,6 +61,22 @@ export function isRetryableErrorStatus(status) {
   return stuckStatuses.has(status) && status !== MUTATION_STATUS.CONFLICT;
 }
 
+/**
+ * Is this queued write currently HIDING its record from the screen?
+ *
+ * A delete hides the row while it is on its way and shows it again once it is stuck: a delete the
+ * server refused is not on its way to anything, and keeping the row hidden would take it off this
+ * device's every screen while it sits on the sheet. Two places ask this — the merge that decides
+ * whether a server row survives (`deletePending`) and the restore that decides whether a deleted
+ * key comes back (`restoreDeletedKey`) — and they asked it differently: one with the status, one
+ * without. Same rule, one spelling, because this branch's recurring defect is a rule that lives in
+ * two places and gets moved in one.
+ */
+export function hidesRecord(mutation) {
+  return Boolean(mutation) && mutation.operation === "delete"
+    && (mutation.status === MUTATION_STATUS.PENDING || mutation.status === MUTATION_STATUS.SYNCING);
+}
+
 // Finished with: the queue will never touch it again, for any reason.
 export function isFinishedStatus(status) {
   return isTerminalStatus(status) || status === MUTATION_STATUS.DISCARDED;

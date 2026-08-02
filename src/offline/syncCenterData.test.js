@@ -1115,3 +1115,45 @@ test("a record the crew has asked twice to delete does not come back when the fi
   const cached = await repository.load("TBM1");
   expect(cached.data.segments).toEqual([]);
 });
+
+test("the row left standing after a discard is the NEWEST queued write, not an older one", async () => {
+  // The guard that decides whether a deleted key comes back reads the survivor, and "survivor" means
+  // the newest write still queued. Reversing that sort leaves the whole suite green otherwise: here
+  // an edit and a second delete are both queued behind the discarded one, and reading the edit
+  // instead would put the ring back on the data log while a delete is queued to remove it.
+  const repository = makeRepository({
+    fetchServerSnapshot: async () => ({ segments: [{ id: "seg-P90", ringNo: "P90", installType: "Permanent" }] }),
+  });
+  await repository.refresh("TBM1");
+  const first = await repository.mutate(segment("P90", { operation: "delete" }));
+  await repository.updateMutation(first.requestId, { status: "permanent_error", nextAttemptAt: null, lastError: { code: "PERMANENT", message: "ลบไม่ได้" } });
+  await repository.mutate(segment("P90", { payload: { ringNo: "P90", installType: "Permanent", grade: "B" } }));
+  await repository.mutate(segment("P90", { operation: "delete" }));
+
+  await repository.discardMutation(first.requestId);
+
+  expect((await repository.load("TBM1")).data.segments).toEqual([]);
+});
+
+test("a conflict whose write is gone offers nothing to press", async () => {
+  // The row lists — the record is what the crew is deciding about — but every write action would
+  // reach a mutation that is not there and throw `Unknown mutation`, and the legacy review path
+  // refuses it too. Asking the id rather than the mutation made that an unclearable row.
+  const repository = makeRepository();
+  const db = await openOfflineDb();
+  await new Promise((resolve, reject) => {
+    const tx = db.transaction("conflicts", "readwrite");
+    tx.objectStore("conflicts").put({
+      conflictId: "orphan-1", requestId: "request-gone", status: "open",
+      domainKey: "segment:TBM1:P57:Permanent", entityType: "segment", machine: "TBM1", recordId: "seg-P57",
+      localRecord: { ringNo: "P57" }, serverRecord: { ringNo: "P57" },
+    });
+    tx.oncomplete = resolve; tx.onerror = () => reject(tx.error);
+  });
+
+  const view = await repository.getSyncCenter();
+  const orphan = view.conflicts.find(item => item.conflictId === "orphan-1");
+
+  expect(orphan).toBeTruthy();
+  expect(orphan.actionable).toBe(false);
+});

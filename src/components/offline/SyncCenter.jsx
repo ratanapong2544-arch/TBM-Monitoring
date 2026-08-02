@@ -208,7 +208,7 @@ export default function SyncCenter({ open, onClose, summary, load, onSyncNow, on
                 >
                   {/* Which fields the server named. `syncRunner` stores them for exactly this, and
                       a message without them tells the crew something is wrong but not where. */}
-                  {refused && row.lastError.fields && row.lastError.fields.length > 0 && (
+                  {refused && row.lastError && row.lastError.fields && row.lastError.fields.length > 0 && (
                     <div className="text-xs text-code-d mt-1">ฟิลด์ที่ต้องแก้: {row.lastError.fields.join(", ")}</div>
                   )}
                   {refused && (

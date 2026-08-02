@@ -1,4 +1,4 @@
-import { isFinishedStatus, isRetryableErrorStatus, isTerminalStatus, MUTATION_STATUS, stuckStatuses, STORES } from "./schema";
+import { MUTATION_STATUS, STORES, hidesRecord, isFinishedStatus, isRetryableErrorStatus, isTerminalStatus, stuckStatuses } from "./schema";
 import { entityKeyForRecord, isOptimisticKey, optimisticEntityKey } from "./entityKeys";
 import { PHOTOS } from "./displayRecord";
 import { toSyncVersion } from "./syncVersion";
@@ -157,7 +157,7 @@ function patchSnapshotSyncMeta(snapshots, stored, mutation, version, deleted) {
   });
 }
 
-export function optimisticEntity(mutation, status = mutation.status) {
+export function optimisticEntity(mutation) {
   return {
     key: optimisticEntityKey(mutation.domainKey, mutation.recordId),
     entityType: mutation.entityType,
@@ -177,7 +177,7 @@ export function optimisticEntity(mutation, status = mutation.status) {
       machine: (mutation.payload && mutation.payload.machine) ?? mutation.machine,
       domainKey: mutation.domainKey,
       version: mutation.baseVersion,
-      syncStatus: status,
+      syncStatus: mutation.status,
     },
   };
 }
@@ -643,10 +643,12 @@ export async function getSyncCounts(db) {
   const split = splitByBlocked(mutations, blockedDomains);
   return {
     pending: split.moving.filter(item => item.status === MUTATION_STATUS.PENDING).length,
-    // not filtered: a SYNCING mutation cannot share a domain with a stuck one. `claimDueMutations`
-    // returns one head per domain and a conflicted or refused head is never claimable again, so
-    // nothing behind it can be in flight.
-    syncing: mutations.filter(item => item.status === MUTATION_STATUS.SYNCING).length,
+    // from the same split as the two beside it, so the three numbers partition the queue by
+    // construction. A SYNCING mutation cannot share a domain with a stuck one today —
+    // `claimDueMutations` returns one head per domain and a stuck head is never claimable again — but
+    // counting it outside the split left the one row that could be in both `travellingCount` and
+    // `stuckCount`, which are added together on the button.
+    syncing: split.moving.filter(item => item.status === MUTATION_STATUS.SYNCING).length,
     conflicts: conflicts.filter(item => item.status === "open").length,
     errors: mutations.filter(item => isRetryableErrorStatus(item.status)).length,
     // queued behind a head that will never move, so reported with the stuck ones rather than as work
@@ -754,7 +756,10 @@ export async function getSyncCenterView(db, { recentLimit = 50 } = {}) {
         cascadeCount: mutation ? cascadeOf(mutations, mutation).length : 0,
         // No mutation behind it means the write actions do not apply: nothing to resolve through the
         // queue and nothing to discard. A legacy staged difference is reviewed, not resolved.
-        actionable: Boolean(conflict.requestId),
+        // The MUTATION, not the id: the line above contemplates a conflict whose mutation is gone,
+        // and offering that row "เลือกว่าจะเก็บอันไหน" gives the crew three buttons that all throw
+        // `Unknown mutation` while `reviewLegacyDifference` refuses it too — an unclearable row.
+        actionable: Boolean(mutation),
         ...(mutation ? identity(mutation) : {
           entityType: conflict.entityType || String(conflict.domainKey || "").split(":")[0] || null,
           machine: conflict.machine || String(conflict.domainKey || "").split(":")[1] || "GLOBAL",
@@ -823,11 +828,12 @@ export async function getSyncCenterView(db, { recentLimit = 50 } = {}) {
 function restoreDeletedKey(snapshots, stored, mutation, optimisticKey, standingRow) {
   if (!snapshots || mutation.operation !== "delete") return;
   // `standingRow` is the write whose values the entity row now holds — the newest one still queued
-  // for that record. If IT is a delete, the record is going after all and naming it again would put
-  // a row back on the data log that the crew has asked twice to remove. The module's rule everywhere
-  // else is that the newest write speaks for the row; this is that rule, decided in the one place
-  // that knows whether the key comes back rather than spelled at each call site.
-  if (standingRow && standingRow.operation === "delete") return;
+  // for that record. If IT is hiding the record, naming the key again would put a row back on the
+  // data log that the crew has asked twice to remove. `hidesRecord`, the same predicate the merge
+  // uses, so "on its way hides, stuck shows" cannot mean two things in two files. The module's rule
+  // everywhere else is that the newest write speaks for the row; this is that rule, decided in the
+  // one place that knows whether the key comes back rather than spelled at each call site.
+  if (hidesRecord(standingRow)) return;
   const field = FIELD_FOR_ENTITY_TYPE.get(mutation.entityType);
   if (!field) return;
   // `scopesFor`, not every stored snapshot: a machine-scoped ring belongs to its own machine's list
@@ -840,9 +846,11 @@ function restoreDeletedKey(snapshots, stored, mutation, optimisticKey, standingR
     if (keys.includes(optimisticKey)) return;
     // MUTATED, then put. `confirmMutation` writes this same snapshot twice in one transaction —
     // `patchSnapshotSyncMeta` first, this second — and an IndexedDB `put` replaces the whole record.
-    // Spreading a copy of the object read at the top of the transaction threw the confirmed version
-    // away: the next edit of that ring stamped `baseVersion: 0` against a server that had moved on,
-    // and the conflict that came back parked at the head of the ring's domain.
+    // The two are safe together only because BOTH mutate the object read at the top of the
+    // transaction; a spread here is equivalent today for that reason alone, and stops being so the
+    // moment either one reads its own copy. The failure it guards against is real and was seen: the
+    // next edit of that ring stamped `baseVersion: 0` against a server that had moved on, and the
+    // conflict that came back parked at the head of the ring's domain.
     snapshot.entityKeys = { ...snapshot.entityKeys, [field]: [...keys, optimisticKey] };
     snapshots.put(snapshot);
   });

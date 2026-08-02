@@ -2,7 +2,7 @@ import { domainKeyForRow, isOptimisticKey, optimisticRecordIdOf, QUEUE_STAMPED_K
 import { toSyncVersion } from "./syncVersion";
 import { applyServerRows } from "./serverDeletions";
 import { emptyServerData } from "./normalizeServerData";
-import { isTerminalStatus, MUTATION_STATUS, prunableStatuses, STORES } from "./schema";
+import { MUTATION_STATUS, STORES, hidesRecord, isTerminalStatus, prunableStatuses } from "./schema";
 
 const collections = [
   ["segments", "segment"], ["grouts", "grout"], ["secondaryGrouts", "secondaryGrout"], ["shiftReports", "shiftReport"],
@@ -203,12 +203,9 @@ export async function writeServerSnapshot(db, machine, data, fetchedAt, requeste
     // second copy. The fallback is for rows confirmed by a build before the stamp existed.
     const confirmed = confirmedAfterRequest.get(slot);
     if (confirmed && (confirmed.leavesDeleted ?? confirmed.operation === "delete")) return true;
-    const mutation = unresolvedByRecord.get(slot);
-    if (!mutation || mutation.operation !== "delete") return false;
-    // In flight it hides; stuck it shows. A delete the server refused is not on its way to anything,
-    // and keeping the row hidden would take it off this device's every screen while it sits on the
-    // sheet — permanently, with nothing to see and nothing to press before Task 10.
-    return mutation.status === MUTATION_STATUS.PENDING || mutation.status === MUTATION_STATUS.SYNCING;
+    // In flight it hides; stuck it shows — `hidesRecord`, shared with the restore in
+    // `mutationStore` that has to answer the same question about the same row.
+    return hidesRecord(unresolvedByRecord.get(slot));
   };
   const preserveLocal = record => Boolean(unresolvedStatus(record))
     || Boolean(confirmedAfterRequest.get(slotForRow(record)))

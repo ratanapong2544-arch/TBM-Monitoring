@@ -624,12 +624,51 @@ export async function getSyncCenterView(db, { recentLimit = 50 } = {}) {
         createdAtLocal: conflict.createdAtLocal || null,
       };
     }),
+    // "discarded" is its own answer. Neither sent nor waiting — the crew threw it away, and the
+    // queue is the only record that they recorded it at all.
+    discarded: mutations
+      .filter(item => item.status === MUTATION_STATUS.DISCARDED)
+      .sort(byQueueOrder)
+      .map(item => ({ ...rowOf(item), discardedAt: item.discardedAt || null })),
     recent: mutations
       .filter(item => item.status === MUTATION_STATUS.SYNCED || item.status === MUTATION_STATUS.RESOLVED)
       .sort(newestFirst)
       .slice(0, recentLimit)
       .map(item => ({ ...rowOf(item), confirmedAtLocal: item.confirmedAtLocal || null, version: item.version ?? null })),
   };
+}
+
+/**
+ * Drop a write nothing can move, at the crew's word.
+ *
+ * Only a STUCK mutation: a conflicted, refused or invalid one is never claimable again, so leaving
+ * it is leaving a permanent number in the status strip. A pending write is still going to be sent,
+ * and discarding one would take a record off the sheet's future with no trace on this device — so
+ * it is refused here rather than guarded only in the UI.
+ *
+ * The mutation is kept, marked, not deleted. The queue is the only record that the crew ever
+ * recorded this at all, and "discarded" is a different fact from "sent" — a row that vanished would
+ * read as neither, and a row marked synced would read as the wrong one.
+ */
+export async function discardMutation(db, requestId, { discardedAt } = {}) {
+  const transaction = db.transaction([STORES.mutations, STORES.entities, STORES.conflicts], "readwrite");
+  const mutations = transaction.objectStore(STORES.mutations);
+  const mutation = await requestResult(mutations.get(requestId));
+  if (!mutation) { transaction.abort(); throw new Error(`Unknown mutation ${requestId}`); }
+  const stuck = mutation.status === MUTATION_STATUS.CONFLICT
+    || mutation.status === MUTATION_STATUS.VALIDATION_ERROR
+    || mutation.status === MUTATION_STATUS.PERMANENT_ERROR;
+  if (!stuck) { transaction.abort(); throw new Error(`Mutation ${requestId} ยังไม่ติดค้าง — ทิ้งได้เฉพาะรายการที่ส่งไม่ได้แล้ว`); }
+
+  mutations.put({ ...mutation, status: MUTATION_STATUS.DISCARDED, discardedAt: discardedAt || null, syncOwner: null, leaseExpiresAt: null, nextAttemptAt: null });
+  // the optimistic row goes with it: the crew chose not to send this, so showing their copy as
+  // unsynced work would put it back on every screen with no way to move it
+  transaction.objectStore(STORES.entities).delete(optimisticEntityKey(mutation.domainKey, mutation.recordId));
+  const conflicts = transaction.objectStore(STORES.conflicts);
+  const conflict = await requestResult(conflicts.get(requestId));
+  if (conflict && conflict.status === "open") conflicts.put({ ...conflict, status: "resolved", resolvedAt: discardedAt || null, strategy: "discard" });
+  await complete(transaction);
+  return mutation;
 }
 
 export async function setLastSyncedAt(db, value) {

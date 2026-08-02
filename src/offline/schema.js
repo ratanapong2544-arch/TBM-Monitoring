@@ -22,6 +22,8 @@ export const MUTATION_STATUS = Object.freeze({
   VALIDATION_ERROR: "validation_error",
   CONFLICT: "conflict",
   PERMANENT_ERROR: "permanent_error",
+  // thrown away by the crew: never sent, never will be, and not the same fact as either
+  DISCARDED: "discarded",
 });
 
 export const LEGACY_KEYS = [
@@ -39,3 +41,11 @@ export const LEGACY_KEYS = [
 export function isTerminalStatus(status) {
   return status === MUTATION_STATUS.SYNCED || status === MUTATION_STATUS.RESOLVED;
 }
+
+// Finished with, whatever the ending was. `isTerminalStatus` means "the server answered", which is
+// what the merge and the confirmed-after-request ordering ask about; this is what the RETENTION
+// window asks about, and a discarded write belongs in it — never claimable, never counted, and
+// otherwise the one row class that grows without bound on a phone that is never reinstalled.
+export const prunableStatuses = Object.freeze(new Set([
+  MUTATION_STATUS.SYNCED, MUTATION_STATUS.RESOLVED, MUTATION_STATUS.DISCARDED,
+]));

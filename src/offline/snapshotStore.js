@@ -2,7 +2,7 @@ import { domainKeyForRow, isOptimisticKey, optimisticRecordIdOf, QUEUE_STAMPED_K
 import { toSyncVersion } from "./syncVersion";
 import { applyServerRows } from "./serverDeletions";
 import { emptyServerData } from "./normalizeServerData";
-import { isTerminalStatus, MUTATION_STATUS, STORES } from "./schema";
+import { isTerminalStatus, MUTATION_STATUS, prunableStatuses, STORES } from "./schema";
 
 const collections = [
   ["segments", "segment"], ["grouts", "grout"], ["secondaryGrouts", "secondaryGrout"], ["shiftReports", "shiftReport"],
@@ -464,7 +464,7 @@ function overlayConfigSingletons({ snapshot, committed, existing, machine, prese
 // safety note 5).
 function pruneConfirmedMutations(mutations, allMutations) {
   allMutations
-    .filter(mutation => isTerminalStatus(mutation.status))
+    .filter(mutation => prunableStatuses.has(mutation.status))
     .sort((left, right) => (right.queueSequence || 0) - (left.queueSequence || 0))
     .slice(CONFIRMED_MUTATION_RETENTION)
     .forEach(mutation => mutations.delete(mutation.requestId));

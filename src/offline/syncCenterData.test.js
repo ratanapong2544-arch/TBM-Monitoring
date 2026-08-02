@@ -88,3 +88,57 @@ test("the recent list is newest first and bounded", async () => {
 
   expect(view.recent.map(row => row.recordId)).toEqual(["seg-R2", "seg-R1"]);
 });
+
+test("discarding a stuck write drops it from the queue and says so on the record", async () => {
+  // The only destructive action the Sync Center has, and it is per record. The write is gone from
+  // the queue — it will never be posted — so what is left has to say that happened rather than look
+  // like it synced: a crew reading "ส่งแล้ว" for a ring they threw away would stop looking for it.
+  const repository = makeRepository();
+  const queued = await repository.mutate(segment("P9"));
+  await repository.updateMutation(queued.requestId, { status: "permanent_error", nextAttemptAt: null, lastError: { code: "PERMANENT", message: "ถูกปฏิเสธ" } });
+
+  await repository.discardMutation(queued.requestId);
+
+  const view = await repository.getSyncCenter();
+  expect(view.errors).toEqual([]);
+  expect(view.pending).toEqual([]);
+  expect(view.recent.map(r => r.recordId)).toEqual([]); // discarded is not "sent"
+  expect(view.discarded.map(r => r.recordId)).toEqual(["seg-P9"]);
+});
+
+test("a write still on its way cannot be discarded by accident", async () => {
+  // Discard exists for a write nothing can move. A pending one is still going to be sent, and
+  // dropping it would take a record off the sheet's future with no trace on this device.
+  const repository = makeRepository();
+  const queued = await repository.mutate(segment("P10"));
+
+  await expect(repository.discardMutation(queued.requestId)).rejects.toThrow(/ยังไม่ติดค้าง|not stuck/);
+});
+
+test("discarded writes are pruned with the confirmed ones rather than kept for ever", async () => {
+  // A discarded mutation is finished with — never claimable, never counted, on no screen but the
+  // discarded list. Left out of the prune it would be the one row class that grows without bound on
+  // a phone that is never reinstalled. The window is 200, so 260 rows proves the sweep reaches them.
+  const repository = makeRepository({ fetchServerSnapshot: async machine => ({ status: "success", segments: [], machine }) });
+  const db = await openOfflineDb();
+  await new Promise((resolve, reject) => {
+    const transaction = db.transaction("mutations", "readwrite");
+    const store = transaction.objectStore("mutations");
+    for (let index = 0; index < 260; index += 1) {
+      store.put({
+        requestId: `discarded-${index}`, status: "discarded", queueSequence: index,
+        entityType: "segment", operation: "update", machine: "TBM1", recordId: `seg-D${index}`,
+        domainKey: `segment:TBM1:D${index}:Permanent`, payload: {}, createdAtLocal: "2026-08-02T00:00:00.000Z",
+      });
+    }
+    transaction.oncomplete = resolve;
+    transaction.onerror = () => reject(transaction.error);
+  });
+  // no db.close(): the repository shares this connection, and closing it here would make its own
+  // reads fail rather than test anything
+
+  await repository.refresh("TBM1"); // the sweep runs with the snapshot write
+
+  const view = await repository.getSyncCenter();
+  expect(view.discarded.length).toBe(200);
+});

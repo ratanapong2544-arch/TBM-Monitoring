@@ -126,7 +126,7 @@ export function newestUnresolvedByRecord(mutations, canonicalDomainKey, now) {
 // `requestedAt` is when the getData request went OUT, not when it came back. The difference is the
 // whole window this function has to reason about: the queue drains in parallel with the fetch, so a
 // response can be older than a write this device has since had confirmed.
-export async function writeServerSnapshot(db, machine, data, fetchedAt, requestedAt = fetchedAt) {
+export async function writeServerSnapshot(db, machine, data, fetchedAt, requestedAt = fetchedAt, { onMerged } = {}) {
   const transaction = db.transaction([STORES.entities, STORES.snapshots, STORES.mutations], "readwrite");
   const entities = transaction.objectStore(STORES.entities);
   const snapshots = transaction.objectStore(STORES.snapshots);
@@ -398,9 +398,15 @@ export async function writeServerSnapshot(db, machine, data, fetchedAt, requeste
   overlayConfigSingletons({ snapshot, committed, existing, machine, preserveLocal });
   pruneConfirmedMutations(mutations, allMutations);
 
+  // Handed over BEFORE the commit can fail. This is the only place that knows how the sheet's rows
+  // and this device's queued ones become one view, and a caller whose write dies on quota still has
+  // to render that view — see `refresh`'s catch. Without it the crew's own just-recorded rings were
+  // dropped from the answer on exactly the devices least able to recover them.
+  const merged = { ...committed, fetchedAt };
+  if (onMerged) onMerged(merged);
   snapshots.put(snapshot);
   await complete(transaction);
-  return { ...committed, fetchedAt };
+  return merged;
 }
 
 // `syncMeta` is the one singleton this device also writes: `confirmMutation` records what the server

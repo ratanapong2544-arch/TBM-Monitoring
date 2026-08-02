@@ -1,7 +1,7 @@
 import { fetchServerSnapshot as defaultFetchServerSnapshot } from "./apiTransport";
 import { openOfflineDb as defaultOpenDb } from "./db";
 import { getOrCreateDeviceId as defaultGetDeviceId } from "./device";
-import { withoutQueueStamps } from "./entityKeys";
+import { payloadForWire } from "./mutationEnvelope";
 import { reconcileLegacyStage as defaultReconcileLegacy } from "./legacyMigration";
 import { MACHINE_ENTITY_TYPES, makeDomainKey } from "./domainKey";
 import { claimDueMutations, confirmMutation, discardMutation as discardStoredMutation, getConflict, getEntity, getMutation, getSyncCenterView, getSyncCounts, listDueMutations, putOptimisticMutation, resolveConflictAndEnqueue, resolveStoredConflict, retryMutationAsSuccessor, saveConflict, setLastSyncedAt, setSyncMetaValue, updateMutation } from "./mutationStore";
@@ -201,7 +201,7 @@ export function createRepository(deps = {}) {
     // records and the server's always carries `version`, so this is the ordinary path, not an
     // exotic one: the stripping lived only in `buildMutationEnvelope`, and the two write paths
     // Task 10 added — resolve and retry — both take a payload straight from the crew.
-    const nextPayload = withoutQueueStamps(strategy === "local" ? (original && original.payload) : payload);
+    const nextPayload = payloadForWire(strategy === "local" ? (original && original.payload) : payload);
     // the successor's key is recomputed from its fields rather than inherited, so a stored key from
     // an older build cannot make its own resolution unresolvable
     const successorInput = {
@@ -282,6 +282,9 @@ export function createRepository(deps = {}) {
         // phone whose clock has not been set yet EVERY first refresh would look overtaken
         const overtaken = Boolean(previousRequest) && Date.parse(previousRequest) > Date.parse(requestedAt);
         let stored;
+        // what the screen should show even if the cache write dies: server rows with this device's
+        // queued ones merged in, handed over before the commit
+        let merged = null;
         try {
           // The `||` is belt and braces, and unreachable as written: `lastCompletedRequest` is only
           // recorded once a write has actually landed, so an overtaking request that failed on quota
@@ -289,7 +292,7 @@ export function createRepository(deps = {}) {
           // caller a null it then reads `fetchedAt` off — turns a good server response into
           // "เชื่อมต่อเซิร์ฟเวอร์ไม่ได้" and leaves the device with no cache at all.
           stored = (overtaken && await readServerSnapshot(await openDb(), machine))
-            || await writeServerSnapshot(await openDb(), machine, data, fetchedAt, requestedAt);
+            || await writeServerSnapshot(await openDb(), machine, data, fetchedAt, requestedAt, { onMerged: value => { merged = value; } });
           // recorded only once the cache actually holds this answer, so a request that failed to
           // write does not make a later, slower one defer to a snapshot that was never produced
           if (!overtaken) lastCompletedRequest.set(machine, requestedAt);
@@ -298,7 +301,11 @@ export function createRepository(deps = {}) {
           // whose payload arrived fine, just because the cache could not be written (quota, private
           // browsing, blocked upgrade). The payload is server-fresh, so `stale` stays false per the
           // documented contract; `cacheError` reports that it could not be persisted.
-          const result = { data: { ...data, fetchedAt }, source: "server", fetchedAt, stale: false, cacheError: writeError };
+          // `merged`, not the raw payload. `writeServerSnapshot` is what re-injects this device's
+          // unsynced rows; returning the server's answer alone took a ring the crew had just
+          // recorded off their own data log — and off the next-ring derivation — while the strip
+          // said "ข้อมูลล่าสุดแสดงอยู่". Re-entering it is a duplicate row on the sheet.
+          const result = { data: merged || { ...data, fetchedAt }, source: "server", fetchedAt, stale: false, cacheError: writeError };
           emit({ type: "data", machine, result });
           return result;
         }
@@ -351,7 +358,7 @@ export function createRepository(deps = {}) {
       const successorInput = {
         entityType: original.entityType, operation: original.operation, machine: original.machine,
         recordId: original.recordId, baseVersion: original.baseVersion,
-        payload: withoutQueueStamps(payload && typeof payload === "object" ? payload : original.payload), actorId: original.actorId,
+        payload: payloadForWire(payload && typeof payload === "object" ? payload : original.payload), actorId: original.actorId,
       };
       const domainKey = requireMutationEnvelope(successorInput);
       if (domainKey !== original.domainKey) throw new Error(`Retry payload changes the record identity from ${original.domainKey} to ${domainKey}`);
@@ -361,7 +368,11 @@ export function createRepository(deps = {}) {
         successor: { ...successorInput, requestId: createRequestId(), domainKey, deviceId: await getDeviceId(db), createdAtLocal: retriedAt },
         retriedAt,
       });
-      emit({ type: "mutation", requestId: mutation.requestId, status: mutation.status, domainKey });
+      // `retried`, not the successor's `pending`: this rewrote the stored row — the crew's corrected
+      // values are in it now — and the screen has to re-read. An ordinary `mutate` is pending too
+      // and must not trigger that, so the two cannot share a status. Discard and resolve were closed
+      // in earlier rounds; this is the third sibling and it was missed.
+      emit({ type: "mutation", requestId: mutation.requestId, status: "retried", domainKey });
       return mutation;
     },
     async getMutation(requestId) { return getMutation(await openDb(), requestId); },

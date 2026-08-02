@@ -1,7 +1,7 @@
 import "fake-indexeddb/auto";
 if (!global.structuredClone) global.structuredClone = value => JSON.parse(JSON.stringify(value));
 import { closeOfflineDb, deleteOfflineDbForTests, openOfflineDb } from "./db";
-import { claimDueMutations, getConflict, getEntity, getMutation, listDueMutations, putOptimisticMutation, updateMutation } from "./mutationStore";
+import { claimDueMutations, getConflict, getEntity, getMutation, listDueMutations, putOptimisticMutation, splitByBlocked, updateMutation } from "./mutationStore";
 
 beforeEach(async () => { await deleteOfflineDbForTests(); });
 afterEach(async () => { await deleteOfflineDbForTests(); });
@@ -70,4 +70,23 @@ test("keeps a permanent error as the nonterminal head until a future explicit re
   await expect(listDueMutations(db, Date.parse(mutation.createdAtLocal))).resolves.toEqual([]);
   await expect(claimDueMutations(db, { owner: "runner-a", now: Date.parse(mutation.createdAtLocal), leaseMs: 100 })).resolves.toEqual([]);
   await expect(getMutation(db, "request-2")).resolves.toMatchObject({ status: "pending" });
+});
+
+test("a queued write behind a stuck head is blocked whether or not it is already travelling", async () => {
+  // The button's count and the panel's list were two filters over two different sets — the button
+  // from PENDING alone, the panel from PENDING or SYNCING. Round-tripping through a repository
+  // cannot show the difference, because a SYNCING row cannot share a domain with a stuck one today;
+  // the helper can be asked directly, and that is what makes the rule pinnable at all.
+  const rows = [
+    { requestId: "a", status: "conflict", domainKey: "segment:TBM1:P1:Permanent" },
+    { requestId: "b", status: "pending", domainKey: "segment:TBM1:P1:Permanent" },
+    { requestId: "c", status: "syncing", domainKey: "segment:TBM1:P1:Permanent" },
+    { requestId: "d", status: "pending", domainKey: "segment:TBM1:P2:Permanent" },
+    { requestId: "e", status: "syncing", domainKey: "segment:TBM1:P2:Permanent" },
+  ];
+
+  const split = splitByBlocked(rows, new Set(["segment:TBM1:P1:Permanent"]));
+
+  expect(split.blocked.map(row => row.requestId)).toEqual(["b", "c"]);
+  expect(split.moving.map(row => row.requestId)).toEqual(["d", "e"]);
 });

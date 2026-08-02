@@ -3,6 +3,7 @@ if (!global.structuredClone) global.structuredClone = value => JSON.parse(JSON.s
 import { deleteOfflineDbForTests, openOfflineDb } from "./db";
 import { buildMutationEnvelope } from "./mutationEnvelope";
 import { createRepository } from "./repository";
+import { writeServerSnapshot as realWriteServerSnapshot } from "./snapshotStore";
 import { discardOutcomeText } from "./syncSummary";
 
 beforeEach(async () => { await deleteOfflineDbForTests(); });
@@ -961,4 +962,51 @@ test("the two surfaces count the same rows as blocked", async () => {
 
   expect(counts.blocked).toBe(view.blocked.length);
   expect(view.blocked.map(row => row.recordId)).toEqual(["seg-P44"]);
+});
+
+test("a refresh whose cache write fails still shows the crew their own queued rings", async () => {
+  // `writeServerSnapshot` is what re-injects unsynced local records. Returning the server's answer
+  // alone took a ring the crew had just recorded off their own data log — and off the next-ring
+  // derivation — while the strip said "ข้อมูลล่าสุดแสดงอยู่". Re-entering it is a duplicate row on
+  // the sheet, which is the outcome this whole feature exists to prevent.
+  let merged = null;
+  const repository = makeRepository({
+    fetchServerSnapshot: async () => ({ segments: [{ id: "seg-P1", ringNo: "P1", installType: "Permanent" }] }),
+    writeServerSnapshot: async (db, machine, data, fetchedAt, requestedAt, options) => {
+      merged = await realWriteServerSnapshot(db, machine, data, fetchedAt, requestedAt, options);
+      throw new Error("QuotaExceededError");
+    },
+  });
+  await repository.mutate(segment("P99", { operation: "create" }));
+
+  const fresh = await repository.refresh("TBM1");
+
+  expect(fresh.cacheError).toBeTruthy();
+  expect(merged).toBeTruthy();
+  expect(fresh.data.segments.map(row => row.ringNo).sort()).toEqual(["P1", "P99"]);
+});
+
+test("a retry announces that it rewrote the stored row", async () => {
+  const repository = makeRepository();
+  const events = [];
+  repository.subscribe(event => events.push(event));
+  const queued = await repository.mutate(segment("P50"));
+  await repository.updateMutation(queued.requestId, { status: "validation_error", nextAttemptAt: null, lastError: { code: "VALIDATION", message: "ring ไม่ถูกต้อง" } });
+
+  await repository.retryMutation(queued.requestId, { payload: { id: "seg-P50", ringNo: "P50", installType: "Permanent", grade: "C" } });
+
+  expect(events.some(event => event.type === "mutation" && event.status === "retried")).toBe(true);
+});
+
+test("a conflict row carries the same cascade count as the row in the queue list", async () => {
+  // The resolver's discard is the same discard, and it reads its count off the conflict row.
+  const repository = makeRepository();
+  const created = await repository.mutate(segment("P51", { operation: "create" }));
+  await repository.mutate(segment("P51"));
+  await repository.applyConflict(created.requestId, { status: "conflict", currentVersion: 2, serverRecord: { id: "seg-P51" } });
+
+  const view = await repository.getSyncCenter();
+  const conflict = view.conflicts.find(item => item.requestId === created.requestId);
+
+  expect(conflict.cascadeCount).toBe(1);
 });

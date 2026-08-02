@@ -445,3 +445,25 @@ test("a route config is project-wide and reaches every machine's snapshot", () =
   expect(snapshot.routeConfigs).toEqual({ TBM1: { legs: [] } });
   expect(snapshot.routeProjectTotal).toBe(13600);
 });
+
+test("the merged view is handed over before the write can fail", async () => {
+  // `writeServerSnapshot` is the only place that knows how the sheet's rows and this device's queued
+  // ones become one view. A caller whose commit dies on quota still has to render that view — see
+  // `refresh`'s catch — so the merge is handed over before the put, not returned after it.
+  const db = await openOfflineDb();
+  await putOptimisticMutation(db, {
+    requestId: "request-merge-1", entityType: "segment", operation: "create", machine: "TBM1",
+    recordId: "seg-P99", domainKey: "segment:TBM1:P99:Permanent", baseVersion: 0,
+    deviceId: "device-1", actorId: null, createdAtLocal: "2026-08-02T00:00:00.000Z",
+    payload: { ringNo: "P99", installType: "Permanent" },
+  });
+
+  const handed = [];
+  const returned = await writeServerSnapshot(db, "TBM1", {
+    segments: [{ id: "seg-P1", ringNo: "P1", installType: "Permanent" }],
+  }, "2026-08-02T01:00:00.000Z", "2026-08-02T01:00:00.000Z", { onMerged: value => handed.push(value) });
+
+  expect(handed).toHaveLength(1);
+  expect(handed[0].segments.map(row => row.ringNo).sort()).toEqual(["P1", "P99"]);
+  expect(handed[0]).toEqual(returned);
+});

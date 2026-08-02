@@ -405,3 +405,19 @@ test("a discarded row leaves the list without waiting for anything else to re-re
   expect(view.container.textContent).not.toContain("P77");
   view.unmount();
 });
+
+test("the discard dialog tells the crew how many writes go with this one", async () => {
+  // The count reaching the DOM is the point: the store computed it and the dialog dropped the
+  // argument, with the whole suite green — the test that pinned it called the text function
+  // directly rather than rendering the dialog a crew actually reads.
+  const load = jest.fn(async () => ({ ...emptyView, errors: [row("P60", { operation: "create", cascadeCount: 2, status: "validation_error", lastError: { code: "VALIDATION", message: "ring ไม่ถูกต้อง" } })] }));
+  const view = mount({ load, onDiscard: jest.fn(async () => {}) });
+  await act(async () => {});
+  await click(button(view.container, /ติดค้าง/));
+
+  await click(button(view.container, /ทิ้งรายการนี้/));
+
+  expect(view.container.textContent).toContain("2");
+  expect(view.container.textContent).toMatch(/อีก 2 รายการ/);
+  view.unmount();
+});

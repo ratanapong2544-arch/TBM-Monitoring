@@ -56,7 +56,7 @@ export function buildMutationEnvelope({ entityType, operation, machine, recordId
     recordId,
     // Stripped here, once, for every family: the caller reads the record back out of state,
     // and state is where `optimisticEntity` stamped the queue's own fields onto it.
-    payload: withoutQueueStamps(withoutQueuedPhotoMarker(payload)),
+    payload: payloadForWire(payload),
     domainKey,
     baseVersion: operation === "create" ? createBaseVersion(known) : toSyncVersion(known && known.version),
   };
@@ -73,6 +73,21 @@ export function buildMutationEnvelope({ entityType, operation, machine, recordId
 // queue it is a whole shift, because an edit rides behind the create that uploads the file.
 const QUEUED_PHOTO_MARKER = "Attached";
 const PHOTO_URL_KEYS = ["imageUrl", "excavImageUrl"];
+
+/**
+ * What may go on the wire, as opposed to what the queue keeps for itself.
+ *
+ * Both halves, one name. The stamps (`recordId`, `entityType`, `domainKey`, `version`,
+ * `syncStatus`) and the `"Attached"` photo marker are things this app writes onto its own rows;
+ * GAS merges every payload key onto the stored record, so either one reaching the sheet does
+ * damage — `syncStatus: "pending"` freezes the row on every other phone, and the marker overwrites
+ * a real Drive URL and orphans the file. It lived inline in `buildMutationEnvelope`, so the two
+ * write paths that do not build an envelope — resolving a conflict by hand and retrying a refused
+ * write with corrected values — went to the sheet unstripped.
+ */
+export function payloadForWire(payload) {
+  return withoutQueueStamps(withoutQueuedPhotoMarker(payload));
+}
 
 function withoutQueuedPhotoMarker(payload) {
   if (!payload || !PHOTO_URL_KEYS.some(key => payload[key] === QUEUED_PHOTO_MARKER)) return payload;

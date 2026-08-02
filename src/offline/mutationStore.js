@@ -594,7 +594,7 @@ function blockedDomainsOf(mutations) {
 // so the same row could be counted as travelling by one and filed under ติดค้าง by the other. It is
 // unreachable today (`claimDueMutations` claims domain heads only, and a stuck head is never
 // claimable again) and it stops being a question at all if there is one function.
-function splitByBlocked(mutations, blockedDomains) {
+export function splitByBlocked(mutations, blockedDomains) {
   const queued = mutations.filter(item => item.status === MUTATION_STATUS.PENDING || item.status === MUTATION_STATUS.SYNCING);
   return {
     moving: queued.filter(item => !blockedDomains.has(item.domainKey)),

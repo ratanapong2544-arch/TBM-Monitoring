@@ -600,3 +600,111 @@ test("a re-read that settles after a fetch does not put the older snapshot back"
   expect(hook.last()).toMatchObject({ source: "server", stale: false });
   hook.unmount();
 });
+
+test("one machine's failed cache write does not silence the re-read on the next machine", async () => {
+  // The flag says "does the store hold what is on screen". Written per FETCH and never restored, a
+  // quota error on TBM1 silenced the re-read for TBM2 too, for the rest of the session — and TBM2's
+  // store was healthy. "เก็บของเซิร์ฟเวอร์" then put a ring back in TBM2's snapshot and it stayed
+  // off the data log, which is the exact defect this effect exists to close.
+  let listener;
+  const load = jest.fn(async machine => ({ data: { machine, segments: [{ id: "s1", ringNo: "P1", machine }] }, source: "indexeddb", fetchedAt: "cache", stale: true }));
+  const repository = {
+    load,
+    refresh: async machine => {
+      if (machine === "TBM1") return { data: { machine, segments: [] }, source: "server", fetchedAt: "server", stale: false, cacheError: new Error("QuotaExceededError") };
+      throw new Error("NETWORK"); // TBM2 underground: the fetch never lands, the cache pass fills the screen
+    },
+    subscribe: handler => { listener = handler; return () => { listener = null; }; },
+    getSyncSummary: async () => ({ online: true, pending: 0, syncing: 0, conflicts: 0, errors: 0, blocked: 0, lastSyncedAt: null }),
+  };
+
+  const hook = renderHook(props => useOfflineData(props.machine, { repository }), { machine: "TBM1" });
+  await act(async () => {});
+  hook.rerender({ machine: "TBM2" });
+  await act(async () => {});
+  const readsBefore = load.mock.calls.length;
+
+  await act(async () => { listener({ type: "conflict", requestId: "r1", conflictId: "c1", status: "resolved" }); });
+  await act(async () => {});
+
+  expect(load.mock.calls.length).toBe(readsBefore + 1);
+  expect(load.mock.calls[load.mock.calls.length - 1][0]).toBe("TBM2");
+  hook.unmount();
+});
+
+test("a corrected retry reaches the screen, like the other two ways a stored row is rewritten", async () => {
+  // Discard and resolve were closed in earlier rounds. Retry is the third sibling the Sync Center
+  // added: the crew corrects a refused ring, the right values go to the sheet, and their data log
+  // went on showing the REFUSED ones for the rest of the session.
+  let listener;
+  let rows = [{ id: "s1", ringNo: "P1", machine: "TBM1", grade: "WRONG" }];
+  const repository = {
+    load: async machine => ({ data: { machine, segments: rows }, source: "indexeddb", fetchedAt: "cache", stale: true }),
+    refresh: async () => { throw new Error("NETWORK"); },
+    subscribe: handler => { listener = handler; return () => { listener = null; }; },
+    getSyncSummary: async () => ({ online: true, pending: 0, syncing: 0, conflicts: 0, errors: 0, blocked: 0, lastSyncedAt: null }),
+  };
+
+  const hook = renderHook(props => useOfflineData(props.machine, { repository }), { machine: "TBM1" });
+  await act(async () => {});
+  rows = [{ id: "s1", ringNo: "P1", machine: "TBM1", grade: "CORRECTED" }];
+
+  await act(async () => { listener({ type: "mutation", requestId: "r2", status: "retried" }); });
+  await act(async () => {});
+
+  expect(hook.last().data.segments[0].grade).toBe("CORRECTED");
+  hook.unmount();
+});
+
+test("an ordinary queued write does not trigger a re-read", async () => {
+  // App already mirrors those. Re-reading per queued write would re-render every list on every save,
+  // which is why `retried` cannot simply be the successor's real `pending`.
+  let listener;
+  const load = jest.fn(async machine => ({ data: { machine, segments: [] }, source: "indexeddb", fetchedAt: "cache", stale: true }));
+  const repository = {
+    load,
+    refresh: async machine => ({ data: { machine, segments: [] }, source: "server", fetchedAt: "server", stale: false }),
+    subscribe: handler => { listener = handler; return () => { listener = null; }; },
+    getSyncSummary: async () => ({ online: true, pending: 0, syncing: 0, conflicts: 0, errors: 0, blocked: 0, lastSyncedAt: null }),
+  };
+
+  const hook = renderHook(props => useOfflineData(props.machine, { repository }), { machine: "TBM1" });
+  await act(async () => {});
+  const readsBefore = load.mock.calls.length;
+
+  await act(async () => { listener({ type: "mutation", requestId: "r3", status: "pending" }); });
+  await act(async () => {});
+
+  expect(load.mock.calls.length).toBe(readsBefore);
+  hook.unmount();
+});
+
+test("a manual refresh that could not write the cache also silences the next re-read", async () => {
+  // `refresh()` keeps its own copy of the two guards because it is a second way a fetch completes.
+  // It has no caller today — it is kept for the Sync Center's manual sync — so the first caller
+  // would otherwise inherit a guard nothing protects.
+  let listener;
+  const load = jest.fn(async machine => ({ data: { machine, segments: [] }, source: "indexeddb", fetchedAt: "cache", stale: true }));
+  let failCache = false;
+  const repository = {
+    load,
+    refresh: async machine => ({
+      data: { machine, segments: [{ id: "s1", ringNo: "P1", machine }] }, source: "server", fetchedAt: "server", stale: false,
+      cacheError: failCache ? new Error("QuotaExceededError") : null,
+    }),
+    subscribe: handler => { listener = handler; return () => { listener = null; }; },
+    getSyncSummary: async () => ({ online: true, pending: 0, syncing: 0, conflicts: 0, errors: 0, blocked: 0, lastSyncedAt: null }),
+  };
+
+  const hook = renderHook(props => useOfflineData(props.machine, { repository }), { machine: "TBM1" });
+  await act(async () => {});
+  failCache = true;
+  await act(async () => { await hook.last().refresh(); });
+  const readsBefore = load.mock.calls.length;
+
+  await act(async () => { listener({ type: "mutation", requestId: "r4", status: "discarded" }); });
+  await act(async () => {});
+
+  expect(load.mock.calls.length).toBe(readsBefore);
+  hook.unmount();
+});

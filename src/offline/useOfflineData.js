@@ -56,11 +56,16 @@ export function useOfflineData(machine, deps = {}) {
   //   - `serverGenerationRef` counts server answers applied. The re-read captures it before its read
   //     and drops the result if a fetch landed meanwhile — that read was issued against the store as
   //     it was BEFORE the server wrote it.
-  //   - `cachePersistedRef` is false while the last fetch could not write the cache (quota, private
-  //     browsing). Then the snapshot store holds less than the screen does, and re-reading it takes
-  //     rings off the data log — while the strip still says the data is server-fresh. The screen
-  //     keeps what it has instead; it is already telling the crew "บันทึกลงเครื่องไม่ได้", and a
-  //     row that lingers until the next fetch is the recoverable end of this.
+  //   - `cachePersistedRef` answers "does the store hold what is on screen". It goes false when a
+  //     fetch could not write the cache (quota, private browsing): the store then holds LESS than
+  //     the screen does, and re-reading it takes rings off the data log while the strip still says
+  //     the data is server-fresh. It goes back to true whenever the screen is filled FROM the store
+  //     — a cache pass, or a switch to another machine — because then the two agree again by
+  //     construction — which is what the per-machine reset below does, and the only place the true
+  //     side is written. Written per fetch and never restored, one quota error on TBM1 silenced the
+  //     re-read for TBM2 as well, for the rest of the session: "เก็บของเซิร์ฟเวอร์" put a ring back
+  //     in TBM2's stored snapshot and it stayed off the data log, which is the exact defect this
+  //     effect exists to close.
   const serverGenerationRef = useRef(0);
   const cachePersistedRef = useRef(true);
 
@@ -112,11 +117,14 @@ export function useOfflineData(machine, deps = {}) {
     if (previousMachine !== machine) {
       setState(previous => ({ ...previous, source: "empty", fetchedAt: null, stale: true, error: null, cacheError: null }));
     }
+    // per machine, like the provenance above it: whether TBM1's cache could be written says nothing
+    // about TBM2's, and this hydration is about to establish the answer for the one being shown
+    cachePersistedRef.current = true;
     hydrate(token);
   }, [hydrate, machine]);
 
-  // Two crew actions change what is on screen WITHOUT going through `mutate` — throwing a write
-  // away, and resolving a conflict. Both rewrite the stored snapshot and neither returns a row for
+  // Three crew actions change what is on screen WITHOUT going through `mutate` — throwing a write
+  // away, resolving a conflict, and correcting a refused one in the payload editor. Both rewrite the stored snapshot and neither returns a row for
   // App to mirror, so without this the Sync Center's own confirmation was a promise the app never
   // kept: "เก็บของเซิร์ฟเวอร์" is the button that means KEEP THE RING, and the ring stayed off the
   // data log until the next successful getData — underground, the next shift.
@@ -126,9 +134,13 @@ export function useOfflineData(machine, deps = {}) {
   useEffect(() => {
     if (!repository || typeof repository.subscribe !== "function") return undefined;
     return repository.subscribe(event => {
+      // The ONE place that knows which events rewrote the stored row. `retried` is its own status
+      // rather than the successor's real `pending`, because an ordinary `mutate` is pending too and
+      // must NOT land here: App already mirrors those, and re-reading per queued write would
+      // re-render every list on every save.
       const rewrote = event
         && ((event.type === "conflict" && event.status === "resolved")
-          || (event.type === "mutation" && event.status === "discarded"));
+          || (event.type === "mutation" && (event.status === "discarded" || event.status === "retried")));
       if (!rewrote) return;
       // NOT `++requestRef.current`. Claiming a new generation invalidates whatever hydrate or
       // refresh is in flight, and this apply carries none of what those passes own — no

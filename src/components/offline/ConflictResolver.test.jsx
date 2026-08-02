@@ -126,3 +126,13 @@ test("the comparison shows the fields the crew decides on, not the queue's own b
   expect(rows.some(text => /syncStatus|domainKey|entityType/.test(text))).toBe(false);
   view.unmount();
 });
+
+test("the resolver's discard dialog names the cascade too", async () => {
+  // Same discard, same store, second surface — and it had the same dropped argument.
+  const view = mount({ conflict: { ...conflict, operation: "create", cascadeCount: 3 } });
+
+  await click(button(view.container, /ทิ้งงานนี้/));
+
+  expect(view.container.textContent).toMatch(/อีก 3 รายการ/);
+  view.unmount();
+});

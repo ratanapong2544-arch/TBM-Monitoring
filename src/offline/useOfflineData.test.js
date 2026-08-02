@@ -708,3 +708,106 @@ test("a manual refresh that could not write the cache also silences the next re-
   expect(load.mock.calls.length).toBe(readsBefore);
   hook.unmount();
 });
+
+test("a fetch for a machine the crew left cannot decide what the app believes about this one", async () => {
+  // TBM1's getData is still on a slow tunnel link when the crew switches. TBM2 lands healthy, then
+  // TBM1's abandoned answer arrives reporting `cacheError`. Its DATA is discarded by the token —
+  // but the two guard refs are not per-machine state, so writing them from a stale pass let TBM1
+  // silence TBM2's re-read: the ring the crew kept went back into TBM2's snapshot and stayed off the
+  // data log for the rest of the session.
+  let listener;
+  let releaseTbm1;
+  const load = jest.fn(async machine => ({ data: { machine, segments: [{ id: "s1", ringNo: "P1", machine }] }, source: "indexeddb", fetchedAt: "cache", stale: true }));
+  const repository = {
+    load,
+    refresh: machine => (machine === "TBM1"
+      ? new Promise(resolve => { releaseTbm1 = () => resolve({ data: { machine, segments: [] }, source: "server", fetchedAt: "server", stale: false, cacheError: new Error("QuotaExceededError") }); })
+      : Promise.resolve({ data: { machine, segments: [] }, source: "server", fetchedAt: "server", stale: false })),
+    subscribe: handler => { listener = handler; return () => { listener = null; }; },
+    getSyncSummary: async () => ({ online: true, pending: 0, syncing: 0, conflicts: 0, errors: 0, blocked: 0, lastSyncedAt: null }),
+  };
+
+  const hook = renderHook(props => useOfflineData(props.machine, { repository }), { machine: "TBM1" });
+  await act(async () => {});
+  hook.rerender({ machine: "TBM2" });
+  await act(async () => {});
+  await act(async () => { releaseTbm1(); }); // the abandoned answer, long after the switch
+  const readsBefore = load.mock.calls.length;
+
+  await act(async () => { listener({ type: "conflict", requestId: "r1", conflictId: "c1", status: "resolved" }); });
+  await act(async () => {});
+
+  expect(load.mock.calls.length).toBe(readsBefore + 1);
+  expect(load.mock.calls[load.mock.calls.length - 1][0]).toBe("TBM2");
+  hook.unmount();
+});
+
+test("an abandoned fetch cannot un-silence the re-read on a machine whose cache is short", async () => {
+  // The mirror image, and the worse one: TBM2's own fetch could not write its cache, so its store
+  // holds LESS than the screen. TBM1's abandoned answer then lands healthy — re-enabling the re-read
+  // — and one tap on ยืนยันทิ้ง takes every ring off the data log.
+  let listener;
+  let releaseTbm1;
+  const load = jest.fn(async machine => ({ data: { machine, segments: [] }, source: "indexeddb", fetchedAt: "cache", stale: true }));
+  const repository = {
+    load,
+    refresh: machine => (machine === "TBM1"
+      ? new Promise(resolve => { releaseTbm1 = () => resolve({ data: { machine, segments: [] }, source: "server", fetchedAt: "server", stale: false }); })
+      : Promise.resolve({
+        data: { machine, segments: [{ id: "s1", ringNo: "P1", machine }] },
+        source: "server", fetchedAt: "server", stale: false, cacheError: new Error("QuotaExceededError"),
+      })),
+    subscribe: handler => { listener = handler; return () => { listener = null; }; },
+    getSyncSummary: async () => ({ online: true, pending: 0, syncing: 0, conflicts: 0, errors: 0, blocked: 0, lastSyncedAt: null }),
+  };
+
+  const hook = renderHook(props => useOfflineData(props.machine, { repository }), { machine: "TBM1" });
+  await act(async () => {});
+  hook.rerender({ machine: "TBM2" });
+  await act(async () => {});
+  await act(async () => { releaseTbm1(); });
+  const readsBefore = load.mock.calls.length;
+
+  await act(async () => { listener({ type: "mutation", requestId: "r1", status: "discarded" }); });
+  await act(async () => {});
+
+  expect(load.mock.calls.length).toBe(readsBefore);
+  expect(hook.last().data.segments.map(row => row.ringNo)).toEqual(["P1"]);
+  hook.unmount();
+});
+
+test("a manual refresh that finishes after a machine switch does not decide for the new machine", async () => {
+  // `refresh()` keeps its own copy of the two guard writes, and they need the same token check as
+  // `hydrate`'s: the crew can switch while a manual sync is out, and the answer that comes back is
+  // about the machine they left.
+  let listener;
+  let releaseTbm1;
+  const load = jest.fn(async machine => ({ data: { machine, segments: [] }, source: "indexeddb", fetchedAt: "cache", stale: true }));
+  let tbm1Calls = 0;
+  const repository = {
+    load,
+    refresh: machine => {
+      if (machine !== "TBM1") return Promise.resolve({ data: { machine, segments: [] }, source: "server", fetchedAt: "server", stale: false });
+      tbm1Calls += 1;
+      if (tbm1Calls === 1) return Promise.resolve({ data: { machine, segments: [] }, source: "server", fetchedAt: "server", stale: false });
+      return new Promise(resolve => { releaseTbm1 = () => resolve({ data: { machine, segments: [] }, source: "server", fetchedAt: "server", stale: false, cacheError: new Error("QuotaExceededError") }); });
+    },
+    subscribe: handler => { listener = handler; return () => { listener = null; }; },
+    getSyncSummary: async () => ({ online: true, pending: 0, syncing: 0, conflicts: 0, errors: 0, blocked: 0, lastSyncedAt: null }),
+  };
+
+  const hook = renderHook(props => useOfflineData(props.machine, { repository }), { machine: "TBM1" });
+  await act(async () => {});
+  let pending;
+  await act(async () => { pending = hook.last().refresh(); });   // manual sync goes out for TBM1
+  hook.rerender({ machine: "TBM2" });
+  await act(async () => {});
+  await act(async () => { releaseTbm1(); await pending; });      // ...and lands after the switch
+  const readsBefore = load.mock.calls.length;
+
+  await act(async () => { listener({ type: "mutation", requestId: "r1", status: "discarded" }); });
+  await act(async () => {});
+
+  expect(load.mock.calls.length).toBe(readsBefore + 1);
+  hook.unmount();
+});

@@ -97,9 +97,19 @@ export function useOfflineData(machine, deps = {}) {
       .then(() => repository.refresh(machine))
       .then(fresh => {
         serverSettled = true;
-        serverGenerationRef.current += 1;
-        cachePersistedRef.current = !fresh.cacheError;
-        applyIfCurrent(token, { data: fresh.data, source: fresh.source, fetchedAt: fresh.fetchedAt, stale: Boolean(fresh.stale), refreshing: false, loading: false, error: null, cacheError: fresh.cacheError || null });
+        // BEHIND the token, like the apply below it. An answer for a machine the crew has already
+        // switched away from is discarded — but these two refs are not per-machine state, so writing
+        // them from a stale pass let TBM1's abandoned fetch decide what the app believes about
+        // TBM2's cache: a `cacheError` on the abandoned one silenced TBM2's re-read, and a healthy
+        // one un-silenced it while TBM2's own store was short. Both are the defect the re-read
+        // exists to close, arriving from the one direction nothing was watching.
+        if (requestRef.current === token) {
+          serverGenerationRef.current += 1;
+          cachePersistedRef.current = !fresh.cacheError;
+          applyIfCurrent(token, { data: fresh.data, source: fresh.source, fetchedAt: fresh.fetchedAt, stale: Boolean(fresh.stale), refreshing: false, loading: false, error: null, cacheError: fresh.cacheError || null });
+        }
+        // outside it: a fetch that came back proves the link is up whichever machine it was for, and
+        // that is the one sync trigger React owns
         syncAfterRefresh();
         return true;
       })
@@ -179,8 +189,12 @@ export function useOfflineData(machine, deps = {}) {
     setState(previous => ({ ...previous, refreshing: true, error: null }));
     try {
       const fresh = await repository.refresh(machine);
-      serverGenerationRef.current += 1;
-      cachePersistedRef.current = !fresh.cacheError;
+      // behind the token for the same reason as `hydrate`'s pass: the machine can change while this
+      // is out, and these refs describe the machine on screen
+      if (requestRef.current === token) {
+        serverGenerationRef.current += 1;
+        cachePersistedRef.current = !fresh.cacheError;
+      }
       // `loading` must be cleared here too: claiming the token above invalidated any in-flight
       // hydrate, whose passes carried the only other `loading:false`, so omitting it left the app
       // on its splash screen forever.

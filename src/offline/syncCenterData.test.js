@@ -1010,3 +1010,67 @@ test("a conflict row carries the same cascade count as the row in the queue list
 
   expect(conflict.cascadeCount).toBe(1);
 });
+
+test("discarding a refused delete puts the record back even when another write is queued for it", async () => {
+  // The confirmation says "ข้อมูลนี้จะกลับมาแสดงบนหน้าจอ". Queuing the delete took the record's key
+  // out of every snapshot list, and `readServerSnapshot` rebuilds each collection from those lists
+  // alone — so putting the row back without the key leaves it named by nothing: gone from the data
+  // log, both dashboards and the ring count, across relaunches. The restore sat in the branch where
+  // NOTHING else was queued, and "เก็บของเครื่องนี้" then a refused delete is exactly the case that
+  // leaves something queued.
+  //
+  // The survivor has to arrive through RETRY or RESOLVE, not through `mutate`: `putOptimisticMutation`
+  // patches the snapshot keys and would put the key back by itself, which is why the first version of
+  // this test passed with the fix reverted. `retryMutationAsSuccessor` and `resolveConflictAndEnqueue`
+  // — both Sync Center buttons — enqueue without touching the snapshot.
+  const repository = makeRepository({
+    fetchServerSnapshot: async () => ({ segments: [{ id: "seg-P44", ringNo: "P44", installType: "Permanent" }] }),
+  });
+  await repository.refresh("TBM1");
+  const edit1 = await repository.mutate(segment("P44", { payload: { ringNo: "P44", installType: "Permanent", grade: "B" } }));
+  const removal = await repository.mutate(segment("P44", { operation: "delete" }));
+  await repository.updateMutation(edit1.requestId, { status: "validation_error", nextAttemptAt: null, lastError: { code: "VALIDATION", message: "grade ไม่ถูกต้อง" } });
+  await repository.retryMutation(edit1.requestId, { payload: { id: "seg-P44", ringNo: "P44", installType: "Permanent", grade: "C" } });
+  await repository.updateMutation(removal.requestId, { status: "permanent_error", nextAttemptAt: null, lastError: { code: "PERMANENT", message: "ลบไม่ได้" } });
+
+  await repository.discardMutation(removal.requestId);
+
+  const cached = await repository.load("TBM1");
+  expect(cached.data.segments.map(row => row.ringNo)).toEqual(["P44"]);
+});
+
+test("discarding a create does not throw away another record's queued write on the same ring", async () => {
+  // A domain key carries no record id — the production sheet spreads seven ids over sixteen rows —
+  // so "the same ring" and "the same record" are different questions, and the cascade asks the
+  // second one. Asking the first would destroy a write the crew never touched.
+  const repository = makeRepository();
+  const mine = await repository.mutate(segment("P45", { operation: "create", recordId: "seg-a" }));
+  const theirs = await repository.mutate(segment("P45", { recordId: "seg-b" }));
+  await repository.updateMutation(mine.requestId, { status: "validation_error", nextAttemptAt: null, lastError: { code: "VALIDATION", message: "ring ไม่ถูกต้อง" } });
+
+  const view = await repository.getSyncCenter();
+  expect(view.errors.find(row => row.requestId === mine.requestId).cascadeCount).toBe(0);
+
+  await repository.discardMutation(mine.requestId);
+
+  expect((await repository.getMutation(theirs.requestId)).status).toBe("pending");
+});
+
+test("a reviewed legacy difference does not claim it rewrote a record", async () => {
+  // `resolved` is the screen's word for "the stored row changed, re-read it". A review writes to the
+  // conflicts store and nothing else.
+  const repository = makeRepository();
+  const db = await openOfflineDb();
+  await new Promise((resolve, reject) => {
+    const tx = db.transaction("conflicts", "readwrite");
+    tx.objectStore("conflicts").put({ conflictId: "legacy-1", requestId: null, status: "open", domainKey: "segment:TBM1:P46:Permanent", local: { ringNo: "P46" }, server: { ringNo: "P46" } });
+    tx.oncomplete = resolve; tx.onerror = () => reject(tx.error);
+  });
+  const events = [];
+  repository.subscribe(event => events.push(event));
+
+  await repository.reviewLegacyDifference("legacy-1");
+
+  expect(events.some(event => event.type === "conflict" && event.status === "resolved")).toBe(false);
+  expect(events.some(event => event.type === "conflict" && event.status === "reviewed")).toBe(true);
+});

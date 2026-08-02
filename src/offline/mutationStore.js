@@ -605,6 +605,13 @@ export function splitByBlocked(mutations, blockedDomains) {
 // Writes for the same record that a discard of THIS one takes with it. `discardMutation` cascades
 // them and the confirmation the crew reads has to name how many — the same question in two places,
 // asked once here.
+// What a discard of THIS write takes with it. Only a create cascades — its followers can only ever
+// post an edit against a row the sheet has never held — and that "only" was spelled in three places:
+// the discard itself and both surfaces that have to disclose the count.
+export function cascadeOf(mutations, mutation) {
+  return mutation.operation === "create" ? followersOf(mutations, mutation) : [];
+}
+
 export function followersOf(mutations, mutation) {
   return mutations.filter(item => item.requestId !== mutation.requestId
     && item.domainKey === mutation.domainKey
@@ -699,7 +706,7 @@ export async function getSyncCenterView(db, { recentLimit = 50 } = {}) {
     createdAtLocal: item.createdAtLocal,
     // how many other queued writes go with it if this one is discarded — nothing for anything but a
     // create, since only a create's followers cascade
-    cascadeCount: item.operation === "create" ? followersOf(mutations, item).length : 0,
+    cascadeCount: cascadeOf(mutations, item).length,
     attemptCount: item.attemptCount || 0,
     nextAttemptAt: item.nextAttemptAt || null,
     lastError: item.lastError || null,
@@ -737,7 +744,7 @@ export async function getSyncCenterView(db, { recentLimit = 50 } = {}) {
         conflictId: conflict.conflictId,
         requestId: conflict.requestId || null,
         operation: mutation ? mutation.operation : null,
-        cascadeCount: mutation && mutation.operation === "create" ? followersOf(mutations, mutation).length : 0,
+        cascadeCount: mutation ? cascadeOf(mutations, mutation).length : 0,
         // No mutation behind it means the write actions do not apply: nothing to resolve through the
         // queue and nothing to discard. A legacy staged difference is reviewed, not resolved.
         actionable: Boolean(conflict.requestId),
@@ -845,7 +852,7 @@ export async function discardMutation(db, requestId, { discardedAt } = {}) {
   // until then. Refusing the discard instead left the record with no exit at all: the follower is
   // PENDING, so it cannot be discarded either and the panel offers it no button, and both rows sat
   // in the count for the life of the install.
-  const cascaded = mutation.operation === "create" ? followers : [];
+  const cascaded = cascadeOf(allMutations, mutation);
   const entities = transaction.objectStore(STORES.entities);
   const conflicts = transaction.objectStore(STORES.conflicts);
   const optimisticKey = optimisticEntityKey(mutation.domainKey, mutation.recordId);
@@ -883,14 +890,20 @@ export async function discardMutation(db, requestId, { discardedAt } = {}) {
     entities.put(optimisticEntity(survivor));
   } else if (mutation.operation === "create") {
     entities.delete(optimisticKey);
-  } else {
+  } else if (kept) {
     // The row stays so the ring does not vanish, but it has to say what it now IS. `preserveLocal`
     // reads the STORED row's `syncStatus`, not the mutation, so a kept row still stamped "pending"
     // made every later refresh replace the sheet's row with the values the crew threw away — for
     // ever, badged as still on its way, and a correction another crew made later never arrived.
-    if (kept) entities.put({ ...kept, payload: { ...kept.payload, syncStatus: MUTATION_STATUS.DISCARDED } });
-    if (kept) restoreDeletedKey(snapshots, stored, mutation, optimisticKey);
+    entities.put({ ...kept, payload: { ...kept.payload, syncStatus: MUTATION_STATUS.DISCARDED } });
   }
+  // Outside the branches, because the record is staying in BOTH of them and the key has to come
+  // back either way. It sat in the last branch only, so a discarded delete that still had a write
+  // queued behind it — which is what "เก็บของเครื่องนี้" then a refused delete produces — put the
+  // row back and left it named by no snapshot: gone from the data log, both dashboards and the ring
+  // count, across relaunches, while the confirmation the crew had just read said the opposite.
+  // `restoreDeletedKey` no-ops for anything but a delete and for a key already named.
+  if (survivor || kept) restoreDeletedKey(snapshots, stored, mutation, optimisticKey);
   // every request this discard covers, not only the one the crew tapped: a cascaded follower can
   // hold its own open conflict, and leaving it open is a row whose buttons can then only throw
   openConflicts.forEach(conflict => {

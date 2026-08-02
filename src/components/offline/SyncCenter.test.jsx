@@ -421,3 +421,22 @@ test("the discard dialog tells the crew how many writes go with this one", async
   expect(view.container.textContent).toMatch(/อีก 2 รายการ/);
   view.unmount();
 });
+
+test("a stranded row is not labelled refused just because it carries a last error", async () => {
+  // `syncRunner` writes `lastError` onto rows it puts BACK to pending, so guessing from that field
+  // labels a stranded row "เซิร์ฟเวอร์ปฏิเสธ" and offers it retry and edit — which the store then
+  // refuses as "ยังไม่ติดค้าง". Which LIST the row came from is the answer, and the store already
+  // made that split.
+  const load = jest.fn(async () => ({
+    ...emptyView,
+    blocked: [row("P80", { lastError: { code: "NETWORK", message: "เชื่อมต่อไม่ได้" } })],
+  }));
+  const view = mount({ load, onRetry: jest.fn(), onDiscard: jest.fn() });
+  await act(async () => {});
+  await click(button(view.container, /ติดค้าง/));
+
+  expect(view.container.textContent).toContain("รออยู่หลังรายการที่ติดค้างของข้อมูลชุดเดียวกัน");
+  expect(view.container.textContent).not.toContain("เซิร์ฟเวอร์ปฏิเสธ");
+  expect(button(view.container, /ส่งใหม่/)).toBeUndefined();
+  view.unmount();
+});

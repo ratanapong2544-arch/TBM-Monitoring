@@ -126,7 +126,16 @@ export default function SyncCenter({ open, onClose, summary, load, onSyncNow, on
     await refresh();
   };
 
-  const stuckRows = [...(view.errors || []), ...(view.blocked || [])];
+  // WHICH LIST a row came from, kept. `getSyncCenterView` has already answered "refused by the
+  // server" vs "stranded behind one" — they are different stores of truth, `isRetryableErrorStatus`
+  // and a blocked domain — and flattening the two threw that away, leaving the tab to guess from
+  // `lastError`. `syncRunner` writes `lastError` onto rows it puts BACK to pending, so the guess
+  // would label a stranded row "เซิร์ฟเวอร์ปฏิเสธ: <network message>" and offer it retry and edit,
+  // which the store then refuses as "ยังไม่ติดค้าง".
+  const stuckRows = [
+    ...(view.errors || []).map(row => ({ row, refused: true })),
+    ...(view.blocked || []).map(row => ({ row, refused: false })),
+  ];
   const counts = {
     pending: (view.pending || []).length,
     errors: stuckRows.length,
@@ -187,15 +196,14 @@ export default function SyncCenter({ open, onClose, summary, load, onSyncNow, on
             : <Empty>ไม่มีรายการรอส่ง</Empty>)}
 
           {tab === "errors" && (stuckRows.length
-            ? stuckRows.map(row => {
-              const refused = Boolean(row.lastError && row.lastError.message);
+            ? stuckRows.map(({ row, refused }) => {
               return (
                 <Row
                   key={row.requestId}
                   row={row}
                   tone="text-code-d"
                   note={refused
-                    ? `เซิร์ฟเวอร์ปฏิเสธ: ${row.lastError.message}`
+                    ? `เซิร์ฟเวอร์ปฏิเสธ: ${(row.lastError && row.lastError.message) || "ไม่ทราบสาเหตุ"}`
                     : "รออยู่หลังรายการที่ติดค้างของข้อมูลชุดเดียวกัน — จะไม่ถูกส่งจนกว่าตัวหน้าจะแก้"}
                 >
                   {/* Which fields the server named. `syncRunner` stores them for exactly this, and

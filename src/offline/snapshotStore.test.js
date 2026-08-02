@@ -467,3 +467,43 @@ test("the merged view is handed over before the write can fail", async () => {
   expect(handed[0].segments.map(row => row.ringNo).sort()).toEqual(["P1", "P99"]);
   expect(handed[0]).toEqual(returned);
 });
+
+test("the merged view survives a commit that fails", async () => {
+  // The point of the handover is the failure path, and the test that named it never made the write
+  // fail — so moving the call to after the commit left the whole suite green. Break the snapshots
+  // `put` itself: the merge must already be in the caller's hands.
+  const db = await openOfflineDb();
+  await putOptimisticMutation(db, {
+    requestId: "request-merge-2", entityType: "segment", operation: "create", machine: "TBM1",
+    recordId: "seg-P98", domainKey: "segment:TBM1:P98:Permanent", baseVersion: 0,
+    deviceId: "device-1", actorId: null, createdAtLocal: "2026-08-02T00:00:00.000Z",
+    payload: { ringNo: "P98", installType: "Permanent" },
+  });
+
+  const realTransaction = db.transaction.bind(db);
+  db.transaction = (...args) => {
+    const transaction = realTransaction(...args);
+    const realObjectStore = transaction.objectStore.bind(transaction);
+    transaction.objectStore = name => {
+      const store = realObjectStore(name);
+      if (name !== "snapshots") return store;
+      return new Proxy(store, { get: (target, key) => (key === "put" ? () => { throw new Error("QuotaExceededError"); } : Reflect.get(target, key).bind(target)) });
+    };
+    return transaction;
+  };
+
+  const handed = [];
+  let threw = null;
+  try {
+    await writeServerSnapshot(db, "TBM1", { segments: [{ id: "seg-P1", ringNo: "P1", installType: "Permanent" }] },
+      "2026-08-02T01:00:00.000Z", "2026-08-02T01:00:00.000Z", { onMerged: value => handed.push(value) });
+  } catch (error) {
+    threw = error;
+  } finally {
+    db.transaction = realTransaction;
+  }
+
+  expect(threw).toBeTruthy();
+  expect(handed).toHaveLength(1);
+  expect(handed[0].segments.map(row => row.ringNo).sort()).toEqual(["P1", "P98"]);
+});

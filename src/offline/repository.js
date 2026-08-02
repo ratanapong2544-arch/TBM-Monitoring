@@ -404,7 +404,10 @@ export function createRepository(deps = {}) {
       if (!conflict || conflict.status !== "open") throw new Error(`Unknown open conflict ${conflictId}`);
       if (conflict.requestId) throw new Error(`Conflict ${conflictId} เป็นรายการที่รอส่ง — ต้องเลือกว่าจะเก็บของใคร`);
       await resolveStoredConflict(db, conflictId, { resolvedAt: now(), strategy: "reviewed", before: { serverRecord: conflict.server, localRecord: conflict.local }, after: null });
-      emit({ type: "conflict", conflictId, status: "resolved" });
+      // `reviewed`, not `resolved`: this writes to the conflicts store and nothing else, so the
+      // screen has nothing to re-read. `resolved` is the predicate's word for "the stored row was
+      // rewritten", and lending it to a review made that claim false.
+      emit({ type: "conflict", conflictId, status: "reviewed" });
       return { status: "resolved" };
     },
     async discardMutation(requestId) {

@@ -1,5 +1,6 @@
 import { isTerminalStatus, MUTATION_STATUS, STORES } from "./schema";
 import { entityKeyForRecord, isOptimisticKey, optimisticEntityKey } from "./entityKeys";
+import { PHOTOS } from "./displayRecord";
 import { toSyncVersion } from "./syncVersion";
 import { applyConfigToSnapshot, CONFIG_FIELD_FOR_ENTITY_TYPE, FIELD_FOR_ENTITY_TYPE, isMachineScopedEntityType, snapshotScopeKey } from "./snapshotStore";
 
@@ -576,6 +577,19 @@ export async function getSyncCenterView(db, { recentLimit = 50 } = {}) {
   ]);
   await complete(transaction);
 
+  // A phone photo rides inside the envelope at some megabytes — `handleFileUpload` reads the file
+  // whole and never resizes it. `displayRecord` exists to keep those bytes out of React state for
+  // exactly one reason: a phone that runs out of storage underground stops being able to record
+  // anything at all. The Sync Center puts a payload in a controlled textarea that re-serialises it
+  // on every keystroke, which is the worst place in the app to hand them to.
+  const withoutPhotoBytes = payload => {
+    if (!payload || typeof payload !== "object") return payload;
+    if (!PHOTOS.some(([base64]) => payload[base64])) return payload;
+    const clean = { ...payload };
+    PHOTOS.forEach(([base64]) => { if (clean[base64]) clean[base64] = "[รูปภาพ — แก้ในหน้าบันทึกข้อมูล]"; });
+    return clean;
+  };
+
   const identity = item => ({
     requestId: item.requestId,
     entityType: item.entityType,
@@ -612,7 +626,7 @@ export async function getSyncCenterView(db, { recentLimit = 50 } = {}) {
     errors: mutations
       .filter(item => item.status === MUTATION_STATUS.VALIDATION_ERROR || item.status === MUTATION_STATUS.PERMANENT_ERROR)
       .sort(byQueueOrder)
-      .map(item => ({ ...rowOf(item), payload: item.payload })),
+      .map(item => ({ ...rowOf(item), payload: withoutPhotoBytes(item.payload) })),
     // Both sides, so the crew compares rather than guesses, WITH the three facts design §9 names:
     // when the server's copy was written, by which device, and when this one saved its own. A
     // comparison without them cannot tell "someone else edited this an hour ago" from "I edited it

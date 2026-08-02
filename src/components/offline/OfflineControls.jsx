@@ -19,9 +19,14 @@ export function useOfflineControls() {
   const { repository, runner, syncSummary } = useOffline();
   const [open, setOpen] = useState(false);
   const [conflict, setConflict] = useState(null);
+  // The resolver is a SIBLING of the Sync Center, not a child of it, so resolving or discarding
+  // from there cannot reach the panel's own refresh. Without this the row stayed listed with live
+  // buttons while the status button's conflict count had already dropped — the two surfaces
+  // disagreeing, and the second tap reaching "Unknown open conflict".
+  const [reloadToken, setReloadToken] = useState(0);
   const install = useInstallPrompt();
 
-  const load = useCallback(() => repository.getSyncCenter(), [repository]);
+  const load = useCallback(() => repository.getSyncCenter(), [repository, reloadToken]); // eslint-disable-line
   const syncNow = useCallback(async () => {
     try { await runner.runNow(); } catch (error) { /* the panel reports what is still queued either way */ }
   }, [runner]);
@@ -30,6 +35,7 @@ export function useOfflineControls() {
     try {
       await repository.resolveConflict(target.conflictId, options);
       setConflict(null);
+      setReloadToken(token => token + 1);
     } catch (error) {
       alert("แก้ข้อขัดแย้งไม่สำเร็จ: " + (error && error.message ? error.message : error));
     }
@@ -48,6 +54,7 @@ export function useOfflineControls() {
     try {
       await repository.discardMutation(target.requestId);
       setConflict(null);
+      setReloadToken(token => token + 1);
     } catch (error) {
       alert("ทิ้งรายการไม่สำเร็จ: " + (error && error.message ? error.message : error));
     }

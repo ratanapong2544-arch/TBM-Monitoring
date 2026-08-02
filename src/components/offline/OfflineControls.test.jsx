@@ -168,3 +168,23 @@ test("the install panel and the update banner are both rendered, not just built"
   expect(view.container.textContent).toContain("มีเวอร์ชันใหม่");
   view.unmount();
 });
+
+test("resolving a conflict re-reads the list, so the row stops being offered", async () => {
+  // The resolver is a sibling of the Sync Center, not a child, so its actions cannot reach the
+  // panel's own refresh. Without this the row stayed listed with live buttons while the status
+  // button's count had already dropped, and the second tap reached "Unknown open conflict".
+  let resolved = false;
+  global.__offline.repository.getSyncCenter = jest.fn(async () => (resolved ? emptyView : { ...emptyView, conflicts: [conflictRow] }));
+  global.__offline.repository.resolveConflict = jest.fn(async () => { resolved = true; return { status: "resolved" }; });
+  const view = render();
+  await openCentre(view);
+  await click(button(view.container, /ขัดแย้ง/));
+
+  await click(button(view.container, /เลือกว่าจะเก็บอันไหน/));
+  await click(button(view.container, /เก็บของเซิร์ฟเวอร์/));
+  await act(async () => {});
+
+  expect(view.container.textContent).not.toContain("request-P41");
+  expect(view.container.textContent).toContain("ไม่มีรายการขัดแย้ง");
+  view.unmount();
+});

@@ -89,7 +89,7 @@ test("บันทึกในเครื่องแล้ว and ซิงก
   await act(async () => {});
 
   expect(view.container.textContent).toContain("บันทึกในเครื่องแล้ว");
-  await click(button(view.container, /ส่งแล้ว/));
+  await click(button(view.container, /ประวัติ/));
   expect(view.container.textContent).toContain("ซิงก์สำเร็จ");
   view.unmount();
 });
@@ -163,7 +163,7 @@ test("timestamps read the same as every other date in the app", async () => {
   }));
   const view = mount({ load });
   await act(async () => {});
-  await click(button(view.container, /ส่งแล้ว/));
+  await click(button(view.container, /ประวัติ/));
 
   expect(view.container.textContent).toContain("2026-07-30");
   expect(view.container.textContent).not.toContain("/69");
@@ -177,7 +177,7 @@ test("a replaced write is shown as replaced, never as sent", async () => {
   }));
   const view = mount({ load });
   await act(async () => {});
-  await click(button(view.container, /ส่งแล้ว/));
+  await click(button(view.container, /ประวัติ/));
 
   expect(view.container.textContent).toContain("แทนที่ด้วยรายการใหม่");
   expect(view.container.textContent).not.toContain("ซิงก์สำเร็จ");
@@ -237,7 +237,7 @@ test("a tab badge counts what that tab shows", async () => {
   const view = mount({ load });
   await act(async () => {});
 
-  expect(button(view.container, /ส่งแล้ว/).textContent).toContain("2");
+  expect(button(view.container, /ประวัติ/).textContent).toContain("2");
   view.unmount();
 });
 
@@ -245,7 +245,7 @@ test("a discarded write is listed, and is never called sent", async () => {
   const load = jest.fn(async () => ({ ...emptyView, discarded: [row("P73", { status: "discarded", discardedAt: "2026-07-30T02:15:00.000Z" })] }));
   const view = mount({ load });
   await act(async () => {});
-  await click(button(view.container, /ส่งแล้ว/));
+  await click(button(view.container, /ประวัติ/));
 
   expect(view.container.textContent).toContain("P73");
   expect(view.container.textContent).toContain("ทิ้งโดยผู้ใช้");
@@ -253,14 +253,6 @@ test("a discarded write is listed, and is never called sent", async () => {
   view.unmount();
 });
 
-test("the recent list is bounded by default, not only when a caller asks", async () => {
-  const load = jest.fn(async () => emptyView);
-  mount({ load });
-  await act(async () => {});
-
-  // the default the plan fixes — "last 50 server-confirmed mutations"
-  expect(load).toHaveBeenCalled();
-});
 
 test("the four tabs are the four the plan names", async () => {
   // ids, not labels: `stuck` read the same to a crew and different to anyone following the spec.
@@ -269,5 +261,16 @@ test("the four tabs are the four the plan names", async () => {
 
   expect([...view.container.querySelectorAll('[data-tab]')].map(node => node.getAttribute("data-tab")))
     .toEqual(["pending", "errors", "conflicts", "recent"]);
+  view.unmount();
+});
+
+test("a row still in flight is not called synced either", async () => {
+  // The sibling of the pending/synced split, and the branch the earlier test never entered.
+  const load = jest.fn(async () => ({ ...emptyView, pending: [row("P90", { status: "syncing" })] }));
+  const view = mount({ load });
+  await act(async () => {});
+
+  expect(view.container.textContent).toContain("กำลังส่งอยู่");
+  expect(view.container.textContent).not.toContain("ซิงก์สำเร็จ");
   view.unmount();
 });

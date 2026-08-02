@@ -9,7 +9,7 @@ import { domainKeyForRow, optimisticRecordIdOf } from "./entityKeys";
 // `imageUrl: "Attached"` is the marker the data logs already understand — both of them render the
 // photo link only when `imageUrl` exists AND is not "Attached", so it says "a photo is queued"
 // while suppressing a link there is no URL for yet.
-const PHOTOS = [
+export const PHOTOS = [
   ["imageBase64", "imageName", "imageUrl"],
   ["excavImageBase64", "excavImageName", "excavImageUrl"],
 ];

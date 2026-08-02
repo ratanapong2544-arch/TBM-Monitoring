@@ -22,7 +22,7 @@ const TABS = [
   { id: "pending", label: "กำลังส่ง" },
   { id: "errors", label: "ติดค้าง" },
   { id: "conflicts", label: "ขัดแย้ง" },
-  { id: "recent", label: "ส่งแล้ว" },
+  { id: "recent", label: "ประวัติ" },
 ];
 
 // The app's own formatters, not a new pair. `th-TH` resolves to the Buddhist calendar, so
@@ -226,11 +226,14 @@ export default function SyncCenter({ open, onClose, summary, load, onSyncNow, on
                       payload={row.payload}
                       error={editError}
                       onCancel={() => { setEditing(null); setEditError(null); }}
-                      onSubmit={payload => {
+                      onSubmit={async payload => {
                         if (!payload) { setEditError("อ่านค่าไม่ได้ — ต้องเป็น JSON ของ record นี้"); return; }
-                        setEditing(null);
                         setEditError(null);
-                        act(onRetry, row, { payload });
+                        // The editor stays open until the retry is ACCEPTED. Closing it first meant a
+                        // refusal — a corrected payload that names a different record, which the
+                        // store rejects — threw the crew's typing away and reopened the original.
+                        await act(onRetry, row, { payload });
+                        setEditing(null);
                       }}
                     />
                   )}

@@ -217,3 +217,21 @@ test("the recent list keeps the last 50 by default", async () => {
 
   expect((await repository.getSyncCenter()).recent).toHaveLength(50);
 });
+
+test("a refused write with a photo does not carry its bytes into the panel", async () => {
+  // `handleFileUpload` reads a phone photo whole and never resizes it, so the payload is megabytes.
+  // The Sync Center puts that payload in a controlled textarea that re-serialises on every
+  // keystroke — the worst place in the app to hold the one budget an offline queue cannot overspend.
+  const repository = makeRepository();
+  const queued = await repository.mutate(buildMutationEnvelope({
+    entityType: "grout", operation: "update", machine: "TBM1", recordId: "g-1",
+    payload: { ringNo: "P1", groutPass: "Primary", imageBase64: "data:image/jpeg;base64,AAAA".padEnd(5000, "A") },
+    syncMeta: {},
+  }));
+  await repository.updateMutation(queued.requestId, { status: "validation_error", nextAttemptAt: null, lastError: { code: "VALIDATION", message: "ผิด" } });
+
+  const [row] = (await repository.getSyncCenter()).errors;
+
+  expect(row.payload.imageBase64).not.toContain("AAAA");
+  expect(row.payload.ringNo).toBe("P1"); // the values the crew has to correct are still there
+});

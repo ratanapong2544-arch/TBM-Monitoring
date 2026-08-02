@@ -321,3 +321,21 @@ test("clearing the photo's name is how a crew removes it", async () => {
   const successor = await repository.getMutation(retried.requestId);
   expect(successor.payload.imageBase64).toBeUndefined();
 });
+
+test("a corrected payload that carries its own photo keeps that one, not the original", async () => {
+  // The third branch of `carryPhotosFrom`, and the third round running in which one branch of this
+  // helper was fixed while a sibling stayed unguarded.
+  const original = `data:image/jpeg;base64,${"F".repeat(200)}`;
+  const replacement = `data:image/jpeg;base64,${"G".repeat(200)}`;
+  const repository = makeRepository();
+  const queued = await repository.mutate(buildMutationEnvelope({
+    entityType: "grout", operation: "update", machine: "TBM1", recordId: "g-6",
+    payload: { ringNo: "P6", groutPass: "Primary", imageBase64: original, imageName: "a.jpg" }, syncMeta: {},
+  }));
+  await repository.updateMutation(queued.requestId, { status: "validation_error", nextAttemptAt: null, lastError: { code: "VALIDATION", message: "ผิด" } });
+  const [row] = (await repository.getSyncCenter()).errors;
+
+  const retried = await repository.retryMutation(queued.requestId, { payload: { ...row.payload, imageBase64: replacement } });
+
+  expect((await repository.getMutation(retried.requestId)).payload.imageBase64).toBe(replacement);
+});

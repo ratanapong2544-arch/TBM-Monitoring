@@ -205,7 +205,10 @@ export default function SyncCenter({ open, onClose, summary, load, onSyncNow, on
                   {refused && (
                     <div className="flex gap-2 mt-2 flex-wrap">
                       {onRetry && (
-                        <button type="button" onClick={() => act(onRetry, row)} className="inline-flex items-center gap-1 px-3 py-1.5 rounded-input text-xs font-semibold border border-navy text-navy">
+                        {/* `retry` re-throws so the editor can keep a refused draft; a plain resend
+                            has no draft to keep, so it swallows the rejection here rather than
+                            leaving one unhandled. The crew has already been told by the alert. */}
+                        <button type="button" onClick={() => { act(onRetry, row).catch(() => {}); }} className="inline-flex items-center gap-1 px-3 py-1.5 rounded-input text-xs font-semibold border border-navy text-navy">
                           <RotateCcw size={13} /> ลองส่งใหม่
                         </button>
                       )}

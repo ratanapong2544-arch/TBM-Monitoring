@@ -245,3 +245,29 @@ test("a refused retry keeps the corrected values on screen", async () => {
     alerted.mockRestore();
   }
 });
+
+test("a refused plain resend says so without leaving a rejection unhandled", async () => {
+  const alerted = jest.spyOn(window, "alert").mockImplementation(() => {});
+  const unhandled = jest.fn();
+  process.on("unhandledRejection", unhandled);
+  try {
+    global.__offline.repository.getSyncCenter = jest.fn(async () => ({
+      ...emptyView,
+      errors: [{ requestId: "request-P50", entityType: "segment", machine: "TBM1", recordId: "P50", domainKey: "segment:TBM1:P50:Permanent", status: "permanent_error", lastError: { message: "ถูกปฏิเสธ" } }],
+    }));
+    global.__offline.repository.retryMutation = jest.fn(async () => { throw new Error("ยังไม่ติดค้าง"); });
+    const view = render();
+    await openCentre(view);
+    await click(button(view.container, /ติดค้าง/));
+
+    await click(button(view.container, /ลองส่งใหม่/));
+    await act(async () => {});
+
+    expect(alerted).toHaveBeenCalledWith(expect.stringContaining("ส่งใหม่ไม่สำเร็จ"));
+    expect(unhandled).not.toHaveBeenCalled();
+    view.unmount();
+  } finally {
+    process.off("unhandledRejection", unhandled);
+    alerted.mockRestore();
+  }
+});

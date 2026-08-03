@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { ArrowLeft, Pencil, Trash2, X, ImagePlus, FileText, Loader2 } from "lucide-react";
 import { EQUIPMENT, LABOR, WEATHER_SLOTS, WEATHER_CONDITIONS } from "../../utils/dailyReportSchema";
-import { checkHelper, buildPdf, downloadBundle, openPdfBlob } from "../../utils/pdfBridge";
+import { checkHelper, buildPdf, downloadBundle, openPdfBlob, HELPER_UNAVAILABLE_MESSAGE } from "../../utils/pdfBridge";
 
 const condLabel = (k) => (WEATHER_CONDITIONS.find((c) => c.key === k) || {}).label || k;
 
@@ -30,7 +30,7 @@ export default function DailyReportDetail({ report, onBack, onEdit, onDelete }) 
       setBuildMsg("สร้าง PDF สำเร็จ — เปิดในแท็บใหม่แล้ว");
     } catch (e) {
       downloadBundle(report, photos, screenshot);
-      setBuildMsg("ไม่พบ helper — ดาวน์โหลดไฟล์ bundle ให้แล้ว รัน: python build_report.py --bundle <ไฟล์> --out report.pdf  (หรือเปิด python server.py แล้วลองใหม่)");
+      setBuildMsg(HELPER_UNAVAILABLE_MESSAGE);
     } finally {
       setBuilding(false);
     }

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { Images, ChevronLeft, ChevronRight, Loader2, AlertCircle, RefreshCw } from "lucide-react";
 import { apiCall } from "../../utils/api";
+import { useIsOnline } from "../../offline/useIsOnline";
 
 const AUTOPLAY_MS = 5000;
 const IMG_W = 1200;
@@ -11,6 +12,10 @@ export default function ImageSlideshow({ folderId }) {
   const [index, setIndex] = useState(0);
   const [srcMap, setSrcMap] = useState({}); // id -> dataUri | "" (loading) | "ERR"
   const [loading, setLoading] = useState(true);
+  // Drive photos come through the GAS proxy — there is no offline copy of them, and no point
+  // asking. Each attempt is a fetch that has to time out, and the error it ends on tells the crew to
+  // check the folder's sharing setting: advice about a problem they do not have.
+  const online = useIsOnline();
   const [error, setError] = useState(false);
   const [paused, setPaused] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
@@ -19,6 +24,7 @@ export default function ImageSlideshow({ folderId }) {
   // โหลดรายการรูป (id + name)
   useEffect(() => {
     let cancelled = false;
+    if (!online) { setLoading(false); return undefined; }
     setLoading(true);
     setError(false);
     setSrcMap({});
@@ -38,7 +44,7 @@ export default function ImageSlideshow({ folderId }) {
         if (!cancelled) { setError(true); setLoading(false); }
       });
     return () => { cancelled = true; };
-  }, [folderId, reloadKey]);
+  }, [folderId, reloadKey, online]);
 
   // โหลด base64 ของสไลด์ปัจจุบัน + preload สไลด์ถัดไป (ผ่าน GAS proxy)
   useEffect(() => {
@@ -83,6 +89,21 @@ export default function ImageSlideshow({ folderId }) {
     </div>
   );
 
+  // Before `loading` and before `error`: with no link neither of those is what happened, and the
+  // sharing-setting advice below would be an answer to a question nobody asked.
+  if (!online) {
+    return (
+      <Frame>
+        <div className="h-[300px] sm:h-[360px] bg-surface-alt flex flex-col items-center justify-center text-center px-6 gap-3">
+          <AlertCircle size={28} className="text-ink-3" />
+          <div className="text-sm font-semibold text-ink">รูปหน้างานต้องเชื่อมต่ออินเทอร์เน็ต</div>
+          <div className="text-xs text-ink-3 max-w-md leading-relaxed">
+            รูปเก็บอยู่บน Google Drive และโหลดผ่านเซิร์ฟเวอร์ — จะแสดงอัตโนมัติเมื่อกลับมามีสัญญาณ ข้อมูลอื่นในหน้านี้ใช้ได้ตามปกติ
+          </div>
+        </div>
+      </Frame>
+    );
+  }
   if (loading) {
     return (
       <Frame>

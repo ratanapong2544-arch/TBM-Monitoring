@@ -1,7 +1,27 @@
-import { HELPER_URL, checkHelper, buildPdf, downloadBundle } from "./pdfBridge";
+import { HELPER_URL, HELPER_UNAVAILABLE_MESSAGE, checkHelper, buildPdf, downloadBundle } from "./pdfBridge";
 
-beforeEach(() => { global.fetch = jest.fn(); });
-afterEach(() => { jest.resetAllMocks(); });
+const setOnLine = value => Object.defineProperty(window.navigator, "onLine", { value, configurable: true });
+
+beforeEach(() => { global.fetch = jest.fn(); setOnLine(true); });
+afterEach(() => { jest.resetAllMocks(); setOnLine(true); });
+
+test("a phone with no link does not spend two seconds proving the helper is not there", async () => {
+  // `checkHelper` waits out a 2s abort timer. The helper is a Flask server on the office PC; on a
+  // phone it is never there, and on a phone underground there is nothing to ask.
+  setOnLine(false);
+  global.fetch.mockResolvedValue({ ok: true });
+
+  await expect(checkHelper()).resolves.toBe(false);
+  expect(global.fetch).not.toHaveBeenCalled();
+});
+
+test("the fallback message points at something a phone can actually do", () => {
+  // It used to say "run python build_report.py" — advice for the office PC, given to whoever is
+  // holding the phone. The bundle download stays; the browser's own print is what a phone has.
+  expect(HELPER_UNAVAILABLE_MESSAGE).toMatch(/มือถือ|โทรศัพท์/);
+  expect(HELPER_UNAVAILABLE_MESSAGE).toMatch(/พิมพ์|print/i);
+  expect(HELPER_UNAVAILABLE_MESSAGE).toContain("bundle");
+});
 
 test("HELPER_URL is loopback", () => {
   expect(HELPER_URL).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/);

@@ -9,7 +9,16 @@ function toBundle(report, photos, screenshot) {
   return { report: clean, photos: photos || [], screenshot: screenshot || null };
 }
 
+// What to tell the crew when the helper is not there. The old sentence told whoever was holding the
+// phone to run `python build_report.py` — advice for the office PC. The bundle download still
+// happens; on a phone, the browser's own print is the way to a PDF, and this app puts a print on
+// every page.
+export const HELPER_UNAVAILABLE_MESSAGE = "ไม่พบ helper (โปรแกรมบนเครื่อง PC) — ดาวน์โหลดไฟล์ bundle ให้แล้ว · บนมือถือให้ใช้ปุ่มพิมพ์/Print ของเบราว์เซอร์แทน · บน PC: รัน python server.py แล้วลองใหม่ หรือ python build_report.py --bundle <ไฟล์> --out report.pdf";
+
 export async function checkHelper() {
+  // A device with no link has nothing to ask: the helper is a Flask server on the office PC, and on
+  // a phone it is never there. Asking anyway costs the crew the full 2s abort timer, every time.
+  if (typeof navigator !== "undefined" && navigator.onLine === false) return false;
   try {
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), 2000);

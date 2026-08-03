@@ -214,6 +214,23 @@ export async function putOptimisticMutation(db, input) {
   return { mutation, entity };
 }
 
+// Everything the queue is holding, in one read. `listDueMutations` answers a different question —
+// what may be posted NOW — and the recovery export has to carry writes that are not due and never
+// will be: a refused one, a conflicted one, a claim whose worker never came back.
+export async function listMutations(db) {
+  const transaction = db.transaction(STORES.mutations, "readonly");
+  const rows = await requestResult(transaction.objectStore(STORES.mutations).getAll());
+  await complete(transaction);
+  return rows;
+}
+
+export async function listOpenConflicts(db) {
+  const transaction = db.transaction(STORES.conflicts, "readonly");
+  const rows = await requestResult(transaction.objectStore(STORES.conflicts).getAll());
+  await complete(transaction);
+  return rows.filter(row => row.status === "open");
+}
+
 export async function getMutation(db, requestId) {
   const transaction = db.transaction(STORES.mutations, "readonly");
   const result = await requestResult(transaction.objectStore(STORES.mutations).get(requestId));

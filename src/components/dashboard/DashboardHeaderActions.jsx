@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { Printer, Sparkles, AlertCircle, X, Loader2, Check, Copy } from "lucide-react";
 import { generateGeminiSummary } from "../../utils/api";
+import { useIsOnline } from "../../offline/useIsOnline";
 import { fitAndPrint } from "../../utils/printFit";
 
 const STD_ACTIVITIES = ["Excavation", "Segment Erection", "Locomotive / Rail System", "Survey", "Other 1", "Other 2"];
@@ -15,12 +16,16 @@ function getDuration(start, end) {
 }
 
 export default function DashboardHeaderActions({ segmentRecords = [], groutRecords = [], shiftReports = [], isViewer = false }) {
+  // The summary is composed by Gemini, through the GAS proxy. With no link the button could only
+  // open its full-screen modal, spin, and end on a connection error the crew cannot act on.
+  const online = useIsOnline();
   const [isGeneratingAI, setIsGeneratingAI] = useState(false);
   const [showAIModal, setShowAIModal] = useState(false);
   const [aiSummaryText, setAiSummaryText] = useState("");
   const [copied, setCopied] = useState(false);
 
   const handleGenerateDelaySummary = async () => {
+    if (!online) return;
     setIsGeneratingAI(true);
     setShowAIModal(true);
     setAiSummaryText("");
@@ -94,7 +99,7 @@ ${remarksText}
           </button>
         )}
         {!isViewer && (
-          <button onClick={handleGenerateDelaySummary} disabled={isGeneratingAI} className="bg-gradient-to-r from-code-c to-code-d hover:opacity-90 text-white px-3 py-2 rounded-input flex items-center gap-1.5 font-semibold text-xs transition-all active:scale-95 whitespace-nowrap disabled:opacity-60">
+          <button onClick={handleGenerateDelaySummary} disabled={isGeneratingAI || !online} title={online ? undefined : "ต้องเชื่อมต่ออินเทอร์เน็ต"} className="bg-gradient-to-r from-code-c to-code-d hover:opacity-90 text-white px-3 py-2 rounded-input flex items-center gap-1.5 font-semibold text-xs transition-all active:scale-95 whitespace-nowrap disabled:opacity-60">
             <Sparkles size={15} /> <span className="hidden sm:inline">วิเคราะห์ AI</span>
           </button>
         )}

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { X, RefreshCw, RotateCcw, Trash2, Pencil } from "lucide-react";
+import { X, RefreshCw, RotateCcw, Trash2, Pencil, Download } from "lucide-react";
 
 import { formatDisplayDate, formatDisplayTime } from "../../utils/formatters";
 import { discardOutcomeText, formatSyncStamp } from "../../offline/syncSummary";
@@ -86,7 +86,11 @@ function PayloadEditor({ payload, error, onCancel, onSubmit }) {
   );
 }
 
-export default function SyncCenter({ open, onClose, summary, load, onSyncNow, onResolve, onRetry, onDiscard, onReview, installPanel = null }) {
+// Megabytes, because bytes are unreadable and a percentage alone does not say whether there is room
+// for tonight's photos.
+const mb = bytes => `${Math.round((bytes / (1024 * 1024)) * 10) / 10} MB`;
+
+export default function SyncCenter({ open, onClose, summary, load, onSyncNow, onResolve, onRetry, onDiscard, onReview, storage = null, onExport = null, installPanel = null }) {
   const [tab, setTab] = useState("pending");
   const [view, setView] = useState({ pending: [], blocked: [], errors: [], conflicts: [], recent: [], superseded: [], discarded: [] });
   const [syncing, setSyncing] = useState(false);
@@ -100,6 +104,26 @@ export default function SyncCenter({ open, onClose, summary, load, onSyncNow, on
   const [editError, setEditError] = useState(null);
 
   const [readError, setReadError] = useState(null);
+  const [exporting, setExporting] = useState(false);
+  const [exportMessage, setExportMessage] = useState("");
+  const [exportError, setExportError] = useState(false);
+  const runExport = async () => {
+    if (!onExport) return;
+    setExporting(true);
+    setExportMessage("");
+    try {
+      const name = await onExport();
+      setExportError(false);
+      setExportMessage(name ? `ส่งออกแล้ว: ${name}` : "ส่งออกแล้ว");
+    } catch (error) {
+      // Said out loud. A failed export that looks like it worked is a crew who believe their work is
+      // safe somewhere it is not.
+      setExportError(true);
+      setExportMessage("ส่งออกไม่สำเร็จ: " + (error && error.message ? error.message : error));
+    } finally {
+      setExporting(false);
+    }
+  };
   const refresh = useCallback(async () => {
     if (!load) return;
     // The panel must open even if the read fails — but it must not then say the queue is empty. That
@@ -346,6 +370,33 @@ export default function SyncCenter({ open, onClose, summary, load, onSyncNow, on
         <div className="px-4 py-3 border-t border-line space-y-2">
           {/* Beside the offline explanation rather than on a settings page: the crew reads about
               installing at the moment they are looking at why a write has not gone. */}
+          {/* The two failures a crew cannot otherwise see: a store with no room left, and a store the
+              browser is free to evict. Neither announces itself — a write that cannot be persisted
+              says so only at the moment it fails, which is after the ring is already on screen.
+              `supported: false` prints nothing rather than a made-up zero. */}
+          {storage && storage.supported && (
+            <div className={`text-xs rounded-input px-3 py-2 ${storage.warn ? "bg-code-d/10 text-code-d font-semibold" : "bg-surface-alt text-ink-2"}`}>
+              {storage.warn ? "พื้นที่เก็บข้อมูลใกล้เต็ม — " : "พื้นที่เก็บข้อมูล "}
+              {mb(storage.usage)} / {mb(storage.quota)}
+              {storage.ratio !== null ? ` (${Math.round(storage.ratio * 100)}%)` : ""}
+              {storage.persisted === true ? " · เก็บถาวร (เบราว์เซอร์จะไม่ลบเอง)" : ""}
+              {storage.persisted === false ? " · ยังไม่ถาวร — เบราว์เซอร์อาจลบเมื่อพื้นที่ไม่พอ" : ""}
+            </div>
+          )}
+          {/* The last resort behind everything else. No "clear all data" beside it: discard stays
+              per-record and confirmed, because one tap on this panel — which a crew opens when
+              something is already wrong — must not be able to lose every queued write. */}
+          {onExport && (
+            <button
+              type="button"
+              onClick={runExport}
+              disabled={exporting}
+              className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-input text-sm font-semibold border border-navy text-navy disabled:opacity-50"
+            >
+              <Download size={16} /> {exporting ? "กำลังส่งออก…" : "ส่งออกข้อมูลที่ยังไม่ซิงก์"}
+            </button>
+          )}
+          {exportMessage && <div className={`text-xs ${exportError ? "text-code-d" : "text-ink-2"}`}>{exportMessage}</div>}
           {installPanel}
           <button
             type="button"

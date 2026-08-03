@@ -6,6 +6,7 @@ import {
 } from "../../utils/alignmentGeo";
 import { INSTRUMENT_META, settlementGeoJSON } from "../../utils/instrumentGeo";
 import { instrumentShapesGeoJSON } from "../../utils/instrumentShapes";
+import { BASEMAP_OFFLINE_NOTICE, isBasemapTileError } from "../../offline/basemapStatus";
 
 /* ────────────────────────────────────────────────────────────────────────
    แผนที่ดาวเทียม + หัวเจาะ 3D บนแนวจริง (KMZ Klongprem) — TBM1 only
@@ -130,6 +131,11 @@ const SYM = {
 export default function AlignmentMapView({ segmentRecords = [], machine = "TBM1", embedded = false }) {
   const isTBM1 = machine === "TBM1";
   const [showInst, setShowInst] = useState(true);
+  // The satellite imagery is the only part of this map that comes from anyone else. Everything the
+  // crew reads off it — the route, the shafts, the tube, the head, the instruments — is this app's
+  // own data and draws with no link at all, so a tile failure gets one line naming the missing part
+  // rather than leaving a black rectangle to be read as a broken map.
+  const [basemapMissing, setBasemapMissing] = useState(false);
   const drilledM = useMemo(() => (isTBM1 ? drilledMetersFromRecords(segmentRecords) : 0), [segmentRecords, isTBM1]);
   const headChRaw = useMemo(() => (isTBM1 ? headChainageFromRecords(segmentRecords) : null), [segmentRecords, isTBM1]);
   const headCh = headChRaw != null ? headChRaw : CH_EXCAV_START - drilledM;
@@ -171,6 +177,9 @@ export default function AlignmentMapView({ segmentRecords = [], machine = "TBM1"
         cooperativeGestures: embedded, // ฝังในหน้า scroll → ต้อง ctrl/2-นิ้ว ซูม (กันชนกับ scroll หน้า)
       });
       mapRef.current = map;
+      // maplibre reports every failure through one channel; only the raster source's is this one.
+      map.on("error", event => { if (isBasemapTileError(event)) setBasemapMissing(true); });
+      map.on("sourcedata", event => { if (isBasemapTileError(event) && event.isSourceLoaded) setBasemapMissing(false); });
       map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), "bottom-right");
       map.scrollZoom.setWheelZoomRate(1 / 250);
 
@@ -515,6 +524,12 @@ export default function AlignmentMapView({ segmentRecords = [], machine = "TBM1"
       {/* map + overlay ทั้งหมด อยู่ใน wrapper เดียว → ปุ่ม/ป้าย absolute เกาะแผนที่ ไม่หลุดไปทับการ์ดใต้แผนที่ */}
       <div className="a3m-mapwrap">
         <div ref={hostRef} className="a3m-stage" style={embedded ? { height: "clamp(420px, 56vh, 600px)", minHeight: "420px" } : undefined} />
+
+        {basemapMissing && (
+          <div className="a3m-ov" style={{ left: 12, right: 12, bottom: 12, background: "rgba(15,23,42,0.82)", color: "#fff", borderRadius: 10, padding: "8px 12px", fontSize: 12, lineHeight: 1.5 }}>
+            {BASEMAP_OFFLINE_NOTICE}
+          </div>
+        )}
 
         {/* header — ซ่อนเมื่อ embed (หน้า Dashboard มีหัวข้อ section อยู่แล้ว) */}
         {!embedded && (

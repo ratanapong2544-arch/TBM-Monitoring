@@ -1,6 +1,8 @@
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 
 import { useOffline } from "../../offline/OfflineProvider";
+import { downloadExportBundle, exportPendingBundle } from "../../offline/exportPending";
+import { getStorageHealth } from "../../offline/storageHealth";
 import { useInstallPrompt } from "../../pwa/useInstallPrompt";
 import ConflictResolver from "./ConflictResolver";
 import InstallAppPanel from "./InstallAppPanel";
@@ -25,6 +27,22 @@ export function useOfflineControls() {
   // disagreeing, and the second tap reaching "Unknown open conflict".
   const [reloadToken, setReloadToken] = useState(0);
   const install = useInstallPrompt();
+  // Read when the panel opens, not on every render: `estimate()` is a real measurement and the
+  // numbers only matter while someone is looking at them.
+  const [storage, setStorage] = useState(null);
+  useEffect(() => {
+    if (!open) return undefined;
+    let cancelled = false;
+    getStorageHealth().then(health => { if (!cancelled) setStorage(health); }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [open]);
+
+  const exportPending = useCallback(async () => {
+    // Throws on purpose: `SyncCenter` turns a failure into a line the crew can read. An export that
+    // fails quietly is a crew who believe their work is safe somewhere it is not.
+    const bundle = await exportPendingBundle(repository);
+    return downloadExportBundle(bundle);
+  }, [repository]);
 
   const load = useCallback(() => repository.getSyncCenter(), [repository, reloadToken]); // eslint-disable-line
   const syncNow = useCallback(async () => {
@@ -87,6 +105,8 @@ export function useOfflineControls() {
         onRetry={retry}
         onDiscard={discard}
         onReview={review}
+        storage={storage}
+        onExport={exportPending}
         installPanel={<InstallAppPanel install={install} />}
       />
       {conflict && (

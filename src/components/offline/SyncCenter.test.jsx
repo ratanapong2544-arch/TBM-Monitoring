@@ -488,3 +488,65 @@ test("a conflict whose write is gone can still be cleared", async () => {
   expect(view.onReview).toHaveBeenCalled();
   view.unmount();
 });
+
+test("the panel says how full the store is and whether the browser may throw it away", async () => {
+  // Two failures a crew cannot otherwise see. Neither announces itself: a store that cannot take
+  // another write says so only at the moment a write fails, which is after the ring is on screen.
+  const view = mount({ storage: { supported: true, usage: 42 * 1024 * 1024, quota: 100 * 1024 * 1024, ratio: 0.42, persisted: true, warn: false } });
+  await act(async () => {});
+
+  expect(view.container.textContent).toMatch(/42/);
+  expect(view.container.textContent).toMatch(/100/);
+  expect(view.container.textContent).toContain("ถาวร");
+  view.unmount();
+});
+
+test("a store that is nearly full says so where the crew will read it", async () => {
+  const view = mount({ storage: { supported: true, usage: 90 * 1024 * 1024, quota: 100 * 1024 * 1024, ratio: 0.9, persisted: false, warn: true } });
+  await act(async () => {});
+
+  expect(view.container.textContent).toContain("พื้นที่เก็บข้อมูลใกล้เต็ม");
+  view.unmount();
+});
+
+test("a browser that cannot report storage does not get a made-up number", async () => {
+  const view = mount({ storage: { supported: false, usage: null, quota: null, ratio: null, persisted: null, warn: false } });
+  await act(async () => {});
+
+  expect(view.container.textContent).not.toMatch(/0 MB|0%/);
+  view.unmount();
+});
+
+test("the crew can export what has not reached the sheet", async () => {
+  // The last resort behind every other safeguard: a phone whose queue cannot drain hands the work
+  // to someone who can replay it.
+  const onExport = jest.fn(async () => "tbm-offline-recovery-20260803-1130.json");
+  const view = mount({ onExport, load: jest.fn(async () => ({ ...emptyView, pending: [row("P1")] })) });
+  await act(async () => {});
+
+  await click(button(view.container, /ส่งออกข้อมูลที่ยังไม่ซิงก์/));
+
+  expect(onExport).toHaveBeenCalledTimes(1);
+  view.unmount();
+});
+
+test("an export that fails says so instead of looking like it worked", async () => {
+  const onExport = jest.fn(async () => { throw new Error("QuotaExceededError"); });
+  const view = mount({ onExport });
+  await act(async () => {});
+
+  await click(button(view.container, /ส่งออกข้อมูลที่ยังไม่ซิงก์/));
+
+  expect(view.container.textContent).toContain("ส่งออกไม่สำเร็จ");
+  view.unmount();
+});
+
+test("no button offers to clear everything", async () => {
+  // Discard stays per-record and confirmed. A "clear all data" control on the panel a crew opens
+  // when something is already wrong is one tap from losing every queued write.
+  const view = mount({ storage: { supported: true, usage: 1, quota: 2, ratio: 0.5, persisted: false, warn: false }, onExport: jest.fn() });
+  await act(async () => {});
+
+  expect(button(view.container, /ล้างข้อมูลทั้งหมด|ลบทั้งหมด|clear all/i)).toBeUndefined();
+  view.unmount();
+});

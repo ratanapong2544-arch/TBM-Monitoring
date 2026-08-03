@@ -2,6 +2,7 @@ import { fetchServerSnapshot as defaultFetchServerSnapshot } from "./apiTranspor
 import { openOfflineDb as defaultOpenDb } from "./db";
 import { getOrCreateDeviceId as defaultGetDeviceId } from "./device";
 import { payloadForWire } from "./mutationEnvelope";
+import { LAST_FETCH_MS_KEY } from "./wireTiming";
 import { reconcileLegacyStage as defaultReconcileLegacy } from "./legacyMigration";
 import { MACHINE_ENTITY_TYPES, makeDomainKey } from "./domainKey";
 import { claimDueMutations, confirmMutation, discardMutation as discardStoredMutation, getConflict, getEntity, getMutation, getSyncCenterView, getSyncCounts, listDueMutations, listUnsynced, putOptimisticMutation, resolveConflictAndEnqueue, resolveStoredConflict, retryMutationAsSuccessor, saveConflict, setLastSyncedAt, setSyncMetaValue, updateMutation } from "./mutationStore";
@@ -256,6 +257,11 @@ export function createRepository(deps = {}) {
         const raw = await fetchServerSnapshot(machine, { signal });
         const data = normalizeServerData(raw, machine);
         const fetchedAt = now();
+        // The wire, bracketed by the two stamps this function already takes. Recorded only here, on
+        // the success path: a timing from a failed attempt measures how long the crew waited before
+        // giving up, which would quietly replace the answer to a different question.
+        const fetchMs = Date.parse(fetchedAt) - Date.parse(requestedAt);
+        if (Number.isFinite(fetchMs)) await setSyncMetaValue(await openDb(), LAST_FETCH_MS_KEY, fetchMs);
         // `data`, not `stored`: `writeServerSnapshot` re-injects this device's unsynced records into
         // what it returns, so reconciling against that would let a queued local record confirm
         // itself as already on the sheet — the exact record reconciliation exists to protect. Its

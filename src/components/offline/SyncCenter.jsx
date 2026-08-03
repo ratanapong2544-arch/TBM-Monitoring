@@ -3,6 +3,7 @@ import { X, RefreshCw, RotateCcw, Trash2, Pencil, Download } from "lucide-react"
 
 import { formatDisplayDate, formatDisplayTime } from "../../utils/formatters";
 import { discardOutcomeText, formatSyncStamp } from "../../offline/syncSummary";
+import { formatWireTiming } from "../../offline/wireTiming";
 
 /**
  * Where a write that has not reached the sheet is looked at, and the only screen that can tell a
@@ -370,6 +371,13 @@ export default function SyncCenter({ open, onClose, summary, load, onSyncNow, on
         <div className="px-4 py-3 border-t border-line space-y-2">
           {/* Beside the offline explanation rather than on a settings page: the crew reads about
               installing at the moment they are looking at why a write has not gone. */}
+          {/* What the link actually cost, last time it worked. The deadlines that call a request dead
+              are 90 s each and were never measured against a real underground link; remote inspection
+              needs a cable and a desktop, or a Mac, and neither goes down a shaft. Recorded on the
+              device, read after coming back up. */}
+          <div className="text-xs text-ink-2 rounded-input bg-surface-alt px-3 py-2">
+            เวลาที่ใช้จริงล่าสุด · ดึงข้อมูล {formatWireTiming(summary && summary.lastFetchMs)} · ส่งข้อมูล {formatWireTiming(summary && summary.lastPostMs)}
+          </div>
           {/* The two failures a crew cannot otherwise see: a store with no room left, and a store the
               browser is free to evict. Neither announces itself — a write that cannot be persisted
               says so only at the moment it fails, which is after the ring is already on screen.

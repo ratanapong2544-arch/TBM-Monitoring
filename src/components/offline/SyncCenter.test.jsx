@@ -550,3 +550,22 @@ test("storage numbers the browser did not give are not printed as zero", async (
   expect(view.container.textContent).not.toContain("0 MB");
   view.unmount();
 });
+
+test("the panel shows how long the link actually took, last time it worked", async () => {
+  // The two deadlines guarding the wire are 90 s and neither was ever measured. Remote inspection
+  // needs a cable and a desktop, or a Mac; neither travels down a shaft. These two numbers do.
+  const view = mount({ summary: { online: true, pending: 0, syncing: 0, conflicts: 0, errors: 0, blocked: 0, lastSyncedAt: null, lastFetchMs: 12400, lastPostMs: 3100 } });
+  await act(async () => {});
+
+  expect(view.container.textContent).toContain("12.4 วิ");
+  expect(view.container.textContent).toContain("3.1 วิ");
+  view.unmount();
+});
+
+test("a link that has never been timed shows a dash, not a zero", async () => {
+  const view = mount({ summary: { online: true, pending: 0, syncing: 0, conflicts: 0, errors: 0, blocked: 0, lastSyncedAt: null, lastFetchMs: null, lastPostMs: null } });
+  await act(async () => {});
+
+  expect(view.container.textContent).not.toContain("0.0 วิ");
+  view.unmount();
+});

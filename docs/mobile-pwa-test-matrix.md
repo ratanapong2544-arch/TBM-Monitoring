@@ -1,6 +1,6 @@
 # Mobile PWA — verification matrix
 
-Branch `feat/mobile-pwa-offline-sync`, at `ddaa028` (the final-review fixes).
+Branch `feat/mobile-pwa-offline-sync`, at the wire-timing commit (see `git log`).
 Two kinds of row below: **automated**, which a machine has already checked, and **device**, which a
 person has to do on a real phone before this ships. Nothing here has been run on a phone yet.
 
@@ -10,7 +10,7 @@ person has to do on a real phone before this ships. Nothing here has been run on
 
 | Command | Result, as read |
 |---|---|
-| `npm test -- --watchAll=false --runInBand` | **91 suites / 1294 tests pass** |
+| `npm test -- --watchAll=false --runInBand` | **92 suites / 1302 tests pass** |
 | `npm run test:gas-sync` | **92 pass, 0 fail** |
 | `npm run test:pwa` | build + **3 pass, 0 fail** |
 | `npm run build` | `Compiled successfully` |
@@ -18,7 +18,7 @@ person has to do on a real phone before this ships. Nothing here has been run on
 | `git diff --check` | clean |
 
 The frontend suite grew with the work: 852 (Task 7) → 991 (Task 8) → 1071 (Task 9) → 1254 (Task 10)
-→ 1286 (Task 11) → 1294 (final review).
+→ 1286 (Task 11) → 1302 (final review + wire timing).
 
 ---
 
@@ -64,7 +64,7 @@ Sign a row only after doing it on the named device. "It worked in DevTools" is n
 |---|---|---|---|---|
 | 13 | both | drop the link **during** a POST | write stays queued, retried, still lands once | ☐ |
 | 14 | both | slow link (throttle or real edge-of-coverage) | no duplicate write, no lost write | ☐ |
-| 15 | **underground, timed** | time one real `getData` and one real segment write **from the tunnel** | see §3 — the three deadlines are estimates and this row is what turns them into measurements | ☐ |
+| 15 | **underground** | with signal in the tunnel: pull to refresh, then record one segment and let it send. Come back up, open **สถานะการซิงก์**, read the line "เวลาที่ใช้จริงล่าสุด" | two numbers, in seconds. No cable, no desktop, no Mac — see §3 | ☐ |
 
 ### Recovery and storage
 
@@ -110,6 +110,11 @@ Sign a row only after doing it on the named device. "It worked in DevTools" is n
 **None of these has been timed against a real underground link.** Row 15 is what fixes that. A false
 "dead" verdict on the GET costs a stale snapshot; on the write it costs a report whose outcome is
 unknown until the next refresh.
+
+The app measures both itself. `เวลาที่ใช้จริงล่าสุด` at the bottom of the Sync Center shows the last
+**successful** `getData` and the last **successful** write, in seconds, recorded on the device and
+kept across relaunches — the phone is read after coming back up, not during. Remote inspection needs
+a USB cable and a desktop for Android, and a Mac for an iPhone; neither goes down a shaft.
 
 Measured on \_\_\_\_\_\_ (date), \_\_\_\_\_\_ (location): `getData` \_\_\_\_ s, segment write \_\_\_\_ s.
 Adjust the constants and re-run the automated gate if either measurement is within 2× of its deadline.

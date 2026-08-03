@@ -25,7 +25,7 @@ signal:
 
 ```powershell
 npm start                                  # dev server
-npm test -- --watchAll=false --runInBand   # 91 suites / 1294 tests
+npm test -- --watchAll=false --runInBand   # 92 suites / 1302 tests
 npm run test:gas-sync                      # 92 contract assertions against gas-live/Code.js
 npm run test:pwa                           # build + manifest/service-worker assertions
 npm run build

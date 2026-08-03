@@ -1,5 +1,6 @@
 import { assertSyncResponse, SYNC_POST_TIMEOUT_MS, toApiFailure } from "./apiTransport";
 import { MUTATION_STATUS } from "./schema";
+import { LAST_POST_MS_KEY } from "./wireTiming";
 
 function currentTime(clock) {
   const value = typeof clock === "function" ? clock() : clock && typeof clock.now === "function" ? clock.now() : Date.now();
@@ -70,12 +71,19 @@ export function createSyncRunner({ repository, transport, clock = Date, jitter =
     // conflicted. It could never fire: `claimDueMutations` returns the HEAD of each domain, so a
     // domain appears at most once per pass — and if it ever had fired it would have left a claimed
     // mutation stuck in `syncing` until its lease expired.
+    const recordPostTiming = async ms => {
+      if (!Number.isFinite(ms) || typeof repository.setSyncMetaValue !== "function") return;
+      try { await repository.setSyncMetaValue(LAST_POST_MS_KEY, ms); } catch (error) { /* a reading is never worth a failed sync */ }
+    };
     const mutations = await repository.claimDueMutations({ owner, now: currentTime(clock), leaseMs });
     for (const mutation of mutations) {
       result.attempted += 1;
       try {
+        const postStartedAt = currentTime(clock);
         const response = assertSyncResponse(mutation, await transport.postSyncMutation(mutation));
         if (response.status === "success") {
+          // only a write that REACHED the sheet: a refusal or a timeout measures something else
+          await recordPostTiming(currentTime(clock) - postStartedAt);
           if (await repository.applySyncSuccess(mutation.requestId, response, { owner })) result.synced += 1;
           continue;
         }

@@ -2,6 +2,7 @@ import { MUTATION_STATUS, STORES, hidesRecord, isFinishedStatus, isRetryableErro
 import { entityKeyForRecord, isOptimisticKey, optimisticEntityKey } from "./entityKeys";
 import { PHOTOS } from "./displayRecord";
 import { toSyncVersion } from "./syncVersion";
+import { LAST_FETCH_MS_KEY, LAST_POST_MS_KEY } from "./wireTiming";
 import { applyConfigToSnapshot, CONFIG_FIELD_FOR_ENTITY_TYPE, FIELD_FOR_ENTITY_TYPE, isMachineScopedEntityType, snapshotScopeKey } from "./snapshotStore";
 
 function complete(transaction) {
@@ -722,10 +723,15 @@ export function followersOf(mutations, mutation) {
 
 export async function getSyncCounts(db) {
   const transaction = db.transaction([STORES.mutations, STORES.conflicts, STORES.syncMeta], "readonly");
-  const [mutations, conflicts, syncMeta] = await Promise.all([
+  const metaStore = transaction.objectStore(STORES.syncMeta);
+  const [mutations, conflicts, syncMeta, lastFetch, lastPost] = await Promise.all([
     requestResult(transaction.objectStore(STORES.mutations).getAll()),
     requestResult(transaction.objectStore(STORES.conflicts).getAll()),
-    requestResult(transaction.objectStore(STORES.syncMeta).get("lastSyncedAt")),
+    requestResult(metaStore.get("lastSyncedAt")),
+    // read here rather than through a second call: the Sync Center shows them beside the counts, and
+    // two reads of one store is two chances for them to describe different moments
+    requestResult(metaStore.get(LAST_FETCH_MS_KEY)),
+    requestResult(metaStore.get(LAST_POST_MS_KEY)),
   ]);
   await complete(transaction);
   // A record queued behind a stuck one is stuck too. The queue orders per domain and a conflicted or
@@ -749,6 +755,8 @@ export async function getSyncCounts(db) {
     // still travelling
     blocked: split.blocked.length,
     lastSyncedAt: syncMeta && syncMeta.value || null,
+    lastFetchMs: lastFetch && typeof lastFetch.value === "number" ? lastFetch.value : null,
+    lastPostMs: lastPost && typeof lastPost.value === "number" ? lastPost.value : null,
   };
 }
 

@@ -1,6 +1,6 @@
 # Mobile PWA — verification matrix
 
-Branch `feat/mobile-pwa-offline-sync`, at `7d6f1f1` (the final-review fixes).
+Branch `feat/mobile-pwa-offline-sync`, at `ddaa028` (the final-review fixes).
 Two kinds of row below: **automated**, which a machine has already checked, and **device**, which a
 person has to do on a real phone before this ships. Nothing here has been run on a phone yet.
 

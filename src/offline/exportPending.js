@@ -79,9 +79,8 @@ export function downloadExportBundle(bundle) {
 }
 
 export async function exportPendingBundle(repository, { now = () => new Date().toISOString() } = {}) {
-  const [mutations, conflicts, deviceId] = await Promise.all([
-    repository.listMutations(),
-    repository.listOpenConflicts(),
+  const [{ mutations, conflicts }, deviceId] = await Promise.all([
+    repository.listUnsynced(),
     repository.deviceId(),
   ]);
   const byStatus = status => mutations.filter(item => item.status === status).map(rowOf);

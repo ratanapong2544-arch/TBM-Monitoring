@@ -178,7 +178,14 @@ export default function AlignmentMapView({ segmentRecords = [], machine = "TBM1"
       });
       mapRef.current = map;
       // maplibre reports every failure through one channel; only the raster source's is this one.
-      map.on("error", event => { if (isBasemapTileError(event)) setBasemapMissing(true); });
+      // The `else` matters: maplibre logs an error to the console ONLY while nothing is listening,
+      // so attaching this — the map's first `error` listener — silently swallowed style, sprite,
+      // source-validation and WebGL-context failures, which is the class this notice exists to tell
+      // itself apart from.
+      map.on("error", event => {
+        if (isBasemapTileError(event)) setBasemapMissing(true);
+        else console.error("AlignmentMapView map error:", (event && event.error) || event);
+      });
       map.on("sourcedata", event => { if (isBasemapTileError(event) && event.isSourceLoaded) setBasemapMissing(false); });
       map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), "bottom-right");
       map.scrollZoom.setWheelZoomRate(1 / 250);

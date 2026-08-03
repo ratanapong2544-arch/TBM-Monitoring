@@ -78,3 +78,23 @@ test("a quota of zero does not become a division by zero", async () => {
     expect(health.warn).toBe(false);
   });
 });
+
+test("unknown numbers stay null, because zero would read as plenty of room", async () => {
+  // The module's headline rule. A browser that answers with no numbers must not become "0 MB used" —
+  // the panel prints what it is given, and 0 of 0 is the most reassuring thing it could say.
+  await withNavigator({ estimate: async () => ({}), persisted: async () => true }, async () => {
+    const health = await getStorageHealth();
+    expect(health.usage).toBeNull();
+    expect(health.quota).toBeNull();
+    expect(health.ratio).toBeNull();
+  });
+});
+
+test("a persisted() that rejects is unknown, not a promise that it can be evicted", async () => {
+  await withNavigator({
+    estimate: async () => ({ usage: 10, quota: 100 }),
+    persisted: async () => { throw new Error("SecurityError"); },
+  }, async () => {
+    await expect(getStorageHealth()).resolves.toMatchObject({ supported: true, persisted: null });
+  });
+});

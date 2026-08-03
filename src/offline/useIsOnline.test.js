@@ -7,7 +7,7 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 import { useIsOnline } from "./useIsOnline";
 
 function renderHook() {
-  const seen = [];
+  const seen = []; // every render, so the first one can be asserted on its own
   function Probe() { seen.push(useIsOnline()); return null; }
   let container;
   let root;
@@ -17,7 +17,7 @@ function renderHook() {
     root = createRoot(container);
     root.render(<Probe />);
   });
-  return { last: () => seen[seen.length - 1], unmount: () => act(() => { root.unmount(); container.remove(); }) };
+  return { first: () => seen[0], last: () => seen[seen.length - 1], unmount: () => act(() => { root.unmount(); container.remove(); }) };
 }
 
 const setOnLine = value => Object.defineProperty(window.navigator, "onLine", { value, configurable: true });
@@ -25,8 +25,12 @@ const setOnLine = value => Object.defineProperty(window.navigator, "onLine", { v
 afterEach(() => setOnLine(true));
 
 test("starts from what the platform says right now", () => {
+  // The FIRST render, not the last: reading the last one lets the effect correct an initial `true`,
+  // so a component that renders once before its effects — every one of the four guards — would show
+  // the online branch for a frame with no test able to see it.
   setOnLine(false);
   const hook = renderHook();
+  expect(hook.first()).toBe(false);
   expect(hook.last()).toBe(false);
   hook.unmount();
 });

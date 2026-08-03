@@ -25,14 +25,14 @@ signal:
 
 ```powershell
 npm start                                  # dev server
-npm test -- --watchAll=false --runInBand   # 91 suites / 1286 tests
+npm test -- --watchAll=false --runInBand   # 91 suites / 1294 tests
 npm run test:gas-sync                      # 92 contract assertions against gas-live/Code.js
 npm run test:pwa                           # build + manifest/service-worker assertions
 npm run build
 ```
 
 The Apps Script backend is **outside this repository**, at `../gas-live/Code.js`. The `gas/`
-directory here is a stale copy — do not edit or deploy it.
+directory here holds a setup note only — there is no deployable copy in this repo.
 
 ### Before deploying
 

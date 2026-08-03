@@ -97,3 +97,36 @@ test("a tile failure is told apart from every other map error", () => {
 test("the basemap notice says which part is missing, not that the map is broken", () => {
   expect(BASEMAP_OFFLINE_NOTICE).toContain("พื้นหลังแผนที่ต้องใช้อินเทอร์เน็ต");
 });
+
+test("the slideshow keeps quiet for as long as the crew is underground", async () => {
+  // The list effect was gated and the other two were not: the images from the last online session
+  // stayed in state, autoplay kept walking them, and every tick fired one `getImage` — indefinitely —
+  // writing "ERR" against photos that were perfectly fine.
+  jest.useFakeTimers();
+  apiCall.mockResolvedValue([{ id: "a", name: "a.jpg" }, { id: "b", name: "b.jpg" }, { id: "c", name: "c.jpg" }]);
+  const view = render(<ImageSlideshow folderId="folder-1" />);
+  await act(async () => {});
+  apiCall.mockClear();
+
+  await act(async () => { setOnLine(false); window.dispatchEvent(new Event("offline")); });
+  await act(async () => { jest.advanceTimersByTime(30000); });
+
+  expect(apiCall).not.toHaveBeenCalled();
+  jest.useRealTimers();
+  view.unmount();
+});
+
+test("the slideshow comes back by itself when the link does", async () => {
+  // The offline panel promises it in words: "จะแสดงอัตโนมัติเมื่อกลับมามีสัญญาณ".
+  setOnLine(false);
+  const view = render(<ImageSlideshow folderId="folder-1" />);
+  await act(async () => {});
+  expect(apiCall).not.toHaveBeenCalled();
+
+  await act(async () => { setOnLine(true); window.dispatchEvent(new Event("online")); });
+  await act(async () => {});
+
+  expect(apiCall).toHaveBeenCalledWith("getDriveImages", { folderId: "folder-1" });
+  expect(view.container.textContent).not.toContain("ต้องเชื่อมต่ออินเทอร์เน็ต");
+  view.unmount();
+});

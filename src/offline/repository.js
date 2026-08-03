@@ -4,7 +4,7 @@ import { getOrCreateDeviceId as defaultGetDeviceId } from "./device";
 import { payloadForWire } from "./mutationEnvelope";
 import { reconcileLegacyStage as defaultReconcileLegacy } from "./legacyMigration";
 import { MACHINE_ENTITY_TYPES, makeDomainKey } from "./domainKey";
-import { claimDueMutations, confirmMutation, discardMutation as discardStoredMutation, getConflict, getEntity, getMutation, getSyncCenterView, getSyncCounts, listDueMutations, listMutations, listOpenConflicts, putOptimisticMutation, resolveConflictAndEnqueue, resolveStoredConflict, retryMutationAsSuccessor, saveConflict, setLastSyncedAt, setSyncMetaValue, updateMutation } from "./mutationStore";
+import { claimDueMutations, confirmMutation, discardMutation as discardStoredMutation, getConflict, getEntity, getMutation, getSyncCenterView, getSyncCounts, listDueMutations, listUnsynced, putOptimisticMutation, resolveConflictAndEnqueue, resolveStoredConflict, retryMutationAsSuccessor, saveConflict, setLastSyncedAt, setSyncMetaValue, updateMutation } from "./mutationStore";
 import { isRetryableErrorStatus, MUTATION_STATUS } from "./schema";
 import { emptyServerData, normalizeServerData as defaultNormalizeServerData } from "./normalizeServerData";
 import { readServerSnapshot as defaultReadServerSnapshot, writeServerSnapshot as defaultWriteServerSnapshot } from "./snapshotStore";
@@ -380,9 +380,8 @@ export function createRepository(deps = {}) {
       return mutation;
     },
     async getMutation(requestId) { return getMutation(await openDb(), requestId); },
-    // for the recovery export: everything still held, and who is holding it
-    async listMutations() { return listMutations(await openDb()); },
-    async listOpenConflicts() { return listOpenConflicts(await openDb()); },
+    // for the recovery export: everything still held, read in one transaction, and who is holding it
+    async listUnsynced() { return listUnsynced(await openDb()); },
     async deviceId() { return getDeviceId(await openDb()); },
     async getEntity(domainKey, recordId) { return getEntity(await openDb(), domainKey, recordId); },
     async getConflict(conflictId) { return getConflict(await openDb(), conflictId); },

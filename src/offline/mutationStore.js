@@ -217,18 +217,18 @@ export async function putOptimisticMutation(db, input) {
 // Everything the queue is holding, in one read. `listDueMutations` answers a different question —
 // what may be posted NOW — and the recovery export has to carry writes that are not due and never
 // will be: a refused one, a conflicted one, a claim whose worker never came back.
-export async function listMutations(db) {
-  const transaction = db.transaction(STORES.mutations, "readonly");
-  const rows = await requestResult(transaction.objectStore(STORES.mutations).getAll());
+// ONE transaction over both stores. `saveConflict` and `resolveConflictAndEnqueue` write the two
+// together, so reading them apart can catch a write mid-move: a queued row can appear in the export's
+// `pendingMutations` AND its `conflicts` — the double replay the export is written to prevent — or in
+// neither, which is a queued write missing from the file that exists so nothing goes missing.
+export async function listUnsynced(db) {
+  const transaction = db.transaction([STORES.mutations, STORES.conflicts], "readonly");
+  const [mutations, conflicts] = await Promise.all([
+    requestResult(transaction.objectStore(STORES.mutations).getAll()),
+    requestResult(transaction.objectStore(STORES.conflicts).getAll()),
+  ]);
   await complete(transaction);
-  return rows;
-}
-
-export async function listOpenConflicts(db) {
-  const transaction = db.transaction(STORES.conflicts, "readonly");
-  const rows = await requestResult(transaction.objectStore(STORES.conflicts).getAll());
-  await complete(transaction);
-  return rows.filter(row => row.status === "open");
+  return { mutations, conflicts: conflicts.filter(row => row.status === "open") };
 }
 
 export async function getMutation(db, requestId) {

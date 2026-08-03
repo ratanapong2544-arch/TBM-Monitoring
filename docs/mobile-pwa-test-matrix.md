@@ -1,6 +1,6 @@
 # Mobile PWA — verification matrix
 
-Branch `feat/mobile-pwa-offline-sync`, at `c5770fe`.
+Branch `feat/mobile-pwa-offline-sync`, at `7d6f1f1` (the final-review fixes).
 Two kinds of row below: **automated**, which a machine has already checked, and **device**, which a
 person has to do on a real phone before this ships. Nothing here has been run on a phone yet.
 
@@ -8,9 +8,9 @@ person has to do on a real phone before this ships. Nothing here has been run on
 
 ## 1. Automated gate — recorded, not predicted
 
-| Command | Result at `c5770fe` |
+| Command | Result, as read |
 |---|---|
-| `npm test -- --watchAll=false --runInBand` | **91 suites / 1286 tests pass** |
+| `npm test -- --watchAll=false --runInBand` | **91 suites / 1294 tests pass** |
 | `npm run test:gas-sync` | **92 pass, 0 fail** |
 | `npm run test:pwa` | build + **3 pass, 0 fail** |
 | `npm run build` | `Compiled successfully` |
@@ -18,7 +18,7 @@ person has to do on a real phone before this ships. Nothing here has been run on
 | `git diff --check` | clean |
 
 The frontend suite grew with the work: 852 (Task 7) → 991 (Task 8) → 1071 (Task 9) → 1254 (Task 10)
-→ 1286 (Task 11).
+→ 1286 (Task 11) → 1294 (final review).
 
 ---
 

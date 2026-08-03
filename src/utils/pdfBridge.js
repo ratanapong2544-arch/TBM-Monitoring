@@ -15,10 +15,12 @@ function toBundle(report, photos, screenshot) {
 // every page.
 export const HELPER_UNAVAILABLE_MESSAGE = "ไม่พบ helper (โปรแกรมบนเครื่อง PC) — ดาวน์โหลดไฟล์ bundle ให้แล้ว · บนมือถือให้ใช้ปุ่มพิมพ์/Print ของเบราว์เซอร์แทน · บน PC: รัน python server.py แล้วลองใหม่ หรือ python build_report.py --bundle <ไฟล์> --out report.pdf";
 
+// NO `navigator.onLine` guard here, deliberately. `onLine === false` means no network INTERFACE is
+// up, and loopback is not affected by it: a laptop running `python server.py` with its wifi off has a
+// working helper, and refusing to ask would hand the crew the bundle-and-print message instead of the
+// PDF the helper was about to make. The saving was imaginary too — a closed port refuses in
+// milliseconds; the 2s abort only elapses if something is listening and hangs.
 export async function checkHelper() {
-  // A device with no link has nothing to ask: the helper is a Flask server on the office PC, and on
-  // a phone it is never there. Asking anyway costs the crew the full 2s abort timer, every time.
-  if (typeof navigator !== "undefined" && navigator.onLine === false) return false;
   try {
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), 2000);

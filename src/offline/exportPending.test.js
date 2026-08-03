@@ -142,3 +142,37 @@ test("the download writes one JSON file and lets go of the object URL", async ()
   expect(global.URL.revokeObjectURL).toHaveBeenCalledWith("blob:x");
   jest.restoreAllMocks();
 });
+
+test("a legacy staged difference exports both its sides", async () => {
+  // `legacyMigration` files its differences in the same store with the older `local`/`server`
+  // spelling and no requestId. Reading only the queued names exported them as null/null — a row in
+  // the recovery file that says a disagreement exists and nothing about what it is.
+  const repository = makeRepository();
+  const db = await openOfflineDb();
+  await new Promise((resolve, reject) => {
+    const tx = db.transaction("conflicts", "readwrite");
+    tx.objectStore("conflicts").put({
+      conflictId: "legacy-1", requestId: null, status: "open", domainKey: "segment:TBM1:P70:Permanent",
+      local: { ringNo: "P70", grade: "A" }, server: { ringNo: "P70", grade: "B" },
+    });
+    tx.oncomplete = resolve; tx.onerror = () => reject(tx.error);
+  });
+
+  const bundle = await exportPendingBundle(repository, { now: () => "2026-08-03T04:30:00.000Z" });
+
+  expect(bundle.conflicts).toHaveLength(1);
+  expect(bundle.conflicts[0].localRecord).toMatchObject({ grade: "A" });
+  expect(bundle.conflicts[0].serverRecord).toMatchObject({ grade: "B" });
+});
+
+test("a claim whose worker never came back is still work this device is holding", async () => {
+  // SYNCING, not just PENDING. Dropping it from the file would lose exactly the write whose fate is
+  // least certain — the one that was in flight when the app died.
+  const repository = makeRepository();
+  const queued = await repository.mutate(segment("P71"));
+  await repository.updateMutation(queued.requestId, { status: "syncing" });
+
+  const bundle = await exportPendingBundle(repository, { now: () => "2026-08-03T04:30:00.000Z" });
+
+  expect(bundle.pendingMutations.map(row => row.requestId)).toEqual([queued.requestId]);
+});

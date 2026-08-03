@@ -374,7 +374,7 @@ export default function SyncCenter({ open, onClose, summary, load, onSyncNow, on
               browser is free to evict. Neither announces itself — a write that cannot be persisted
               says so only at the moment it fails, which is after the ring is already on screen.
               `supported: false` prints nothing rather than a made-up zero. */}
-          {storage && storage.supported && (
+          {storage && storage.supported && storage.usage !== null && storage.quota !== null && (
             <div className={`text-xs rounded-input px-3 py-2 ${storage.warn ? "bg-code-d/10 text-code-d font-semibold" : "bg-surface-alt text-ink-2"}`}>
               {storage.warn ? "พื้นที่เก็บข้อมูลใกล้เต็ม — " : "พื้นที่เก็บข้อมูล "}
               {mb(storage.usage)} / {mb(storage.quota)}

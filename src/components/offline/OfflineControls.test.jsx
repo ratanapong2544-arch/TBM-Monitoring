@@ -40,6 +40,8 @@ beforeEach(() => {
       resolveConflict: jest.fn(async () => ({ status: "resolved" })),
       discardMutation: jest.fn(async () => ({})),
       retryMutation: jest.fn(async () => ({})),
+      listUnsynced: jest.fn(async () => ({ mutations: [], conflicts: [] })),
+      deviceId: jest.fn(async () => "device-1"),
     },
     runner: { runNow: jest.fn(async () => {}) },
     syncSummary: { online: true, pending: 0, syncing: 0, conflicts: 0, errors: 0, blocked: 0, lastSyncedAt: null },
@@ -270,4 +272,39 @@ test("a refused plain resend says so without leaving a rejection unhandled", asy
     process.off("unhandledRejection", unhandled);
     alerted.mockRestore();
   }
+});
+
+test("the export button reaches the store and writes a file", async () => {
+  // The seam this file exists for: the panel's own tests pin the callback prop, not that the prop is
+  // wired to the bundle and the download.
+  const anchor = { click: jest.fn(), href: "", download: "", remove: () => {} };
+  const realCreate = document.createElement.bind(document);
+  jest.spyOn(document, "createElement").mockImplementation(tag => (tag === "a" ? anchor : realCreate(tag)));
+  jest.spyOn(document.body, "appendChild").mockImplementation(() => {});
+  global.URL.createObjectURL = jest.fn(() => "blob:x");
+  global.URL.revokeObjectURL = jest.fn();
+  const view = render();
+  await openCentre(view);
+
+  await click(button(view.container, /ส่งออกข้อมูลที่ยังไม่ซิงก์/));
+
+  expect(global.__offline.repository.listUnsynced).toHaveBeenCalled();
+  expect(anchor.click).toHaveBeenCalled();
+  expect(view.container.textContent).toMatch(/ส่งออกแล้ว/);
+  jest.restoreAllMocks();
+  view.unmount();
+});
+
+test("an export that cannot read the store says so, instead of reporting a file that does not exist", async () => {
+  // Swallowing it here would leave the panel saying "ส่งออกแล้ว" with nothing saved — a crew who
+  // believe their work is safe somewhere it is not, on the one screen that exists to tell them
+  // whether it is.
+  global.__offline.repository.listUnsynced = jest.fn(async () => { throw new Error("QuotaExceededError"); });
+  const view = render();
+  await openCentre(view);
+
+  await click(button(view.container, /ส่งออกข้อมูลที่ยังไม่ซิงก์/));
+
+  expect(view.container.textContent).toContain("ส่งออกไม่สำเร็จ");
+  view.unmount();
 });

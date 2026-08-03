@@ -5,14 +5,17 @@ const setOnLine = value => Object.defineProperty(window.navigator, "onLine", { v
 beforeEach(() => { global.fetch = jest.fn(); setOnLine(true); });
 afterEach(() => { jest.resetAllMocks(); setOnLine(true); });
 
-test("a phone with no link does not spend two seconds proving the helper is not there", async () => {
-  // `checkHelper` waits out a 2s abort timer. The helper is a Flask server on the office PC; on a
-  // phone it is never there, and on a phone underground there is nothing to ask.
+test("a laptop with its wifi off still gets its PDF from the helper on the same machine", async () => {
+  // The first version of this guard refused to ask whenever `navigator.onLine` was false — but that
+  // means no network INTERFACE is up, and the helper is on loopback. This very test, written to
+  // defend the guard, mocked a live answering helper and asserted the app would ignore it: on a
+  // laptop running `python server.py` with the wifi off, the crew got the bundle-and-print message
+  // instead of the PDF that was one request away.
   setOnLine(false);
   global.fetch.mockResolvedValue({ ok: true });
 
-  await expect(checkHelper()).resolves.toBe(false);
-  expect(global.fetch).not.toHaveBeenCalled();
+  await expect(checkHelper()).resolves.toBe(true);
+  expect(global.fetch).toHaveBeenCalled();
 });
 
 test("the fallback message points at something a phone can actually do", () => {

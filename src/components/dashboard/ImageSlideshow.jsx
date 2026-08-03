@@ -48,7 +48,10 @@ export default function ImageSlideshow({ folderId }) {
 
   // โหลด base64 ของสไลด์ปัจจุบัน + preload สไลด์ถัดไป (ผ่าน GAS proxy)
   useEffect(() => {
-    if (!images.length) return;
+    // `!online` as well as `!images.length`: the list from the last online session is still in state,
+    // and without this the autoplay below kept walking it and firing one `getImage` per tick — for as
+    // long as the crew stayed underground — writing "ERR" against photos that are perfectly fine.
+    if (!online || !images.length) return;
     const wanted = [images[index], images[(index + 1) % images.length]].filter(Boolean).map((im) => im.id);
     wanted.forEach((id) => {
       if (srcMap[id] !== undefined || inflight.current.has(id)) return;
@@ -59,14 +62,15 @@ export default function ImageSlideshow({ folderId }) {
         .catch(() => setSrcMap((m) => ({ ...m, [id]: "ERR" })))
         .finally(() => inflight.current.delete(id));
     });
-  }, [images, index, srcMap]);
+  }, [images, index, srcMap, online]);
 
   // autoplay
   useEffect(() => {
-    if (paused || images.length <= 1) return undefined;
+    // nothing to advance to while the panel above is showing the offline state
+    if (paused || !online || images.length <= 1) return undefined;
     const t = setInterval(() => setIndex((i) => (i + 1) % images.length), AUTOPLAY_MS);
     return () => clearInterval(t);
-  }, [paused, images.length]);
+  }, [paused, images.length, online]);
 
   const go = (d) => {
     if (images.length) setIndex((i) => (i + d + images.length) % images.length);

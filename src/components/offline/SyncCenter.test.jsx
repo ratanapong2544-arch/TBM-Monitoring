@@ -541,12 +541,12 @@ test("an export that fails says so instead of looking like it worked", async () 
   view.unmount();
 });
 
-test("no button offers to clear everything", async () => {
-  // Discard stays per-record and confirmed. A "clear all data" control on the panel a crew opens
-  // when something is already wrong is one tap from losing every queued write.
-  const view = mount({ storage: { supported: true, usage: 1, quota: 2, ratio: 0.5, persisted: false, warn: false }, onExport: jest.fn() });
+test("storage numbers the browser did not give are not printed as zero", async () => {
+  // `getStorageHealth` can answer `supported: true` with no numbers. "0 MB / 0 MB" is the most
+  // reassuring thing this panel could say, and it would be saying it about nothing.
+  const view = mount({ storage: { supported: true, usage: null, quota: null, ratio: null, persisted: true, warn: false } });
   await act(async () => {});
 
-  expect(button(view.container, /ล้างข้อมูลทั้งหมด|ลบทั้งหมด|clear all/i)).toBeUndefined();
+  expect(view.container.textContent).not.toContain("0 MB");
   view.unmount();
 });

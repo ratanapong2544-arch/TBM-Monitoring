@@ -1,6 +1,6 @@
 # Mobile PWA — deploy, rollback and recovery runbook
 
-Branch: `feat/mobile-pwa-offline-sync` · last commit at the time of writing: `c5770fe`
+Branch: `feat/mobile-pwa-offline-sync` · run `git log --oneline -1` for the current head
 **Nothing in this branch has been deployed.** Neither Vercel nor GAS has been touched by it.
 
 ---
@@ -19,12 +19,14 @@ everything unsynced to a file.
 
 **Tasks 7, 8 and 9 ship together, or none of them do.**
 
-Tasks 2 and 7 are what make the app openable and usable offline, and that makes a pre-existing hole
-reachable for the first time: a non-empty server response still replaces the localStorage-primary
-collections wholesale (`App.jsx`, the `serverAuthoritative` branch), so a record created offline
-whose `apiCall` never landed is destroyed the first time the server answers. Offline **reads** are
-new; durable offline **writes** arrive with the mutation queue (Task 8) and legacy reconciliation
-(Task 9). Deploying Task 7 alone would contradict the one promise this work exists to make.
+Tasks 2 and 7 are what make the app openable and usable offline, and that made a pre-existing hole
+reachable for the first time: a non-empty server response replaced the localStorage-primary
+collections wholesale — the `serverAuthoritative` branch in `App.jsx`, **removed on this branch at
+`8e1ce19`** (`src/App.jsx` documents the removal and why keeping the rule would have made an offline
+launch show none of those collections). A record created offline whose `apiCall` never landed was
+destroyed the first time the server answered. Offline **reads** are new; durable offline **writes**
+arrive with the mutation queue (Task 8) and legacy reconciliation (Task 9). Deploying Task 7 alone
+would contradict the one promise this work exists to make.
 
 Tasks 10 and 11 (Sync Center, online-only guards, recovery export) are on the same branch and ship
 with them.
@@ -42,7 +44,7 @@ node -c "..\gas-live\Code.js"
 git diff --check
 ```
 
-Recorded results at `c5770fe`: **91 suites / 1286 tests pass**, GAS contract **92 pass 0 fail**,
+Recorded results: **91 suites / 1294 tests pass**, GAS contract **92 pass 0 fail**,
 `Compiled successfully`, `node -c` clean, `git diff --check` clean.
 
 > `grep -c FAIL` on a test run exits 0 on a match. A red suite was committed that way once on this
@@ -66,8 +68,8 @@ Rollback runs the other way round (§5): front end first, GAS only from a verifi
 ## 4. GAS backend
 
 The authoritative backend is **outside the repo**: `D:\TEAM\Knowlegh\App\Tunnel Boring App - Copy\gas-live\Code.js`
-(scriptId in `gas-live/.clasp.json`). The `wt-mobile-pwa/gas` directory is a stale copy — do not edit
-or deploy it.
+(scriptId in `gas-live/.clasp.json`). Nothing in `wt-mobile-pwa/gas` is deployable — it holds one
+setup note, no `Code.js` — so `gas-live` is the only place to edit.
 
 ### Before any change to Code.js
 
@@ -110,9 +112,11 @@ Vercel builds from source — do not commit `build/`.
 ### Service-worker update behaviour
 
 A new build installs in the background and waits. The app shows the update banner; the reload
-happens only after `controllerchange`, so a crew is never swapped onto a new build mid-write. An
-update never clears IndexedDB: the queue and the snapshot survive it by design, and that is asserted
-by the suite.
+happens only after `controllerchange` — which IS asserted by the suite — so a crew is never swapped
+onto a new build mid-write. An update never clears IndexedDB: the `activate` handler deletes stale
+`tbm-precache-*` Cache Storage keys and nothing else (`src/pwa/service-worker.js`). That part is true
+by inspection, **not by test** — no test imports the service worker. Row 20 of the matrix is what
+checks it on a device.
 
 ---
 

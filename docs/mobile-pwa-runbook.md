@@ -50,7 +50,20 @@ Recorded results at `c5770fe`: **91 suites / 1286 tests pass**, GAS contract **9
 
 ---
 
-## 3. GAS backend
+## 3. Deploy order — GAS first
+
+**The live Apps Script is still the pre-sync version.** `gas-live/Code.js` holds the sync work
+locally (86 KB, modified 2026-07-30); `gas-live/Code.js.pre-pwa-sync` (30 KB, 2026-07-18) is what was
+deployed before it and what the web app is still running. Nothing on this branch has been pushed.
+
+So: **GAS is deployed before the front end.** A front end that stamps `requestId` and `baseVersion`
+on every write, talking to a backend that ignores them, has no idempotency and no conflict detection
+— a retry after a dropped POST writes the row twice, which is the exact failure this work exists to
+prevent.
+
+Rollback runs the other way round (§5): front end first, GAS only from a verified backup.
+
+## 4. GAS backend
 
 The authoritative backend is **outside the repo**: `D:\TEAM\Knowlegh\App\Tunnel Boring App - Copy\gas-live\Code.js`
 (scriptId in `gas-live/.clasp.json`). The `wt-mobile-pwa/gas` directory is a stale copy — do not edit
@@ -85,7 +98,7 @@ sheet. It creates the additive sync columns; it does not touch existing business
 
 ---
 
-## 4. Front end (Vercel)
+## 5. Front end (Vercel)
 
 Production project: **tbm-monitoring-mhkr**, from GitHub `ratanapong2544-arch/TBM-Monitoring`.
 Vercel builds from source — do not commit `build/`.
@@ -103,7 +116,7 @@ by the suite.
 
 ---
 
-## 5. Rollback
+## 6. Rollback
 
 **Order matters.**
 
@@ -127,7 +140,7 @@ that strands queued writes is recoverable from those files and from nothing else
 
 ---
 
-## 6. Device and browser maintenance
+## 7. Device and browser maintenance
 
 Before wiping site data, changing browser, or handing a phone over:
 
@@ -145,7 +158,7 @@ device restarts and updates — not against deletion.
 
 ---
 
-## 7. Security note — no login
+## 8. Security note — no login
 
 This app has no authentication. Anyone with the URL can read and write, and `?view=1` is a
 convenience flag, not a permission boundary. The recovery export contains engineering records: treat
@@ -154,7 +167,7 @@ a test asserts that.
 
 ---
 
-## 8. Pilot — three gates
+## 9. Pilot — three gates
 
 Do not go from zero to ten users.
 

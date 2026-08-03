@@ -118,7 +118,7 @@ Adjust the constants and re-run the automated gate if either measurement is with
 
 ## 4. Pilot record
 
-One row per gate. Promotion needs duplicates `0` **and** losses `0` — see the runbook §8.
+One row per gate. Promotion needs duplicates `0` **and** losses `0` — see the runbook §9.
 
 | Gate | Date | Users | Oldest pending | Sync failures | Conflicts | Storage | **Duplicates** | **Records lost** | Promoted? |
 |---|---|---|---|---|---|---|---|---|---|

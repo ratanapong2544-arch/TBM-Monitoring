@@ -108,6 +108,10 @@ Production is untouched: it talks to `@19`, which serves the version it was cut 
 `setupSheets()` must be run once from the Apps Script editor by the sheet owner for any new sync
 sheet. It creates the additive sync columns; it does not touch existing business columns.
 
+**Run 2026-08-04 and verified from outside:** `getData` on `@20` now answers with a `syncMeta` key
+(empty, which is correct — no write has gone through the sync protocol yet), so the `SyncMeta` and
+`SyncRequests` sheets exist and are readable.
+
 ---
 
 ## 5. Front end (Vercel)

@@ -56,7 +56,13 @@ Sign a row only after doing it on the named device. "It worked in DevTools" is n
 > Use dedicated test rings, agreed with the site team and written down here before the run. **Never
 > use production engineering records for conflict or smoke testing.**
 >
-> Test records used: _(fill in before testing)_
+> **Test records used: ring `9999`.** Record it on **TBM2**, not TBM1: the app derives the next ring
+> from the last one on the data log, so a 9999 on the machine that is actually drilling makes the app
+> propose 10000 and puts a phantom ring into TBM1's charts, counters and distance figures until the
+> row is deleted. TBM2 has no rings yet, so the only visible effect there is its Executive page
+> switching out of "ยังไม่เริ่มขุดเจาะ", which reverts when the test row is removed.
+>
+> Delete the test rows from the sheet when the gate is signed.
 
 ### Network behaviour
 

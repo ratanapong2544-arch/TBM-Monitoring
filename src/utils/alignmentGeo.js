@@ -57,11 +57,25 @@ export const KM_LABELS = [
 
 // ปล่อง (chainage จาก constants.js ROUTE_SEGMENTS: ระยะขุดจาก launch → chainage = CH_EXCAV_START − ระยะ)
 // fullName + capacity (ลบ.ม./วินาที) จากแผนผังโครงการทางการ · labelDir = ทิศกางป้ายบนแผนที่ (กันทับท่อ+กันทับกันเอง)
+// ch = ระบบ chainage ของแนว KMZ (เดียวกับ profileGeo.js + CH หัวเจาะจาก records) — โชว์บนป้ายถึงระดับ มม.
 export const SHAFTS = [
-  { id: "IS4", name: "รัชดา IS4",  fullName: "อาคารรับน้ำคลองเปรมประชากร ตอนถนนรัชดาภิเษก", capacity: 20, role: "Launch · Main+Working Shaft", ch: 8830.5, lng: 100.5501688, lat: 13.8315422, labelDir: "W" },
-  { id: "IS3", name: "บางเขน IS3", fullName: "อาคารรับน้ำคลองเปรมประชากร ตอนคลองบางเขน",   capacity: 40, role: "Intermediate",                ch: 5764.5, lng: 100.5637312, lat: 13.8558372, labelDir: "NW" },
-  { id: "IS2", name: "หลักสี่ IS2", fullName: "อาคารรับน้ำคลองเปรมประชากร ตอนวัดหลักสี่",   capacity: 40, role: "Intermediate",                ch: 1670.9, lng: 100.5814474, lat: 13.8884532, labelDir: "N" },
-  { id: "IS1", name: "บางบัว IS1", fullName: "อาคารรับน้ำคลองบางบัว",                       capacity: 60, role: "Reception",                   ch: 0.0,    lng: 100.5949822, lat: 13.8882031, labelDir: "SE" },
+  { id: "IS4", name: "รัชดา IS4",  fullName: "อาคารรับน้ำคลองเปรมประชากร ตอนถนนรัชดาภิเษก", capacity: 20, role: "Launch · Main+Working Shaft", ch: 8830.488, lng: 100.5501688, lat: 13.8315422, labelDir: "W" },
+  { id: "IS3", name: "บางเขน IS3", fullName: "อาคารรับน้ำคลองเปรมประชากร ตอนคลองบางเขน",   capacity: 40, role: "Intermediate",                ch: 5764.526, lng: 100.5637312, lat: 13.8558372, labelDir: "NW" },
+  { id: "IS2", name: "หลักสี่ IS2", fullName: "อาคารรับน้ำคลองเปรมประชากร ตอนวัดหลักสี่",   capacity: 40, role: "Intermediate",                ch: 1670.902, lng: 100.5814474, lat: 13.8884532, labelDir: "N" },
+  { id: "IS1", name: "บางบัว IS1", fullName: "อาคารรับน้ำคลองบางบัว",                       capacity: 60, role: "Reception",                   ch: 0,        lng: 100.5949822, lat: 13.8882031, labelDir: "SE" },
+];
+
+// ระยะทางระหว่างปล่อง (เมตร) — เลข "ทางการ" จากแผนผังโครงการ ตรงกับ ROUTE_SEGMENTS ใน constants.js
+//
+// ⚠ ห้ามแก้ให้ "ตรงกับ" ผลต่าง ch ข้างบนโดยไม่ถาม user ก่อน — มันตั้งใจให้ต่างกัน:
+//   IS4→IS3 และ IS3→IS2 ตรงกับผลต่าง ch ถึงระดับมิลลิเมตร แต่ IS2→IS1 ทางการ 1715.097 vs KMZ 1670.902
+//   = ส่วนต่าง 44.195 ม. (ทั้งเส้น: ทางการ 8874.683 vs KMZ 8830.488) กระจุกที่ช่วงนี้ช่วงเดียว
+//   user เคาะ 2026-07-17: ป้าย CH ใช้ระบบ KMZ (ตรงกับตำแหน่งจริง+หัวเจาะ) · ป้ายระยะใช้เลขทางการ (เอกสารสัญญา)
+//   ดู docs/superpowers/specs/2026-07-17-alignment-map-ch-distance-design.md
+export const SHAFT_SPANS = [
+  { from: "IS4", to: "IS3", distance: 3065.962 },
+  { from: "IS3", to: "IS2", distance: 4093.624 },
+  { from: "IS2", to: "IS1", distance: 1715.097 },
 ];
 
 // ───────── helpers ─────────

@@ -8,6 +8,7 @@
 // measure the element that will actually be printed, then shrink it with CSS `zoom` so it fills
 // exactly the printable page box. `zoom` (not `transform`) is used on purpose — it shrinks the
 // real layout box, so a scaled-down block does not leave empty space that pushes a blank page 2.
+import { resolveOnePage } from "./printPages";
 
 // A4 printable area @96dpi, minus @page margins and slack for the browser's print header/footer.
 // Landscape values are the ones proven in production by RouteScheduleView (1020×680).
@@ -28,36 +29,76 @@ export function fitScale(W, H, orientation = "portrait", onePage = true) {
   return Math.max(0.1, raw * 0.99);
 }
 
-// Fit `el` to the printed page, print, then restore. Mirrors RouteScheduleView's proven flow,
-// centralized so every print button behaves the same.
-export function fitAndPrint(el, { orientation = "portrait", onePage = true, margin = 8 } = {}) {
+// ── ทางปริ้นทางเดียว ────────────────────────────────────────────────
+// ทุกทางที่สั่งปริ้น (Ctrl+P, เมนู File→Print, ปุ่มในแอพ) วิ่งผ่าน handler ตัวเดียวข้างล่างนี้
+// เมื่อก่อน fitAndPrint fit เองแล้วเรียก window.print() — ทำแบบนั้นตอนนี้ไม่ได้แล้ว
+// เพราะ window.print() จะไปปลุก handler ให้ fit ทับอีกชั้น (zoom 0.7 × 0.7 = 0.49 เล็กจิ๋ว)
+
+let override = null; // ปุ่มปริ้นเฉพาะส่วนตั้งไว้ชั่วคราว — ใช้ครั้งเดียวแล้วล้างที่ afterprint
+
+// ให้ปุ่มปริ้นเฉพาะส่วน (pie / กราฟเดี่ยว) เจาะจงกล่องที่จะปริ้นแทนทั้งหน้า
+export function setPrintTarget(el, { orientation = "portrait", onePage = true } = {}) {
+  override = { el, orientation, onePage };
+}
+
+// วัด -> ย่อ -> ตั้ง @page. คืนฟังก์ชันสำหรับคืนสภาพ
+function applyFit({ el, orientation, onePage }) {
   const pageStyle = document.createElement("style");
   pageStyle.setAttribute("data-print-fit", "");
-  pageStyle.textContent = `@media print { @page { size: A4 ${orientation}; margin: ${margin}mm; } }`;
+  pageStyle.textContent = `@media print { @page { size: A4 ${orientation}; margin: 8mm; } }`;
   document.head.appendChild(pageStyle);
 
-  let undo = () => {};
+  let undoEl = () => {};
   if (el) {
-    // Measure the box as it will actually PRINT: temporarily hide print-only-hidden content so
-    // scrollHeight excludes sections marked print:hidden / no-print (e.g. the 3D map, filter bars).
-    // Reading scrollWidth/Height below forces a synchronous reflow with this style applied.
+    // วัดกล่องแบบที่มันจะ "ปริ้นจริง": ซ่อนของที่ไม่ได้ปริ้นก่อน ไม่งั้น scrollHeight รวม
+    // แผนที่ 3D / แถบฟิลเตอร์ (print:hidden) เข้าไปด้วย -> ย่อผิด
     const measureStyle = document.createElement("style");
     measureStyle.textContent = `.print\\:hidden, .no-print { display: none !important; }`;
     document.head.appendChild(measureStyle);
-    const W = el.scrollWidth, H = el.scrollHeight;
+    const W = el.scrollWidth, H = el.scrollHeight; // อ่านค่านี้บังคับ reflow ทันที
     measureStyle.remove();
 
     if (W > 0 && H > 0) {
-      el.style.setProperty("width", `${W}px`, "important"); // freeze width so recharts SVG doesn't reflow at print
-      el.style.zoom = String(fitScale(W, H, orientation, onePage));
-      undo = () => {
+      const one = resolveOnePage(onePage, W, H, orientation);
+      el.style.setProperty("width", `${W}px`, "important"); // ตรึงความกว้าง กัน recharts reflow ตอนปริ้น
+      el.style.zoom = String(fitScale(W, H, orientation, one));
+      undoEl = () => {
         el.style.removeProperty("width");
         el.style.zoom = "";
       };
     }
   }
 
-  window.print(); // blocks until the print dialog closes, so restoring right after is safe
-  undo();
-  pageStyle.remove();
+  return () => { undoEl(); pageStyle.remove(); };
+}
+
+// ติดตั้งครั้งเดียวที่ Shell — getDefaultTarget() บอกว่าหน้าที่เปิดอยู่ตอนนี้จะปริ้นกล่องไหน แนวไหน
+export function installPrintFit(getDefaultTarget) {
+  let undo = null;
+
+  const onBeforePrint = () => {
+    if (undo) undo(); // กันซ้อน เผื่อ browser ยิง beforeprint ซ้ำโดยไม่ยิง afterprint คั่น
+    undo = applyFit(override || getDefaultTarget());
+  };
+  const onAfterPrint = () => {
+    if (undo) undo();
+    undo = null;
+    override = null; // ปุ่มเฉพาะส่วนใช้ได้ครั้งเดียว — รอบหน้ากลับไปปริ้นทั้งหน้า
+  };
+
+  window.addEventListener("beforeprint", onBeforePrint);
+  window.addEventListener("afterprint", onAfterPrint);
+  return () => {
+    window.removeEventListener("beforeprint", onBeforePrint);
+    window.removeEventListener("afterprint", onAfterPrint);
+    if (undo) undo();
+    undo = null;
+    override = null;
+  };
+}
+
+// ปุ่มปริ้นเดิม 8 ปุ่มเรียกตัวนี้ — signature เดิม แต่ตอนนี้แค่ตั้งเป้าหมายแล้วปล่อยให้ handler fit
+export function fitAndPrint(el, { orientation = "portrait", onePage = true } = {}) {
+  setPrintTarget(el, { orientation, onePage });
+  window.print();
 }

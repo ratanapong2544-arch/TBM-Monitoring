@@ -44,7 +44,7 @@ node -c "..\gas-live\Code.js"
 git diff --check
 ```
 
-Recorded results: **92 suites / 1302 tests pass**, GAS contract **92 pass 0 fail**,
+Recorded results: **94 suites / 1313 tests pass**, GAS contract **92 pass 0 fail**,
 `Compiled successfully`, `node -c` clean, `git diff --check` clean.
 
 > `grep -c FAIL` on a test run exits 0 on a match. A red suite was committed that way once on this

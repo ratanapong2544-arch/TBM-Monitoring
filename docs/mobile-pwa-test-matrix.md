@@ -10,7 +10,7 @@ person has to do on a real phone before this ships. Nothing here has been run on
 
 | Command | Result, as read |
 |---|---|
-| `npm test -- --watchAll=false --runInBand` | **92 suites / 1302 tests pass** |
+| `npm test -- --watchAll=false --runInBand` | **94 suites / 1313 tests pass** |
 | `npm run test:gas-sync` | **92 pass, 0 fail** |
 | `npm run test:pwa` | build + **3 pass, 0 fail** |
 | `npm run build` | `Compiled successfully` |
@@ -18,7 +18,7 @@ person has to do on a real phone before this ships. Nothing here has been run on
 | `git diff --check` | clean |
 
 The frontend suite grew with the work: 852 (Task 7) → 991 (Task 8) → 1071 (Task 9) → 1254 (Task 10)
-→ 1286 (Task 11) → 1302 (final review + wire timing).
+→ 1286 (Task 11) → 1302 (final review + wire timing) → 1313 (Work Plan on a phone).
 
 ---
 

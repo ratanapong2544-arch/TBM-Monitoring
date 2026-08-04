@@ -2,7 +2,14 @@
 
 Branch `feat/mobile-pwa-offline-sync`, at the wire-timing commit (see `git log`).
 Two kinds of row below: **automated**, which a machine has already checked, and **device**, which a
-person has to do on a real phone before this ships. Nothing here has been run on a phone yet.
+person has to do on a real phone.
+
+**The owner chose on 2026-08-04 to promote to all ~10 users without signing these rows.** What was
+actually exercised on an iPhone 13 first: install, launch, every tab, the Work Plan — which found
+three defects in the first twenty minutes, all of them by looking (an empty card, a chart hidden
+behind its own frozen columns, and those columns painting over the app header). The offline path — a
+write made with no signal, a queue that survives a force-quit, a queue that drains by itself, a row
+that lands exactly once — has not been run on any phone. Rows 4 through 20 are the record of that.
 
 ---
 
@@ -146,7 +153,7 @@ Adjust the constants and re-run the automated gate if either measurement is with
 
 ## 4. Pilot record
 
-One row per gate. Promotion needs duplicates `0` **and** losses `0` — see the runbook §9.
+One row per gate. Promotion needs duplicates `0` **and** losses `0` — see the runbook §10.
 
 | Gate | Date | Users | Oldest pending | Sync failures | Conflicts | Storage | **Duplicates** | **Records lost** | Promoted? |
 |---|---|---|---|---|---|---|---|---|---|

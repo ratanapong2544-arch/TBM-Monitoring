@@ -63,7 +63,7 @@ on every write, talking to a backend that ignores them, has no idempotency and n
 — a retry after a dropped POST writes the row twice, which is the exact failure this work exists to
 prevent.
 
-Rollback runs the other way round (§5): front end first, GAS only from a verified backup.
+Rollback runs the other way round (§7): front end first, GAS only from a verified backup.
 
 ## 4. GAS backend
 
@@ -114,7 +114,36 @@ sheet. It creates the additive sync columns; it does not touch existing business
 
 ---
 
-## 5. Front end (Vercel)
+## 5. Promotion to all users — what it takes, in order
+
+Decided by the project owner on 2026-08-04, with the pilot gates skipped. What follows is what that
+promotion actually requires; the order is not optional.
+
+**1. `@19` must serve the new code BEFORE the front end ships.** Production's `GAS_URL` is the
+`@19` deployment and a PWA keeps its cached build until the crew taps the update banner, so a phone
+that has not updated goes on posting to `@19`. If `@19` is still the old backend, that phone's writes
+have no idempotency and no conflict detection — a retry after a dropped POST writes the row twice.
+Redeploying `@19` onto the new version means every client, updated or not, is protected:
+
+```powershell
+cd "..\gas-live"
+clasp redeploy AKfycbyRUl5BVmZYDhw_Z0Uo2LWBLmaQAaOjJZR4jLGw-MuxHIFcKEhu7FBF9tV33JAnKz1aTw -V 20 -d "pwa offline sync — all users"
+```
+
+The old front end keeps working against it: every legacy action is still present (verified — no
+function that was live is missing from the new file) and the 92 contract assertions cover the
+additive columns.
+
+**2. Then merge and let Vercel build production.** No environment variable is set on Production: the
+code's default `GAS_URL` is the `@19` URL, which by then serves the new code. The preview keeps its
+own variable pointing at `@20`; both deployments run the same source after step 1.
+
+**Rollback** is §7, unchanged, and now has one extra option: `clasp redeploy` `@19` back onto the
+pre-sync version from `Code.js.pre-pwa-sync`, which returns every client to the old backend at once.
+
+---
+
+## 6. Front end (Vercel)
 
 Production project: **tbm-monitoring-mhkr**, from GitHub `ratanapong2544-arch/TBM-Monitoring`.
 Vercel builds from source — do not commit `build/`.
@@ -146,7 +175,7 @@ checks it on a device.
 
 ---
 
-## 6. Rollback
+## 7. Rollback
 
 **Order matters.**
 
@@ -170,7 +199,7 @@ that strands queued writes is recoverable from those files and from nothing else
 
 ---
 
-## 7. Device and browser maintenance
+## 8. Device and browser maintenance
 
 Before wiping site data, changing browser, or handing a phone over:
 
@@ -188,7 +217,7 @@ device restarts and updates — not against deletion.
 
 ---
 
-## 8. Security note — no login
+## 9. Security note — no login
 
 This app has no authentication. Anyone with the URL can read and write, and `?view=1` is a
 convenience flag, not a permission boundary. The recovery export contains engineering records: treat
@@ -197,7 +226,7 @@ a test asserts that.
 
 ---
 
-## 9. Pilot — three gates
+## 10. Pilot — three gates
 
 Do not go from zero to ten users.
 

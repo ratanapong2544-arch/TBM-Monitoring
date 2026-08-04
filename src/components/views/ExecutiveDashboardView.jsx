@@ -14,7 +14,7 @@ import ExecutiveEmptyState from "./ExecutiveEmptyState";
 import AlignmentMapView from "./AlignmentMapView";
 import { fitAndPrint } from "../../utils/printFit";
 
-const ExecutiveDashboardView = ({ segmentRecords, groutRecords, dailyReports = [], machine = "TBM1", onNavigate, filterState = {}, readOnly = false, distPlanConfig = null }) => {
+const ExecutiveDashboardView = ({ segmentRecords, groutRecords, dailyReports = [], machine = "TBM1", onNavigate, filterState = {}, readOnly = false, distPlanConfig = null, prepTasks = [], onMutate, syncMeta }) => {
   const filteredSegments = useMemo(() => filterByState(segmentRecords, filterState), [segmentRecords, filterState]);
   const filteredGrout = useMemo(() => filterByState(groutRecords, filterState), [groutRecords, filterState]);
 
@@ -158,7 +158,7 @@ const ExecutiveDashboardView = ({ segmentRecords, groutRecords, dailyReports = [
 
   // หัวที่ยังไม่มี ring → empty-state (generic, ไม่ hardcode machine; auto-transition เมื่อมี ring แรก)
   if (segmentRecords.length === 0) {
-    return <ExecutiveEmptyState machine={machine} dailyReports={dailyReports} onNavigate={onNavigate} />;
+    return <ExecutiveEmptyState machine={machine} dailyReports={dailyReports} onNavigate={onNavigate} prepTasks={prepTasks} readOnly={readOnly} onMutate={onMutate} syncMeta={syncMeta} />;
   }
 
   return (

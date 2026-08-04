@@ -22,11 +22,17 @@ const LEGEND = [
   ["bg-ink-3", "ยังไม่เริ่ม"],
 ];
 // grid แถวเดียวกันทั้งซ้าย/ขวา → แถวสูง auto (ชื่องาน wrap แสดงครบ) แล้ว bar ยังตรงแถวเสมอ
-// คอลัมน์ซ้ายต้องกว้างคงที่ เพราะ overlay (แรเงา/เส้น/วันนี้) อิงพิกัด LEFT_W
-const COL_IDX = 28, COL_NAME = 224, COL_DATE = 64, COL_PCT = 48;
-const LEFT_W = COL_IDX + COL_NAME + COL_DATE * 2 + COL_PCT; // 428
-// คอลัมน์ซ้าย freeze (position: sticky) — scroll แนวนอนเลื่อนเฉพาะส่วน chart
-const STICKY_LEFTS = [0, COL_IDX, COL_IDX + COL_NAME, COL_IDX + COL_NAME + COL_DATE, COL_IDX + COL_NAME + COL_DATE * 2];
+// คอลัมน์ซ้ายกว้างคงที่ต่อโหมด เพราะ overlay (แรเงา/เส้น/วันนี้) อิงพิกัด LEFT_W
+//
+// Two sets, because the frozen left block used to be 428px on every screen — wider than an iPhone's
+// viewport. `position: sticky` then kept those columns covering the whole screen no matter how far
+// the crew scrolled, so the bars were drawn at coordinates nobody could ever reach: a Gantt chart
+// with no visible chart. Below `COMPACT_BELOW` the two date columns fold away — the dates are in the
+// task's own panel — and the name and the percentage stay, because a bar whose task you cannot name
+// is not worth showing either.
+const WIDE_COLS = { idx: 28, name: 224, date: 64, pct: 48 };   // 428
+const COMPACT_COLS = { idx: 22, name: 128, date: 0, pct: 34 }; // 184
+const COMPACT_BELOW = 560;
 const MIN_ROW_H = 38;
 const HEADER_MONTH_H = 20;
 const HEADER_H = 40; // เดือน 20 + เลขวัน 20
@@ -40,6 +46,7 @@ const PrepGanttView = ({ machine = "TBM1", readOnly = false, onMutate, syncMeta,
   const [tasks, setTasks] = useState(() => tasksProp || []);
   const [modal, setModal] = useState({ open: false, editing: null });
   const [availW, setAvailW] = useState(0);
+  const [wrapW, setWrapW] = useState(0);
   const wrapRef = useRef(null);
   const rowRefs = useRef({});
   // The list arrives from the snapshot, scoped to the machine on screen — a machine switch swaps the
@@ -51,10 +58,19 @@ const PrepGanttView = ({ machine = "TBM1", readOnly = false, onMutate, syncMeta,
   }, [tasksProp, machine]);
 
   const hasTasks = tasks.length > 0;
+  // 0 until measured, which is also what jsdom reports for ever — the wide layout is the default and
+  // the compact one is entered only on a measurement that actually says the screen is narrow.
+  const cols = wrapW > 0 && wrapW < COMPACT_BELOW ? COMPACT_COLS : WIDE_COLS;
+  const COL_IDX = cols.idx, COL_NAME = cols.name, COL_DATE = cols.date, COL_PCT = cols.pct;
+  const LEFT_W = COL_IDX + COL_NAME + COL_DATE * 2 + COL_PCT;
+  // คอลัมน์ซ้าย freeze (position: sticky) — scroll แนวนอนเลื่อนเฉพาะส่วน chart
+  const STICKY_LEFTS = [0, COL_IDX, COL_IDX + COL_NAME, COL_IDX + COL_NAME + COL_DATE, COL_IDX + COL_NAME + COL_DATE * 2];
   useLayoutEffect(() => {
     const measure = () => {
       if (!wrapRef.current) return;
-      setAvailW(Math.max(0, wrapRef.current.clientWidth - LEFT_W - 1));
+      const w = wrapRef.current.clientWidth;
+      setWrapW(w);
+      setAvailW(Math.max(0, w - LEFT_W - 1));
     };
     measure();
     if (typeof ResizeObserver !== "undefined" && wrapRef.current) {
@@ -64,7 +80,14 @@ const PrepGanttView = ({ machine = "TBM1", readOnly = false, onMutate, syncMeta,
     }
     window.addEventListener("resize", measure);
     return () => window.removeEventListener("resize", measure);
-  }, [hasTasks]);
+    // LEFT_W too: folding the columns frees ~244px and the chart is measured against the left block,
+    // so without this it would keep the width it had while the columns were still wide.
+    //
+    // NOT PINNED, deliberately, and here is why: on any screen narrow enough to fold, the freed space
+    // divided by a real plan's axis length is still under `computePxPerDay`'s 8px/day floor, so both
+    // versions produce the same number and no honest test can tell them apart. A test that passes
+    // either way is worse than none. Left in as correctness, not as a claim.
+  }, [hasTasks, LEFT_W]);
 
   const today = todayBKK();
   const [fcMode, setFcMode] = useState(() => loadForecastMode());
@@ -271,8 +294,8 @@ const PrepGanttView = ({ machine = "TBM1", readOnly = false, onMutate, syncMeta,
               <div className="contents text-[11px] font-semibold text-ink-3 uppercase">
                 <div className={`${cellBase} ${stickyCls} justify-center px-1`} style={{ height: HEADER_H, left: STICKY_LEFTS[0] }}>#</div>
                 <div className={`${cellBase} ${stickyCls} px-2`} style={{ left: STICKY_LEFTS[1] }}>งาน</div>
-                <div className={`${cellBase} ${stickyCls} justify-center px-1`} style={{ left: STICKY_LEFTS[2] }}>เริ่ม</div>
-                <div className={`${cellBase} ${stickyCls} justify-center px-1`} style={{ left: STICKY_LEFTS[3] }}>จบ</div>
+                <div className={`${cellBase} ${stickyCls} justify-center px-1 overflow-hidden`} style={{ left: STICKY_LEFTS[2] }}>เริ่ม</div>
+                <div className={`${cellBase} ${stickyCls} justify-center px-1 overflow-hidden`} style={{ left: STICKY_LEFTS[3] }}>จบ</div>
                 <div className={`${cellBase} ${stickyCls} justify-end px-1 pr-2 border-r border-line`} style={{ left: STICKY_LEFTS[4] }}>%</div>
                 <div className="border-b border-line/50">
                   {/* ชั้นเดือน — ซ่อน label เดือนที่ช่วงแคบกว่าความยาวป้าย (เส้นแบ่งเดือนยังอยู่) */}
@@ -310,8 +333,8 @@ const PrepGanttView = ({ machine = "TBM1", readOnly = false, onMutate, syncMeta,
                         {t.name}
                         {collapsed.has(t.id) && <span className="ml-1 font-normal text-xs text-ink-3">({tree.childrenOf.get(t.id).length} งานย่อย)</span>}
                       </div>
-                      <div className={`${cellBase} ${stickyCls} ${hoverCls} justify-center px-1 text-xs text-ink-3`} style={{ left: STICKY_LEFTS[2] }}>{fmtTH(roll.start)}</div>
-                      <div className={`${cellBase} ${stickyCls} ${hoverCls} justify-center px-1 text-xs text-ink-3`} style={{ left: STICKY_LEFTS[3] }}>{fmtTH(roll.end)}</div>
+                      <div className={`${cellBase} ${stickyCls} ${hoverCls} justify-center px-1 text-xs text-ink-3 overflow-hidden`} style={{ left: STICKY_LEFTS[2] }}>{fmtTH(roll.start)}</div>
+                      <div className={`${cellBase} ${stickyCls} ${hoverCls} justify-center px-1 text-xs text-ink-3 overflow-hidden`} style={{ left: STICKY_LEFTS[3] }}>{fmtTH(roll.end)}</div>
                       <div className={`${cellBase} ${stickyCls} ${hoverCls} justify-end px-1 pr-2 text-xs font-semibold border-r border-line ${STATUS_TEXT[rollStatus] || "text-ink-2"}`} style={{ left: STICKY_LEFTS[4] }}>{roll.percent}%</div>
                       <div ref={(el) => { rowRefs.current[t.id] = el; }} className="relative border-b border-line/50">
                         {/* แถบสรุปแบบ bracket: แท่ง 5px + ขีดลงสองปลาย */}
@@ -348,8 +371,8 @@ const PrepGanttView = ({ machine = "TBM1", readOnly = false, onMutate, syncMeta,
                   <div key={t.id} className="contents group" onClick={locked ? undefined : () => setModal({ open: true, editing: t })}>
                     <div className={`${cellBase} ${stickyCls} ${hoverCls} justify-center px-1 text-xs text-ink-3`} style={{ minHeight: MIN_ROW_H, left: STICKY_LEFTS[0] }}>{tree.numberOf.get(t.id)}</div>
                     <div className={`${cellBase} ${stickyCls} ${hoverCls} py-1.5 text-sm leading-snug text-ink`} style={{ left: STICKY_LEFTS[1], paddingLeft: 8 + depth * 16, paddingRight: 8 }}>{t.milestone ? "◆ " : ""}{t.name}</div>
-                    <div className={`${cellBase} ${stickyCls} ${hoverCls} justify-center px-1 text-xs text-ink-3`} style={{ left: STICKY_LEFTS[2] }}>{fmtTH(t.start)}</div>
-                    <div className={`${cellBase} ${stickyCls} ${hoverCls} justify-center px-1 text-xs text-ink-3`} style={{ left: STICKY_LEFTS[3] }}>{t.milestone ? "—" : fmtTH(t.end)}</div>
+                    <div className={`${cellBase} ${stickyCls} ${hoverCls} justify-center px-1 text-xs text-ink-3 overflow-hidden`} style={{ left: STICKY_LEFTS[2] }}>{fmtTH(t.start)}</div>
+                    <div className={`${cellBase} ${stickyCls} ${hoverCls} justify-center px-1 text-xs text-ink-3 overflow-hidden`} style={{ left: STICKY_LEFTS[3] }}>{t.milestone ? "—" : fmtTH(t.end)}</div>
                     <div className={`${cellBase} ${stickyCls} ${hoverCls} justify-end px-1 pr-2 text-xs font-semibold border-r border-line ${STATUS_TEXT[st] || "text-ink-2"}`} style={{ left: STICKY_LEFTS[4] }}>{t.milestone ? "" : `${t.percent}%`}</div>
                     <div ref={(el) => { rowRefs.current[t.id] = el; }} className="relative border-b border-line/50">
                       {split ? (

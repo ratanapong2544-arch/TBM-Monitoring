@@ -7,7 +7,7 @@ import { getMachineConfig } from "../../utils/machineConfig";
 import { dailyReportSummary } from "../../utils/dailyReports";
 import { formatDisplayDate } from "../../utils/formatters";
 
-const ExecutiveEmptyState = ({ machine = "TBM1", dailyReports = [], onNavigate }) => {
+const ExecutiveEmptyState = ({ machine = "TBM1", dailyReports = [], onNavigate, prepTasks = [], readOnly = false, onMutate, syncMeta }) => {
   const cfg = getMachineConfig(machine);
   const { count, latestDate, latestText } = dailyReportSummary(dailyReports);
   const goDaily = () => onNavigate && onNavigate({ tab: "daily_report" });
@@ -26,8 +26,11 @@ const ExecutiveEmptyState = ({ machine = "TBM1", dailyReports = [], onNavigate }
         </p>
       </section>
 
-      {/* แผนเตรียมงาน (Gantt) */}
-      <PrepGanttView machine={machine} />
+      {/* แผนเตรียมงาน (Gantt) — the SAME props the Work Plan tab passes. `PrepGanttView` stopped
+          reading localStorage when the offline queue arrived and became prop-driven; the tab was
+          updated and this embed was not, so it rendered "ยังไม่มีงาน" over a plan with ten tasks in
+          it. `onMutate` comes too: without it the "เพิ่มงาน" button here could only fail. */}
+      <PrepGanttView machine={machine} tasks={prepTasks} readOnly={readOnly} onMutate={onMutate} syncMeta={syncMeta} />
 
       {/* Daily report summary (คลิกไปหน้า Daily Report) */}
       <button

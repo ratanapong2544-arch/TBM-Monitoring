@@ -105,6 +105,18 @@ sheet. It creates the additive sync columns; it does not touch existing business
 Production project: **tbm-monitoring-mhkr**, from GitHub `ratanapong2544-arch/TBM-Monitoring`.
 Vercel builds from source — do not commit `build/`.
 
+### Which Apps Script deployment a build talks to
+
+`GAS_URL` resolves through `src/utils/gasUrl.js`. With no environment variable it is the deployment
+production has always used (`AKfycbyRUl5…`, `@19`). Setting **`REACT_APP_GAS_URL`** on a Vercel
+**preview** points that build — and only that build — at the pilot deployment, so the ten crews keep
+the backend they have while the test phone exercises the new one. Both write to the same spreadsheet:
+this separates the code a device runs against, not the data.
+
+A blank or malformed value falls back to the default rather than posting the crew's rings at whatever
+was typed into the dashboard field. Promotion to production is then the removal of that variable, not
+a code revert — the revert is what gets forgotten.
+
 1. Push the branch and let Vercel build a **preview**.
 2. Verify the preview against `mobile-pwa-test-matrix.md` — on real devices, not only DevTools.
 3. Promote to production only after the matrix rows that need a device are signed.

@@ -1,4 +1,8 @@
-export const GAS_URL = "https://script.google.com/macros/s/AKfycbyRUl5BVmZYDhw_Z0Uo2LWBLmaQAaOjJZR4jLGw-MuxHIFcKEhu7FBF9tV33JAnKz1aTw/exec";
+import { resolveGasUrl } from "./gasUrl";
+
+// The deployment this build talks to. Unchanged for every build that sets nothing — see `gasUrl.js`
+// for why the pilot's second deployment arrives as an environment variable and not as an edit here.
+export const GAS_URL = resolveGasUrl(typeof process !== "undefined" ? process.env : {});
 export const THEORETICAL_VOL = 3.1;
 export const VOL_120 = 3.72;
 export const VOL_150 = 4.65;

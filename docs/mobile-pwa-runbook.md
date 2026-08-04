@@ -93,6 +93,16 @@ clasp deployments        # note the new @N and its AKfycb... id
 The front end talks to the **web app URL of the deployment it was built against**. A new deployment
 id that the front end does not know about changes nothing until the front end is rebuilt.
 
+### Deployed for the pilot
+
+`@20` — `AKfycbz1F7OaPcnxrvJLBHNppAPU1QcBK10zO_G2TPtozY_Sj9Y6_lBU23hGhfpLJLMHSWJ4MA`, created
+2026-08-04 from the sync work. Verified after pushing: the live script is byte-identical to
+`gas-live/Code.js` (SHA256 `1ba0e164…`), and the deployment answers `getData` with JSON over the open
+web — a new deployment does not always inherit the previous one's access setting, and one that asks
+for a Google login is indistinguishable from a broken app on a phone.
+
+Production is untouched: it talks to `@19`, which serves the version it was cut from.
+
 ### Owner action that cannot be automated
 
 `setupSheets()` must be run once from the Apps Script editor by the sheet owner for any new sync

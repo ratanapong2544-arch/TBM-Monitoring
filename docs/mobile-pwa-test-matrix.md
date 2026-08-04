@@ -103,9 +103,22 @@ Sign a row only after doing it on the named device. "It worked in DevTools" is n
 
 | Constant | Value | Where | Basis |
 |---|---|---|---|
-| `SNAPSHOT_FETCH_TIMEOUT_MS` | 90 s | `src/offline/apiTransport.js` | reasoned from a 463 KB `getData` and an assumed ~100 kbps floor |
+| `SNAPSHOT_FETCH_TIMEOUT_MS` | 90 s | `src/offline/apiTransport.js` | reasoned from a 463 KB `getData` and an assumed ~100 kbps floor — **the payload is now 1.84 MB**, see below |
 | `SYNC_POST_TIMEOUT_MS` | 90 s | `src/offline/apiTransport.js` | sized for an unresized phone photo, above GAS's lock wait plus cold start |
 | `SYNC_LEASE_MS` | POST + 30 s | `src/offline/syncRunner.js` | derived, deliberately longer than the POST deadline |
+
+### The payload has quadrupled since the deadline was chosen
+
+Measured 2026-08-04 against deployment `@20`: one `getData` for TBM1 returns **1,839,003 bytes**. The
+90 s deadline was reasoned from 463 KB at an assumed ~100 kbps floor — about 37 s of transfer, with
+headroom. At 1.84 MB the same floor gives **roughly 147 s, which is past the deadline**: the request
+would be called dead while it was still arriving, and the app would fall back to the cached snapshot
+every time on a link that slow.
+
+Nothing is changed on that basis yet, because the ~100 kbps floor is itself an assumption. Row 15
+measures the real thing, and the payload size is now a measured input to it rather than a guess. If
+the tunnel reading is anywhere near the deadline, the fix is not only a longer timeout — a 1.84 MB
+snapshot on a metered phone link is worth reducing at the source.
 
 **None of these has been timed against a real underground link.** Row 15 is what fixes that. A false
 "dead" verdict on the GET costs a stale snapshot; on the write it costs a report whose outcome is

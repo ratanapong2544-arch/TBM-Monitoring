@@ -225,7 +225,12 @@ const PrepGanttView = ({ machine = "TBM1", readOnly = false, onMutate, syncMeta,
   // sticky cell ต้องพื้นทึบ (chart ลอดด้านหลังตอน scroll) — hover จึงใช้ tint ทึบแทนแบบโปร่ง
   // locked = readOnly || viewDate !== today → ล็อกทั้งสองกรณี
   const hoverCls = locked ? "" : "cursor-pointer group-hover:bg-cyan-tint";
-  const stickyCls = "sticky z-40 bg-surface";
+  // z-35: above this chart's own layers (arrows 10, today line 20, today label 30) and BELOW the app
+  // header and the bottom nav, which are both z-40. `position: sticky` pins these columns
+  // horizontally but the page still scrolls them vertically, so at the header's own z-index the one
+  // further down the DOM won — and on a phone the frozen "# งาน %" block painted over the machine
+  // switcher, the sync status and the print button while the crew was reading the plan.
+  const stickyCls = "sticky z-[35] bg-surface";
 
   return (
     <section className="rounded-card border border-line bg-surface shadow-card p-5">

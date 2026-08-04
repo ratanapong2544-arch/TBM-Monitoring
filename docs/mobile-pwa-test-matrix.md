@@ -64,7 +64,7 @@ Sign a row only after doing it on the named device. "It worked in DevTools" is n
 |---|---|---|---|---|
 | 13 | both | drop the link **during** a POST | write stays queued, retried, still lands once | ☐ |
 | 14 | both | slow link (throttle or real edge-of-coverage) | no duplicate write, no lost write | ☐ |
-| 15 | **underground** | with signal in the tunnel: pull to refresh, then record one segment and let it send. Come back up, open **สถานะการซิงก์**, read the line "เวลาที่ใช้จริงล่าสุด" | two numbers, in seconds. No cable, no desktop, no Mac — see §3 | ☐ |
+| 15 | **underground** | in the tunnel, with whatever signal there is: switch machine TBM1 → TBM2 → TBM1 (each switch is one real `getData`), then record one segment and let it send. Back up top, open **สถานะการซิงก์** and read "เวลาที่ใช้จริงล่าสุด" | two numbers, in seconds. No cable, no desktop, no Mac — see §3 | ☐ |
 
 ### Recovery and storage
 
@@ -110,6 +110,10 @@ Sign a row only after doing it on the named device. "It worked in DevTools" is n
 **None of these has been timed against a real underground link.** Row 15 is what fixes that. A false
 "dead" verdict on the GET costs a stale snapshot; on the write it costs a report whose outcome is
 unknown until the next refresh.
+
+**There is no manual refresh button.** A `getData` happens on app launch and on a machine switch, and
+nothing else calls it — `refresh()` exists on the hook with no caller. So the way to make one happen
+on purpose is to switch machine, or to close the app and open it again.
 
 The app measures both itself. `เวลาที่ใช้จริงล่าสุด` at the bottom of the Sync Center shows the last
 **successful** `getData` and the last **successful** write, in seconds, recorded on the device and

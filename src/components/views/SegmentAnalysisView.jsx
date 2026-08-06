@@ -129,7 +129,7 @@ export default function SegmentAnalysisView({ segmentRecords = [], projectInfo, 
       setShowPlanModal(false);
     } catch (e) {
       console.error("Failed to save plan config", e);
-      alert("บันทึกลงคิวไม่สำเร็จ — ข้อมูลนี้ยังไม่ถูกเก็บไว้ที่ใด: " + (e && e.message ? e.message : e));
+      alert("บันทึกไม่สำเร็จ — ข้อมูลนี้ยังไม่ถูกเก็บไว้ที่ใด: " + (e && e.message ? e.message : e));
     } finally {
       setIsSavingPlan(false);
     }

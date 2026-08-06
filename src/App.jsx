@@ -38,6 +38,7 @@ import { useOfflineControls } from "./components/offline/OfflineControls";
 import { useOffline } from "./offline/OfflineProvider";
 import { toSyncVersion } from "./offline/syncVersion";
 import { applyOptimisticRow, stripQueuedPhotos } from "./offline/displayRecord";
+import { writeThrough } from "./offline/writeThrough";
 
 import { Shell, NAV_GROUPS } from "./ui-ux-pro-max";
 import "./styles/globals.css";
@@ -134,7 +135,11 @@ const PrimaryGroutApp = () => {
   // relaunch. The record's own `machine` column is untouched: `optimisticEntity` prefers it.
   const queueRecord = (entityType, operation, record, machine = activeMachine) =>
     mutateBusinessRecord(businessEnvelope({ entityType, operation, record, machine, syncMeta }))
-      .catch((error) => { alert("บันทึกลงคิวไม่สำเร็จ: " + (error && error.message ? error.message : error)); });
+      // Write-through: this rejects when the SERVER did not take the write, not only when the local
+      // queue refused it. These families set their own state before the write, so on failure the
+      // screen is ahead of the sheet until the next refresh — say so, rather than leaving the crew to
+      // read a change that is not saved anywhere.
+      .catch((error) => { alert("บันทึกไม่สำเร็จ — ยังไม่ขึ้นเซิร์ฟเวอร์: " + (error && error.message ? error.message : error) + "\nปิดแล้วเปิดแอพใหม่เพื่อดูข้อมูลจริง แล้วทำรายการนี้ซ้ำ"); });
   const queueIssue = (record, operation) => queueRecord("issue", operation, record);
 
   const handleSaveIssue = (form) => {
@@ -391,24 +396,24 @@ const PrimaryGroutApp = () => {
     setter(prev => applyOptimisticRow(prev, operation, record));
   }, []);
 
-  // Every core engineering write goes through here: queue it durably first, show it immediately,
-  // then start the drain. "Saved" means saved on this device — the success messages say so, because
-  // the server has not seen it yet.
+  // Every core engineering write goes through here — and since 2026-08-06 it is write-through:
+  // `writeThrough` does not resolve until the sheet has the row, and a write the server never took is
+  // discarded rather than kept for later. "Saved" means saved on the SHEET again, which is what the
+  // crew reads it as. The queue's envelopes still carry `requestId` and `baseVersion`, so a re-press
+  // after a dropped POST cannot double-write and an edit against a stale row is still refused.
   const mutateBusinessRecord = useCallback(async (input) => {
-    const { optimisticRecord } = await repository.mutate(input);
-    // A mutation resolves after the crew may have switched machine, and the machine-scoped arrays belong
-    // to whichever machine is selected NOW — appending one machine's ring to the other's state is
-    // what makes the record form derive the next ring from the wrong machine and the shift report
-    // send an update carrying an id the other machine's sheet has never had. The queue keeps the
-    // write regardless; only the on-screen copy is withheld, and the next snapshot restores it.
+    const optimisticRecord = await writeThrough({ repository, runner, input });
+    // Reached only on success now, so the row this places is one the sheet holds. A save still
+    // resolves after the crew may have switched machine, and the machine-scoped arrays belong to
+    // whichever machine is selected NOW — appending one machine's ring to the other's state is what
+    // makes the record form derive the next ring from the wrong machine and the shift report send an
+    // update carrying an id the other machine's sheet has never had. The write itself already
+    // landed; only the on-screen copy is withheld, and the next snapshot restores it.
     // Every envelope carries a machine now — `queueRecord` defaults to the one on screen and the
     // views always pass theirs — so this is the machine test alone. The `!input.machine` disjunct
     // that stood here was dead the moment that default went in, and a dead branch in a guard is
     // worse than no branch: it sends the next reader somewhere nothing can execute.
     if (isCurrentMachine(input.machine)) applyOptimisticRecord(input.entityType, input.operation, optimisticRecord);
-    // best-effort: draining is the runner's job and a failure here must not fail the crew's save,
-    // which is already durable in IndexedDB by this point
-    try { Promise.resolve(runner.runNow()).catch(() => {}); } catch (error) { /* queued regardless */ }
     return optimisticRecord;
   }, [applyOptimisticRecord, isCurrentMachine, repository, runner]);
 

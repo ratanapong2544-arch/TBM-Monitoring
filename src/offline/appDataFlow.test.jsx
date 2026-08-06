@@ -77,6 +77,11 @@ function makeRepository(overrides = {}) {
     subscribe: () => () => {},
     getSyncSummary: async () => ({ online: true, pending: 0, syncing: 0, conflicts: 0, errors: 0, lastSyncedAt: null }),
     setSyncMetaValue: async () => {},
+    // write-through reads the mutation back to learn whether the server took it, and a landed write
+    // is pruned — so "no such mutation" is this fake saying the save reached the sheet. A test that
+    // needs the opposite overrides `getMutation` with a row that is still queued.
+    getMutation: async () => undefined,
+    discardMutation: async () => {},
     ...overrides,
   };
 }
@@ -446,9 +451,55 @@ async function saveRingOnSegmentForm(app, ring) {
   });
 }
 
-test("a ring saved offline is on screen before the server ever sees it", async () => {
-  // the whole point of the queue: the crew saves in the tunnel, with no link, and the ring must
-  // still count. It is counted by being in the list — the next ring prefills from it.
+test("a ring the server never took does not reach the screen, and nothing is left queued", async () => {
+  // The failure this mode exists to end: for two days every write was blocked by a CORS preflight,
+  // the queue kept them, and the app showed the rings as saved. A row on screen now means a row on
+  // the sheet — so a write still sitting in the queue when the drain ends must take its row with it.
+  const alerts = [];
+  const alertSpy = jest.spyOn(window, "alert").mockImplementation(message => alerts.push(String(message)));
+  const discarded = [];
+  const repository = makeRepository({
+    mutate: async input => ({ requestId: "req-stuck", optimisticRecord: optimisticShape(input) }),
+    getMutation: async () => ({ requestId: "req-stuck", status: MUTATION_STATUS.PENDING, lastError: { message: "Failed to fetch" } }),
+    discardMutation: async requestId => { discarded.push(requestId); },
+  });
+  const app = renderApp(repository);
+  await act(async () => {});
+  await saveRingOnSegmentForm(app, "P645");
+
+  expect(app.text()).not.toContain("Last: P645");
+  expect(discarded).toEqual(["req-stuck"]);
+  expect(alerts.join(" ")).toMatch(/Failed to fetch/);
+  alertSpy.mockRestore();
+  app.unmount();
+});
+
+test("with no link the save is refused before anything is written to the queue", async () => {
+  // "ไม่มีสัญญาณก็กรอกไม่ได้ไปเลย" — the owner's call on 2026-08-06. Refusing BEFORE the mutation
+  // exists is what keeps the Sync Center free of rows that were never going anywhere.
+  const alerts = [];
+  const alertSpy = jest.spyOn(window, "alert").mockImplementation(message => alerts.push(String(message)));
+  const onLine = Object.getOwnPropertyDescriptor(window.navigator.constructor.prototype, "onLine");
+  Object.defineProperty(window.navigator, "onLine", { value: false, configurable: true });
+  const sent = [];
+  const repository = makeRepository({ mutate: async input => { sent.push(input); return { requestId: "req-1", optimisticRecord: optimisticShape(input) }; } });
+  const app = renderApp(repository);
+  await act(async () => {});
+  await saveRingOnSegmentForm(app, "P646");
+
+  expect(sent).toEqual([]);
+  expect(app.text()).not.toContain("Last: P646");
+  expect(alerts.join(" ")).toMatch(/ไม่มีสัญญาณ/);
+  if (onLine) Object.defineProperty(window.navigator, "onLine", onLine); else delete window.navigator.onLine;
+  alertSpy.mockRestore();
+  app.unmount();
+});
+
+test("a ring the server accepted is on screen without waiting for a refresh", async () => {
+  // Named for the queue before write-through, when the point was that a ring saved with no link
+  // still counted. It no longer does — a save now fails without a link — but this assertion still
+  // has a job: the accepted ring has to reach the list, because the list is what the next ring
+  // prefills from and what "Last:" is rendered from.
   const repository = makeRepository({
     mutate: async input => ({ optimisticRecord: optimisticShape(input) }),
   });

@@ -236,6 +236,11 @@ function renderAppPerMachine(serverDataFor, { mutate }) {
     subscribe: () => () => {},
     getSyncSummary: async () => ({ online: true, pending: 0, syncing: 0, conflicts: 0, errors: 0, blocked: 0, lastSyncedAt: null }),
     setSyncMetaValue: async () => {},
+    // write-through reads the mutation back to learn whether the server took it, and a landed write
+    // is pruned — so "no such mutation" is this fake saying the save reached the sheet. A test that
+    // needs the opposite overrides `getMutation` with a row that is still queued.
+    getMutation: async () => undefined,
+    discardMutation: async () => {},
     mutate,
   };
   let container;
@@ -542,7 +547,7 @@ test("editing a daily report queues an update against the version it was loaded 
   view.unmount();
 });
 
-test("a prep task added offline is still on Work Plan after leaving the page and coming back", async () => {
+test("a prep task added is still on Work Plan after leaving the page and coming back", async () => {
   // `PrepGanttView` keeps its rows in component state, which dies on unmount, and App's own list is
   // only ever set from `offlineData` — which re-reads on mount, machine change or an explicit
   // refresh, none of which a queued write triggers. So the task was queued, shown, and gone the
@@ -564,7 +569,7 @@ test("a prep task added offline is still on Work Plan after leaving the page and
   view.unmount();
 });
 
-test("a route config edited offline is still on the page after leaving and coming back", async () => {
+test("a route config edited is still on the page after leaving and coming back", async () => {
   const mutate = jest.fn(async input => ({ optimisticRecord: { ...input.payload, id: input.recordId } }));
   const view = await settle(renderApp({
     routeConfigs: { TBM1: { legs: [{ order: "1.1", level: 2, name: "ช่วงเดิม", plannedDistance: 100, remark: "" }] } },
@@ -583,7 +588,7 @@ test("a route config edited offline is still on the page after leaving and comin
   view.unmount();
 });
 
-test("a plan config saved offline is still on the page after leaving and coming back", async () => {
+test("a plan config saved is still on the page after leaving and coming back", async () => {
   const mutate = jest.fn(async input => ({ optimisticRecord: { ...input.payload, id: input.recordId } }));
   const view = await settle(renderApp({ planConfig: { basePlanAcc: 1, ranges: [] } }, { mutate }));
 
@@ -600,7 +605,7 @@ test("a plan config saved offline is still on the page after leaving and coming 
   view.unmount();
 });
 
-test("a distance plan saved offline is still on the page after leaving and coming back", async () => {
+test("a distance plan saved is still on the page after leaving and coming back", async () => {
   const mutate = jest.fn(async input => ({ optimisticRecord: { ...input.payload, id: input.recordId } }));
   const view = await settle(renderApp({ distPlanConfig: { ranges: [] } }, { mutate }));
 

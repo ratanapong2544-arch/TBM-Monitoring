@@ -190,6 +190,24 @@ test("posts the complete mutation envelope and returns the typed sync response",
   }));
 });
 
+test("posts a content type the browser will send without a preflight", async () => {
+  // The one assertion in this file that is about the browser rather than about GAS, and the only
+  // guard against a failure no other test can see: jsdom and node enforce no CORS, so a POST that a
+  // real browser refuses to send passes every other test here. `application/json` is not
+  // CORS-safelisted; the browser preflights it, an Apps Script /exec answers OPTIONS with 405 and no
+  // Access-Control-Allow-* headers, and the POST never leaves the device. It shipped that way and
+  // every queued write from 2026-08-04 was blocked until it was found — on desktop as much as on a
+  // phone, because the wall is the browser's, not the tunnel's. GAS reads e.postData.contents and
+  // ignores the type, so the safelisted value costs nothing.
+  const SAFELISTED = ["text/plain", "application/x-www-form-urlencoded", "multipart/form-data"];
+  global.fetch = jest.fn().mockResolvedValue({ ok: true, text: async () => JSON.stringify({ status: "success", requestId: "request-1", record: { recordId: "segment-1" }, version: 2, updatedAt: "2026-07-29T00:00:00.000Z" }) });
+
+  await postSyncMutation({ requestId: "request-1", entityType: "segment", machine: "TBM1", recordId: "segment-1", domainKey: "segment:TBM1:P1:Permanent", payload: { ringNo: "P1" } });
+
+  const sent = global.fetch.mock.calls[0][1].headers["Content-Type"];
+  expect(SAFELISTED).toContain(String(sent).split(";")[0].trim().toLowerCase());
+});
+
 test("clears the post deadline once the request settles, either way", async () => {
   // named for a success but mocked as a validation_error, so the path it claimed was never the path
   // it ran; both settle the request, and both must clear the timer

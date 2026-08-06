@@ -149,7 +149,20 @@ export async function postSyncMutation(mutation) {
     const response = await fetch(GAS_URL, {
       method: "POST",
       redirect: "follow",
-      headers: { "Content-Type": "application/json" },
+      // text/plain, not application/json, and the body is JSON either way — GAS reads
+      // `e.postData.contents` and never looks at the type. `application/json` is not a
+      // CORS-safelisted content type, so the browser sends a preflight OPTIONS first, and
+      // an Apps Script /exec answers OPTIONS with `405 Method Not Allowed` and no
+      // `Access-Control-Allow-*` headers. The POST then never leaves the device: fetch
+      // rejects with a TypeError, `toApiFailure` reads that as a retryable NETWORK failure,
+      // and the mutation retries against a wall for as long as the queue lives. Every write
+      // from the deployed app was blocked this way between 2026-08-04 and this commit, on
+      // desktop as well as on a phone — CORS is the browser's rule, not the network's.
+      // `utils/api.js` has always sent text/plain for exactly this reason; the queue is what
+      // introduced the JSON type. A regression here is invisible to the suite (jsdom and node
+      // enforce no CORS) and invisible on screen (the crew sees "queued", not "refused"), so
+      // `apiTransport.test.js` asserts the header rather than trusting review.
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
       body: JSON.stringify({ action: "syncMutation", data: envelope }),
       signal: controller.signal,
     });

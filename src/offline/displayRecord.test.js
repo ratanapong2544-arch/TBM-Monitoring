@@ -1,4 +1,4 @@
-import { applyOptimisticRow, stripQueuedPhotos } from "./displayRecord";
+import { applyOptimisticRow, revertOptimisticRow, stripQueuedPhotos } from "./displayRecord";
 
 // Several tests here build a record by hand, which is the one shape that reaches `namesRow`'s
 // id-only fallback — and the fallback warns, deliberately, because matching on the id alone is the
@@ -160,4 +160,43 @@ test("a row that carries its own machine is not claimed by the other machine's r
   expect(applyOptimisticRow(rows, "delete", tbm1)).toEqual(rows);
   expect(applyOptimisticRow(rows, "update", blank).map(row => row.note)).toEqual([rows[0].note, rows[1].note, "EDITED"]);
   expect(applyOptimisticRow(rows, "delete", blank).map(row => row.id)).toEqual(["d1", "d2"]);
+});
+
+describe("revertOptimisticRow — putting back what the server refused", () => {
+  const before = [{ id: "a", title: "หนึ่ง" }, { id: "b", title: "สอง", status: "open" }, { id: "c", title: "สาม" }];
+
+  test("a refused create takes its row off the screen", () => {
+    const shown = [...before, { id: "d", title: "ใหม่" }];
+    expect(revertOptimisticRow(shown, "d", null, -1).map(row => row.id)).toEqual(["a", "b", "c"]);
+  });
+
+  test("a refused update puts the old values back, in the same place", () => {
+    // the place matters: these lists are read in order, and a restored issue jumping to the end reads
+    // as a different record from the one the crew was looking at
+    const shown = before.map(row => (row.id === "b" ? { ...row, status: "closed" } : row));
+    const reverted = revertOptimisticRow(shown, "b", before[1], 1);
+    expect(reverted.map(row => row.id)).toEqual(["a", "b", "c"]);
+    expect(reverted[1].status).toBe("open");
+  });
+
+  test("a refused delete brings the row back where it was", () => {
+    const shown = before.filter(row => row.id !== "b");
+    expect(revertOptimisticRow(shown, "b", before[1], 1).map(row => row.id)).toEqual(["a", "b", "c"]);
+  });
+
+  test("only the refused row moves — an edit made while the write was in flight survives", () => {
+    // restoring the whole previous array instead would undo this silently
+    const shown = [{ id: "a", title: "หนึ่ง แก้ระหว่างรอ" }, { ...before[1], status: "closed" }, before[2]];
+    const reverted = revertOptimisticRow(shown, "b", before[1], 1);
+    expect(reverted[0].title).toBe("หนึ่ง แก้ระหว่างรอ");
+    expect(reverted[1].status).toBe("open");
+  });
+
+  test("a row that has since been deleted elsewhere is restored at the end rather than dropped", () => {
+    expect(revertOptimisticRow([], "b", before[1], 7).map(row => row.id)).toEqual(["b"]);
+  });
+
+  test("no id names nothing, so nothing is touched", () => {
+    expect(revertOptimisticRow(before, null, before[1], 1)).toBe(before);
+  });
 });

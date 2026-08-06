@@ -54,6 +54,24 @@ export function applyOptimisticRow(rows, operation, incoming) {
   return at === -1 ? [...rows, record] : rows.map((row, index) => (index === at ? record : row));
 }
 
+// The inverse, for the families that change their own list BEFORE the write goes out — issues, daily
+// reports, instruments, readings, schedules. Under write-through a refused save must not leave that
+// change on screen: the sheet does not have it, and the crew reading it back has no way to tell.
+//
+// ONE row, again, and by id rather than by restoring the whole list: a save can be in flight while
+// the crew edits something else, and putting the old array back would silently undo that too. The
+// index is where the row sat before, so a restored row returns to its place instead of the end —
+// these lists are read in order (newest issue first, the schedule by date).
+export function revertOptimisticRow(rows, recordId, previous, previousIndex) {
+  if (recordId == null) return rows;
+  const without = rows.filter(row => String(row && row.id) !== String(recordId));
+  // No previous row means the write was a create — the row only ever existed because of the save that
+  // failed, so it goes with it.
+  if (!previous) return without;
+  const at = Math.max(0, Math.min(Number.isInteger(previousIndex) ? previousIndex : without.length, without.length));
+  return [...without.slice(0, at), previous, ...without.slice(at)];
+}
+
 export function stripQueuedPhotos(record) {
   if (!record || !PHOTOS.some(([base64]) => record[base64])) return record;
   const display = { ...record };

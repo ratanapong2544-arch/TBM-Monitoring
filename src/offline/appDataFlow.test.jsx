@@ -451,6 +451,36 @@ async function saveRingOnSegmentForm(app, ring) {
   });
 }
 
+test("an issue the server refuses to close goes back to open on screen", async () => {
+  // Issues, daily reports, instruments, readings and schedules change their own state BEFORE the
+  // write goes out — `applyOptimisticRecord` deliberately leaves them alone. Under write-through a
+  // refusal has to undo that, or the crew reads a closed issue the sheet still has open.
+  const alerts = [];
+  const alertSpy = jest.spyOn(window, "alert").mockImplementation(message => alerts.push(String(message)));
+  const openIssue = { id: "iss_open", machine: "TBM1", title: "ขนย้ายดิน", status: "open", severity: "delay" };
+  const repository = makeRepository({
+    load: async machine => ({ data: cached(machine, { issues: [openIssue] }), source: "indexeddb", fetchedAt: "x", stale: true }),
+    refresh: async machine => ({ data: snapshot(machine, { issues: [openIssue] }), source: "server", fetchedAt: "2026-08-06T00:00:00.000Z", stale: false }),
+    mutate: async input => ({ requestId: "req-refused", optimisticRecord: optimisticShape(input) }),
+    getMutation: async () => ({ requestId: "req-refused", status: MUTATION_STATUS.PENDING, lastError: { message: "Failed to fetch" } }),
+  });
+  const app = renderApp(repository);
+  await act(async () => {});
+
+  const closeButton = () => [...app.container.querySelectorAll("button")].find(b => b.getAttribute("title") === "ปิด (แก้แล้ว)");
+  expect(closeButton()).toBeTruthy();
+  await act(async () => { closeButton().dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+  await act(async () => {});
+
+  // still closable = still open. Reading the status text instead would pass on a label the card
+  // renders for both states.
+  expect(closeButton()).toBeTruthy();
+  expect([...app.container.querySelectorAll("button")].some(b => b.getAttribute("title") === "เปิดใหม่")).toBe(false);
+  expect(alerts.join(" ")).toMatch(/ยังไม่ขึ้นเซิร์ฟเวอร์/);
+  alertSpy.mockRestore();
+  app.unmount();
+});
+
 test("a ring the server never took does not reach the screen, and nothing is left queued", async () => {
   // The failure this mode exists to end: for two days every write was blocked by a CORS preflight,
   // the queue kept them, and the app showed the rings as saved. A row on screen now means a row on

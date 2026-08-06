@@ -37,7 +37,7 @@ import { stuckCount, travellingCount } from "./offline/syncSummary";
 import { useOfflineControls } from "./components/offline/OfflineControls";
 import { useOffline } from "./offline/OfflineProvider";
 import { toSyncVersion } from "./offline/syncVersion";
-import { applyOptimisticRow, stripQueuedPhotos } from "./offline/displayRecord";
+import { applyOptimisticRow, revertOptimisticRow, stripQueuedPhotos } from "./offline/displayRecord";
 import { writeThrough } from "./offline/writeThrough";
 
 import { Shell, NAV_GROUPS } from "./ui-ux-pro-max";
@@ -119,6 +119,25 @@ const PrimaryGroutApp = () => {
     if (removed) queueRecord("dailyReport", "delete", removed, removed.machine || activeMachine);
   };
 
+  // The five families whose on-screen copy is their own state, changed by the handler before the
+  // write is sent — the same five as `SELF_RENDERED_ENTITY_TYPES`, which is what tells
+  // `applyOptimisticRecord` to leave them alone. Rebuilt each render, which is the point: the `rows`
+  // a handler sees here are the ones from before it called its setter.
+  const SELF_RENDERED_STATE = {
+    issue: { rows: issues, set: setIssues },
+    dailyReport: { rows: dailyReports, set: setDailyReports },
+    instrument: { rows: instInstruments, set: setInstInstruments },
+    instReading: { rows: instReadings, set: setInstReadings },
+    instSchedule: { rows: instSchedules, set: setInstSchedules },
+  };
+  if (process.env.NODE_ENV !== "production") {
+    // A family added to the Set but not here would keep a refused write on screen with nothing to
+    // undo it — the failure this whole pass exists to close.
+    SELF_RENDERED_ENTITY_TYPES.forEach((entityType) => {
+      if (!SELF_RENDERED_STATE[entityType]) console.warn(`${entityType} renders from its own state but has no slot to revert a refused write`);
+    });
+  }
+
   // Every business write App owns. `makeDomainKey` decides whether the key carries a machine or
   // GLOBAL — the caller does not, which is why `machine` is passed through untouched and only the
   // machine-keyed families supply one. The `.catch(console.warn)` these replaced meant a failed
@@ -133,13 +152,25 @@ const PrimaryGroutApp = () => {
   // tag — `makeDomainKey` ignores it and the key stays GLOBAL — and without it a write made before
   // this device ever fetched has no snapshot to be patched into and is on no screen after a
   // relaunch. The record's own `machine` column is untouched: `optimisticEntity` prefers it.
-  const queueRecord = (entityType, operation, record, machine = activeMachine) =>
-    mutateBusinessRecord(businessEnvelope({ entityType, operation, record, machine, syncMeta }))
+  const queueRecord = (entityType, operation, record, machine = activeMachine) => {
+    // Read at RENDER time, so this is the list as it was BEFORE the handler's own setState — the
+    // handlers all change their list and then call this, in one render. Captured here rather than at
+    // each of the nine call sites on purpose: the same rule spread across call sites is how this
+    // branch has produced defect after defect, one site updated out of two.
+    const slot = SELF_RENDERED_STATE[entityType];
+    const previousIndex = slot && record ? slot.rows.findIndex((row) => String(row && row.id) === String(record.id)) : -1;
+    const previous = previousIndex === -1 ? null : slot.rows[previousIndex];
+    return mutateBusinessRecord(businessEnvelope({ entityType, operation, record, machine, syncMeta }))
       // Write-through: this rejects when the SERVER did not take the write, not only when the local
-      // queue refused it. These families set their own state before the write, so on failure the
-      // screen is ahead of the sheet until the next refresh — say so, rather than leaving the crew to
-      // read a change that is not saved anywhere.
-      .catch((error) => { alert("บันทึกไม่สำเร็จ — ยังไม่ขึ้นเซิร์ฟเวอร์: " + (error && error.message ? error.message : error) + "\nปิดแล้วเปิดแอพใหม่เพื่อดูข้อมูลจริง แล้วทำรายการนี้ซ้ำ"); });
+      // queue refused it. These families change their own state BEFORE the write, so a refusal leaves
+      // the screen ahead of the sheet — put that one row back the way it was, and say what happened.
+      // The families App does not hold (`segment`, `grout`, the configs, prep tasks) never got their
+      // row applied at all: `mutateBusinessRecord` places it only on success.
+      .catch((error) => {
+        if (slot) slot.set((rows) => revertOptimisticRow(rows, record && record.id, previous, previousIndex));
+        alert("บันทึกไม่สำเร็จ — ยังไม่ขึ้นเซิร์ฟเวอร์: " + (error && error.message ? error.message : error) + (slot ? "\nหน้าจอย้อนกลับให้แล้ว ลองทำรายการนี้ใหม่อีกครั้ง" : ""));
+      });
+  };
   const queueIssue = (record, operation) => queueRecord("issue", operation, record);
 
   const handleSaveIssue = (form) => {

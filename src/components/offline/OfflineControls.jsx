@@ -3,6 +3,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import { useOffline } from "../../offline/OfflineProvider";
 import { downloadExportBundle, exportPendingBundle } from "../../offline/exportPending";
 import { getStorageHealth } from "../../offline/storageHealth";
+import { currentBuildId } from "../../pwa/buildId";
 import { useInstallPrompt } from "../../pwa/useInstallPrompt";
 import ConflictResolver from "./ConflictResolver";
 import InstallAppPanel from "./InstallAppPanel";
@@ -30,6 +31,9 @@ export function useOfflineControls() {
   // Read when the panel opens, not on every render: `estimate()` is a real measurement and the
   // numbers only matter while someone is looking at them.
   const [storage, setStorage] = useState(null);
+  // Read once, lazily. The script that answers this is the one running, so it cannot change while
+  // the page lives — a new build only ever arrives through a reload.
+  const [buildId] = useState(currentBuildId);
   useEffect(() => {
     if (!open) return undefined;
     let cancelled = false;
@@ -106,6 +110,7 @@ export function useOfflineControls() {
         onDiscard={discard}
         onReview={review}
         storage={storage}
+        buildId={buildId}
         onExport={exportPending}
         installPanel={<InstallAppPanel install={install} />}
       />

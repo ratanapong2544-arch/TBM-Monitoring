@@ -91,7 +91,7 @@ function PayloadEditor({ payload, error, onCancel, onSubmit }) {
 // for tonight's photos.
 const mb = bytes => `${Math.round((bytes / (1024 * 1024)) * 10) / 10} MB`;
 
-export default function SyncCenter({ open, onClose, summary, load, onSyncNow, onResolve, onRetry, onDiscard, onReview, storage = null, onExport = null, installPanel = null }) {
+export default function SyncCenter({ open, onClose, summary, load, onSyncNow, onResolve, onRetry, onDiscard, onReview, storage = null, buildId = null, onExport = null, installPanel = null }) {
   const [tab, setTab] = useState("pending");
   const [view, setView] = useState({ pending: [], blocked: [], errors: [], conflicts: [], recent: [], superseded: [], discarded: [] });
   const [syncing, setSyncing] = useState(false);
@@ -389,6 +389,15 @@ export default function SyncCenter({ open, onClose, summary, load, onSyncNow, on
               {storage.ratio !== null ? ` (${Math.round(storage.ratio * 100)}%)` : ""}
               {storage.persisted === true ? " · เก็บถาวร (เบราว์เซอร์จะไม่ลบเอง)" : ""}
               {storage.persisted === false ? " · ยังไม่ถาวร — เบราว์เซอร์อาจลบเมื่อพื้นที่ไม่พอ" : ""}
+            </div>
+          )}
+          {/* Which build this device is on. Belongs on this panel and not in a corner of the app,
+              because it is only ever read while working out why two devices disagree — and this is
+              the panel someone already has open by then. Absent in dev, where there is no hashed
+              build to name. */}
+          {buildId && (
+            <div className="text-xs rounded-input bg-surface-alt text-ink-2 px-3 py-2">
+              เวอร์ชันแอปบนเครื่องนี้ · <span className="font-mono">{buildId}</span>
             </div>
           )}
           {/* The last resort behind everything else. No "clear all data" beside it: discard stays

@@ -63,6 +63,32 @@ test("dismissing it leaves the new build waiting rather than applying it", async
   view.unmount();
 });
 
+test("dismissing it snoozes the banner — it comes back, it does not go quiet for the session", async () => {
+  // A device stayed on a replaced build for a full day because the one prompt to update was
+  // dismissed and never asked again. Dismiss has to mean "not now", not "never".
+  jest.useFakeTimers();
+  try {
+    const waiting = { postMessage: jest.fn() };
+    const view = render(
+      <UpdateAvailableBanner reload={() => {}} serviceWorker={{ addEventListener: () => {} }} snoozeMs={1000} />
+    );
+    await announce({ waiting });
+    await click(button(view.container, /ภายหลัง/));
+    expect(view.container.textContent).toBe("");
+
+    await act(async () => { jest.advanceTimersByTime(999); });
+    expect(view.container.textContent).toBe("");
+
+    await act(async () => { jest.advanceTimersByTime(1); });
+    expect(view.container.textContent).toContain("มีเวอร์ชันใหม่");
+    // still the crew's call, every time it asks
+    expect(waiting.postMessage).not.toHaveBeenCalled();
+    view.unmount();
+  } finally {
+    jest.useRealTimers();
+  }
+});
+
 test("an announcement with no waiting worker is not offered as an update", async () => {
   // `onUpdate` also fires on the controller-change path, where there is nothing to activate.
   const view = render(<UpdateAvailableBanner reload={() => {}} serviceWorker={{ addEventListener: () => {} }} />);

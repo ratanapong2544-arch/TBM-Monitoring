@@ -6,19 +6,27 @@ import { ArrowUpCircle, X } from "lucide-react";
  *
  * The service worker installs the new version in the background and then waits. Activating it
  * reloads the page, and a reload nobody asked for underground is a half-typed shift report gone —
- * so this is a banner rather than an automatic swap, and dismissing it leaves the new build waiting
- * for the next launch rather than throwing it away.
+ * so this is a banner rather than an automatic swap.
  *
  * The sequence is the plan's, exactly: tell the waiting worker to take over, then reload when it
  * ACTUALLY has (`controllerchange`, once). Reloading straight after `postMessage` reloads into the
  * old worker often enough to be a bug report nobody can reproduce.
  *
+ * Dismissing it SNOOZES it. It used to drop the registration, which meant one tap silenced the
+ * prompt for the life of the tab — and a PWA the crew never closes has no next launch to ask at. On
+ * 2026-08-06 a device ran a replaced build for a full day that way, holding a shift's records in a
+ * queue the new build no longer has. "Not now" is a reasonable answer during a pour; "never" is not
+ * an answer the crew meant to give.
+ *
  * Nothing here clears IndexedDB or caches. The queue is the crew's unsent work, and a screen about
  * a version number has no business touching it.
  */
-export default function UpdateAvailableBanner({ reload, serviceWorker }) {
+const SNOOZE_MS = 10 * 60 * 1000;
+
+export default function UpdateAvailableBanner({ reload, serviceWorker, snoozeMs = SNOOZE_MS }) {
   const [waiting, setWaiting] = useState(null);
   const [applying, setApplying] = useState(false);
+  const [snoozed, setSnoozed] = useState(false);
 
   useEffect(() => {
     const onUpdate = event => {
@@ -31,7 +39,13 @@ export default function UpdateAvailableBanner({ reload, serviceWorker }) {
     return () => window.removeEventListener("tbm:pwa-update", onUpdate);
   }, []);
 
-  if (!waiting) return null;
+  useEffect(() => {
+    if (!snoozed) return undefined;
+    const timer = setTimeout(() => setSnoozed(false), snoozeMs);
+    return () => clearTimeout(timer);
+  }, [snoozed, snoozeMs]);
+
+  if (!waiting || snoozed) return null;
 
   const apply = () => {
     setApplying(true);
@@ -59,7 +73,7 @@ export default function UpdateAvailableBanner({ reload, serviceWorker }) {
         >
           {applying ? "กำลังอัปเดต…" : "อัปเดตตอนนี้"}
         </button>
-        <button type="button" onClick={() => setWaiting(null)} title="ภายหลัง" className="shrink-0 p-1 text-white/70 hover:text-white">
+        <button type="button" onClick={() => setSnoozed(true)} title="ภายหลัง — จะเตือนอีกครั้ง" className="shrink-0 p-1 text-white/70 hover:text-white">
           <X size={16} />
           <span className="sr-only">ภายหลัง</span>
         </button>

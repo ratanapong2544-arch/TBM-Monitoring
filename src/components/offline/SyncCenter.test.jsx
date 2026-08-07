@@ -517,6 +517,24 @@ test("a browser that cannot report storage does not get a made-up number", async
   view.unmount();
 });
 
+test("the panel names which build this device is running", async () => {
+  // Two crews reporting the same app behaving differently is answered by this line. Without it,
+  // working out that one device was on a replaced build took a dump of the live sheet.
+  const view = mount({ buildId: "main.f11b0f70" });
+  await act(async () => {});
+
+  expect(view.container.textContent).toContain("main.f11b0f70");
+  view.unmount();
+});
+
+test("no build id is printed when there is none to name", async () => {
+  const view = mount();
+  await act(async () => {});
+
+  expect(view.container.textContent).not.toContain("เวอร์ชันแอปบนเครื่องนี้");
+  view.unmount();
+});
+
 test("the crew can export what has not reached the sheet", async () => {
   // The last resort behind every other safeguard: a phone whose queue cannot drain hands the work
   // to someone who can replay it.

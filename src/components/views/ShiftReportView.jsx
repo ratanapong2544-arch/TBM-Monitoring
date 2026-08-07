@@ -331,9 +331,11 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, machine = 
     const machineAtSave = machine;
     const send = prepareSave(events);
     try {
-      // "saved on this device", not "saved": the queue has it durably, and the server has not
-      // confirmed it yet. Task 10's Sync Center is where its progress becomes visible.
-      if (await send()) alert("บันทึกในเครื่องแล้ว — รอซิงก์ขึ้นเซิร์ฟเวอร์");
+      // `send()` resolves true only once the server has taken it — write-through awaits the drain
+      // and throws otherwise. This used to say "saved on this device, waiting to sync", which was
+      // true of the queued build and is now backwards: it reports a confirmed write as still on its
+      // way, and a crew who read that go looking for a pending item that does not exist.
+      if (await send()) alert("บันทึกขึ้นเซิร์ฟเวอร์แล้ว");
       // a save that landed after a machine switch reached the queue, but its row was deliberately
       // not written into the other machine's state — say so rather than saying nothing
       else if (!stillOnMachine(machineAtSave)) alert("บันทึกแล้ว (สลับเครื่องระหว่างบันทึก — ข้อมูลอยู่ในกะของเครื่องเดิม)");

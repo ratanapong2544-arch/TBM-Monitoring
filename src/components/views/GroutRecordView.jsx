@@ -53,7 +53,12 @@ const GroutRecordView = ({ projectInfo, handleProjectInfoChange, groutRecords, s
   useEffect(() => {
     if (groutRecords.length > 0 && segmentRecords.length > 0) {
       const lastRecord = groutRecords[groutRecords.length - 1];
-      const nextGroutRing = getRingByOffsetFromHistory(lastRecord.ringNo, 2, segmentRecords);
+      // ONE ring on from the last one grouted. It was two, which skipped a ring on every shift the
+      // crew did not correct the number by hand: the sheet grouted P838, P839, P840, P841, P842 on
+      // consecutive shifts and the form kept offering the ring after next. The 3 below is a
+      // different number answering a different question — how far ahead the machine has dug — and
+      // the two sitting near each other is why this one looked right.
+      const nextGroutRing = getRingByOffsetFromHistory(lastRecord.ringNo, 1, segmentRecords);
       const latestSegmentRing = segmentRecords.length > 0 ? segmentRecords[segmentRecords.length - 1].ringNo : "";
       setFormData((prev) => prev.ringNo ? prev : ({ ...prev, ringNo: nextGroutRing, excavRing: latestSegmentRing }));
     }
@@ -86,7 +91,11 @@ const GroutRecordView = ({ projectInfo, handleProjectInfoChange, groutRecords, s
 
   const resetFormAfterSave = () => {
     setFormData((prev) => {
-      const nextGroutRing = getRingByOffsetFromHistory(prev.ringNo, 2, segmentRecords);
+      // the same +1 as the prefill above, and it has to move with it: this is the OTHER place the
+      // crew meets a proposed ring — back-to-back saves never go through the prefill at all, so
+      // fixing only one of the two leaves the skip in place for exactly the shift that grouts more
+      // than one ring
+      const nextGroutRing = getRingByOffsetFromHistory(prev.ringNo, 1, segmentRecords);
       const latestSegmentRing = segmentRecords.length > 0 ? segmentRecords[segmentRecords.length - 1].ringNo : "";
       return {
         ...prev,

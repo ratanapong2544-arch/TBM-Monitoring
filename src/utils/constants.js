@@ -2,7 +2,14 @@ import { resolveGasUrl } from "./gasUrl";
 
 // The deployment this build talks to. Unchanged for every build that sets nothing — see `gasUrl.js`
 // for why the pilot's second deployment arrives as an environment variable and not as an edit here.
-export const GAS_URL = resolveGasUrl(typeof process !== "undefined" ? process.env : {});
+// ONE named variable, not `process.env` itself. CRA replaces a bare `process.env` with a literal of
+// the whole environment, so passing the object shipped every variable the deployment sets into the
+// public bundle — Vercel injects a dozen of its own, including the commit message, its author and
+// the repository owner and slug, and the app is handed to the client behind a viewer link. Nothing
+// secret was among them (the Gemini key moved to the GAS proxy), which is luck rather than design:
+// the next `REACT_APP_*` anyone adds would have gone the same way. A member access folds to just
+// its string.
+export const GAS_URL = resolveGasUrl({ REACT_APP_GAS_URL: process.env.REACT_APP_GAS_URL });
 export const THEORETICAL_VOL = 3.1;
 export const VOL_120 = 3.72;
 export const VOL_150 = 4.65;

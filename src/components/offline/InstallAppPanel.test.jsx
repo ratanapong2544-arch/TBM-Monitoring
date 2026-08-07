@@ -69,3 +69,16 @@ test("the desktop guidance shows the link it tells the crew to open", () => {
   expect(button(view.container, /คัดลอกลิงก์/)).toBeTruthy();
   view.unmount();
 });
+
+test("the install pitch does not promise a queue that was removed", () => {
+  // It said saved work would wait on the device and send itself when the signal came back. Since
+  // write-through there is nothing to wait in. A crew who believe a save is parked somewhere do not
+  // re-enter it — which is how a shift's records went missing on 2026-08-06.
+  const view = render(<InstallAppPanel install={{ mode: "ios-instructions", canPrompt: false, promptInstall: () => {} }} />);
+
+  const text = view.container.textContent;
+  expect(text).not.toContain("เมื่อกลับมาออนไลน์");
+  expect(text).not.toContain("รออยู่ในเครื่อง");
+  expect(text).toContain("การบันทึกต้องมีสัญญาณ");
+  view.unmount();
+});

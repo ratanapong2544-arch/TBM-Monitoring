@@ -148,8 +148,8 @@ const PrepGanttView = ({ machine = "TBM1", readOnly = false, onMutate, syncMeta,
       entityType: "prepTask", operation, machine, recordId: row.id, payload: { ...row, machine }, syncMeta,
     })));
   };
-  // caught, not dropped: the queue is the only durable copy since Task 9 Step 5, so a rejection that
-  // says nothing is a task the crew watched appear and that exists nowhere
+  // caught, not dropped: since write-through there is no queue behind this, so a rejection that says
+  // nothing is a task the crew watched appear on screen and that exists nowhere else
   const queueTasks = (rows, operation) => {
     Promise.allSettled(rows.map((row) => queueTask(row, operation))).then((results) => {
       const failed = results.filter((result) => result.status === "rejected");
@@ -158,9 +158,13 @@ const PrepGanttView = ({ machine = "TBM1", readOnly = false, onMutate, syncMeta,
       const detail = reason && reason.message ? reason.message : reason;
       // The count is about the BATCH, not the failures: "1 งานจาก 12" is a different fact from
       // "the one write failed", and the crew is deciding whether to re-enter a plan.
+      // `showRows` already put these on screen and nothing puts them back, so the screen is ahead of
+      // the sheet — the same thing the write-through sweep says everywhere else it left a screen
+      // ahead. "ลงคิว" was that sweep's own word for a queue this no longer posts to.
+      const after = "\nหน้าจอยังแสดงค่าที่แก้ไว้ — โหลดแอปใหม่แล้วทำรายการนี้อีกครั้ง";
       alert(results.length === 1
-        ? `บันทึกงานเตรียมลงคิวไม่สำเร็จ: ${detail}`
-        : `บันทึกงานเตรียมลงคิวไม่สำเร็จ ${failed.length} จาก ${results.length} งาน: ${detail}`);
+        ? `บันทึกงานเตรียมไม่สำเร็จ — ยังไม่ขึ้นเซิร์ฟเวอร์: ${detail}${after}`
+        : `บันทึกงานเตรียมไม่สำเร็จ — ยังไม่ขึ้นเซิร์ฟเวอร์ ${failed.length} จาก ${results.length} งาน: ${detail}${after}`);
     });
   };
   const submit = (form) => {

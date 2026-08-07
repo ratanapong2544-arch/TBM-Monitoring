@@ -517,6 +517,18 @@ test("a browser that cannot report storage does not get a made-up number", async
   view.unmount();
 });
 
+test("offline means a save cannot be made, not that it will go later", async () => {
+  // The header used to say the work would send itself when the signal came back. Write-through
+  // refuses the save outright, so that sentence described a queue the app no longer posts to.
+  const view = mount({ summary: { online: false, pending: 0, syncing: 0, conflicts: 0, errors: 0, blocked: 0, lastSyncedAt: null } });
+  await act(async () => {});
+
+  expect(view.container.textContent).toContain("ออฟไลน์");
+  expect(view.container.textContent).not.toContain("จะส่งเมื่อกลับมาออนไลน์");
+  expect(view.container.textContent).toContain("ยังบันทึกงานใหม่ไม่ได้");
+  view.unmount();
+});
+
 test("the panel names which build this device is running", async () => {
   // Two crews reporting the same app behaving differently is answered by this line. Without it,
   // working out that one device was on a replaced build took a dump of the live sheet.

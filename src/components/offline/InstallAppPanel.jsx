@@ -29,8 +29,11 @@ export default function InstallAppPanel({ install, className = "", url }) {
       <div className="flex items-center gap-2 text-sm font-semibold text-ink mb-2">
         <Smartphone size={16} /> ติดตั้งแอปบนมือถือ
       </div>
+      {/* Reads offline, does NOT write offline. The second half of this sentence used to promise a
+          queue that would send the work later, and it outlived the queue — a crew who believe a save
+          is waiting somewhere do not re-enter it. */}
       <p className="text-xs text-ink-2 mb-2">
-        แอปที่ติดตั้งไว้จะเปิดใช้ได้แม้ไม่มีสัญญาณ งานที่บันทึกจะรออยู่ในเครื่องและส่งขึ้นเซิร์ฟเวอร์เองเมื่อกลับมาออนไลน์
+        แอปที่ติดตั้งไว้เปิดดูข้อมูลเดิมได้แม้ไม่มีสัญญาณ — แต่การบันทึกต้องมีสัญญาณ กดบันทึกแล้วขึ้นชีตทันที ไม่มีคิวรอส่งทีหลัง
       </p>
 
       {mode === "prompt" && (

@@ -178,7 +178,11 @@ export default function SyncCenter({ open, onClose, summary, load, onSyncNow, on
           <div>
             <h3 className="font-semibold text-ink">สถานะการซิงก์</h3>
             <div className="text-xs text-ink-2">
-              {summary && summary.online === false ? "ออฟไลน์ — งานที่บันทึกไว้จะส่งเมื่อกลับมาออนไลน์" : "ออนไลน์"}
+              {/* What offline MEANS since write-through: not "it will go later", but "it cannot be
+                  saved yet". Rows already in the list are the queued build's leftovers and the
+                  runner still drains them — that is what the list below says, and it is a different
+                  sentence from this one. */}
+              {summary && summary.online === false ? "ออฟไลน์ — ยังบันทึกงานใหม่ไม่ได้ ต่อเน็ตแล้วลองอีกครั้ง" : "ออนไลน์"}
               {summary && summary.lastSyncedAt ? ` · ซิงก์ล่าสุด ${stamp(summary.lastSyncedAt)}` : ""}
             </div>
           </div>

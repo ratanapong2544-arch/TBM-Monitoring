@@ -95,7 +95,9 @@ const RouteScheduleView = ({ segmentRecords = [], projectInfo, machine = "TBM1",
           payload: { routeConfig: cfg, routeProjectTotal: projTotal }, syncMeta,
         }));
       }
-    } catch (e) { alert("บันทึกเส้นทางลงคิวไม่สำเร็จ: " + e.message); }
+      // `setRouteCfg` above already changed the screen and nothing puts it back, so say the screen is
+      // ahead of the sheet rather than naming a queue this no longer posts to.
+    } catch (e) { alert("บันทึกเส้นทางไม่สำเร็จ — ยังไม่ขึ้นเซิร์ฟเวอร์: " + e.message + "\nหน้าจอยังแสดงค่าที่แก้ไว้ — โหลดแอปใหม่แล้วทำรายการนี้อีกครั้ง"); }
     setRouteSaving(false); setRouteEditing(false);
   };
 

@@ -241,7 +241,9 @@ const SegmentDashboardView = ({ segmentRecords, machine = "TBM1", onMutate, sync
       // carries it — untouched, including whatever spacing the sheet stored. Normalising it would be
       // this view renaming a row nobody asked to rename, and the key is derived from the same value,
       // so leaving it alone is what keeps the edit on the record's own version stream.
-      const updatedRecord = { ...editFormData };
+      // length is editable here, and soilVolume is derived from it: recompute or the ring keeps a
+      // volume that no longer matches its own length.
+      const updatedRecord = { ...editFormData, soilVolume: calculateSoilVolume(editFormData.length) };
       refuseAmbiguousRecord(segmentRecords, updatedRecord.id);
       await onMutate(buildMutationEnvelope({
         entityType: "segment", operation: "update", machine,
@@ -507,7 +509,18 @@ const SegmentDashboardView = ({ segmentRecords, machine = "TBM1", onMutate, sync
                     </div>
                     <div className="border-t border-sgreen-med/20 pt-4 flex justify-between items-center">
                       <span className="text-xs text-ink-2">Length</span>
-                      <div className="text-xl font-semibold text-sgreen-dark font-mono">{Number(isEditing ? editFormData?.length : selectedRecord.length || 0).toFixed(2)} <span className="text-sm font-normal">m</span></div>
+                      {isEditing ? (
+                        <div className="flex items-center gap-2">
+                          <input type="number" step="0.01" name="length" value={editFormData?.length ?? ''} onChange={handleEditChange} className="w-24 bg-surface border border-sgreen-med/30 rounded-input px-2 py-1 text-right font-mono text-base font-semibold text-ink outline-none focus:border-navy" />
+                          <span className="text-sm text-ink-3">m</span>
+                        </div>
+                      ) : (
+                        <div className="text-xl font-semibold text-sgreen-dark font-mono">{Number(selectedRecord.length || 0).toFixed(2)} <span className="text-sm font-normal">m</span></div>
+                      )}
+                    </div>
+                    <div className="flex justify-between items-center pt-2 text-xs">
+                      <span className="text-ink-3">ดินขุด (คำนวณจาก Length)</span>
+                      <span className="font-mono font-semibold text-ink-2">{Number(isEditing ? calculateSoilVolume(editFormData?.length) : (selectedRecord.soilVolume || calculateSoilVolume(selectedRecord.length))).toFixed(2)} m³</span>
                     </div>
                   </div>
 
@@ -515,6 +528,13 @@ const SegmentDashboardView = ({ segmentRecords, machine = "TBM1", onMutate, sync
                     <div className="flex justify-between items-center gap-2">
                       <div className="text-[10px] font-semibold text-ink-3 uppercase tracking-widest w-16">Excavate</div>
                       <div className="flex-1 flex items-center justify-end gap-2">
+                        {isEditing ? (
+                          <select name="excavShift" value={editFormData?.excavShift || ''} onChange={handleEditChange} className="bg-surface border border-line rounded-input px-1 py-0.5 text-[10px] font-semibold text-ink-2 outline-none focus:border-navy">
+                            <option value="">กะ —</option>
+                            <option value="Day">Day</option>
+                            <option value="Night">Night</option>
+                          </select>
+                        ) : selectedRecord.excavShift ? <span className="text-[10px] font-semibold text-ink-3">{String(selectedRecord.excavShift)}</span> : null}
                         <div className="font-mono text-sm font-semibold text-ink">
                           {isEditing ? (
                             <div className="flex gap-1">
@@ -530,6 +550,13 @@ const SegmentDashboardView = ({ segmentRecords, machine = "TBM1", onMutate, sync
                     <div className="flex justify-between items-center gap-2">
                       <div className="text-[10px] font-semibold text-ink-3 uppercase tracking-widest w-16">Install</div>
                       <div className="flex-1 flex items-center justify-end gap-2">
+                        {isEditing ? (
+                          <select name="installShift" value={editFormData?.installShift || ''} onChange={handleEditChange} className="bg-surface border border-line rounded-input px-1 py-0.5 text-[10px] font-semibold text-ink-2 outline-none focus:border-navy">
+                            <option value="">กะ —</option>
+                            <option value="Day">Day</option>
+                            <option value="Night">Night</option>
+                          </select>
+                        ) : selectedRecord.installShift ? <span className="text-[10px] font-semibold text-ink-3">{String(selectedRecord.installShift)}</span> : null}
                         <div className="font-mono text-sm font-semibold text-ink">
                           {isEditing ? (
                             <div className="flex gap-1">
@@ -541,6 +568,54 @@ const SegmentDashboardView = ({ segmentRecords, machine = "TBM1", onMutate, sync
                         </div>
                       </div>
                     </div>
+                    {(selectedRecord.soilType || isEditing) && (
+                      <>
+                        <div className="border-t border-line"></div>
+                        <div className="flex justify-between items-center gap-2">
+                          <div className="text-[10px] font-semibold text-ink-3 uppercase tracking-widest w-16 shrink-0">ชั้นดิน</div>
+                          {isEditing
+                            ? <input type="text" name="soilType" value={editFormData?.soilType || ''} onChange={handleEditChange} placeholder="เช่น Soft Clay" className="flex-1 min-w-0 bg-surface border border-line rounded-input px-2 py-1 text-sm text-ink outline-none focus:border-navy" />
+                            : <span className="text-sm text-ink text-right">{String(selectedRecord.soilType)}</span>}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* ระดับหัวเจาะ — แก้ย้อนหลังได้ที่นี่ที่เดียว (ฟอร์มบันทึกโหลดกลับได้เฉพาะริงที่ยัง In Progress) */}
+              <div className="bg-surface-alt rounded-card p-4 border border-line">
+                <div className="flex justify-between items-center mb-3">
+                  <div className="text-xs font-semibold text-navy uppercase tracking-widest">ระดับหัวเจาะ (Head Level)</div>
+                  <span className="text-[9px] text-ink-3 font-semibold">V: + สูงกว่าแบบ · H: + ขวา · mm</span>
+                </div>
+                <div className="space-y-2">
+                  <div className="grid grid-cols-[52px_1fr_1fr_1fr] gap-2 items-center">
+                    <span></span>
+                    <span className="text-[10px] font-semibold text-ink-3 text-center">Head</span>
+                    <span className="text-[10px] font-semibold text-ink-3 text-center">Art</span>
+                    <span className="text-[10px] font-semibold text-ink-3 text-center">Tail</span>
+                  </div>
+                  {[
+                    { label: "แนวดิ่ง", color: "text-navy", keys: ["headV", "artV", "tailV"] },
+                    { label: "แนวราบ", color: "text-code-c", keys: ["headH", "artH", "tailH"] },
+                  ].map((row) => (
+                    <div key={row.label} className="grid grid-cols-[52px_1fr_1fr_1fr] gap-2 items-center">
+                      <span className={`text-[10px] font-semibold ${row.color}`}>{row.label}</span>
+                      {row.keys.map((k) => (
+                        isEditing ? (
+                          <input key={k} type="number" step="1" name={k} value={editFormData?.[k] ?? ''} onChange={handleEditChange} className="bg-surface border border-line rounded-input px-1 py-1.5 text-center font-mono text-sm font-semibold text-ink outline-none focus:border-navy" />
+                        ) : (
+                          <span key={k} className="text-center font-mono text-sm font-semibold text-ink">{selectedRecord[k] == null || selectedRecord[k] === "" ? "—" : String(selectedRecord[k])}</span>
+                        )
+                      ))}
+                    </div>
+                  ))}
+                  <div className="flex items-center gap-2 pt-1">
+                    <span className="text-[10px] font-semibold text-ink-3 w-[52px]">VRT (°)</span>
+                    {isEditing
+                      ? <input type="number" step="0.1" name="vrt" value={editFormData?.vrt ?? ''} onChange={handleEditChange} className="w-24 bg-surface border border-line rounded-input px-1 py-1.5 text-center font-mono text-sm font-semibold text-ink outline-none focus:border-navy" />
+                      : <span className="font-mono text-sm font-semibold text-ink">{selectedRecord.vrt == null || selectedRecord.vrt === "" ? "—" : String(selectedRecord.vrt)}</span>}
                   </div>
                 </div>
               </div>

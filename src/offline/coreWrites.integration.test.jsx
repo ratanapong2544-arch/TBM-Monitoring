@@ -50,6 +50,15 @@ function type(container, name, value) {
   });
 }
 
+function choose(container, name, value) {
+  act(() => {
+    const field = container.querySelector(`select[name="${name}"]`);
+    if (!field) throw new Error(`no select named ${name}`);
+    Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, "value").set.call(field, value);
+    field.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+}
+
 const click = async (element) => {
   if (!element) throw new Error("no such control");
   await act(async () => { element.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
@@ -186,8 +195,13 @@ test("recording secondary grout queues a create keyed by its own record id", asy
   );
   await click(button(view.container, /Secondary/i));
   type(view.container, "ringNo", "P41");
-  type(view.container, "partA", "3.0");
-  type(view.container, "partB", "1.5");
+  type(view.container, "drillPosition", "12:00");
+  type(view.container, "drillingDepth", "500");
+  choose(view.container, "holeCondition", "Dry");
+  type(view.container, "timeStart", "12:21");
+  type(view.container, "timeEnd", "12:22");
+  type(view.container, "volumeLitre", "1");
+  type(view.container, "recordedBy", "Pornchai");
   await submit(view.container);
 
   expect(onMutate).toHaveBeenCalledTimes(1);
@@ -200,7 +214,52 @@ test("recording secondary grout queues a create keyed by its own record id", asy
   });
   // its key carries the record id, so a second injection on the same ring is its own record
   expect(envelope.domainKey).toBe(`secondaryGrout:TBM1:P41:${envelope.recordId}`);
+  // the whole paper row travels: drilling record, grouting record, sheet header and recorder
+  expect(envelope.payload).toMatchObject({
+    drillPosition: "12:00", drillingDepth: "500", holeCondition: "Dry",
+    timeStart: "12:21", timeEnd: "12:22", recordedBy: "Pornchai",
+    location: "อุโมงค์", tbmNo: "TBM1",
+    volumeLitre: 1,
+    total: 0.001, // 1 litre in the m³ column every chart reads
+  });
   expect(apiCall).not.toHaveBeenCalled();
+  view.unmount();
+});
+
+test("a secondary hole that took no grout still saves", async () => {
+  const view = render(
+    <GroutRecordView projectInfo={projectInfo} handleProjectInfoChange={noop} groutRecords={[]} secondaryGroutRecords={[]}
+      segmentRecords={[]} setCurrentModule={noop} setActiveTab={noop} machine="TBM1" onMutate={onMutate} />
+  );
+  await click(button(view.container, /Secondary/i));
+  type(view.container, "ringNo", "P41");
+  await submit(view.container);
+
+  // the primary form refuses a save with no Part A; the paper sheet has rows of 0 litre, so the
+  // secondary one must not borrow that rule
+  expect(onMutate).toHaveBeenCalledTimes(1);
+  expect(onMutate.mock.calls[0][0].payload).toMatchObject({ volumeLitre: 0, total: 0 });
+  view.unmount();
+});
+
+test("Part A typed before the Secondary toggle is not filed as a secondary volume", async () => {
+  const view = render(
+    <GroutRecordView projectInfo={projectInfo} handleProjectInfoChange={noop} groutRecords={[]} secondaryGroutRecords={[]}
+      segmentRecords={[]} setCurrentModule={noop} setActiveTab={noop} machine="TBM1" onMutate={onMutate} />
+  );
+  type(view.container, "ringNo", "P41");
+  type(view.container, "partA", "3.0");
+  type(view.container, "partB", "1.5");
+  await click(button(view.container, /Secondary/i));
+  type(view.container, "volumeLitre", "1");
+  await submit(view.container);
+
+  const payload = onMutate.mock.calls[0][0].payload;
+  // the mix volumes belong to the primary record. Left on the payload they would land in the
+  // secondary sheet's Part A / Part B columns and read as 4.5 m³ of secondary grout.
+  expect(payload.partA).toBeUndefined();
+  expect(payload.partB).toBeUndefined();
+  expect(payload.total).toBe(0.001);
   view.unmount();
 });
 
@@ -335,6 +394,26 @@ test("editing secondary grout from the data log queues a secondaryGrout update",
     baseVersion: 7,
   }));
   expect(apiCall).not.toHaveBeenCalled();
+  view.unmount();
+});
+
+test("the data log reads a secondary row in litres and saves the edit in both units", async () => {
+  const row = { id: "sg2", ringNo: "P370", volumeLitre: 1, total: 0.001, pressure: "3", date: "2026-08-17", positions: {}, drillingDepth: "500", holeCondition: "Dry", timeStart: "12:21", timeEnd: "12:22" };
+  const view = render(
+    <GroutDashboardView groutRecords={[]} secondaryGroutRecords={[row]} segmentRecords={[]} machine="TBM1"
+      syncMeta={{ "secondaryGrout:TBM1:P370:sg2": { version: 3 } }} onMutate={onMutate} />
+  );
+  // 0.001 m³ in the volume column prints as 0.00 — every secondary row would read as empty
+  expect(view.container.querySelector("tbody tr").textContent).toContain("1 L");
+
+  await click(view.container.querySelector("tbody tr"));
+  await click(byTitle(view.container, "Edit"));
+  type(view.container, "volumeLitre", "2");
+  await click(button(view.container, /Save Changes/));
+
+  const payload = onMutate.mock.calls[0][0].payload;
+  expect(payload.volumeLitre).toBe(2);
+  expect(payload.total).toBe(0.002); // the m³ column follows the litres, not the other way round
   view.unmount();
 });
 

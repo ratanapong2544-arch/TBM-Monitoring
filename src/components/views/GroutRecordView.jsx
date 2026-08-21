@@ -7,6 +7,15 @@ import { buildMutationEnvelope } from "../../offline/mutationEnvelope";
 import { SegmentedToggle } from "../../ui-ux-pro-max";
 import StickyActionBar from "../../ui-ux-pro-max/components/StickyActionBar";
 
+// The secondary-only columns of the paper sheet (บันทึกการทำงาน Secondary Grout): a drilling record
+// and a grouting record per ring. They live on the same formData as the primary fields because the
+// primary branch never renders — nor submits — them. Blank, not prefilled: the crew measures each
+// hole, and a depth or a Dry/Wet the app filled in would be recorded as if someone had read it.
+const SECONDARY_BLANK = { drillPosition: "", drillingDepth: "", holeCondition: "", drillRemark: "", timeStart: "", timeEnd: "", volumeLitre: "", recordedBy: "" };
+// what a save clears. drillingDepth / holeCondition / recordedBy stay: one sheet is one shift, one
+// recorder, and rows drilled to the same depth — retyping them per ring is how they end up wrong.
+const SECONDARY_PER_RING = { drillPosition: "", drillRemark: "", timeStart: "", timeEnd: "", volumeLitre: "" };
+
 // the setters are gone for the reason given in SegmentRecordView: one writer per row, and it is App
 const GroutRecordView = ({ projectInfo, handleProjectInfoChange, groutRecords, secondaryGroutRecords = [], segmentRecords, setCurrentModule, setActiveTab, machine = "TBM1", isCurrentMachine, onMutate, syncMeta }) => {
   const [isSaving, setIsSaving] = useState(false);
@@ -17,7 +26,7 @@ const GroutRecordView = ({ projectInfo, handleProjectInfoChange, groutRecords, s
   const stillOnMachine = (m) => (isCurrentMachine ? isCurrentMachine(m) : machineRef.current === m);
   const [groutType, setGroutType] = useState("primary"); // primary | secondary
   const isSecondary = groutType === "secondary";
-  const [formData, setFormData] = useState({ ringNo: "", excavRing: "", pressure: "", partA: "", partB: "", keyType: "16", positions: { A: false, B1: false, B2: false, C1: false, C2: false, K: false }, remark: "", imageBase64: "", imageName: "" });
+  const [formData, setFormData] = useState({ ringNo: "", excavRing: "", pressure: "", partA: "", partB: "", keyType: "16", positions: { A: false, B1: false, B2: false, C1: false, C2: false, K: false }, remark: "", imageBase64: "", imageName: "", ...SECONDARY_BLANK });
   const [isKeyLinked, setIsKeyLinked] = useState(false);
 
   // A form left open across a machine switch kept the previous machine's ring, and the prefill
@@ -31,6 +40,9 @@ const GroutRecordView = ({ projectInfo, handleProjectInfoChange, groutRecords, s
       ...prev, ringNo: "", excavRing: "", pressure: "", partA: "", partB: "", remark: "",
       imageBase64: "", imageName: "", keyType: "16",
       positions: { A: false, B1: false, B2: false, C1: false, C2: false, K: false },
+      // the drilling and grouting readings belong to the machine that was selected, so all of them
+      // go — including the ones a save keeps, which are only shift-stable within one machine
+      ...SECONDARY_BLANK,
     }));
     setIsKeyLinked(false);
     // Note: the sync effect below reads the render's formData.ringNo, which is still the previous
@@ -104,24 +116,42 @@ const GroutRecordView = ({ projectInfo, handleProjectInfoChange, groutRecords, s
         pressure: "", partA: "", partB: "",
         positions: { A: false, B1: false, B2: false, C1: false, C2: false, K: false },
         remark: "", imageBase64: "", imageName: "",
+        ...SECONDARY_PER_RING,
       };
     });
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!formData.ringNo || !formData.partA) return;
+    // A secondary hole that took no grout is still a record the sheet keeps (the paper form has
+    // rows of 0 litre), so volume cannot gate that save the way Part A gates a primary one.
+    if (!formData.ringNo || (!isSecondary && !formData.partA)) return;
     setIsSaving(true);
     const machineAtSave = machine;
     const inputRing = String(formData.ringNo).trim().toUpperCase();
     // ส่ง positions เป็น object → GAS encode ครั้งเดียว (กัน double-encode)
-    const base = { ...projectInfo, ...formData, ringNo: inputRing, key: formData.keyType, total: Number(currentTotal) };
+    // split the form once: each mode submits its own columns and nothing of the other's. A Part A
+    // typed in primary mode before the toggle must not be filed as a secondary volume, and the
+    // drilling record must not ride along on a primary row.
+    const { partA, partB, volumeLitre, ...common } = { ...projectInfo, ...formData, ringNo: inputRing, key: formData.keyType };
+    const { drillPosition, drillingDepth, holeCondition, drillRemark, timeStart, timeEnd, recordedBy, ...primaryCommon } = common;
 
     try {
       const entityType = isSecondary ? "secondaryGrout" : "grout";
+      const litre = Number(volumeLitre || 0);
       const rec = isSecondary
-        ? { id: `sgrout_${Date.now()}`, ...base } // ไม่มี ratio/groutPass
-        : { id: `grout_${Date.now()}`, ...base, ratio: Number((Number(currentTotal) / THEORETICAL_VOL) * 100), groutPass: "1st Pass" };
+        ? {
+            id: `sgrout_${Date.now()}`, ...common, // ไม่มี ratio/groutPass
+            volumeLitre: litre,
+            // litre is what the crew reads off the pump and what the sheet keeps, but the m³ column
+            // is filled too, derived exactly (1 L = 0.001 m³): every chart and total in the app
+            // reads `total` as m³, and a litre value parked there would read as 1000× itself
+            total: litre / 1000,
+            // the machine, not projectInfo.tbmNo — that field is typed once and never follows a
+            // machine switch, so it can label a TBM2 row TBM1
+            tbmNo: machineAtSave,
+          }
+        : { id: `grout_${Date.now()}`, ...primaryCommon, partA, partB, total: Number(currentTotal), ratio: Number((Number(currentTotal) / THEORETICAL_VOL) * 100), groutPass: "1st Pass" };
       await onMutate(buildMutationEnvelope({
         entityType, operation: "create", machine: machineAtSave,
         recordId: rec.id, payload: rec, syncMeta,
@@ -179,6 +209,26 @@ const GroutRecordView = ({ projectInfo, handleProjectInfoChange, groutRecords, s
             </div>
           </div>
 
+          {/* Sheet header (secondary): ตำแหน่ง + หัวเจาะ + ผู้บันทึก — the paper form's top and
+              signature blocks. The machine is shown, not typed: it is whatever machine this record
+              is being filed under. */}
+          {isSecondary && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="bg-surface-alt p-4 rounded-input border border-input sm:col-span-2">
+                <label className="text-[10px] font-semibold text-ink-3 block mb-1">ตำแหน่ง (Location)</label>
+                <input type="text" name="location" value={projectInfo.location || ""} onChange={handleProjectInfoChange} className="w-full bg-transparent font-semibold text-ink outline-none text-sm" placeholder="อุโมงค์จากบ่อ IS4 ถึง บ่อ IS2" />
+              </div>
+              <div className="bg-surface-alt p-4 rounded-input border border-input">
+                <label className="text-[10px] font-semibold text-ink-3 block mb-1">หัวเจาะหมายเลข</label>
+                <div className="font-semibold text-ink text-sm">{String(machine)}</div>
+              </div>
+              <div className="bg-surface-alt p-4 rounded-input border border-input">
+                <label className="text-[10px] font-semibold text-ink-3 block mb-1">ผู้บันทึก</label>
+                <input type="text" name="recordedBy" value={formData.recordedBy} onChange={handleInputChange} className="w-full bg-transparent font-semibold text-ink outline-none text-sm" placeholder="ชื่อผู้บันทึก" />
+              </div>
+            </div>
+          )}
+
           {/* Ring inputs */}
           <div className="grid grid-cols-2 gap-4">
             <div className="bg-surface-alt p-4 rounded-input border border-input focus-within:border-navy focus-within:ring-2 focus-within:ring-cyan-tint transition-all">
@@ -206,7 +256,7 @@ const GroutRecordView = ({ projectInfo, handleProjectInfoChange, groutRecords, s
               <span className="font-semibold text-sm bg-surface-alt px-3 py-1 rounded-input border border-line">Key {String(formData.keyType)}</span>
             </div>
             <input type="range" min="1" max="16" step="1" name="keyType" value={formData.keyType} onChange={handleInputChange} disabled={isKeyLinked} className="w-full h-2 rounded-full appearance-none bg-surface-alt accent-navy cursor-pointer" />
-            <p className="text-[9px] text-ink-3 font-semibold mt-3">แตะเลือกตำแหน่งที่ฉีด{isSecondary ? " (สีส้ม = secondary)" : ""}</p>
+            <p className="text-[9px] text-ink-3 font-semibold mt-3">{isSecondary ? "แตะเลือก Segment ที่เจาะ — Segment Drilled (สีส้ม)" : "แตะเลือกตำแหน่งที่ฉีด"}</p>
             <div className="scale-90 transform origin-top mt-2">
               <RingVisualizer
                 ringKey={formData.keyType}
@@ -217,7 +267,61 @@ const GroutRecordView = ({ projectInfo, handleProjectInfoChange, groutRecords, s
             </div>
           </div>
 
-          {/* Part A / Part B / Pressure */}
+          {/* Drilling Record (secondary) — the paper form's left half: where the hole was drilled,
+              how deep, and whether it came back wet or dry */}
+          {isSecondary && (
+            <div className="bg-white border border-line rounded-input p-4 space-y-3">
+              <div className="text-[10px] font-semibold text-code-c uppercase tracking-wide">Drilling Record</div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="bg-surface-alt p-3 rounded-input border border-input">
+                  <label className="block text-[10px] font-semibold text-ink-3 mb-1">Drill Position</label>
+                  <input type="text" name="drillPosition" value={formData.drillPosition} onChange={handleInputChange} className="bg-transparent w-full text-sm font-semibold text-ink outline-none" placeholder="ตำแหน่งเจาะ" />
+                </div>
+                <div className="bg-surface-alt p-3 rounded-input border border-input">
+                  <label className="block text-[10px] font-semibold text-ink-3 mb-1">Drilling Depth (mm)</label>
+                  <input type="number" step="1" name="drillingDepth" value={formData.drillingDepth} onChange={handleInputChange} className="bg-transparent w-full font-mono text-lg font-semibold text-ink outline-none" placeholder="500" />
+                </div>
+                <div className="bg-surface-alt p-3 rounded-input border border-input">
+                  <label className="block text-[10px] font-semibold text-ink-3 mb-1">Hole Wet / Dry</label>
+                  <select name="holeCondition" value={formData.holeCondition} onChange={handleInputChange} className="w-full bg-transparent text-sm font-semibold text-ink outline-none cursor-pointer">
+                    <option value="">—</option><option value="Dry">Dry</option><option value="Wet">Wet</option>
+                  </select>
+                </div>
+                <div className="bg-surface-alt p-3 rounded-input border border-input">
+                  <label className="block text-[10px] font-semibold text-ink-3 mb-1">Remark (Drilling)</label>
+                  <input type="text" name="drillRemark" value={formData.drillRemark} onChange={handleInputChange} className="bg-transparent w-full text-sm text-ink outline-none" placeholder="—" />
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Grouting Record (secondary) — เวลาเริ่ม/จบ, แรงดันสูงสุด, ปริมาณเป็นลิตร */}
+          {isSecondary && (
+            <div className="bg-white border border-line rounded-input p-4 space-y-3">
+              <div className="text-[10px] font-semibold text-code-c uppercase tracking-wide">Grouting Record</div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="bg-surface-alt p-3 rounded-input border border-input">
+                  <label className="block text-[10px] font-semibold text-ink-3 mb-1">Time Start</label>
+                  <input type="time" name="timeStart" value={formData.timeStart} onChange={handleInputChange} className="bg-transparent w-full font-mono text-lg font-semibold text-ink outline-none" />
+                </div>
+                <div className="bg-surface-alt p-3 rounded-input border border-input">
+                  <label className="block text-[10px] font-semibold text-ink-3 mb-1">Time End</label>
+                  <input type="time" name="timeEnd" value={formData.timeEnd} onChange={handleInputChange} className="bg-transparent w-full font-mono text-lg font-semibold text-ink outline-none" />
+                </div>
+                <div className="bg-surface-alt p-3 rounded-input border border-input">
+                  <label className="block text-[10px] font-semibold text-ink-3 mb-1">Max Pressure (bar)</label>
+                  <input type="number" step="0.1" name="pressure" value={formData.pressure} onChange={handleInputChange} className="bg-transparent w-full font-mono text-lg font-semibold text-ink outline-none" placeholder="0.0" />
+                </div>
+                <div className="bg-code-c/10 p-3 rounded-input border border-code-c/30">
+                  <label className="block text-[10px] font-semibold text-code-c mb-1">Grout Volume (litre)</label>
+                  <input type="number" step="0.1" name="volumeLitre" value={formData.volumeLitre} onChange={handleInputChange} className="bg-transparent w-full font-mono text-lg font-semibold text-ink outline-none" placeholder="0" />
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Part A / Part B / Pressure (primary) */}
+          {!isSecondary && (
           <div className="grid grid-cols-3 gap-3">
             <div className="bg-surface-alt p-3 rounded-input border border-input">
               <label className="block text-[10px] font-semibold text-ink-3 mb-1">Part A</label>
@@ -232,24 +336,25 @@ const GroutRecordView = ({ projectInfo, handleProjectInfoChange, groutRecords, s
               <input type="number" step="0.1" name="pressure" value={formData.pressure} onChange={handleInputChange} className="bg-transparent w-full font-mono text-lg font-semibold text-ink outline-none" placeholder="0.0" />
             </div>
           </div>
+          )}
 
-          {/* Total volume (+ Ratio for primary only) */}
-          <div className={`p-4 rounded-input flex justify-between items-center ${isSecondary ? 'bg-code-c/10 border border-code-c/30' : 'bg-cyan-tint border border-cyan-med/30'}`}>
+          {/* Total volume + Ratio (primary only — a secondary row's volume is the litre field above) */}
+          {!isSecondary && (
+          <div className="p-4 rounded-input flex justify-between items-center bg-cyan-tint border border-cyan-med/30">
             <div>
-              <span className={`block text-[10px] font-semibold ${isSecondary ? 'text-code-c' : 'text-cyan-med'}`}>Total Volume</span>
+              <span className="block text-[10px] font-semibold text-cyan-med">Total Volume</span>
               <div className="text-2xl font-semibold text-ink font-mono">{String(currentTotal)} m³</div>
             </div>
-            {!isSecondary && (
-              <div className="text-right">
-                <span className="block text-[10px] font-semibold text-cyan-med">Ratio</span>
-                <div className={`text-2xl font-semibold font-mono ${Number(displayRatio) > 150 ? "text-cyan-med" : Number(displayRatio) >= 100 ? "text-sgreen-dark" : "text-code-d"}`}>{String(displayRatio)}%</div>
-              </div>
-            )}
+            <div className="text-right">
+              <span className="block text-[10px] font-semibold text-cyan-med">Ratio</span>
+              <div className={`text-2xl font-semibold font-mono ${Number(displayRatio) > 150 ? "text-cyan-med" : Number(displayRatio) >= 100 ? "text-sgreen-dark" : "text-code-d"}`}>{String(displayRatio)}%</div>
+            </div>
           </div>
+          )}
 
           {/* Remark & Photo */}
           <div className="bg-white p-4 border border-line rounded-input shadow-card">
-            <textarea name="remark" value={formData.remark} onChange={handleInputChange} rows="2" className="w-full bg-surface-alt border border-input p-3 rounded-input text-sm outline-none focus:border-navy focus:ring-2 focus:ring-cyan-tint transition-all text-ink" placeholder="Problem / Remark (อุปสรรค)"></textarea>
+            <textarea name="remark" value={formData.remark} onChange={handleInputChange} rows="2" className="w-full bg-surface-alt border border-input p-3 rounded-input text-sm outline-none focus:border-navy focus:ring-2 focus:ring-cyan-tint transition-all text-ink" placeholder={isSecondary ? "Remark (Grouting) — หมายเหตุการอัดน้ำปูน" : "Problem / Remark (อุปสรรค)"}></textarea>
             <div className="mt-3 pt-3 border-t border-line">
               <label className="text-[10px] font-semibold text-ink-3 mb-2 flex items-center gap-1"><Camera size={12} /> Attach Photo</label>
               <input type="file" accept="image/*" onChange={(e) => handleFileUpload(e, setFormData)} className="text-xs text-ink-3 w-full file:mr-4 file:py-1.5 file:px-4 file:rounded-badge file:border-0 file:bg-cyan-tint file:text-navy" />

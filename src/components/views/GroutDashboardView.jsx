@@ -4,6 +4,7 @@ import { formatDisplayDate, formatCH } from "../../utils/formatters";
 import { getRingNumeric } from "../../utils/helpers";
 import { THEORETICAL_VOL, VOL_120, VOL_150 } from "../../utils/constants";
 import { buildMutationEnvelope, refuseAmbiguousRecord } from "../../offline/mutationEnvelope";
+import { secondaryLitre, secondaryTotalM3 } from "../../utils/secondaryGrout";
 import StatCard from "../common/StatCard";
 import RingVisualizer from "../common/RingVisualizer";
 import { ResponsiveContainer, AreaChart, CartesianGrid, XAxis, YAxis, Tooltip, ReferenceLine, Area } from "recharts";
@@ -93,9 +94,13 @@ const GroutDashboardView = ({ groutRecords, segmentRecords, secondaryGroutRecord
   const handleSaveEdit = async () => {
     // secondary grout → sheet แยก, ไม่มี ratio
     if (editFormData.groutType === "secondary") {
-      const total = Number(editFormData.partA || 0) + Number(editFormData.partB || 0);
+      // litre when the row has one, Part A + Part B for the rows that predate it — one rule, in
+      // secondaryGrout.js, so the form, this modal and the chart cannot drift apart
+      const total = secondaryTotalM3(editFormData);
       // the ring is not editable here, so it travels exactly as the record carries it
-      const updated = { ...editFormData, total: Number(total) };
+      // the litre field goes back as a number, the way the record form writes it — an input hands
+      // back a string, and the sheet would then hold "2" where every other row holds 2
+      const updated = { ...editFormData, volumeLitre: Number(editFormData.volumeLitre || 0), total: Number(total) };
       try {
         refuseAmbiguousRecord(secondaryGroutRecords, updated.id);
         await onMutate(buildMutationEnvelope({
@@ -250,7 +255,13 @@ const GroutDashboardView = ({ groutRecords, segmentRecords, secondaryGroutRecord
                     </div>
                   </td>
                   <td className="px-6 py-4 text-right">
-                    <div className="font-semibold text-ink text-base font-mono">{Number(record.total || 0).toFixed(2)} m³</div>
+                    {/* a secondary row is read in litres — 0.001 m³ in this column would print as
+                        0.00 and every row would look empty */}
+                    <div className="font-semibold text-ink text-base font-mono">
+                      {record.groutType === "secondary"
+                        ? `${secondaryLitre(record)} L`
+                        : `${Number(record.total || 0).toFixed(2)} m³`}
+                    </div>
                     <div className="text-xs text-ink-3 mt-1 font-mono">{String(record.pressure || '')} bar</div>
                   </td>
                   <td className="px-6 py-4 text-right">
@@ -282,7 +293,9 @@ const GroutDashboardView = ({ groutRecords, segmentRecords, secondaryGroutRecord
                 {selectedRecord.imageUrl && selectedRecord.imageUrl !== "Attached" && (
                   <a href={selectedRecord.imageUrl} target="_blank" rel="noreferrer" className="p-2 bg-white/10 hover:bg-white/20 rounded-full transition-colors" title="View Photo"><Camera size={18} /></a>
                 )}
-                {!isEditing && !readOnly && <button onClick={() => { setEditFormData(selectedRecord); setIsEditing(true); }} className="p-2 bg-white/10 hover:bg-white/20 rounded-full transition-colors" title="Edit"><Edit size={18} /></button>}
+                {/* a secondary row that predates the litre column opens with its volume converted
+                    into the field the form now edits, so saving cannot silently blank it */}
+                {!isEditing && !readOnly && <button onClick={() => { setEditFormData(selectedRecord.groutType === "secondary" ? { ...selectedRecord, volumeLitre: secondaryLitre(selectedRecord) } : selectedRecord); setIsEditing(true); }} className="p-2 bg-white/10 hover:bg-white/20 rounded-full transition-colors" title="Edit"><Edit size={18} /></button>}
                 {!readOnly && <button onClick={() => setShowDeleteConfirm(true)} className="p-2 bg-white/10 hover:bg-code-d rounded-full transition-colors" title="Delete"><Trash2 size={18} /></button>}
                 <button onClick={closeRecord} className="p-2 bg-white/10 hover:bg-white/20 rounded-full transition-colors ml-2"><X size={20} /></button>
               </div>
@@ -334,7 +347,7 @@ const GroutDashboardView = ({ groutRecords, segmentRecords, secondaryGroutRecord
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="bg-surface-alt rounded-card border border-line p-4 flex flex-col items-center justify-center relative">
-                  <span className="text-xs font-semibold text-ink-3 uppercase tracking-widest mb-2 text-center">Injection Configuration</span>
+                  <span className="text-xs font-semibold text-ink-3 uppercase tracking-widest mb-2 text-center">{selectedRecord.groutType === "secondary" ? "Segment Drilled" : "Injection Configuration"}</span>
                   <div className="scale-90 transform origin-top -mt-2">
                     <RingVisualizer
                       ringKey={isEditing ? editFormData?.key : selectedRecord.key}
@@ -346,7 +359,60 @@ const GroutDashboardView = ({ groutRecords, segmentRecords, secondaryGroutRecord
                 </div>
 
                 <div className="space-y-4 flex flex-col justify-center">
-                  {selectedRecord.groutPass === "Re-Grout" ? (
+                  {selectedRecord.groutType === "secondary" ? (
+                    /* the paper sheet's two records for this ring: what was drilled, and what was
+                       injected. Litres, not Part A / Part B — see secondaryGrout.js */
+                    <div className="bg-code-c/10 rounded-card p-4 border border-code-c/30 space-y-3">
+                      <div className="text-xs font-semibold text-code-c uppercase tracking-widest">Drilling Record</div>
+                      <div className="grid grid-cols-2 gap-3 text-xs">
+                        <div>
+                          <div className="text-ink-2 mb-1">Drill Position</div>
+                          {isEditing ? <input type="text" name="drillPosition" value={editFormData?.drillPosition || ''} onChange={handleEditChange} className="w-full bg-surface border border-line rounded-input px-2 py-1 outline-none focus:border-navy" /> : <div className="font-semibold text-ink">{String(selectedRecord.drillPosition || '—')}</div>}
+                        </div>
+                        <div>
+                          <div className="text-ink-2 mb-1">Drilling Depth (mm)</div>
+                          {isEditing ? <input type="number" step="1" name="drillingDepth" value={editFormData?.drillingDepth || ''} onChange={handleEditChange} className="w-full bg-surface border border-line rounded-input px-2 py-1 outline-none focus:border-navy font-mono" /> : <div className="font-semibold text-ink font-mono">{String(selectedRecord.drillingDepth || '—')}</div>}
+                        </div>
+                        <div>
+                          <div className="text-ink-2 mb-1">Hole Wet / Dry</div>
+                          {isEditing ? (
+                            <select name="holeCondition" value={editFormData?.holeCondition || ''} onChange={handleEditChange} className="w-full bg-surface border border-line rounded-input px-2 py-1 outline-none focus:border-navy cursor-pointer">
+                              <option value="">—</option><option value="Dry">Dry</option><option value="Wet">Wet</option>
+                            </select>
+                          ) : <div className="font-semibold text-ink">{String(selectedRecord.holeCondition || '—')}</div>}
+                        </div>
+                        <div>
+                          <div className="text-ink-2 mb-1">Remark (Drilling)</div>
+                          {isEditing ? <input type="text" name="drillRemark" value={editFormData?.drillRemark || ''} onChange={handleEditChange} className="w-full bg-surface border border-line rounded-input px-2 py-1 outline-none focus:border-navy" /> : <div className="font-semibold text-ink">{String(selectedRecord.drillRemark || '—')}</div>}
+                        </div>
+                      </div>
+
+                      <div className="text-xs font-semibold text-code-c uppercase tracking-widest pt-2 border-t border-code-c/20">Grouting Record</div>
+                      <div className="grid grid-cols-2 gap-3 text-xs">
+                        <div>
+                          <div className="text-ink-2 mb-1">Time Start</div>
+                          {isEditing ? <input type="time" name="timeStart" value={editFormData?.timeStart || ''} onChange={handleEditChange} className="w-full bg-surface border border-line rounded-input px-2 py-1 outline-none focus:border-navy font-mono" /> : <div className="font-semibold text-ink font-mono">{String(selectedRecord.timeStart || '—')}</div>}
+                        </div>
+                        <div>
+                          <div className="text-ink-2 mb-1">Time End</div>
+                          {isEditing ? <input type="time" name="timeEnd" value={editFormData?.timeEnd || ''} onChange={handleEditChange} className="w-full bg-surface border border-line rounded-input px-2 py-1 outline-none focus:border-navy font-mono" /> : <div className="font-semibold text-ink font-mono">{String(selectedRecord.timeEnd || '—')}</div>}
+                        </div>
+                      </div>
+                      <div className="border-t border-code-c/20 pt-3">
+                        <div className="text-xs text-ink-2 mb-1">Grout Volume</div>
+                        <div className="text-2xl font-semibold text-code-c font-mono">
+                          {isEditing ? <input type="number" step="0.1" name="volumeLitre" value={editFormData?.volumeLitre ?? ''} onChange={handleEditChange} className="w-24 bg-surface border border-line rounded-input px-2 outline-none focus:border-navy" /> : secondaryLitre(selectedRecord)}
+                          <span className="text-sm font-sans font-normal text-ink-3 ml-1">litre</span>
+                        </div>
+                      </div>
+                      {(selectedRecord.recordedBy || isEditing) && (
+                        <div className="border-t border-code-c/20 pt-3 text-xs">
+                          <div className="text-ink-2 mb-1">ผู้บันทึก</div>
+                          {isEditing ? <input type="text" name="recordedBy" value={editFormData?.recordedBy || ''} onChange={handleEditChange} className="w-full bg-surface border border-line rounded-input px-2 py-1 outline-none focus:border-navy" /> : <div className="font-semibold text-ink">{String(selectedRecord.recordedBy || '—')}</div>}
+                        </div>
+                      )}
+                    </div>
+                  ) : selectedRecord.groutPass === "Re-Grout" ? (
                     <div className="bg-surface rounded-card p-4 border border-line shadow-card mb-4">
                       <div className="text-xs font-semibold text-ink-2 uppercase tracking-widest mb-3">Volume Breakdown</div>
                       <div className="grid grid-cols-2 gap-3 mb-3">

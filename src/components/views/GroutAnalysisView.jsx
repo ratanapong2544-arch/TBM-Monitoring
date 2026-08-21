@@ -6,6 +6,7 @@ import {
 } from "recharts";
 import { chartColors, axisTick, tooltipStyle } from "../../ui-ux-pro-max/chartTheme";
 import { getRingNumeric } from "../../utils/helpers";
+import { secondaryLitre } from "../../utils/secondaryGrout";
 import { THEORETICAL_VOL, VOL_120, VOL_150, VOL_80, VOL_50 } from "../../utils/constants";
 import SectionHeader from "../common/SectionHeader";
 import StatCard from "../common/StatCard";
@@ -50,10 +51,19 @@ export default function GroutAnalysisView({ groutRecords = [], secondaryGroutRec
     return [...prim, ...sec];
   }, [groutRecords, secondaryGroutRecords, groutScope]);
 
+  // Secondary volumes are litres (0–1 per hole), primary volumes are m³ around 3.1. Plotting
+  // litres on the m³ axis — with the theoretical-volume reference lines still drawn — would
+  // flatten every secondary point onto zero and compare it against a spec it does not have.
+  const isSecondaryScope = groutScope === "secondary";
+  const volumeKey = isSecondaryScope ? "volumeLitre" : "total";
+  const volumeName = isSecondaryScope ? "Grout Volume (litre)" : "Grout Volume (m³)";
+  const volumeLabel = isSecondaryScope ? "Volume (litre)" : "Volume (m³)";
+  const volumeDigits = isSecondaryScope ? 1 : 2;
+
   // ── groutChartData useMemo ──
   const groutChartData = useMemo(() => {
     let baseData = groutFilterShift === "All" ? scopedRecords : scopedRecords.filter(r => r.shift === groutFilterShift);
-    baseData = baseData.map(r => ({ ...r, displayRing: r.groutType === "secondary" ? `${r.ringNo} (S)` : (r.groutPass === "Re-Grout" ? `${r.ringNo} (Re)` : r.ringNo), pressure: r.pressure ? Number(r.pressure) : null }));
+    baseData = baseData.map(r => ({ ...r, displayRing: r.groutType === "secondary" ? `${r.ringNo} (S)` : (r.groutPass === "Re-Grout" ? `${r.ringNo} (Re)` : r.ringNo), pressure: r.pressure ? Number(r.pressure) : null, volumeLitre: r.groutType === "secondary" ? secondaryLitre(r) : null }));
 
     if (groutFilterMode === "all") return baseData;
     if (groutFilterMode === "range" && groutRangeStart && groutRangeEnd) {
@@ -214,14 +224,14 @@ export default function GroutAnalysisView({ groutRecords = [], secondaryGroutRec
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={chartColors.grid} />
                 <XAxis dataKey="displayRing" tick={axisTick} axisLine={false} tickLine={false} label={{ value: "Ring No.", position: "insideBottomRight", offset: -5, style: { fontSize: 12, fill: chartColors.axisLabel, fontWeight: "bold" } }} />
-                <YAxis domain={[0, 6]} tick={axisTick} axisLine={false} tickLine={false} label={{ value: "Volume (m³)", angle: -90, position: "insideLeft", offset: 15, style: { fontSize: 13, fill: chartColors.nightShift, fontWeight: "bold" } }} />
+                <YAxis domain={isSecondaryScope ? [0, "auto"] : [0, 6]} tick={axisTick} axisLine={false} tickLine={false} label={{ value: volumeLabel, angle: -90, position: "insideLeft", offset: 15, style: { fontSize: 13, fill: chartColors.nightShift, fontWeight: "bold" } }} />
                 <Tooltip {...tooltipStyle} />
-                <ReferenceLine y={THEORETICAL_VOL} stroke="#FB923C" strokeDasharray="5 5" label={{ position: "insideTopRight", value: "100% (3.1)", fill: "#FB923C", fontSize: 11, fontWeight: "bold" }} />
-                <ReferenceLine y={VOL_120} stroke="#4ADE80" strokeDasharray="5 5" label={{ position: "insideTopRight", value: "120%", fill: "#4ADE80", fontSize: 11, fontWeight: "bold" }} />
-                <ReferenceLine y={VOL_150} stroke="#F472B6" strokeDasharray="5 5" label={{ position: "insideTopRight", value: "150%", fill: "#F472B6", fontSize: 11, fontWeight: "bold" }} />
-                <ReferenceLine y={VOL_80} stroke="#EAB308" strokeDasharray="5 5" label={{ position: "insideTopRight", value: "80%", fill: "#EAB308", fontSize: 11, fontWeight: "bold" }} />
-                <ReferenceLine y={VOL_50} stroke="#EF4444" strokeDasharray="5 5" label={{ position: "insideTopRight", value: "50%", fill: "#EF4444", fontSize: 11, fontWeight: "bold" }} />
-                <Area type="monotone" dataKey="total" stroke={chartColors.nightShift} strokeWidth={3} fill="url(#execColorTotal)" dot={{ r: 4, fill: chartColors.nightShift, stroke: "#fff", strokeWidth: 2 }} label={{ position: "top", fill: chartColors.axisLabel, fontSize: 11, fontWeight: 700, formatter: val => Number(val || 0).toFixed(2) }} isAnimationActive={printingChartId === "all"} name="Grout Volume (m³)" />
+                {!isSecondaryScope && <ReferenceLine y={THEORETICAL_VOL} stroke="#FB923C" strokeDasharray="5 5" label={{ position: "insideTopRight", value: "100% (3.1)", fill: "#FB923C", fontSize: 11, fontWeight: "bold" }} />}
+                {!isSecondaryScope && <ReferenceLine y={VOL_120} stroke="#4ADE80" strokeDasharray="5 5" label={{ position: "insideTopRight", value: "120%", fill: "#4ADE80", fontSize: 11, fontWeight: "bold" }} />}
+                {!isSecondaryScope && <ReferenceLine y={VOL_150} stroke="#F472B6" strokeDasharray="5 5" label={{ position: "insideTopRight", value: "150%", fill: "#F472B6", fontSize: 11, fontWeight: "bold" }} />}
+                {!isSecondaryScope && <ReferenceLine y={VOL_80} stroke="#EAB308" strokeDasharray="5 5" label={{ position: "insideTopRight", value: "80%", fill: "#EAB308", fontSize: 11, fontWeight: "bold" }} />}
+                {!isSecondaryScope && <ReferenceLine y={VOL_50} stroke="#EF4444" strokeDasharray="5 5" label={{ position: "insideTopRight", value: "50%", fill: "#EF4444", fontSize: 11, fontWeight: "bold" }} />}
+                <Area type="monotone" dataKey={volumeKey} stroke={chartColors.nightShift} strokeWidth={3} fill="url(#execColorTotal)" dot={{ r: 4, fill: chartColors.nightShift, stroke: "#fff", strokeWidth: 2 }} label={{ position: "top", fill: chartColors.axisLabel, fontSize: 11, fontWeight: 700, formatter: val => Number(val || 0).toFixed(volumeDigits) }} isAnimationActive={printingChartId === "all"} name={volumeName} />
               </ComposedChart>
             </ResponsiveContainer>
           </div>
@@ -329,14 +339,14 @@ export default function GroutAnalysisView({ groutRecords = [], secondaryGroutRec
                         </defs>
                         <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={chartColors.grid} />
                         <XAxis dataKey="displayRing" tick={axisTick} axisLine={false} tickLine={false} label={{ value: "Ring No.", position: "insideBottomRight", offset: -5, style: { fontSize: 12, fill: chartColors.axisLabel, fontWeight: "bold" } }} />
-                        <YAxis domain={[0, 6]} tick={axisTick} axisLine={false} tickLine={false} label={{ value: "Volume (m³)", angle: -90, position: "insideLeft", offset: 15, style: { fontSize: 13, fill: chartColors.nightShift, fontWeight: "bold" } }} />
+                        <YAxis domain={isSecondaryScope ? [0, "auto"] : [0, 6]} tick={axisTick} axisLine={false} tickLine={false} label={{ value: volumeLabel, angle: -90, position: "insideLeft", offset: 15, style: { fontSize: 13, fill: chartColors.nightShift, fontWeight: "bold" } }} />
                         <Tooltip {...tooltipStyle} />
-                        <ReferenceLine y={THEORETICAL_VOL} stroke="#FB923C" strokeDasharray="5 5" label={{ position: "insideTopRight", value: "100% (3.1)", fill: "#FB923C", fontSize: 11, fontWeight: "bold" }} />
-                        <ReferenceLine y={VOL_120} stroke="#4ADE80" strokeDasharray="5 5" label={{ position: "insideTopRight", value: "120%", fill: "#4ADE80", fontSize: 11, fontWeight: "bold" }} />
-                        <ReferenceLine y={VOL_150} stroke="#F472B6" strokeDasharray="5 5" label={{ position: "insideTopRight", value: "150%", fill: "#F472B6", fontSize: 11, fontWeight: "bold" }} />
-                        <ReferenceLine y={VOL_80} stroke="#EAB308" strokeDasharray="5 5" label={{ position: "insideTopRight", value: "80%", fill: "#EAB308", fontSize: 11, fontWeight: "bold" }} />
-                        <ReferenceLine y={VOL_50} stroke="#EF4444" strokeDasharray="5 5" label={{ position: "insideTopRight", value: "50%", fill: "#EF4444", fontSize: 11, fontWeight: "bold" }} />
-                        <Area type="monotone" dataKey="total" stroke={chartColors.nightShift} strokeWidth={3} fill="url(#execColorTotalPop)" dot={{ r: 4, fill: chartColors.nightShift, stroke: "#fff", strokeWidth: 2 }} label={{ position: "top", fill: chartColors.axisLabel, fontSize: 11, fontWeight: 700, formatter: val => Number(val || 0).toFixed(2) }} name="Grout Volume (m³)" />
+                        {!isSecondaryScope && <ReferenceLine y={THEORETICAL_VOL} stroke="#FB923C" strokeDasharray="5 5" label={{ position: "insideTopRight", value: "100% (3.1)", fill: "#FB923C", fontSize: 11, fontWeight: "bold" }} />}
+                        {!isSecondaryScope && <ReferenceLine y={VOL_120} stroke="#4ADE80" strokeDasharray="5 5" label={{ position: "insideTopRight", value: "120%", fill: "#4ADE80", fontSize: 11, fontWeight: "bold" }} />}
+                        {!isSecondaryScope && <ReferenceLine y={VOL_150} stroke="#F472B6" strokeDasharray="5 5" label={{ position: "insideTopRight", value: "150%", fill: "#F472B6", fontSize: 11, fontWeight: "bold" }} />}
+                        {!isSecondaryScope && <ReferenceLine y={VOL_80} stroke="#EAB308" strokeDasharray="5 5" label={{ position: "insideTopRight", value: "80%", fill: "#EAB308", fontSize: 11, fontWeight: "bold" }} />}
+                        {!isSecondaryScope && <ReferenceLine y={VOL_50} stroke="#EF4444" strokeDasharray="5 5" label={{ position: "insideTopRight", value: "50%", fill: "#EF4444", fontSize: 11, fontWeight: "bold" }} />}
+                        <Area type="monotone" dataKey={volumeKey} stroke={chartColors.nightShift} strokeWidth={3} fill="url(#execColorTotalPop)" dot={{ r: 4, fill: chartColors.nightShift, stroke: "#fff", strokeWidth: 2 }} label={{ position: "top", fill: chartColors.axisLabel, fontSize: 11, fontWeight: 700, formatter: val => Number(val || 0).toFixed(volumeDigits) }} name={volumeName} />
                       </ComposedChart>
                     </ResponsiveContainer>
                   </div>

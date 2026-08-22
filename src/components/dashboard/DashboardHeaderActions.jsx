@@ -32,7 +32,7 @@ export default function DashboardHeaderActions({ segmentRecords = [], groutRecor
     setCopied(false);
 
     const allRemarks = [
-      ...segmentRecords.filter((s) => s.remark).map((s) => ({ ring: s.ringNo, module: "Segment", text: s.remark })),
+      ...segmentRecords.filter((s) => s.problem).map((s) => ({ ring: s.ringNo, module: "Segment", text: s.problem })),
       ...groutRecords.filter((g) => g.remark).map((g) => ({ ring: g.ringNo, module: "Grout", text: g.remark })),
     ];
     let delaySummary = {}, totalDelayMins = 0;

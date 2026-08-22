@@ -297,7 +297,7 @@ const GroutDashboardView = ({ groutRecords, segmentRecords, secondaryGroutRecord
                     into the field the form now edits, so saving cannot silently blank it */}
                 {!isEditing && !readOnly && <button onClick={() => { setEditFormData(selectedRecord.groutType === "secondary" ? { ...selectedRecord, volumeLitre: secondaryLitre(selectedRecord) } : selectedRecord); setIsEditing(true); }} className="p-2 bg-white/10 hover:bg-white/20 rounded-full transition-colors" title="Edit"><Edit size={18} /></button>}
                 {!readOnly && <button onClick={() => setShowDeleteConfirm(true)} className="p-2 bg-white/10 hover:bg-code-d rounded-full transition-colors" title="Delete"><Trash2 size={18} /></button>}
-                <button onClick={closeRecord} className="p-2 bg-white/10 hover:bg-white/20 rounded-full transition-colors ml-2"><X size={20} /></button>
+                <button onClick={closeRecord} className="p-2 bg-white/10 hover:bg-white/20 rounded-full transition-colors ml-2" title="ปิด" aria-label="ปิด"><X size={20} /></button>
               </div>
             </div>
 
@@ -333,7 +333,7 @@ const GroutDashboardView = ({ groutRecords, segmentRecords, secondaryGroutRecord
                 </div>
                 <div className="text-right">
                   <div className="text-xs font-semibold text-ink-3 uppercase tracking-widest mb-1">Latest Working Date</div>
-                  <div className="text-sm font-semibold text-ink flex items-center justify-end gap-1.5"><Calendar size={14} /> {isEditing ? <input type="date" name="date" value={editFormData?.date || ''} onChange={handleEditChange} className="bg-surface border border-line rounded-input px-2 outline-none focus:border-navy" /> : formatDisplayDate(selectedRecord.date)}</div>
+                  <div className="text-sm font-semibold text-ink flex items-center justify-end gap-1.5"><Calendar size={14} /> {isEditing ? <input type="date" name="date" value={formatDisplayDate(editFormData?.date)} onChange={handleEditChange} className="bg-surface border border-line rounded-input px-2 outline-none focus:border-navy" /> : formatDisplayDate(selectedRecord.date)}</div>
                   <div className="text-xs text-ink-2 mt-1 flex items-center justify-end gap-1">
                     {isEditing ? (
                       <select name="shift" value={editFormData?.shift || ''} onChange={handleEditChange} className="bg-surface border border-line rounded-input px-1 outline-none cursor-pointer focus:border-navy">

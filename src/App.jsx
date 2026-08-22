@@ -611,6 +611,7 @@ const PrimaryGroutApp = () => {
         <InstrumentDashboardView
           locations={instLocations} instruments={instInstruments} schedules={instSchedules}
           machineProgress={machineProgress} activeMachine={activeMachine}
+          currentRingNum={currentRingNum}
           onOpenLocation={(id) => { setSelectedInstLocId(id); setActiveTab("inst_location"); }}
           onMark={isViewer ? null : handleMarkInstSchedule}
           readOnly={isViewer} />

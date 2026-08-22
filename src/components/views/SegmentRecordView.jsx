@@ -9,7 +9,7 @@ import StickyActionBar from "../../ui-ux-pro-max/components/StickyActionBar";
 // Every field of an empty ring. One list, because a field missing from any copy of it carries over:
 // from the other machine's last ring on a machine switch, or from the open ring into a forgotten one.
 const blankRing = (shift) => ({
-  id: null, ringNo: "", typeRing: "C1", keyPos: "16", startCH: "", finishCH: "", length: "1.40", remark: "",
+  id: null, ringNo: "", typeRing: "C1", keyPos: "16", startCH: "", finishCH: "", length: "1.40", problem: "",
   excavStartTime: "", excavEndTime: "", soilType: "", excavImageBase64: "", excavImageName: "", excavShift: shift,
   installStartTime: "", installEndTime: "", imageBase64: "", imageName: "", status: "In Progress", installType: "Permanent", installShift: shift,
   headV: "", artV: "", tailV: "", vrt: "", // ระดับหัวเจาะ แนวดิ่ง (+ = สูงกว่าแบบ, mm; vrt = °)
@@ -42,7 +42,7 @@ const SegmentRecordView = ({ projectInfo, handleProjectInfoChange, segmentRecord
   // Every field must go back to its default, not just the obvious ones: the prefill below computes
   // finishCH as (last ring's finish − length), and the submit derives the soil volume from length
   // too, so a ring length left over from the other machine's last record silently produced a wrong
-  // chainage and volume for this machine. typeRing/keyPos/remark carry over the same way.
+  // chainage and volume for this machine. typeRing/keyPos/problem carry over the same way.
   // A forgotten ring's own date goes too — left in the form it would be saved onto this machine's
   // next ring.
   useEffect(() => {
@@ -176,7 +176,7 @@ const SegmentRecordView = ({ projectInfo, handleProjectInfoChange, segmentRecord
       setFormData((prev) => {
         const isCompleted = prev.status === "Completed";
         return {
-          ...prev, id: isCompleted ? null : recordData.id, ringNo: isCompleted ? offsetRingNo(prev.ringNo, 1) : prev.ringNo, startCH: isCompleted ? prev.finishCH : prev.startCH, finishCH: isCompleted ? formatCH(parseCH(prev.finishCH) - parseFloat(prev.length)) : prev.finishCH, remark: "", excavStartTime: isCompleted ? "" : prev.excavStartTime, excavEndTime: isCompleted ? "" : prev.excavEndTime, soilType: isCompleted ? "" : prev.soilType, excavImageBase64: isCompleted ? "" : prev.excavImageBase64, excavImageName: isCompleted ? "" : prev.excavImageName, installStartTime: isCompleted ? "" : prev.installStartTime, installEndTime: isCompleted ? "" : prev.installEndTime, imageBase64: "", imageName: "", status: isCompleted ? "In Progress" : prev.status, installType: isCompleted ? "Permanent" : prev.installType,
+          ...prev, id: isCompleted ? null : recordData.id, ringNo: isCompleted ? offsetRingNo(prev.ringNo, 1) : prev.ringNo, startCH: isCompleted ? prev.finishCH : prev.startCH, finishCH: isCompleted ? formatCH(parseCH(prev.finishCH) - parseFloat(prev.length)) : prev.finishCH, problem: "", excavStartTime: isCompleted ? "" : prev.excavStartTime, excavEndTime: isCompleted ? "" : prev.excavEndTime, soilType: isCompleted ? "" : prev.soilType, excavImageBase64: isCompleted ? "" : prev.excavImageBase64, excavImageName: isCompleted ? "" : prev.excavImageName, installStartTime: isCompleted ? "" : prev.installStartTime, installEndTime: isCompleted ? "" : prev.installEndTime, imageBase64: "", imageName: "", status: isCompleted ? "In Progress" : prev.status, installType: isCompleted ? "Permanent" : prev.installType,
           headV: isCompleted ? "" : prev.headV, artV: isCompleted ? "" : prev.artV, tailV: isCompleted ? "" : prev.tailV, vrt: isCompleted ? "" : prev.vrt, // reset head fields บนริงใหม่ (กัน carry)
           headH: isCompleted ? "" : prev.headH, artH: isCompleted ? "" : prev.artH, tailH: isCompleted ? "" : prev.tailH,
           excavShift: projectInfo.shift, installShift: projectInfo.shift
@@ -413,7 +413,7 @@ const SegmentRecordView = ({ projectInfo, handleProjectInfoChange, segmentRecord
           {/* REMARK */}
           <div className="bg-surface border border-input rounded-card p-4 shadow-card">
             <label className="text-[9px] font-semibold text-ink-3 uppercase tracking-widest block mb-2">Problem / Remark</label>
-            <textarea name="remark" value={formData.remark} onChange={handleInputChange} rows="2" className="w-full bg-surface-alt border border-input rounded-input p-3 text-sm font-medium text-ink outline-none focus:border-sgreen-med transition-all resize-none" placeholder="ระบุปัญหาหรืออุปสรรค..."></textarea>
+            <textarea name="problem" value={formData.problem} onChange={handleInputChange} rows="2" className="w-full bg-surface-alt border border-input rounded-input p-3 text-sm font-medium text-ink outline-none focus:border-sgreen-med transition-all resize-none" placeholder="ระบุปัญหาหรืออุปสรรค..."></textarea>
           </div>
 
           {/* Submit — wrapped in StickyActionBar for mobile reachability */}

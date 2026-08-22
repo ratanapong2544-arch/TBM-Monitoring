@@ -401,7 +401,7 @@ const SegmentDashboardView = ({ segmentRecords, machine = "TBM1", onMutate, sync
                 )}
                 {!isEditing && <button onClick={() => { setEditFormData(selectedRecord); setIsEditing(true); }} className="p-2 bg-white/10 hover:bg-white/20 rounded-full transition-colors" title="Edit"><Edit size={18} /></button>}
                 <button onClick={() => setShowDeleteConfirm(true)} className="p-2 bg-white/10 hover:bg-code-d rounded-full transition-colors" title="Delete"><Trash2 size={18} /></button>
-                <button onClick={() => { setSelectedRecord(null); setShowDeleteConfirm(false); setIsEditing(false); }} className="p-2 bg-white/10 hover:bg-white/20 rounded-full transition-colors ml-2"><X size={20} /></button>
+                <button onClick={() => { setSelectedRecord(null); setShowDeleteConfirm(false); setIsEditing(false); }} className="p-2 bg-white/10 hover:bg-white/20 rounded-full transition-colors ml-2" title="ปิด" aria-label="ปิด"><X size={20} /></button>
               </div>
             </div>
 
@@ -464,7 +464,7 @@ const SegmentDashboardView = ({ segmentRecords, machine = "TBM1", onMutate, sync
                 </div>
                 <div className="text-right">
                   <div className="text-xs font-semibold text-ink-3 uppercase tracking-widest mb-1">Working Date & Shift</div>
-                  <div className="text-sm font-semibold text-ink flex items-center justify-end gap-1.5"><Calendar size={14} /> {isEditing ? <input type="date" name="date" value={editFormData?.date || ''} onChange={handleEditChange} className="bg-surface border border-line rounded-input px-1 outline-none focus:border-navy" /> : formatDisplayDate(selectedRecord.date)}</div>
+                  <div className="text-sm font-semibold text-ink flex items-center justify-end gap-1.5"><Calendar size={14} /> {isEditing ? <input type="date" name="date" value={formatDisplayDate(editFormData?.date)} onChange={handleEditChange} className="bg-surface border border-line rounded-input px-1 outline-none focus:border-navy" /> : formatDisplayDate(selectedRecord.date)}</div>
                   <div className="text-xs text-ink-2 mt-1 flex items-center justify-end gap-1">
                     {isEditing ? (
                       <select name="shift" value={editFormData?.shift || ''} onChange={handleEditChange} className="bg-surface border border-line rounded-input px-1 font-semibold text-ink-2 outline-none focus:border-navy">
@@ -621,10 +621,10 @@ const SegmentDashboardView = ({ segmentRecords, machine = "TBM1", onMutate, sync
                 </div>
               </div>
 
-              {(selectedRecord.remark || isEditing) && (
+              {(selectedRecord.problem || isEditing) && (
                 <div className="bg-code-b/5 rounded-card p-4 border border-code-b/20">
                   <div className="text-xs font-semibold text-code-b uppercase tracking-widest mb-2 flex items-center gap-1.5">Remarks (ปัญหา)</div>
-                  {isEditing ? <textarea name="remark" value={editFormData?.remark || ''} onChange={handleEditChange} className="w-full bg-surface border border-line rounded-input p-2 text-sm outline-none focus:border-navy focus:ring-1 focus:ring-cyan-tint" rows="2" /> : <p className="text-sm text-ink whitespace-pre-wrap leading-relaxed">{String(selectedRecord.remark)}</p>}
+                  {isEditing ? <textarea name="problem" value={editFormData?.problem || ''} onChange={handleEditChange} className="w-full bg-surface border border-line rounded-input p-2 text-sm outline-none focus:border-navy focus:ring-1 focus:ring-cyan-tint" rows="2" /> : <p className="text-sm text-ink whitespace-pre-wrap leading-relaxed">{String(selectedRecord.problem)}</p>}
                 </div>
               )}
 

@@ -132,7 +132,7 @@ const ReportView = ({ segmentRecords, groutRecords, projectInfo, shiftReports, o
     const uniqueGroutedRings = new Set(filteredGrouts.map((g) => g.ringNo)).size;
 
     const allRemarks = [
-      ...filteredSegments.filter((s) => s.remark).map((s) => ({ ring: s.ringNo, module: "Segment", text: s.remark })),
+      ...filteredSegments.filter((s) => s.problem).map((s) => ({ ring: s.ringNo, module: "Segment", text: s.problem })),
       ...filteredGrouts.filter((g) => g.remark).map((g) => ({ ring: g.ringNo, module: "Grout", text: g.remark })),
     ];
 

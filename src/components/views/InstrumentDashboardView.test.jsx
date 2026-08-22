@@ -242,3 +242,22 @@ test("machine filter scopes locations/schedules/instruments by chainage zone (lo
   expect(tbm2.container.textContent).toContain("Tracking all 1 locations and 1 compliance points");
   unmount(tbm2.container, tbm2.root);
 });
+
+test("the TBM card names the ring the crew is on, and stays silent when the position is unavailable", () => {
+  // `machineProgress` carries a ring COUNT, never the ring's own number, so this optional prop was
+  // left unwired and the card printed "Current Ring: #—" on a project that has always known its
+  // ring. Gated with the chainage: a ring beside "—" would be a position this view just called
+  // unavailable.
+  const a = mount(baseProps({ currentRingNum: 874 }));
+  expect(a.container.textContent).toContain("Current Ring: #874");
+  expect(a.container.textContent).not.toContain("Current Ring: #—");
+  unmount(a.container, a.root);
+
+  const b = mount(baseProps({ currentRingNum: 874, activeMachine: "TBM2" }));
+  expect(b.container.textContent).not.toContain("#874");
+  unmount(b.container, b.root);
+
+  const c = mount(baseProps());
+  expect(c.container.textContent).toContain("Current Ring: #—");
+  unmount(c.container, c.root);
+});

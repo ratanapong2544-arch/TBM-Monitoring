@@ -81,7 +81,7 @@ test("a segment form does not carry ring length or type into the next machine's 
   // the prefill computes finishCH as (last ring's finish − length) and soilVolume from length, so a
   // ring length left over from the other machine produced a wrong chainage for this one
   // an in-progress ring is loaded into the form as-is, so its length becomes the form's length
-  const shortRing = [{ id: "s1", ringNo: "P643", typeRing: "C2", keyPos: "16", startCH: "8+010.20", finishCH: "8+009.30", length: "0.90", status: "In Progress", installType: "Permanent", remark: "TBM1 note" }];
+  const shortRing = [{ id: "s1", ringNo: "P643", typeRing: "C2", keyPos: "16", startCH: "8+010.20", finishCH: "8+009.30", length: "0.90", status: "In Progress", installType: "Permanent", problem: "TBM1 note" }];
   const view = render(
     <SegmentRecordView projectInfo={projectInfo} handleProjectInfoChange={() => {}} segmentRecords={shortRing} setCurrentModule={() => {}} setActiveTab={() => {}} machine="TBM1" onMutate={onMutate} />
   );
@@ -97,7 +97,7 @@ test("a segment form does not carry ring length or type into the next machine's 
   expect(view.value("typeRing")).toBe("C1");
   expect(view.value("startCH")).toBe("9+498.60");
   expect(view.value("finishCH")).toBe("9+497.20");
-  expect(view.value("remark")).toBe("");
+  expect(view.value("problem")).toBe("");
   view.unmount();
 });
 

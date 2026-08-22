@@ -27,6 +27,11 @@ export default function InstrumentDashboardView({
   schedules = [],
   machineProgress,
   activeMachine = "TBM1",
+  // The ring the crew is on. `machineProgress` carries a ring COUNT (866), never the ring's own
+  // number (P874) — the two differ by every temporary ring ever installed — so the card printed
+  // "Current Ring: #—" on a project that has always known its ring. App owns the number; passing it
+  // is what the optional prop was left open for (DashboardHeader's own note).
+  currentRingNum = null,
   onOpenLocation,
   onMark,
   readOnly = false,
@@ -41,6 +46,10 @@ export default function InstrumentDashboardView({
   // DashboardHeader/ComplianceCards, never a wrong number. Wire the real value here once TBM2 gets a
   // launch config.
   const tbmChainage = activeMachine === "TBM1" ? currentChainage(machineProgress, activeMachine) : null;
+
+  // Gated with the chainage, not separately: a ring number shown beside "—" would be a position for
+  // a machine whose position this view has just declared unavailable.
+  const ringNo = tbmChainage != null && currentRingNum > 0 ? currentRingNum : null;
 
   // Task R7b — machine-aware slice. Instrument data is project-wide (one sheet); TBM1/TBM2 is a
   // VIEW-level filter by chainage zone (locationMachine, chainageAdapter.js), applied BEFORE the
@@ -95,9 +104,9 @@ export default function InstrumentDashboardView({
 
   return (
     <div className="max-w-full mx-auto space-y-6 animate-fade-in pb-24">
-      <DashboardHeader tbmChainage={tbmChainage} />
+      <DashboardHeader tbmChainage={tbmChainage} ringNo={ringNo} />
 
-      <ComplianceCards locations={machineLocations} instruments={machineInstruments} schedules={machineSchedules} tbmChainage={tbmChainage} />
+      <ComplianceCards locations={machineLocations} instruments={machineInstruments} schedules={machineSchedules} tbmChainage={tbmChainage} ringNo={ringNo} />
 
       <section className="space-y-4">
         <div className="flex justify-between items-end px-2">

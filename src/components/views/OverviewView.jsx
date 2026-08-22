@@ -132,7 +132,7 @@ const OverviewView = ({ segmentRecords, groutRecords, setCurrentModule, setActiv
                 <div className="text-[10px] sm:text-xs font-semibold text-ink-3 uppercase tracking-widest">อัตราส่วนน้ำยาเฉลี่ย</div>
                 <div className="text-3xl sm:text-4xl font-mono font-semibold tracking-tight mt-1">
                   {groutStatus.avgRatio > 0
-                    ? <span className={groutStatus.avgRatio >= 100 ? "text-sgreen-dark" : "text-code-c"}>{groutStatus.avgRatio.toFixed(0)}%</span>
+                    ? <span className={groutStatus.avgRatio >= 100 ? "text-sgreen-dark" : "text-code-c"}>{groutStatus.avgRatio.toFixed(1)}%</span>
                     : <span className="text-ink-3">—</span>
                   }
                 </div>

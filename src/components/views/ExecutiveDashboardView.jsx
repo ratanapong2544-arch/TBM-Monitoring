@@ -87,14 +87,22 @@ const ExecutiveDashboardView = ({ segmentRecords, groutRecords, dailyReports = [
       currentRing = String(byNum[byNum.length - 1].ringNo);
     }
 
-    // Grout stats
-    const groutAvgVol = filteredGrout.length > 0
-      ? (filteredGrout.reduce((acc, r) => acc + Number(r.total || 0), 0) / filteredGrout.length).toFixed(2)
+    // Grout stats — one record per ring, and a ratio that was never recorded is absent, not 0%.
+    // Averaging the raw rows instead is what made this card read 106.4% while the Grout page read
+    // 106.8% and Home read 107% off the same 862 rings: a re-grouted ring counted twice, and three
+    // rings with a blank ratio counted as zeros. Same rule as GroutAnalysisView's "เฉลี่ย Ratio",
+    // whose subtext ("ทุก ring") this card already repeats — so the number has to mean the same thing.
+    const groutByRing = new Map();
+    filteredGrout.forEach((r) => groutByRing.set(r.ringNo, r));
+    const groutRings = Array.from(groutByRing.values());
+    const groutRatios = groutRings.map((r) => Number(r.ratio || 0)).filter((v) => v > 0);
+    const groutAvgVol = groutRings.length > 0
+      ? (groutRings.reduce((acc, r) => acc + Number(r.total || 0), 0) / groutRings.length).toFixed(2)
       : "0.00";
-    const groutAvgRatio = filteredGrout.length > 0
-      ? (filteredGrout.reduce((acc, r) => acc + Number(r.ratio || 0), 0) / filteredGrout.length).toFixed(1)
+    const groutAvgRatio = groutRatios.length > 0
+      ? (groutRatios.reduce((acc, v) => acc + v, 0) / groutRatios.length).toFixed(1)
       : "0.0";
-    const uniqueGroutedRings = new Set(filteredGrout.map(r => r.ringNo)).size;
+    const uniqueGroutedRings = groutRings.length;
     const latestGroutRing = filteredGrout.length > 0 ? String(filteredGrout[filteredGrout.length - 1].ringNo) : "-";
 
     return {

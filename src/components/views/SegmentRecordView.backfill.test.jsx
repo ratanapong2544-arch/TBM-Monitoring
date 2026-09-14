@@ -95,6 +95,24 @@ test("a forgotten ring starts blank: no chainage or times carried over, and its 
   view.unmount();
 });
 
+test("a forgotten ring's excavation and installation shifts follow its own shift", async () => {
+  // they were seeded from today's Working Shift, which says nothing about a ring from another day —
+  // and the shift report attributes a ring to a shift by them
+  const view = render({ onMutate });
+  await click(button(view.container, /กรอกย้อนหลัง/));
+  act(() => {
+    const field = view.container.querySelector('select[name="shift"]');
+    Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, "value").set.call(field, "Night");
+    field.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  type(view.container, "ringNo", "P1");
+  type(view.container, "date", "2026-08-31");
+  await submit(view.container);
+
+  expect(sent(onMutate, 0).payload).toEqual(expect.objectContaining({ shift: "Night", excavShift: "Night", installShift: "Night" }));
+  view.unmount();
+});
+
 test("a forgotten ring is not saved without its own date", async () => {
   const view = render({ onMutate });
   await click(button(view.container, /กรอกย้อนหลัง/));

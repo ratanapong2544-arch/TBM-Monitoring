@@ -110,6 +110,9 @@ const SegmentRecordView = ({ projectInfo, handleProjectInfoChange, segmentRecord
       if (upperVal.startsWith("T")) newFormData.installType = "Temporary";
       else if (upperVal.startsWith("P")) newFormData.installType = "Permanent";
     }
+    // A forgotten ring's phase shifts were seeded from today's Working Shift, which says nothing about
+    // that ring, and the shift report attributes a ring to a shift by them — they follow its own.
+    if (lateRing && name === "shift") { newFormData.excavShift = value; newFormData.installShift = value; }
     if (name === "typeRing") newFormData.length = value === "C1" ? "1.40" : "0.90";
     if (name === "startCH" || name === "length" || name === "typeRing") {
       const start = parseCH(newFormData.startCH);

@@ -1,10 +1,20 @@
 import React, { useState, useMemo, useEffect, useRef } from "react";
-import { Layers, ChevronRight, Save, Loader2, Camera, Clock } from "lucide-react";
+import { Layers, ChevronRight, Save, Loader2, Camera, Clock, History, AlertTriangle } from "lucide-react";
 import { parseCH, formatCH } from "../../utils/formatters";
 import { offsetRingNo, calculateSoilVolume, handleFileUpload } from "../../utils/helpers";
 import { buildMutationEnvelope, refuseAmbiguousRecord } from "../../offline/mutationEnvelope";
 import { SegmentedToggle } from "../../ui-ux-pro-max";
 import StickyActionBar from "../../ui-ux-pro-max/components/StickyActionBar";
+
+// Every field of an empty ring. One list, because a field missing from any copy of it carries over:
+// from the other machine's last ring on a machine switch, or from the open ring into a forgotten one.
+const blankRing = (shift) => ({
+  id: null, ringNo: "", typeRing: "C1", keyPos: "16", startCH: "", finishCH: "", length: "1.40", remark: "",
+  excavStartTime: "", excavEndTime: "", soilType: "", excavImageBase64: "", excavImageName: "", excavShift: shift,
+  installStartTime: "", installEndTime: "", imageBase64: "", imageName: "", status: "In Progress", installType: "Permanent", installShift: shift,
+  headV: "", artV: "", tailV: "", vrt: "", // ระดับหัวเจาะ แนวดิ่ง (+ = สูงกว่าแบบ, mm; vrt = °)
+  headH: "", artH: "", tailH: "", // แนวราบ (+ = ขวา, mm) — สำหรับ bullseye 2 แกน
+});
 
 // no `setSegmentRecords`: since step 5 the record list is App's to write, off the back of the queued
 // mutation. Keeping the setter in the signature is not harmless housekeeping — it is a second writer
@@ -17,13 +27,14 @@ const SegmentRecordView = ({ projectInfo, handleProjectInfoChange, segmentRecord
   const machineRef = useRef(machine);
   machineRef.current = machine;
   const stillOnMachine = (m) => (isCurrentMachine ? isCurrentMachine(m) : machineRef.current === m);
-  const [formData, setFormData] = useState({
-    id: null, ringNo: "", typeRing: "C1", keyPos: "16", startCH: "", finishCH: "", length: "1.40", remark: "",
-    excavStartTime: "", excavEndTime: "", soilType: "", excavImageBase64: "", excavImageName: "", excavShift: projectInfo.shift,
-    installStartTime: "", installEndTime: "", imageBase64: "", imageName: "", status: "In Progress", installType: "Permanent", installShift: projectInfo.shift,
-    headV: "", artV: "", tailV: "", vrt: "", // ระดับหัวเจาะ แนวดิ่ง (+ = สูงกว่าแบบ, mm; vrt = °)
-    headH: "", artH: "", tailH: "", // แนวราบ (+ = ขวา, mm) — สำหรับ bullseye 2 แกน
-  });
+  const [formData, setFormData] = useState(() => blankRing(projectInfo.shift));
+  // A ring the crew forgot, recorded after later rings (TBM2 2026-09-14: P1 after P5). The form
+  // otherwise holds the open ring by its row id — typing another ring number over it is an edit of
+  // THAT row, which `buildMutationEnvelope` refuses — or the next ring, whose prefilled chainage a
+  // forgotten ring must never inherit (P888, 2026-09-02). So it gets a blank form with its own date
+  // and shift (the Working Date the open ring is saved under never moves), the prefill stays out of
+  // it, and leaving it prefills the open ring again from the records.
+  const [lateRing, setLateRing] = useState(false);
 
   // A form left open across a machine switch kept the previous machine's ring number and chainage,
   // and the prefill below is guarded on an empty ringNo, so it never corrected them — submitting
@@ -32,16 +43,11 @@ const SegmentRecordView = ({ projectInfo, handleProjectInfoChange, segmentRecord
   // finishCH as (last ring's finish − length), and the submit derives the soil volume from length
   // too, so a ring length left over from the other machine's last record silently produced a wrong
   // chainage and volume for this machine. typeRing/keyPos/remark carry over the same way.
+  // A forgotten ring's own date goes too — left in the form it would be saved onto this machine's
+  // next ring.
   useEffect(() => {
-    setFormData((prev) => ({
-      ...prev, id: null, ringNo: "", typeRing: "C1", keyPos: "16", startCH: "", finishCH: "",
-      length: "1.40", remark: "",
-      excavStartTime: "", excavEndTime: "", installStartTime: "", installEndTime: "",
-      soilType: "", excavImageBase64: "", excavImageName: "", imageBase64: "", imageName: "",
-      status: "In Progress", installType: "Permanent",
-      excavShift: projectInfo.shift, installShift: projectInfo.shift,
-      headV: "", artV: "", tailV: "", vrt: "", headH: "", artH: "", tailH: "",
-    }));
+    setLateRing(false);
+    setFormData(blankRing(projectInfo.shift));
     // ONLY on a machine change. projectInfo.shift is read here but must never be a dependency: the
     // Working Shift selector sits in this same form, so listing it made every shift correction wipe
     // the open record — excavation times, soil type, the head-level survey readings and the ring
@@ -59,7 +65,10 @@ const SegmentRecordView = ({ projectInfo, handleProjectInfoChange, segmentRecord
   // `machine` is a dependency and the empty-form check reads `prev`, not the render's `formData`:
   // the reset above runs in the same commit, so a closure over the old formData would still see the
   // previous machine's ring number and skip, leaving the form blank after every machine switch.
+  // Not into a forgotten ring's form: records arriving before its ring number is typed would fill in
+  // the open ring. `lateRing` is a dependency so that leaving that form runs this again.
   useEffect(() => {
+    if (lateRing) return;
     if (segmentRecords.length > 0) {
       const map = new Map();
       segmentRecords.forEach(rec => map.set(rec.ringNo, rec));
@@ -81,7 +90,17 @@ const SegmentRecordView = ({ projectInfo, handleProjectInfoChange, segmentRecord
         }));
       }
     }
-  }, [segmentRecords, projectInfo.shift, machine]);
+  }, [segmentRecords, projectInfo.shift, machine, lateRing]);
+
+  const startLateRing = () => {
+    setLateRing(true);
+    setFormData({ ...blankRing(projectInfo.shift), date: "", shift: projectInfo.shift });
+  };
+  // blank, so the prefill (which only fills an empty form) puts the open ring back from the records
+  const leaveLateRing = () => {
+    setLateRing(false);
+    setFormData(blankRing(projectInfo.shift));
+  };
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
@@ -103,7 +122,8 @@ const SegmentRecordView = ({ projectInfo, handleProjectInfoChange, segmentRecord
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!formData.ringNo) return;
+    // a forgotten ring has no Working Date to fall back on — that is today's, and the ring is not
+    if (!formData.ringNo || (lateRing && !formData.date)) return;
     setIsSaving(true);
     const machineAtSave = machine;
     const cleanRingNo = String(formData.ringNo).trim().toUpperCase();
@@ -147,6 +167,9 @@ const SegmentRecordView = ({ projectInfo, handleProjectInfoChange, segmentRecord
       // Save an update against a row that machine's sheet has never had: GAS finds no match, the
       // local map matches nothing, and the ring is lost with no error shown.
       if (!stillOnMachine(machineAtSave)) { setIsSaving(false); return; }
+      // not on to the ring after a forgotten one — back to the ring the crew is actually on. A partial
+      // one stays, like any open ring, so completing it updates its row instead of creating another.
+      if (lateRing && recordData.status === "Completed") { leaveLateRing(); setIsSaving(false); return; }
       setFormData((prev) => {
         const isCompleted = prev.status === "Completed";
         return {
@@ -156,7 +179,17 @@ const SegmentRecordView = ({ projectInfo, handleProjectInfoChange, segmentRecord
           excavShift: projectInfo.shift, installShift: projectInfo.shift
         };
       });
-    } catch (err) { alert(err.code === "SYNC_REIDENTIFIED_RECORD" || err.code === "SYNC_AMBIGUOUS_RECORD" ? err.message : "บันทึกข้อมูลไม่สำเร็จ: " + err.message); }
+    } catch (err) {
+      // The envelope's own wording ("delete this record and record it again") is right for a mistyped
+      // ring and wrong for the commoner case — the crew typing a forgotten ring over the open one,
+      // where following it deletes the ring they are working on.
+      if (err.code === "SYNC_REIDENTIFIED_RECORD") {
+        const open = (segmentRecords.find(row => row.id === formData.id) || {}).ringNo || "เดิม";
+        alert(`ฟอร์มนี้เปิดริง ${open} ที่บันทึกไว้แล้ว — เปลี่ยนเลขริงของรายการนี้ไม่ได้\n• จะบันทึกริงอื่น เช่น ริงที่ลืมกรอก: กดปุ่ม "กรอกย้อนหลัง" แล้วกรอกริงนั้นใหม่ (ริง ${open} ไม่ถูกแตะ)\n• ถ้าเลขริง ${open} พิมพ์ผิดจริง: ลบรายการนั้นที่ Data Log แล้วบันทึกใหม่`);
+      } else {
+        alert(err.code === "SYNC_AMBIGUOUS_RECORD" ? err.message : "บันทึกข้อมูลไม่สำเร็จ: " + err.message);
+      }
+    }
     setIsSaving(false);
   };
 
@@ -186,17 +219,32 @@ const SegmentRecordView = ({ projectInfo, handleProjectInfoChange, segmentRecord
         </div>
 
         <div className="p-6 space-y-6 bg-surface-page">
-          {/* Row 1: Date & Shift */}
+          {/* Forgotten ring — its own blank form; the open ring is left alone */}
+          {lateRing ? (
+            <div className="bg-code-c/10 border border-code-c/30 rounded-input p-3 flex items-start gap-2">
+              <AlertTriangle size={16} className="text-code-c mt-0.5 shrink-0" />
+              <p className="flex-1 text-xs font-semibold text-code-c">กำลังกรอกย้อนหลัง — ริงที่ค้างอยู่ไม่ถูกแตะ · ใส่วันที่ เวลา และ CH ของริงนี้เองทุกช่อง</p>
+              <button type="button" onClick={leaveLateRing} disabled={isSaving} className="text-xs font-semibold text-code-c underline shrink-0">ยกเลิก</button>
+            </div>
+          ) : (
+            <div className="flex justify-end">
+              <button type="button" onClick={startLateRing} className="flex items-center gap-1.5 text-xs font-semibold text-navy bg-surface border border-input rounded-input px-3 py-1.5 shadow-card hover:bg-surface-alt transition-colors">
+                <History size={14} /> กรอกย้อนหลัง
+              </button>
+            </div>
+          )}
+
+          {/* Row 1: Date & Shift — a forgotten ring's own, so the Working Date never moves */}
           <div className="grid grid-cols-2 gap-4">
             <div className="bg-surface border border-input p-3 rounded-input shadow-card">
-              <label className="text-[9px] font-semibold text-ink-3 uppercase tracking-widest block mb-1">Working Date</label>
+              <label className="text-[9px] font-semibold text-ink-3 uppercase tracking-widest block mb-1">{lateRing ? "วันที่ของริงนี้" : "Working Date"}</label>
               <div className="flex items-center justify-between">
-                <input type="date" name="date" value={projectInfo.date} onChange={handleProjectInfoChange} className="w-full bg-transparent font-semibold text-ink outline-none text-sm cursor-pointer" />
+                <input type="date" name="date" required={lateRing} value={lateRing ? formData.date : projectInfo.date} onChange={lateRing ? handleInputChange : handleProjectInfoChange} className="w-full bg-transparent font-semibold text-ink outline-none text-sm cursor-pointer" />
               </div>
             </div>
             <div className="bg-surface border border-input p-3 rounded-input shadow-card">
-              <label className="text-[9px] font-semibold text-ink-3 uppercase tracking-widest block mb-1">Working Shift</label>
-              <select name="shift" value={projectInfo.shift} onChange={handleProjectInfoChange} className="w-full bg-transparent font-semibold text-ink outline-none text-sm appearance-none cursor-pointer">
+              <label className="text-[9px] font-semibold text-ink-3 uppercase tracking-widest block mb-1">{lateRing ? "กะของริงนี้" : "Working Shift"}</label>
+              <select name="shift" value={lateRing ? formData.shift : projectInfo.shift} onChange={lateRing ? handleInputChange : handleProjectInfoChange} className="w-full bg-transparent font-semibold text-ink outline-none text-sm appearance-none cursor-pointer">
                 <option value="Day">☀️ Day Shift</option>
                 <option value="Night">🌙 Night Shift</option>
               </select>

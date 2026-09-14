@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from "react"
 import { Loader2, AlertCircle, Activity, Clock } from "lucide-react";
 
 import { formatDisplayDate, formatDisplayTime } from "./utils/formatters";
-import { offsetRingNo, getRingNumeric } from "./utils/helpers";
+import { offsetRingNo, getRingNumeric, inRingOrder } from "./utils/helpers";
 
 import OverviewView from "./components/views/OverviewView";
 import GroutRecordView from "./components/views/GroutRecordView";
@@ -333,7 +333,9 @@ const PrimaryGroutApp = () => {
   const activeMachineRef = useRef(activeMachine);
   activeMachineRef.current = activeMachine;
   const isCurrentMachine = useCallback((m) => activeMachineRef.current === m, []);
-  const activeSegments     = rowsReady ? segmentRecords : EMPTY_ROWS;
+  // In ring order, here and only here: every view reads the last row as the latest ring, and a ring
+  // recorded late is appended below rings it comes before (see `inRingOrder`).
+  const activeSegments     = useMemo(() => (rowsReady ? inRingOrder(segmentRecords) : EMPTY_ROWS), [rowsReady, segmentRecords]);
   const currentRingNum = activeSegments.reduce((mx, s) => Math.max(mx, getRingNumeric(s.ringNo) || 0), 0);
   const activeGrouts       = rowsReady ? groutRecords : EMPTY_ROWS;
   const activeSecondaryGrouts = rowsReady ? secondaryGroutRecords : EMPTY_ROWS;

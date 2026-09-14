@@ -47,6 +47,21 @@ export const getRingByOffsetFromHistory = (baseRingNo, offset, history) => {
   return offsetRingNo(baseRingNo, offset);
 };
 
+// The sheet appends, so a ring recorded late sits below rings it comes before — and the forms, the
+// header and the grout form read the LAST row as the latest ring (TBM2 2026-09-14: P1 recorded
+// after P5, the form offered P2 next with P1's chainage). Permanent rings go by number. Everything
+// else — temporary rings — keeps sheet order ahead of them: TBM1 counted T7 down to T1 before P1, so
+// the sheet is the only order a temporary ring has. The sort is stable, so rows of one ring stay in
+// the order the dedupe expects.
+const PERMANENT_RING = /^P(\d+)$/;
+export const inRingOrder = (rows) => {
+  const permanentNumber = (row) => {
+    const match = String(row && row.ringNo != null ? row.ringNo : "").trim().toUpperCase().match(PERMANENT_RING);
+    return match ? parseInt(match[1], 10) : -1;
+  };
+  return [...rows].sort((a, b) => permanentNumber(a) - permanentNumber(b));
+};
+
 export const getRingNumeric = (ringStr) => {
   if (!ringStr) return 0;
   const match = String(ringStr).match(/\d+/);

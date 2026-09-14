@@ -451,6 +451,27 @@ async function saveRingOnSegmentForm(app, ring) {
   });
 }
 
+test("a ring recorded late is not the ring the form carries on from", async () => {
+  // TBM2 2026-09-14: P1 was forgotten and recorded after P5. The sheet appends, so P1 is the last
+  // row — and the record form, the header and the grout form all read the last row as the latest
+  // ring: the next ring offered was P2, with its chainage carried on from P1.
+  const segments = ["P2", "P3", "P4", "P5", "P1"].map((ringNo, i) => ({
+    id: `seg_${i}`, ringNo, machine: "TBM1", installType: "Permanent", status: "Completed", length: 1.4,
+  }));
+  const repository = makeRepository({
+    load: async machine => ({ data: cached(machine, { segments }), source: "indexeddb", fetchedAt: "x", stale: true }),
+    refresh: async machine => ({ data: snapshot(machine, { segments }), source: "server", fetchedAt: "2026-09-14T00:00:00.000Z", stale: false }),
+  });
+  const app = renderApp(repository);
+  await act(async () => {});
+  const nav = label => [...app.container.querySelectorAll("button")].find(b => label.test(b.textContent));
+  await act(async () => { nav(/Record · Segment/i).dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+
+  expect(app.text()).toContain("Last: P5");
+  expect(app.container.querySelector('[name="ringNo"]').value).toBe("P6");
+  app.unmount();
+});
+
 test("an issue the server refuses to close goes back to open on screen", async () => {
   // Issues, daily reports, instruments, readings and schedules change their own state BEFORE the
   // write goes out — `applyOptimisticRecord` deliberately leaves them alone. Under write-through a

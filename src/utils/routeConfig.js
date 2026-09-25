@@ -5,7 +5,8 @@
 import { drilledMetersFromRecords } from "./alignmentGeo";
 
 export const PROJECT_TOTAL_M = 13600;
-// ค่าละเอียด (ปัดตอนแสดง); TBM1 = ค่าเดิมทั้งแอพ; TBM2 seed รอผู้ใช้ยืนยัน
+// ค่าละเอียด (ปัดตอนแสดง); TBM1 = ค่าเดิมทั้งแอพ; TBM2 ผู้ใช้ยืนยัน 4,726 (2026-09-25) — ยังไม่มีเลขระดับ มม. แบบ TBM1
+// ตัวหาร % ผลงาน + เป้าจำนวนริง ของเครื่องนั้น (Stats Report, Segment Trend, ตารางระยะทาง)
 export const ROUTE_TOTAL = { TBM1: 8874.683, TBM2: 4726 };
 export const ROUTE_NAME = {
   TBM1: "TBM1 จากรัชดา → บางบัว",

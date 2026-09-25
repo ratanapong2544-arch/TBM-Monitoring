@@ -7,6 +7,7 @@ import { formatDisplayDate, formatDisplayTime } from "../../utils/formatters";
 import { getRingNumeric } from "../../utils/helpers";
 import { PROJECT_DEADLINE } from "../../utils/constants";
 import { computePaceStats } from "../../utils/paceStats";
+import { ROUTE_TOTAL } from "../../utils/routeConfig";
 import { chartColors, axisTick, tooltipStyle } from "../../ui-ux-pro-max/chartTheme";
 import {
   ResponsiveContainer, ComposedChart, CartesianGrid, XAxis, YAxis, Tooltip, Bar, Line, LabelList
@@ -76,8 +77,9 @@ export default function SegmentAnalysisView({ segmentRecords = [], projectInfo, 
 
   const paceStats = useMemo(() => {
     const today = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Bangkok" });
-    return computePaceStats({ segmentRecords, today, filterStart, filterEnd });
-  }, [segmentRecords, filterStart, filterEnd]);
+    // the ring target is this machine's route — left to the default it was TBM1's for every machine
+    return computePaceStats({ segmentRecords, today, filterStart, filterEnd, totalRouteDistance: ROUTE_TOTAL[machine] || 0 });
+  }, [segmentRecords, filterStart, filterEnd, machine]);
 
   const windowLabel = segFilterMode === "all" ? "ทั้งโครงการ"
     : segFilterMode === "daily" ? "วันที่เลือก"

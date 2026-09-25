@@ -3,12 +3,14 @@ import { Sparkles, X, Check, Copy, Download, Printer, Loader2, FileSpreadsheet }
 import { formatDisplayDate, formatDisplayTime, formatThaiBuddhistDate, formatThaiBuddhistDateForFile } from "../../utils/formatters";
 import { getLogicalShiftDate, getRingNumeric, calculateSoilVolume, loadHtml2Canvas } from "../../utils/helpers";
 import { generateGeminiSummary } from "../../utils/api";
-import { TOTAL_ROUTE_DISTANCE } from "../../utils/constants";
+import { ROUTE_TOTAL } from "../../utils/routeConfig";
 import { composeExcavationWorkLog, mapManpowerToLabor } from "../../utils/worklogCompose";
 import { newDailyReport, MACHINES } from "../../utils/dailyReports";
 import { fitAndPrint } from "../../utils/printFit";
 
-const ReportView = ({ segmentRecords, groutRecords, projectInfo, shiftReports, onCreateDaily }) => {
+const ReportView = ({ segmentRecords, groutRecords, projectInfo, shiftReports, onCreateDaily, machine = "TBM1" }) => {
+  // % complete is over the route of the machine these rings belong to — TBM2 is not TBM1's 8,874.683 m
+  const routeTotal = ROUTE_TOTAL[machine] || 0;
   const [reportType, setReportType] = useState("daily");
   const [reportDate, setReportDate] = useState(new Date().toISOString().split("T")[0]);
   const [reportMonth, setReportMonth] = useState(new Date().toISOString().slice(0, 7));
@@ -157,7 +159,7 @@ const ReportView = ({ segmentRecords, groutRecords, projectInfo, shiftReports, o
     const sortedPerm = [...permAccum].sort((a, b) => getRingNumeric(a.ringNo) - getRingNumeric(b.ringNo));
     const latestPermRing = sortedPerm.length > 0 ? String(sortedPerm[sortedPerm.length - 1].ringNo) : "-";
     const totalAccumDist = permAccum.reduce((sum, s) => sum + parseFloat(s.length || 0), 0);
-    const progressPercent = TOTAL_ROUTE_DISTANCE > 0 ? (totalAccumDist / TOTAL_ROUTE_DISTANCE) * 100 : 0;
+    const progressPercent = routeTotal > 0 ? (totalAccumDist / routeTotal) * 100 : 0;
     return {
       latestPermRing,
       permRings: permAccum.length,
@@ -166,7 +168,7 @@ const ReportView = ({ segmentRecords, groutRecords, projectInfo, shiftReports, o
       totalAccumDist: Number(totalAccumDist || 0).toFixed(3),
       progressPercent: Number(progressPercent || 0).toFixed(2),
     };
-  }, [deduplicatedSegments, reportType, reportDate, reportMonth]);
+  }, [deduplicatedSegments, reportType, reportDate, reportMonth, routeTotal]);
 
   const displayDateStr = reportType === "daily"
     ? formatThaiBuddhistDate(reportDate)
@@ -342,7 +344,7 @@ ${body}`;
           <div className="bg-surface-alt p-4 sm:p-6 rounded-card border border-line shadow-card">
             <div className="text-[10px] sm:text-xs uppercase font-semibold text-ink-3 tracking-wider mb-2">% ผลงานแล้วเสร็จ</div>
             <div className="text-2xl sm:text-3xl font-semibold text-cyan-med font-mono">{accumulation.progressPercent} <span className="text-xs sm:text-sm font-semibold ml-1">%</span></div>
-            <div className="text-[10px] sm:text-xs font-semibold text-ink-3 mt-2 bg-surface px-2 py-1 rounded-badge inline-block">จากระยะรวม {TOTAL_ROUTE_DISTANCE.toLocaleString()} ม.</div>
+            <div className="text-[10px] sm:text-xs font-semibold text-ink-3 mt-2 bg-surface px-2 py-1 rounded-badge inline-block">จากระยะรวม {routeTotal.toLocaleString()} ม.</div>
           </div>
         </div>
 

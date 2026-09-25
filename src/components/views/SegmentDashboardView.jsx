@@ -437,6 +437,7 @@ const SegmentDashboardView = ({ segmentRecords, machine = "TBM1", onMutate, sync
                           <option value="B2">B2</option>
                           <option value="A">A</option>
                           <option value="K">K</option>
+                          <option value="SX">SX</option>
                         </select>
                       ) : (
                         <span className="bg-surface-alt px-3 py-1 rounded-input text-sm font-semibold text-ink-2 border border-line">{String(selectedRecord.typeRing)}</span>

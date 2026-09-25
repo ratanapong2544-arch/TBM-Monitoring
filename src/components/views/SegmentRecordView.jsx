@@ -357,6 +357,7 @@ const SegmentRecordView = ({ projectInfo, handleProjectInfoChange, segmentRecord
                   <option value="B2">B2</option>
                   <option value="A">A</option>
                   <option value="K">K</option>
+                  <option value="SX">SX</option>
                 </select>
               </div>
             </div>

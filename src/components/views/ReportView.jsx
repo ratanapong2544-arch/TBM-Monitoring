@@ -225,6 +225,7 @@ const ReportView = ({ segmentRecords, groutRecords, projectInfo, shiftReports, o
     const body = composeExcavationWorkLog({
       filteredSegments, filteredGrouts, filteredShiftReports,
       summary, accumulation, projectInfo, reportShift,
+      machine, allSegments: deduplicatedSegments,
     });
 
     const promptText = `รายงานประจำวันที่ ${displayDateStr} ${reportShift} Shift
@@ -255,6 +256,7 @@ ${body}`;
       workLogText: composeExcavationWorkLog({
         filteredSegments, filteredGrouts, filteredShiftReports,
         summary, accumulation, projectInfo, reportShift,
+        machine, allSegments: deduplicatedSegments,
       }),
       labor: { ...base.labor, ...mapManpowerToLabor(filteredShiftReports) },
     };

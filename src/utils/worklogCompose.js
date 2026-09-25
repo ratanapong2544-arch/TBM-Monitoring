@@ -1,6 +1,6 @@
 // SP4: ประกอบ work-log text (งานขุดเจาะ) จากข้อมูล dashboard แบบ deterministic
 // pure function — รับค่าที่ ReportView คำนวณไว้แล้ว (single source of truth, ไม่มี AI)
-import { getRingNumeric } from "./helpers";
+import { getRingNumeric, inRingOrder } from "./helpers";
 import { parseCH } from "./formatters";
 import { CH_EXCAV_START } from "./constants";
 
@@ -35,6 +35,15 @@ function collectDelays(filteredShiftReports, allRemarks) {
   return combined.length > 0 ? "-" + combined.join("\n-") : "-ไม่มี";
 }
 
+// ระยะสะสมจากความยาวริง = Σ length ริง Permanent ตั้งแต่ริงแรกถึง ringNo (ริงที่ยัง In Progress นับด้วย)
+function ringLengthTo(segments, ringNo) {
+  const ordered = inRingOrder(segments);
+  return ordered.slice(0, ordered.findIndex((s) => s.ringNo === ringNo) + 1)
+    .filter((s) => s.installType !== "Temporary")
+    .reduce((sum, s) => sum + (parseFloat(s.length) || 0), 0)
+    .toFixed(3);
+}
+
 // คืน "body" ของรายงาน (หัวข้อ 1–8) — ตรงกับ dr-helper workLogText (ไม่มี header/วันที่/อากาศ)
 export function composeExcavationWorkLog({
   filteredSegments = [],
@@ -44,6 +53,8 @@ export function composeExcavationWorkLog({
   accumulation = {},
   projectInfo = {},
   reportShift = "All",
+  machine = "TBM1",
+  allSegments = [],   // ทุกริงของเครื่อง (dedupe แล้ว) — TBM2 รวมระยะจากริงแรก
 }) {
   const tbmNo = projectInfo.tbmNo || "TBM";
 
@@ -60,6 +71,13 @@ export function composeExcavationWorkLog({
   const excavRings = ringRange(excavatedInShift);
   const finishCH = excavatedInShift.length > 0 ? excavatedInShift[excavatedInShift.length - 1].finishCH : "-";
   const calculatedExcavateDist = finishCH !== "-" ? (CH_EXCAV_START - parseCH(finishCH)).toFixed(3) : "0.000";
+  const lastRingNo = excavatedInShift.length > 0 ? excavatedInShift[excavatedInShift.length - 1].ringNo : "-";
+  // TBM1 นับจาก CH เริ่มขุดของตัวเอง (CH ลดลง) · TBM2 CH ในชีตยังไม่ใช่ CH สำรวจ (P1/P2 ว่าง, P3 prefill
+  // จาก 0+000.00 แล้วลดลง) ⇒ ใช้ระยะจากความยาวริง = เลขเดียวกับ Stats Report — ผู้ใช้เลือก 2026-09-25
+  // ponytail: นับแค่ความยาวริง — เมื่อ CH ริง TBM2 เป็นค่าสำรวจ เปลี่ยนเป็นผลต่าง CH (เริ่ม 8+830.488, CH เพิ่มขึ้น)
+  const excavLine = machine === "TBM2"
+    ? `-เริ่มต้น รัชดา ขุดเจาะถึง Ring ${lastRingNo} = ${ringLengthTo(allSegments, lastRingNo)} m`
+    : `-เริ่มต้น CH 8+830.488 (Center Shaft IS4) ขุดเจาะถึง CH ${finishCH} = ${calculatedExcavateDist} m`;
 
   const sortedGrouts = [...filteredGrouts].sort((a, b) => getRingNumeric(a.ringNo) - getRingNumeric(b.ringNo));
   const groutDetails = sortedGrouts.map((g) => `${g.ringNo} = ${Number(g.total || 0).toFixed(3)} m3 (${Number(g.ratio || 0).toFixed(2)}%)`).join(", ") || "-";
@@ -70,7 +88,7 @@ export function composeExcavationWorkLog({
   const delaysText = collectDelays(filteredShiftReports, summary.allRemarks);
 
   return `1. ${tbmNo}
--เริ่มต้น CH 8+830.488 (Center Shaft IS4) ขุดเจาะถึง CH ${finishCH} = ${calculatedExcavateDist} m
+${excavLine}
 -ขุดเจาะ ${excavRings} แล้วเสร็จ
 
 2.งานติดตั้งผนังอุโมงค์ (Segment)

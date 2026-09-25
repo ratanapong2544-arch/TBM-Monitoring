@@ -60,6 +60,41 @@ test("empty data → placeholders and -ไม่มี", () => {
   expect(txt).toMatch(/8\. Delay Activities\n-ไม่มี/);
 });
 
+// TBM2 ตามชีต 2026-09-25: P3 = ริงเหล็ก 0.90 ม. · CH ไม่ใช่ CH สำรวจ (P1/P2 ว่าง, P3 prefill จาก 0+000.00
+// แล้วลด 1.40 ทุกริง, P9 พิมพ์ผิด) — TBM2 จริงเริ่ม 8+830.488 และ CH เพิ่มขึ้น (ผู้ใช้ยืนยัน)
+// บรรทัดของ TBM1 จึงได้ "ถึง CH -0+023.80 = 8854.288 m" · 17/09 ได้ 17686.658 m
+const TBM2_RINGS = Array.from({ length: 19 }, (_, i) => ({
+  ringNo: `P${i + 1}`, keyPos: "7", length: i === 2 ? "0.9" : "1.4",
+  status: "Completed", installType: "Permanent", shift: "Day", finishCH: "",
+}));
+TBM2_RINGS[8].finishCH = "-8+856.17";   // P9 ตามชีต
+TBM2_RINGS[18].finishCH = "-0+023.80";  // P19
+
+const tbm2 = (filteredSegments, allSegments = TBM2_RINGS) => composeExcavationWorkLog({
+  filteredSegments, allSegments, machine: "TBM2", projectInfo: { tbmNo: "TBM2", location: "L" },
+});
+
+test("TBM2: section 1 = distance from ring lengths, not TBM1's chainage", () => {
+  const txt = tbm2([TBM2_RINGS[18]]);                                      // 21/09 ขุด P19
+  expect(txt).toContain("-เริ่มต้น รัชดา ขุดเจาะถึง Ring P19 = 26.100 m");  // 18 × 1.40 + 0.90
+  expect(txt).not.toContain("8+830.488");
+});
+
+test("TBM2: a past day counts up to its own last ring, whatever its CH says", () => {
+  const txt = tbm2([TBM2_RINGS[7], TBM2_RINGS[8]]);                        // 17/09 ขุด P8, P9
+  expect(txt).toContain("ขุดเจาะถึง Ring P9 = 12.100 m");                  // 8 × 1.40 + 0.90
+});
+
+test("TBM2: counts Permanent rings — one still In Progress yes, a Temporary one no", () => {
+  const t8 = { ringNo: "T8", length: "1.4", status: "Completed", installType: "Temporary", shift: "Day" };
+  const p20 = { ringNo: "P20", length: "1.4", status: "In Progress", installType: "Permanent", shift: "Day" };
+  expect(tbm2([p20], [t8, ...TBM2_RINGS, p20])).toContain("ขุดเจาะถึง Ring P20 = 27.500 m");
+});
+
+test("TBM2: nothing excavated → Ring - = 0.000 m", () => {
+  expect(tbm2([])).toContain("-เริ่มต้น รัชดา ขุดเจาะถึง Ring - = 0.000 m");
+});
+
 import { mapManpowerToLabor } from "./worklogCompose";
 
 test("maps manpower keys to labor keys (max per key across reports)", () => {

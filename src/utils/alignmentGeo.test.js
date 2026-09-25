@@ -8,7 +8,7 @@ import {
 } from "./constants";
 
 // ระยะสะสมจาก launch (IS4) ตาม constants.js → map id → ระยะสะสม
-const CUM = Object.fromEntries(ROUTE_SEGMENTS.map((s) => [s.id, s.distance]));
+const CUM = Object.fromEntries(ROUTE_SEGMENTS.TBM1.map((s) => [s.id, s.distance]));
 const chOf = (id) => SHAFTS.find((s) => s.id === id).ch;
 
 test("CH_EXCAV_START / TOTAL_ROUTE_DISTANCE ตรงกับ constants.js (คอมเมนต์อ้างไว้ แต่ไม่มีอะไรบังคับ)", () => {

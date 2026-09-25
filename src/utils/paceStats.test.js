@@ -85,3 +85,14 @@ test("เรทเร็วพอ: behind=false, เสร็จก่อนก�
   expect(r.finishWindow <= "2027-06-29").toBe(true);
   expect(r.deltaWindowDays).toBeLessThan(0);
 });
+
+test("ไม่มีกำหนดเสร็จ (TBM2): ไม่คำนวณเรทที่ต้องเร่ง/ส่วนต่างกำหนด และไม่ถือว่าช้า", () => {
+  const r = computePaceStats({ ...BASE, segmentRecords: RECORDS, today: "2026-06-29", deadline: null });
+  expect(r.daysLeft).toBeNull();
+  expect(r.requiredRate).toBeNull();
+  expect(r.finishWindow).not.toBeNull();   // ยังทายวันเสร็จจากเรทได้
+  expect(r.deltaWindowDays).toBeNull();
+  expect(r.behind).toBe(false);
+  // ยังไม่มีงานเลยก็ไม่ใช่ "ช้า" — ไม่มีกำหนดให้ช้ากว่า
+  expect(computePaceStats({ ...BASE, segmentRecords: [], today: "2026-06-29", deadline: null }).behind).toBe(false);
+});

@@ -75,11 +75,13 @@ export default function SegmentAnalysisView({ segmentRecords = [], projectInfo, 
     return { filterStart: null, filterEnd: null }; // all
   }, [segFilterMode, segFilterDate, segFilterMonth, segRangeStart, segRangeEnd]);
 
+  // this machine's deadline — TBM2 has none yet, and TBM1's is not TBM2's
+  const deadline = PROJECT_DEADLINE[machine] || null;
   const paceStats = useMemo(() => {
     const today = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Bangkok" });
     // the ring target is this machine's route — left to the default it was TBM1's for every machine
-    return computePaceStats({ segmentRecords, today, filterStart, filterEnd, totalRouteDistance: ROUTE_TOTAL[machine] || 0 });
-  }, [segmentRecords, filterStart, filterEnd, machine]);
+    return computePaceStats({ segmentRecords, today, filterStart, filterEnd, totalRouteDistance: ROUTE_TOTAL[machine] || 0, deadline });
+  }, [segmentRecords, filterStart, filterEnd, machine, deadline]);
 
   const windowLabel = segFilterMode === "all" ? "ทั้งโครงการ"
     : segFilterMode === "daily" ? "วันที่เลือก"
@@ -315,19 +317,22 @@ export default function SegmentAnalysisView({ segmentRecords = [], projectInfo, 
         const p = paceStats;
         const donePct = p.targetRings > 0 ? Math.round((p.doneRings / p.targetRings) * 100) : 0;
         const ok = !p.behind;
-        const tone = ok ? "text-sgreen-dark" : "text-code-d";
+        // no deadline → nothing to be on time for: neutral, not the green that reads "ทันกำหนด"
+        const pick = (onTime, late, neutral) => (!deadline ? neutral : ok ? onTime : late);
+        const tone = pick("text-sgreen-dark", "text-code-d", "text-navy");
         const statusText = !p.finishWindow
           ? "ยังประเมินไม่ได้ — ไม่มีงานในช่วงที่เลือก"
+          : !deadline ? "ยังไม่มีกำหนดเสร็จ"
           : p.behind ? `${fmtDelta(p.deltaWindowDays)} · ต้องเร่ง`
           : `คาดเสร็จทันกำหนด · ${fmtDelta(p.deltaWindowDays)}`;
         return (
-          <div className={`bg-surface rounded-card border shadow-card overflow-hidden ${ok ? "border-sgreen-med/30" : "border-code-d/30"}`}>
+          <div className={`bg-surface rounded-card border shadow-card overflow-hidden ${pick("border-sgreen-med/30", "border-code-d/30", "border-line")}`}>
             {/* header: status pill + deadline */}
             <div className="flex items-center justify-between gap-3 flex-wrap px-5 py-3.5">
-              <span className={`inline-flex items-center gap-2 text-[13px] font-bold px-3 py-1 rounded-full ${ok ? "bg-sgreen-med/10 text-sgreen-dark" : "bg-code-d/10 text-code-d"}`}>
+              <span className={`inline-flex items-center gap-2 text-[13px] font-bold px-3 py-1 rounded-full ${pick("bg-sgreen-med/10 text-sgreen-dark", "bg-code-d/10 text-code-d", "bg-surface-alt text-ink-2")}`}>
                 <TrendingUp size={15} /> {statusText}
               </span>
-              <span className="text-[13px] text-ink-2 font-semibold">กำหนดเสร็จ <span className="text-ink font-bold">{beShort(PROJECT_DEADLINE)}</span></span>
+              <span className="text-[13px] text-ink-2 font-semibold">กำหนดเสร็จ <span className="text-ink font-bold">{beShort(deadline)}</span></span>
             </div>
             {/* progress bar */}
             <div className="px-5 pb-4">
@@ -339,17 +344,17 @@ export default function SegmentAnalysisView({ segmentRecords = [], projectInfo, 
               <div className="px-5 py-3.5">
                 <div className="text-[11px] font-bold text-ink-3 uppercase tracking-wide">ต้องเร่งเป็น</div>
                 <div className="text-[28px] leading-none font-bold text-navy font-mono mt-1.5">{p.requiredRate !== null ? p.requiredRate.toFixed(1) : "—"}</div>
-                <div className="text-xs font-semibold text-ink-2 mt-1.5">ริง/วัน · ให้ทันกำหนด</div>
+                <div className="text-xs font-semibold text-ink-2 mt-1.5">{deadline ? "ริง/วัน · ให้ทันกำหนด" : "ยังไม่มีกำหนดเสร็จ"}</div>
               </div>
               <div className="px-5 py-3.5">
                 <div className="text-[11px] font-bold text-ink-3 uppercase tracking-wide">เรทช่วงที่เลือก</div>
                 <div className="text-[28px] leading-none font-bold text-navy font-mono mt-1.5">{p.workingRate.toFixed(1)}</div>
                 <div className="text-xs font-semibold text-ink-2 mt-1.5">ริง/วันทำงาน · {windowLabel}</div>
               </div>
-              <div className={`px-5 py-3.5 ${ok ? "bg-sgreen-med/5" : "bg-code-d/5"}`}>
+              <div className={`px-5 py-3.5 ${pick("bg-sgreen-med/5", "bg-code-d/5", "")}`}>
                 <div className={`text-[11px] font-bold uppercase tracking-wide ${tone}`}>คาดเสร็จ</div>
                 <div className={`text-[28px] leading-none font-bold font-mono mt-1.5 ${tone}`}>{p.finishWindow ? beShort(p.finishWindow) : "—"}</div>
-                <div className={`text-xs font-semibold mt-1.5 ${tone}`}>{p.finishWindow ? fmtDelta(p.deltaWindowDays) : "ยังประเมินไม่ได้"}</div>
+                <div className={`text-xs font-semibold mt-1.5 ${tone}`}>{p.finishWindow ? (deadline ? fmtDelta(p.deltaWindowDays) : "ตามเรทช่วงที่เลือก") : "ยังประเมินไม่ได้"}</div>
               </div>
             </div>
           </div>

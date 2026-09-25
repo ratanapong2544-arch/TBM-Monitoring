@@ -6,8 +6,9 @@ import ImageSlideshow from "../dashboard/ImageSlideshow";
 import { filterByState } from "../../hooks/useGlobalFilter";
 import { formatDisplayDate } from "../../utils/formatters";
 import { getRingNumeric, calculateSoilVolume } from "../../utils/helpers";
-import { TOTAL_ROUTE_DISTANCE, drivePhotosFolder } from "../../utils/constants";
+import { drivePhotosFolder } from "../../utils/constants";
 import { distancePlanFor, plannedDistanceToNow, currentMonthBKK } from "../../utils/planConfig";
+import { ROUTE_TOTAL } from "../../utils/routeConfig";
 import { chartColors, tooltipStyle } from "../../ui-ux-pro-max/chartTheme";
 import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip } from "recharts";
 import ExecutiveEmptyState from "./ExecutiveEmptyState";
@@ -108,7 +109,7 @@ const ExecutiveDashboardView = ({ segmentRecords, groutRecords, dailyReports = [
   const planVariance = useMemo(() => {
     const cfg = distancePlanFor(distPlanConfig);
     if (!cfg.ranges || cfg.ranges.length === 0) return null;
-    const planAcc = plannedDistanceToNow(cfg, { asOfMonth: currentMonthBKK(), totalRouteDistance: machine === "TBM1" ? TOTAL_ROUTE_DISTANCE : 0 });
+    const planAcc = plannedDistanceToNow(cfg, { asOfMonth: currentMonthBKK(), totalRouteDistance: ROUTE_TOTAL[machine] || 0 });
     if (planAcc <= 0) return null;
     const actual = overallStats.totalDistance;
     return { planToNow: planAcc, variance: actual - planAcc, behind: actual - planAcc < 0 };

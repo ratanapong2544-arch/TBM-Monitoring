@@ -4,6 +4,7 @@ import {
   validateLeg, validateRouteConfig,
   machineActualMeters, routeRows, pct,
 } from "./routeConfig";
+import { ROUTE_SEGMENTS } from "./constants";
 
 beforeEach(() => localStorage.clear());
 
@@ -75,4 +76,12 @@ test("pct: clamp 0..100; TBM1 10.16%, รวม 6.63%", () => {
   expect(pct(901.5, PROJECT_TOTAL_M)).toBeCloseTo(6.63, 1);
   expect(pct(20000, PROJECT_TOTAL_M)).toBe(100);   // clamp
   expect(pct(0, PROJECT_TOTAL_M)).toBe(0);
+});
+
+test("per-machine stations end at that machine's route total — TBM2 runs IS4 → PS1 (user 2026-09-25)", () => {
+  for (const m of ["TBM1", "TBM2"]) {
+    expect(ROUTE_SEGMENTS[m][0].distance).toBe(0);
+    expect(ROUTE_SEGMENTS[m][ROUTE_SEGMENTS[m].length - 1].distance).toBeCloseTo(ROUTE_TOTAL[m], 3);
+  }
+  expect(ROUTE_SEGMENTS.TBM2.map((s) => s.label)).toEqual(["IS4", "PS1"]);
 });

@@ -5,7 +5,7 @@ import {
 import { filterByState } from "../../hooks/useGlobalFilter";
 import { formatDisplayDate } from "../../utils/formatters";
 import { getRingNumeric } from "../../utils/helpers";
-import { TOTAL_ROUTE_DISTANCE, ROUTE_SEGMENTS } from "../../utils/constants";
+import { ROUTE_SEGMENTS, PROJECT_DEADLINE } from "../../utils/constants";
 import { distancePlanFor } from "../../utils/planConfig";
 import { routeConfigFor, routeRowsFromBored, machineActualMeters, ROUTE_TOTAL, PROJECT_TOTAL_M, ROUTE_NAME, ROUTE_STATUS, pct, validateRouteConfig } from "../../utils/routeConfig";
 import { chartColors, axisTick, tooltipStyle } from "../../ui-ux-pro-max/chartTheme";
@@ -17,6 +17,14 @@ import { buildMutationEnvelope } from "../../offline/mutationEnvelope";
 
 const RouteScheduleView = ({ segmentRecords = [], projectInfo, machine = "TBM1", machineProgress = null, routeProjectTotal = null, filterState = {}, readOnly = false, onMutate, syncMeta, routeConfigs = null, distPlanConfig: distPlanConfigProp = null }) => {
   const filteredSegments = useMemo(() => filterByState(segmentRecords, filterState), [segmentRecords, filterState]);
+
+  // this machine's route, stations and deadline — TBM2: IS4 → PS1, 4,726 m, no deadline yet
+  const routeTotal = ROUTE_TOTAL[machine] || 0;
+  const routeSegments = ROUTE_SEGMENTS[machine] || [];
+  const deadline = PROJECT_DEADLINE[machine] || null;
+  // distance axis: the route rounded up to 2,500 m — TBM1 keeps 0–10,000, TBM2 gets 0–5,000
+  const yMax = Math.max(2500, Math.ceil(routeTotal / 2500) * 2500);
+  const yTicks = [0, 1, 2, 3, 4].map((i) => (yMax * i) / 4);
 
   // ── Print State ──
   const [printingChartId, setPrintingChartId] = useState("all");
@@ -206,17 +214,17 @@ const RouteScheduleView = ({ segmentRecords = [], projectInfo, machine = "TBM1",
     const nowTH = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Bangkok" }));
     const currentMonth = `${nowTH.getFullYear()}-${String(nowTH.getMonth() + 1).padStart(2, '0')}`;
 
-    // เดือนสุดท้ายของโครงการ: มิ.ย. 2028 (มิ.ย. 71) — กำหนดเสร็จ
-    const projectEndMonth = "2028-06";
+    // เดือนสุดท้ายของกราฟ = เดือนกำหนดเสร็จของเครื่อง (TBM1 มิ.ย. 71) · ยังไม่มีกำหนด (TBM2) ⇒ null
+    const projectEndMonth = deadline ? deadline.slice(0, 7) : null;
 
     let currentActualAcc = 0;
     let currentPlanAcc = 0;
     let currentMonthStr = minMonth;
     const result = [];
 
-    // สร้างข้อมูลจนถึง มิ.ย. 71 (กำหนดเสร็จ)
+    // สร้างข้อมูลจนถึงเดือนกำหนดเสร็จ
     let loopCount = 0;
-    while (currentMonthStr <= projectEndMonth && loopCount < 100) {
+    while ((projectEndMonth == null || currentMonthStr <= projectEndMonth) && loopCount < 100) {
       let mData = monthsMap.get(currentMonthStr);
       let distThisMonth = mData ? mData.distance : 0;
 
@@ -242,7 +250,7 @@ const RouteScheduleView = ({ segmentRecords = [], projectInfo, machine = "TBM1",
         }
       }
       currentPlanAcc += monthPlan;
-      if (currentPlanAcc > TOTAL_ROUTE_DISTANCE) currentPlanAcc = TOTAL_ROUTE_DISTANCE;
+      if (currentPlanAcc > routeTotal) currentPlanAcc = routeTotal;
 
       const [y, mo] = currentMonthStr.split("-");
       const thMonths = ["ม.ค.","ก.พ.","มี.ค.","เม.ย.","พ.ค.","มิ.ย.","ก.ค.","ส.ค.","ก.ย.","ต.ค.","พ.ย.","ธ.ค."];
@@ -261,9 +269,12 @@ const RouteScheduleView = ({ segmentRecords = [], projectInfo, machine = "TBM1",
         isFuture: currentMonthStr > currentMonth
       });
 
-      // หยุดวาดเมื่อแผนถึงปลายทาง (8,874) แล้ว และเลยเดือนปัจจุบัน
+      // หยุดวาดเมื่อแผนถึงปลายทาง (ระยะรวมของเครื่อง) แล้ว และเลยเดือนปัจจุบัน
       // → ไม่ลากเส้นแบนต่อไปจนสุด deadline (จบกราฟที่เดือนขุดเสร็จจริง)
-      if (currentPlanAcc >= TOTAL_ROUTE_DISTANCE - 0.5 && currentMonthStr >= currentMonth) break;
+      if (currentPlanAcc >= routeTotal - 0.5 && currentMonthStr >= currentMonth) break;
+      // ไม่มีกำหนดเสร็จ ⇒ ไม่มีปลายกราฟให้ยึด: จบที่เดือนปัจจุบัน เว้นแต่แผนยังเดินต่อ
+      // ponytail: แผนที่เว้นเดือน (0) หลังเดือนปัจจุบันจะจบกราฟตรงนั้น — ใส่กำหนดเสร็จให้เครื่องเมื่อมี
+      if (projectEndMonth == null && currentMonthStr >= currentMonth && monthPlan === 0) break;
 
       // Next month
       let ny = parseInt(y);
@@ -274,7 +285,7 @@ const RouteScheduleView = ({ segmentRecords = [], projectInfo, machine = "TBM1",
     }
 
     return result;
-  }, [segmentRecords, filteredSegments, distPlanConfig]);
+  }, [segmentRecords, filteredSegments, distPlanConfig, routeTotal, deadline]);
 
   // ระยะสะสมรวม (ทั้งหมด ไม่ filter) สำหรับ TBM position + summary
   const totalActualDistance = useMemo(() => {
@@ -323,11 +334,11 @@ const RouteScheduleView = ({ segmentRecords = [], projectInfo, machine = "TBM1",
 
   // คำนวณตำแหน่ง X (%) ของสถานีบน Route Progress โดยใช้ระยะจริง
   const routeStationPlacements = useMemo(() => {
-    return ROUTE_SEGMENTS.map(seg => {
-      const xPercent = TOTAL_ROUTE_DISTANCE > 0 ? (seg.distance / TOTAL_ROUTE_DISTANCE) * 100 : 0;
+    return routeSegments.map(seg => {
+      const xPercent = routeTotal > 0 ? (seg.distance / routeTotal) * 100 : 0;
       return { ...seg, xPercent: Math.min(100, Math.max(0, xPercent)) };
     });
-  }, []);
+  }, [routeSegments, routeTotal]);
 
   const forecast = useMemo(() => {
     const data = distanceChartData;
@@ -338,7 +349,7 @@ const RouteScheduleView = ({ segmentRecords = [], projectInfo, machine = "TBM1",
     if (firstIdx < 0 || lastIdx < 0) return null;
     const elapsedMonths = Math.max(1, lastIdx - firstIdx + 1);
     const currentRate = totalActualDistance / elapsedMonths; // m/month
-    const remaining = Math.max(0, TOTAL_ROUTE_DISTANCE - totalActualDistance);
+    const remaining = Math.max(0, routeTotal - totalActualDistance);
     const monthsToFinish = currentRate > 0 ? remaining / currentRate : null;
     const [cy, cm] = data[lastIdx].month.split("-").map(Number);
     const curIdx = cy * 12 + (cm - 1);
@@ -346,12 +357,14 @@ const RouteScheduleView = ({ segmentRecords = [], projectInfo, machine = "TBM1",
     const fmtThai = (idx) => `${thMonths[((idx % 12) + 12) % 12]} ${String(Math.floor(idx / 12) + 543).slice(-2)}`;
     const finishIdx = monthsToFinish != null ? curIdx + Math.ceil(monthsToFinish) : null;
     const forecastLabel = finishIdx != null ? fmtThai(finishIdx) : "—";
-    const deadlineIdx = 2028 * 12 + 5; // มิ.ย. 2028 (month index 5)
-    const monthsToDeadline = Math.max(0, deadlineIdx - curIdx);
-    const requiredRate = monthsToDeadline > 0 ? remaining / monthsToDeadline : 0;
-    const onTime = finishIdx != null && finishIdx <= deadlineIdx;
-    return { currentRate, remaining, forecastLabel, requiredRate, onTime };
-  }, [distanceChartData, totalActualDistance]);
+    // เดือนกำหนดเสร็จของเครื่อง (TBM1 มิ.ย. 2028) · ไม่มีกำหนด ⇒ ไม่มีเรทที่ต้องเร่ง/ไม่ตัดสินว่าทันไหม
+    const deadlineIdx = deadline ? Number(deadline.slice(0, 4)) * 12 + Number(deadline.slice(5, 7)) - 1 : null;
+    const monthsToDeadline = deadlineIdx != null ? Math.max(0, deadlineIdx - curIdx) : 0;
+    const requiredRate = deadlineIdx == null ? null : monthsToDeadline > 0 ? remaining / monthsToDeadline : 0;
+    const onTime = deadlineIdx != null && finishIdx != null && finishIdx <= deadlineIdx;
+    const deadlineLabel = deadlineIdx != null ? fmtThai(deadlineIdx) : null;
+    return { currentRate, remaining, forecastLabel, requiredRate, onTime, deadlineLabel };
+  }, [distanceChartData, totalActualDistance, routeTotal, deadline]);
 
   return (
     <div className="max-w-full mx-auto pb-24 animate-fade-in space-y-6 print:pb-0">
@@ -417,8 +430,10 @@ const RouteScheduleView = ({ segmentRecords = [], projectInfo, machine = "TBM1",
               แผนผังสถานะเส้นทางและตำแหน่ง {projectInfo?.tbmNo || "TBM"} ปัจจุบัน
             </h2>
             <div className="text-xs sm:text-sm text-ink-2 mt-2 font-medium tracking-tight space-y-0.5">
+              {machine !== "TBM1" ? <p>{ROUTE_NAME[machine]}</p> : <>
               <p><span className="font-semibold text-ink">เฟส 1 (Main Bore):</span> IS4-1 → IS2 → IS1 TBM เจาะต่อเนื่อง (เฟสปัจจุบัน)</p>
               <p><span className="font-semibold text-ink">เฟส 2 (Extension):</span> IS3 → เจาะเข้าอุโมงค์หลัก — TBM เจาะต่อไป ส่วนเชื่อม IS3 รอก่อสร้างในภายหลัง</p>
+              </>}
             </div>
           </div>
           <div className="text-right mt-4 md:mt-0 flex items-center gap-3">
@@ -483,8 +498,8 @@ const RouteScheduleView = ({ segmentRecords = [], projectInfo, machine = "TBM1",
                   label={{ value: "เดือน/ปี", position: "insideBottomRight", offset: -5, style: { fontSize: 11, fill: chartColors.axisLabel, fontWeight: "bold" } }}
                 />
                 <YAxis
-                  domain={[0, 10000]}
-                  ticks={[0, 2500, 5000, 7500, 10000]}
+                  domain={[0, yMax]}
+                  ticks={yTicks}
                   tick={axisTick}
                   axisLine={{ stroke: chartColors.axis, strokeWidth: 1 }}
                   tickLine={{ stroke: chartColors.axis }}
@@ -500,7 +515,7 @@ const RouteScheduleView = ({ segmentRecords = [], projectInfo, machine = "TBM1",
                   }}
                 />
 
-                {/* เส้น Plan — จบที่เดือนขุดเสร็จ (กำหนด มิ.ย. 71) */}
+                {/* เส้น Plan — จบที่เดือนขุดเสร็จ (กำหนดเสร็จของเครื่อง) */}
                 <Line
                   type="monotone"
                   dataKey="planAcc"
@@ -551,7 +566,7 @@ const RouteScheduleView = ({ segmentRecords = [], projectInfo, machine = "TBM1",
           {/* หัวข้อ + ระยะทางรวม */}
           <div className="flex justify-between items-center mb-3">
             <span className="text-xs font-semibold text-ink-2 uppercase tracking-wider">เปรียบเทียบ ณ เดือนปัจจุบัน</span>
-            <span className="text-[11px] font-semibold text-ink-2">ระยะโครงการ: <span className="text-ink font-mono font-semibold">{TOTAL_ROUTE_DISTANCE.toLocaleString()} ม.</span></span>
+            <span className="text-[11px] font-semibold text-ink-2">ระยะโครงการ: <span className="text-ink font-mono font-semibold">{routeTotal.toLocaleString()} ม.</span></span>
           </div>
 
           <div className="flex flex-col gap-3 relative z-20">
@@ -563,13 +578,13 @@ const RouteScheduleView = ({ segmentRecords = [], projectInfo, machine = "TBM1",
                   <>
                     <div
                       className="h-full bg-navy-dark rounded-input flex items-center justify-end px-3 relative z-10 shadow-card transition-all duration-700"
-                      style={{ width: `${Math.max((totalPlanDistance / TOTAL_ROUTE_DISTANCE) * 100, 5)}%` }}
+                      style={{ width: `${Math.max((totalPlanDistance / routeTotal) * 100, 5)}%` }}
                     >
                       <span className="text-white text-xs font-mono font-semibold drop-shadow-md whitespace-nowrap">{totalPlanDistance.toLocaleString(undefined, { maximumFractionDigits: 1 })}</span>
                     </div>
                     {/* ส่วนเหลือของโครงการ (สีจาง) */}
                     <div className="absolute top-0 right-2 h-full flex items-center z-0">
-                      <span className="text-[9px] font-semibold text-ink-3">{TOTAL_ROUTE_DISTANCE.toLocaleString()}</span>
+                      <span className="text-[9px] font-semibold text-ink-3">{routeTotal.toLocaleString()}</span>
                     </div>
                   </>
                 ) : (
@@ -585,8 +600,8 @@ const RouteScheduleView = ({ segmentRecords = [], projectInfo, machine = "TBM1",
               <span className="w-32 text-xs font-semibold text-ink shrink-0">ผลงานจริง</span>
               <div className="flex-1 h-full rounded-input border border-line relative overflow-hidden bg-surface-page">
                 {(() => {
-                  const planPercent = totalPlanDistance > 0 ? (totalPlanDistance / TOTAL_ROUTE_DISTANCE) * 100 : 0;
-                  const actualPercent = (totalActualDistance / TOTAL_ROUTE_DISTANCE) * 100;
+                  const planPercent = totalPlanDistance > 0 ? (totalPlanDistance / routeTotal) * 100 : 0;
+                  const actualPercent = (totalActualDistance / routeTotal) * 100;
                   const gapWidth = planPercent - actualPercent;
 
                   return (
@@ -619,7 +634,7 @@ const RouteScheduleView = ({ segmentRecords = [], projectInfo, machine = "TBM1",
                       )}
                       {/* ส่วนเหลือของโครงการ */}
                       <div className="absolute top-0 right-2 h-full flex items-center z-0">
-                        <span className="text-[9px] font-semibold text-ink-3">{TOTAL_ROUTE_DISTANCE.toLocaleString()}</span>
+                        <span className="text-[9px] font-semibold text-ink-3">{routeTotal.toLocaleString()}</span>
                       </div>
                       {/* ไม่มีผลงานเลย */}
                       {totalActualDistance === 0 && (
@@ -657,13 +672,13 @@ const RouteScheduleView = ({ segmentRecords = [], projectInfo, machine = "TBM1",
           </div>
 
           <div className="relative mx-4 sm:mx-8" style={{ height: '95px' }}>
-            {/* แถบรางเฟส 1: IS4-1 → IS1 (ต่อเนื่อง สีปกติ) */}
+            {/* แถบราง: สถานีแรก → สถานีสุดท้ายของเครื่อง (ต่อเนื่อง สีปกติ) */}
             <div className="absolute top-1/2 -translate-y-1/2 left-0 right-0 h-[18px] bg-surface-alt border-y-[3px] border-line track-pattern shadow-card z-0"></div>
 
             {/* พื้นที่ของผลงานจริง */}
             <div
               className="absolute top-1/2 -translate-y-1/2 left-0 h-[32px] rounded-l-full z-1 transition-all duration-1000"
-              style={{ width: `${Math.min((totalActualDistance / TOTAL_ROUTE_DISTANCE) * 100, 100)}%`, backgroundColor: `${chartColors.delay}33`, border: `1px solid ${chartColors.delay}66` }}
+              style={{ width: `${Math.min((totalActualDistance / routeTotal) * 100, 100)}%`, backgroundColor: `${chartColors.delay}33`, border: `1px solid ${chartColors.delay}66` }}
             ></div>
 
             {/* เส้นแบ่งเฟสแนวตั้งประที่ IS3 */}
@@ -702,7 +717,7 @@ const RouteScheduleView = ({ segmentRecords = [], projectInfo, machine = "TBM1",
                     className="absolute -top-6 -translate-x-1/2 bg-surface border-2 border-navy rounded-full px-2 py-0.5 text-[9px] font-semibold font-mono text-ink shadow-card whitespace-nowrap z-10"
                     style={{ left: `${(prevSeg.xPercent + seg.xPercent) / 2}%` }}
                   >
-                    {((seg.distance - ROUTE_SEGMENTS[i - 1].distance)).toLocaleString(undefined, { minimumFractionDigits: 3 })} m
+                    {((seg.distance - routeSegments[i - 1].distance)).toLocaleString(undefined, { minimumFractionDigits: 3 })} m
                   </div>
 
                   {/* หมุดสถานี */}
@@ -737,20 +752,20 @@ const RouteScheduleView = ({ segmentRecords = [], projectInfo, machine = "TBM1",
             {/* หมุดสถานีแรก (ซ้ายสุด) */}
             <div className="absolute top-1/2 -translate-y-1/2 left-0 -translate-x-1/2 flex flex-col items-center justify-center z-20">
               <div className="relative w-9 h-9 rounded-full border-[4px] border-white shadow-hover text-white flex items-center justify-center text-[10px] font-semibold z-10 tracking-tighter" style={{ backgroundColor: chartColors.planned }}>
-                {ROUTE_SEGMENTS[0].label.replace("IS", "")}
+                {routeSegments[0].label.replace("IS", "")}
               </div>
-              <span className="absolute top-11 text-[10px] font-semibold text-ink whitespace-nowrap">{ROUTE_SEGMENTS[0].label}</span>
+              <span className="absolute top-11 text-[10px] font-semibold text-ink whitespace-nowrap">{routeSegments[0].label}</span>
             </div>
 
             {/* หมุดสถานีปัจจุบัน (TBM) */}
             <div
               className="absolute top-1/2 -translate-y-1/2 z-30 transition-all duration-[1500ms] ease-out"
-              style={{ left: `${Math.min((totalActualDistance / TOTAL_ROUTE_DISTANCE) * 100, 100)}%`, transform: 'translateX(-50%) translateY(-50%)' }}
+              style={{ left: `${Math.min((totalActualDistance / routeTotal) * 100, 100)}%`, transform: 'translateX(-50%) translateY(-50%)' }}
             >
               <div className="relative drop-shadow-xl group cursor-pointer">
                 <span className="absolute -inset-2 rounded-full opacity-40 animate-ping" style={{ backgroundColor: chartColors.delay }}></span>
                 <div className="absolute -top-7 left-1/2 -translate-x-1/2 whitespace-nowrap text-[9px] font-semibold text-ink bg-surface/90 backdrop-blur-sm px-1.5 py-0.5 rounded-badge shadow-card border border-line z-50">
-                  Progress : {((totalActualDistance / TOTAL_ROUTE_DISTANCE) * 100).toFixed(2)} %
+                  Progress : {((totalActualDistance / routeTotal) * 100).toFixed(2)} %
                 </div>
                 <div className="w-8 h-8 bg-navy border-[3px] border-white flex items-center justify-center rounded-badge rotate-90 relative z-10 shadow-hover overflow-hidden">
                   <div className="w-full h-[60%] bg-navy-dark absolute bottom-0 left-0"></div>
@@ -758,7 +773,7 @@ const RouteScheduleView = ({ segmentRecords = [], projectInfo, machine = "TBM1",
                   <span className="text-[8px] text-white font-semibold z-10 -rotate-90">{projectInfo?.tbmNo || "TBM"}</span>
                 </div>
                 <div className="absolute -top-14 left-1/2 -translate-x-1/2 bg-navy-dark text-white text-[10px] px-3 py-1.5 rounded-input font-semibold whitespace-nowrap shadow-modal opacity-0 group-hover:opacity-100 transition-opacity z-40 pointer-events-none">
-                  {projectInfo?.tbmNo || "TBM"}: {totalActualDistance.toLocaleString()} m ({(totalActualDistance / TOTAL_ROUTE_DISTANCE * 100).toFixed(1)}%)
+                  {projectInfo?.tbmNo || "TBM"}: {totalActualDistance.toLocaleString()} m ({(totalActualDistance / routeTotal * 100).toFixed(1)}%)
                 </div>
               </div>
             </div>
@@ -826,8 +841,8 @@ const RouteScheduleView = ({ segmentRecords = [], projectInfo, machine = "TBM1",
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm">
             <div>
               <div className="text-xs font-semibold text-ink-3 uppercase mb-1">คาดเสร็จ (rate ปัจจุบัน)</div>
-              <div className={`text-xl font-semibold font-mono ${forecast.onTime ? "text-sgreen-dark" : "text-code-d"}`}>{forecast.forecastLabel}</div>
-              <div className="text-[11px] text-ink-2 mt-0.5">{forecast.onTime ? "✓ ทันกำหนด มิ.ย. 71" : "⚠ ช้ากว่ากำหนด มิ.ย. 71"}</div>
+              <div className={`text-xl font-semibold font-mono ${!forecast.deadlineLabel ? "text-navy" : forecast.onTime ? "text-sgreen-dark" : "text-code-d"}`}>{forecast.forecastLabel}</div>
+              <div className="text-[11px] text-ink-2 mt-0.5">{!forecast.deadlineLabel ? "ยังไม่มีกำหนดเสร็จ" : forecast.onTime ? `✓ ทันกำหนด ${forecast.deadlineLabel}` : `⚠ ช้ากว่ากำหนด ${forecast.deadlineLabel}`}</div>
             </div>
             <div>
               <div className="text-xs font-semibold text-ink-3 uppercase mb-1">rate ปัจจุบัน</div>
@@ -836,8 +851,8 @@ const RouteScheduleView = ({ segmentRecords = [], projectInfo, machine = "TBM1",
             </div>
             <div>
               <div className="text-xs font-semibold text-ink-3 uppercase mb-1">ต้องเร่งเป็น</div>
-              <div className="text-xl font-semibold font-mono text-code-c">{forecast.requiredRate.toFixed(0)} <span className="text-xs text-ink-3">ม./เดือน</span></div>
-              <div className="text-[11px] text-ink-2 mt-0.5">เพื่อทันกำหนด มิ.ย. 71</div>
+              <div className="text-xl font-semibold font-mono text-code-c">{forecast.requiredRate != null ? <>{forecast.requiredRate.toFixed(0)} <span className="text-xs text-ink-3">ม./เดือน</span></> : "—"}</div>
+              <div className="text-[11px] text-ink-2 mt-0.5">{forecast.deadlineLabel ? `เพื่อทันกำหนด ${forecast.deadlineLabel}` : "ยังไม่มีกำหนดเสร็จ"}</div>
             </div>
           </div>
         </div>
@@ -960,8 +975,8 @@ const RouteScheduleView = ({ segmentRecords = [], projectInfo, machine = "TBM1",
                             label={{ value: "เดือน/ปี", position: "insideBottomRight", offset: -5, style: { fontSize: 11, fill: chartColors.axisLabel, fontWeight: "bold" } }}
                           />
                           <YAxis
-                            domain={[0, 10000]}
-                            ticks={[0, 2500, 5000, 7500, 10000]}
+                            domain={[0, yMax]}
+                            ticks={yTicks}
                             tick={axisTick}
                             axisLine={{ stroke: chartColors.axis, strokeWidth: 1 }}
                             tickLine={{ stroke: chartColors.axis }}
@@ -987,7 +1002,7 @@ const RouteScheduleView = ({ segmentRecords = [], projectInfo, machine = "TBM1",
                   <div className="relative min-w-[700px] overflow-hidden bg-surface-alt border border-line rounded-input p-4 shadow-card shrink-0">
                     <div className="flex justify-between items-center mb-3">
                       <span className="text-xs font-semibold text-ink-2 uppercase tracking-wider">เปรียบเทียบ ณ เดือนปัจจุบัน</span>
-                      <span className="text-[11px] font-semibold text-ink-2">ระยะโครงการ: <span className="text-ink font-mono font-semibold">{TOTAL_ROUTE_DISTANCE.toLocaleString()} ม.</span></span>
+                      <span className="text-[11px] font-semibold text-ink-2">ระยะโครงการ: <span className="text-ink font-mono font-semibold">{routeTotal.toLocaleString()} ม.</span></span>
                     </div>
 
                     <div className="flex flex-col gap-3 relative z-20">
@@ -997,10 +1012,10 @@ const RouteScheduleView = ({ segmentRecords = [], projectInfo, machine = "TBM1",
                         <div className="flex-1 h-full rounded-input border border-line relative overflow-hidden bg-surface-page">
                           {totalPlanDistance > 0 ? (
                             <>
-                              <div className="h-full bg-navy-dark rounded-input flex items-center justify-end px-3 relative z-10 shadow-card transition-all duration-700" style={{ width: `${Math.max((totalPlanDistance / TOTAL_ROUTE_DISTANCE) * 100, 5)}%` }}>
+                              <div className="h-full bg-navy-dark rounded-input flex items-center justify-end px-3 relative z-10 shadow-card transition-all duration-700" style={{ width: `${Math.max((totalPlanDistance / routeTotal) * 100, 5)}%` }}>
                                 <span className="text-white text-xs font-mono font-semibold drop-shadow-md whitespace-nowrap">{totalPlanDistance.toLocaleString(undefined, { maximumFractionDigits: 1 })}</span>
                               </div>
-                              <div className="absolute top-0 right-2 h-full flex items-center z-0"><span className="text-[9px] font-semibold text-ink-3">{TOTAL_ROUTE_DISTANCE.toLocaleString()}</span></div>
+                              <div className="absolute top-0 right-2 h-full flex items-center z-0"><span className="text-[9px] font-semibold text-ink-3">{routeTotal.toLocaleString()}</span></div>
                             </>
                           ) : (
                             <div className="w-full h-full flex items-center justify-center"><span className="text-ink-2 text-xs font-semibold">ยังไม่ตั้งค่าแผน — กดปุ่ม ⚙️ เพื่อตั้งค่า</span></div>
@@ -1013,8 +1028,8 @@ const RouteScheduleView = ({ segmentRecords = [], projectInfo, machine = "TBM1",
                         <span className="w-32 text-xs font-semibold text-ink shrink-0">ผลงานจริง</span>
                         <div className="flex-1 h-full rounded-input border border-line relative overflow-hidden bg-surface-page">
                           {(() => {
-                            const planPercent = totalPlanDistance > 0 ? (totalPlanDistance / TOTAL_ROUTE_DISTANCE) * 100 : 0;
-                            const actualPercent = (totalActualDistance / TOTAL_ROUTE_DISTANCE) * 100;
+                            const planPercent = totalPlanDistance > 0 ? (totalPlanDistance / routeTotal) * 100 : 0;
+                            const actualPercent = (totalActualDistance / routeTotal) * 100;
                             const gapWidth = planPercent - actualPercent;
 
                             return (
@@ -1031,7 +1046,7 @@ const RouteScheduleView = ({ segmentRecords = [], projectInfo, machine = "TBM1",
                                     </span>
                                   </div>
                                 )}
-                                <div className="absolute top-0 right-2 h-full flex items-center z-0"><span className="text-[9px] font-semibold text-ink-3">{TOTAL_ROUTE_DISTANCE.toLocaleString()}</span></div>
+                                <div className="absolute top-0 right-2 h-full flex items-center z-0"><span className="text-[9px] font-semibold text-ink-3">{routeTotal.toLocaleString()}</span></div>
                                 {totalActualDistance === 0 && <div className="w-full h-full flex items-center justify-center z-20 relative"><span className="text-ink-3 text-[10px] font-semibold">ยังไม่มีผลงาน</span></div>}
                               </>
                             );
@@ -1049,7 +1064,7 @@ const RouteScheduleView = ({ segmentRecords = [], projectInfo, machine = "TBM1",
                     </div>
                     <div className="relative mx-4 sm:mx-8" style={{ height: '85px' }}>
                       <div className="absolute top-1/2 -translate-y-1/2 left-0 right-0 h-[18px] bg-surface-alt border-y-[3px] border-line track-pattern shadow-card z-0"></div>
-                      <div className="absolute top-1/2 -translate-y-1/2 left-0 h-[32px] rounded-l-full z-1 transition-all duration-1000" style={{ width: `${Math.min((totalActualDistance / TOTAL_ROUTE_DISTANCE) * 100, 100)}%`, backgroundColor: `${chartColors.delay}33`, border: `1px solid ${chartColors.delay}66` }}></div>
+                      <div className="absolute top-1/2 -translate-y-1/2 left-0 h-[32px] rounded-l-full z-1 transition-all duration-1000" style={{ width: `${Math.min((totalActualDistance / routeTotal) * 100, 100)}%`, backgroundColor: `${chartColors.delay}33`, border: `1px solid ${chartColors.delay}66` }}></div>
                       {(() => {
                         const is3Seg = routeStationPlacements.find(s => s.id === "IS3");
                         if (!is3Seg) return null;
@@ -1069,7 +1084,7 @@ const RouteScheduleView = ({ segmentRecords = [], projectInfo, machine = "TBM1",
                         const prevSeg = routeStationPlacements[i - 1];
                         return (
                           <React.Fragment key={`route-modal-${seg.id}`}>
-                            <div className="absolute -top-6 -translate-x-1/2 bg-surface border-2 border-navy rounded-full px-2 py-0.5 text-[9px] font-semibold font-mono text-ink shadow-card whitespace-nowrap z-10" style={{ left: `${(prevSeg.xPercent + seg.xPercent) / 2}%` }}>{((seg.distance - ROUTE_SEGMENTS[i - 1].distance)).toLocaleString(undefined, { minimumFractionDigits: 3 })} m</div>
+                            <div className="absolute -top-6 -translate-x-1/2 bg-surface border-2 border-navy rounded-full px-2 py-0.5 text-[9px] font-semibold font-mono text-ink shadow-card whitespace-nowrap z-10" style={{ left: `${(prevSeg.xPercent + seg.xPercent) / 2}%` }}>{((seg.distance - routeSegments[i - 1].distance)).toLocaleString(undefined, { minimumFractionDigits: 3 })} m</div>
                             <div className="absolute flex flex-col items-center justify-center z-20" style={seg.id === "IS3" ? { left: `${seg.xPercent}%`, top: `calc(50% - 38px)`, transform: 'translateX(-50%) translateY(-50%)' } : { left: `${seg.xPercent}%`, top: `50%`, transform: 'translateX(-50%) translateY(-50%)' }}>
                               {seg.id === "IS3" ? (
                                 <div className="relative flex flex-col items-center">
@@ -1091,17 +1106,17 @@ const RouteScheduleView = ({ segmentRecords = [], projectInfo, machine = "TBM1",
                         );
                       })}
                       <div className="absolute top-1/2 -translate-y-1/2 left-0 -translate-x-1/2 flex flex-col items-center justify-center z-20">
-                        <div className="relative w-9 h-9 rounded-full border-[4px] border-white shadow-hover text-white flex items-center justify-center text-[10px] font-semibold z-10 tracking-tighter" style={{ backgroundColor: chartColors.planned }}>{ROUTE_SEGMENTS[0].label.replace("IS", "")}</div>
-                        <span className="absolute top-11 text-[10px] font-semibold text-ink whitespace-nowrap">{ROUTE_SEGMENTS[0].label}</span>
+                        <div className="relative w-9 h-9 rounded-full border-[4px] border-white shadow-hover text-white flex items-center justify-center text-[10px] font-semibold z-10 tracking-tighter" style={{ backgroundColor: chartColors.planned }}>{routeSegments[0].label.replace("IS", "")}</div>
+                        <span className="absolute top-11 text-[10px] font-semibold text-ink whitespace-nowrap">{routeSegments[0].label}</span>
                       </div>
-                      <div className="absolute top-1/2 -translate-y-1/2 z-30 transition-all duration-[1500ms] ease-out" style={{ left: `${Math.min((totalActualDistance / TOTAL_ROUTE_DISTANCE) * 100, 100)}%`, transform: 'translateX(-50%) translateY(-50%)' }}>
+                      <div className="absolute top-1/2 -translate-y-1/2 z-30 transition-all duration-[1500ms] ease-out" style={{ left: `${Math.min((totalActualDistance / routeTotal) * 100, 100)}%`, transform: 'translateX(-50%) translateY(-50%)' }}>
                         <div className="relative drop-shadow-xl group cursor-pointer">
                           <span className="absolute -inset-2 rounded-full opacity-40 animate-ping" style={{ backgroundColor: chartColors.delay }}></span>
                           <div className="w-8 h-8 bg-navy border-[3px] border-white flex items-center justify-center rounded-badge rotate-90 relative z-10 shadow-hover overflow-hidden">
                             <div className="w-full h-[60%] bg-navy-dark absolute bottom-0 left-0"></div><div className="w-full h-[2px] bg-white opacity-50 absolute top-[40%] left-0"></div><span className="text-[8px] text-white font-semibold z-10 -rotate-90">{projectInfo?.tbmNo || "TBM"}</span>
                           </div>
-                          <div className="absolute -top-7 left-1/2 -translate-x-1/2 whitespace-nowrap text-[9px] font-semibold text-ink bg-surface/90 backdrop-blur-sm px-1.5 py-0.5 rounded-badge shadow-card border border-line z-50">Progress : {((totalActualDistance / TOTAL_ROUTE_DISTANCE) * 100).toFixed(2)} %</div>
-                          <div className="absolute -top-14 left-1/2 -translate-x-1/2 bg-navy-dark text-white text-[10px] px-3 py-1.5 rounded-input font-semibold whitespace-nowrap shadow-modal opacity-0 group-hover:opacity-100 transition-opacity z-40 pointer-events-none">{projectInfo?.tbmNo || "TBM"}: {totalActualDistance.toLocaleString()} m ({(totalActualDistance / TOTAL_ROUTE_DISTANCE * 100).toFixed(1)}%)</div>
+                          <div className="absolute -top-7 left-1/2 -translate-x-1/2 whitespace-nowrap text-[9px] font-semibold text-ink bg-surface/90 backdrop-blur-sm px-1.5 py-0.5 rounded-badge shadow-card border border-line z-50">Progress : {((totalActualDistance / routeTotal) * 100).toFixed(2)} %</div>
+                          <div className="absolute -top-14 left-1/2 -translate-x-1/2 bg-navy-dark text-white text-[10px] px-3 py-1.5 rounded-input font-semibold whitespace-nowrap shadow-modal opacity-0 group-hover:opacity-100 transition-opacity z-40 pointer-events-none">{projectInfo?.tbmNo || "TBM"}: {totalActualDistance.toLocaleString()} m ({(totalActualDistance / routeTotal * 100).toFixed(1)}%)</div>
                         </div>
                       </div>
                     </div>

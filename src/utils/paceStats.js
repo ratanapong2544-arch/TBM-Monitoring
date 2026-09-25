@@ -14,7 +14,7 @@ const addDays = (ymd, n) => new Date(toUTC(ymd) + n * 86400000).toISOString().sl
 export function computePaceStats({
   segmentRecords = [],
   today,
-  deadline = PROJECT_DEADLINE,
+  deadline = PROJECT_DEADLINE.TBM1,
   totalRouteDistance = TOTAL_ROUTE_DISTANCE,
   filterStart = null,
   filterEnd = null,
@@ -34,7 +34,8 @@ export function computePaceStats({
   const allDates = perm.map((r) => formatDisplayDate(r.date)).filter(Boolean).sort();
   const firstRingDate = allDates.length > 0 ? allDates[0] : today;
 
-  const daysLeft = Math.max(0, dayDiff(today, deadline));
+  // ไม่มีกำหนดเสร็จ (deadline null) ⇒ ไม่มีเรทที่ต้องเร่ง/ส่วนต่างกำหนด และไม่ตัดสินว่าช้า
+  const daysLeft = deadline ? Math.max(0, dayDiff(today, deadline)) : null;
   const requiredRate = daysLeft > 0 ? remainingRings / daysLeft : null; // ริง/วันปฏิทิน ให้ทันกำหนด
 
   // ── ช่วงที่เลือก (ตาม filter) ── clamp ให้อยู่ใน [firstRing, today]
@@ -52,9 +53,9 @@ export function computePaceStats({
   const windowCalendarRate = windowRings / windowCalendarDays;                      // ริง/วันปฏิทิน (ใช้ทายวันเสร็จ)
 
   const finishWindow = windowCalendarRate > 0 ? addDays(today, Math.ceil(remainingRings / windowCalendarRate)) : null;
-  const deltaWindowDays = finishWindow ? dayDiff(deadline, finishWindow) : null;    // บวก = ช้ากว่ากำหนด
+  const deltaWindowDays = finishWindow && deadline ? dayDiff(deadline, finishWindow) : null; // บวก = ช้ากว่ากำหนด
 
-  const behind = finishWindow ? deltaWindowDays > 0 : remainingRings > 0;
+  const behind = !deadline ? false : finishWindow ? deltaWindowDays > 0 : remainingRings > 0;
 
   return {
     doneRings, targetRings, remainingRings,

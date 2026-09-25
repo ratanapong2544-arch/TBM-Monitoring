@@ -32,3 +32,21 @@ test("the plan-variance figure is read from the distance plan this machine was g
   act(() => { root.unmount(); });
   container.remove();
 });
+
+test("TBM2's plan to date stops at TBM2's own route end, 4,726 m", () => {
+  // TBM2 was handed no ceiling at all (0), so a plan could run past the end of its tunnel
+  const props = {
+    segmentRecords: [{ id: "s1", ringNo: "P1", machine: "TBM2", installType: "Permanent", date: "2026-09-01" }],
+    groutRecords: [], dailyReports: [], machine: "TBM2", onNavigate: () => {},
+    distPlanConfig: { ranges: [{ startMonth: "2020-01", endMonth: "2030-12", mode: "distance", distancePerMonth: 10000 }] },
+  };
+  const container = document.createElement("div");
+  document.body.appendChild(container);
+  const root = createRoot(container);
+  act(() => { root.render(<ExecutiveDashboardView {...props} />); });
+
+  expect(container.textContent).toContain("ช้ากว่าแผน 4,726 ม.");
+
+  act(() => { root.unmount(); });
+  container.remove();
+});

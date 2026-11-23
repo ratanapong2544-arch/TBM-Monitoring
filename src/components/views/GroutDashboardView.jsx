@@ -44,8 +44,8 @@ const GroutDashboardView = ({ groutRecords, segmentRecords, secondaryGroutRecord
       const startNum = getRingNumeric(rangeStart);
       const endNum = getRingNumeric(rangeEnd);
       return baseData.filter((r) => { const rNum = getRingNumeric(r.ringNo); return rNum >= startNum && rNum <= endNum; }).sort((a, b) => getRingNumeric(a.ringNo) - getRingNumeric(b.ringNo));
-    } else if (filterMode === "daily") return baseData.filter((r) => r.date && r.date.startsWith(filterDate));
-    else if (filterMode === "monthly") return baseData.filter((r) => r.date && r.date.startsWith(filterMonth));
+    } else if (filterMode === "daily") return baseData.filter((r) => r.date && formatDisplayDate(r.date).startsWith(filterDate));
+    else if (filterMode === "monthly") return baseData.filter((r) => r.date && formatDisplayDate(r.date).startsWith(filterMonth));
     else { const start = Math.max(0, baseData.length - chartWindow); return baseData.slice(start, baseData.length); }
   }, [allRecords, filterMode, chartWindow, rangeStart, rangeEnd, filterDate, filterMonth, filterShift]);
 

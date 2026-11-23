@@ -71,8 +71,8 @@ export default function GroutAnalysisView({ groutRecords = [], secondaryGroutRec
       const sn = getRingNumeric(groutRangeStart), en = getRingNumeric(groutRangeEnd);
       return baseData.filter(r => { const n = getRingNumeric(r.ringNo); return n >= sn && n <= en; }).sort((a, b) => getRingNumeric(a.ringNo) - getRingNumeric(b.ringNo));
     }
-    if (groutFilterMode === "daily") return baseData.filter(r => r.date && r.date.startsWith(groutFilterDate));
-    if (groutFilterMode === "monthly") return baseData.filter(r => r.date && r.date.startsWith(groutFilterMonth));
+    if (groutFilterMode === "daily") return baseData.filter(r => r.date && formatDisplayDate(r.date).startsWith(groutFilterDate));
+    if (groutFilterMode === "monthly") return baseData.filter(r => r.date && formatDisplayDate(r.date).startsWith(groutFilterMonth));
     // lastN
     const start = Math.max(0, baseData.length - groutChartWindow);
     return baseData.slice(start);

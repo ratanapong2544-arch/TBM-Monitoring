@@ -94,7 +94,7 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, machine = 
       const logicalDate = getLogicalShiftDate(instStart, inShift, r.date, r.shift);
 
       return logicalDate === meta.date &&
-        (inShift === meta.shift || (!r.installShift && r.shift === meta.shift)) &&
+        inShift === meta.shift &&
         r.status !== "In Progress" &&
         r.installType !== "Temporary";
     });

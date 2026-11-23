@@ -52,7 +52,7 @@ const GroutRecordView = ({ projectInfo, handleProjectInfoChange, groutRecords, s
     // the reset stands. That dependency is deliberate — see the App-level machine-switch test.
   }, [machine]);
 
-  // ริงนี้มี primary record อยู่แล้วไหม (โหมด primary เท่านั้น) → เตือน แต่บันทึกได้
+  // ริงนี้มี primary record อยู่แล้วไหม (โหมด primary เท่านั้น) → บันทึกไม่ได้: server รับ primary ได้ริงละ 1 แถว
   const dupPrimary = useMemo(() => {
     if (isSecondary || !formData.ringNo) return false;
     const ring = String(formData.ringNo).trim().toUpperCase();
@@ -125,7 +125,7 @@ const GroutRecordView = ({ projectInfo, handleProjectInfoChange, groutRecords, s
     e.preventDefault();
     // A secondary hole that took no grout is still a record the sheet keeps (the paper form has
     // rows of 0 litre), so volume cannot gate that save the way Part A gates a primary one.
-    if (!formData.ringNo || (!isSecondary && !formData.partA)) return;
+    if (!formData.ringNo || (!isSecondary && !formData.partA) || dupPrimary) return;
     setIsSaving(true);
     const machineAtSave = machine;
     const inputRing = String(formData.ringNo).trim().toUpperCase();
@@ -241,11 +241,11 @@ const GroutRecordView = ({ projectInfo, handleProjectInfoChange, groutRecords, s
             </div>
           </div>
 
-          {/* Duplicate primary warning (allow save) */}
+          {/* Duplicate primary: the server keeps one primary per ring, so the save is blocked */}
           {dupPrimary && (
             <div className="bg-code-c/10 border border-code-c/30 rounded-input p-3 flex items-start gap-2">
               <AlertTriangle size={16} className="text-code-c mt-0.5 shrink-0" />
-              <p className="text-xs font-semibold text-code-c">ริงนี้มี primary grout แล้ว — ถ้าเป็นการอัดซ้ำ แนะนำสลับไปโหมด <b>Secondary Grout</b> (ยังบันทึก primary ซ้ำได้ถ้าต้องการ)</p>
+              <p className="text-xs font-semibold text-code-c">ริงนี้มี primary grout แล้ว ถ้าเป็นการอัดซ้ำให้ใช้โหมด <b>Secondary Grout</b> ถ้าต้องการแก้ค่าเดิมให้แก้ที่หน้า <b>Data Log</b></p>
             </div>
           )}
 
@@ -363,7 +363,7 @@ const GroutRecordView = ({ projectInfo, handleProjectInfoChange, groutRecords, s
 
           {/* Submit */}
           <StickyActionBar>
-            <button type="submit" disabled={isSaving} className={`w-full text-white font-semibold py-4 rounded-input flex justify-center items-center gap-2 shadow-card transition-transform active:scale-95 ${isSaving ? 'bg-ink-3' : isSecondary ? 'bg-code-c' : 'bg-navy'}`}>
+            <button type="submit" disabled={isSaving || dupPrimary} className={`w-full text-white font-semibold py-4 rounded-input flex justify-center items-center gap-2 shadow-card transition-transform active:scale-95 ${(isSaving || dupPrimary) ? 'bg-ink-3' : isSecondary ? 'bg-code-c' : 'bg-navy'}`}>
               {isSaving ? <Loader2 size={20} className="animate-spin" /> : <Save size={20} />} {isSecondary ? "Save Secondary Grout" : "Confirm & Save Record"}
             </button>
           </StickyActionBar>

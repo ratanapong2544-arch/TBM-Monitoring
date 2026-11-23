@@ -6,6 +6,7 @@ import {
 } from "recharts";
 import { chartColors, axisTick, tooltipStyle } from "../../ui-ux-pro-max/chartTheme";
 import { getRingNumeric } from "../../utils/helpers";
+import { formatDisplayDate } from "../../utils/formatters";
 import { secondaryLitre } from "../../utils/secondaryGrout";
 import { THEORETICAL_VOL, VOL_120, VOL_150, VOL_80, VOL_50 } from "../../utils/constants";
 import SectionHeader from "../common/SectionHeader";
@@ -35,8 +36,8 @@ export default function GroutAnalysisView({ groutRecords = [], secondaryGroutRec
   const [groutChartWindow, setGroutChartWindow] = useState(20);
   const [groutRangeStart, setGroutRangeStart] = useState("");
   const [groutRangeEnd, setGroutRangeEnd] = useState("");
-  const [groutFilterDate, setGroutFilterDate] = useState(new Date().toISOString().split("T")[0]);
-  const [groutFilterMonth, setGroutFilterMonth] = useState(new Date().toISOString().slice(0, 7));
+  const [groutFilterDate, setGroutFilterDate] = useState(formatDisplayDate(new Date()));
+  const [groutFilterMonth, setGroutFilterMonth] = useState(formatDisplayDate(new Date()).slice(0, 7));
   const [groutFilterShift, setGroutFilterShift] = useState("All");
 
   // ── Expand State ──

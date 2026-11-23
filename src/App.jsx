@@ -64,7 +64,7 @@ const PrimaryGroutApp = () => {
   const [activeTab, setActiveTab] = useState(() => (isViewerMode() ? "dashboard" : "overview"));
   const [isLoadingMain, setIsLoadingMain] = useState(true);
   const [loadError, setLoadError] = useState(null);
-  const [projectInfo, setProjectInfo] = useState({ date: new Date().toISOString().split("T")[0], shift: "Day", location: "อุโมงค์จากบ่อ IS4 ถึง บ่อ IS2", tbmNo: "TBM1" });
+  const [projectInfo, setProjectInfo] = useState({ date: formatDisplayDate(new Date()), shift: "Day", location: "อุโมงค์จากบ่อ IS4 ถึง บ่อ IS2", tbmNo: "TBM1" });
   const [activeMachine, setActiveMachine] = useState(() => localStorage.getItem("tbmActiveMachine") || "TBM1");
   const isViewer = isViewerMode();
   useEffect(() => { try { localStorage.setItem("tbmActiveMachine", activeMachine); } catch (e) {} }, [activeMachine]);

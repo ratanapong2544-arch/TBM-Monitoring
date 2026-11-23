@@ -14,9 +14,9 @@ export function getWeekString(dateObj) {
 // Lifted filter state — App owns one instance (global); TopBar renders the toggle.
 export function useFilterState() {
   const [mode, setMode] = useState("all");
-  const [date, setDate] = useState(new Date().toISOString().split("T")[0]);
+  const [date, setDate] = useState(formatDisplayDate(new Date()));
   const [week, setWeek] = useState(() => getWeekString(new Date()));
-  const [month, setMonth] = useState(new Date().toISOString().slice(0, 7));
+  const [month, setMonth] = useState(formatDisplayDate(new Date()).slice(0, 7));
   const [rangeStart, setRangeStart] = useState("");
   const [rangeEnd, setRangeEnd] = useState("");
   const state = useMemo(
@@ -52,9 +52,9 @@ export function filterByState(records, state) {
 
 export default function useGlobalFilter(segmentRecords = [], groutRecords = [], shiftReports = []) {
   const [mode, setMode] = useState("all");
-  const [date, setDate] = useState(new Date().toISOString().split("T")[0]);
+  const [date, setDate] = useState(formatDisplayDate(new Date()));
   const [week, setWeek] = useState(() => getWeekString(new Date()));
-  const [month, setMonth] = useState(new Date().toISOString().slice(0, 7));
+  const [month, setMonth] = useState(formatDisplayDate(new Date()).slice(0, 7));
   const [rangeStart, setRangeStart] = useState("");
   const [rangeEnd, setRangeEnd] = useState("");
 

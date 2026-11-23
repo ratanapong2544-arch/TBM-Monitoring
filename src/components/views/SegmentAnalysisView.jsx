@@ -57,8 +57,8 @@ export default function SegmentAnalysisView({ segmentRecords = [], projectInfo, 
 
   // ── Seg Filter State ──
   const [segFilterMode, setSegFilterMode] = useState("all");
-  const [segFilterDate, setSegFilterDate] = useState(new Date().toISOString().split("T")[0]);
-  const [segFilterMonth, setSegFilterMonth] = useState(new Date().toISOString().slice(0, 7));
+  const [segFilterDate, setSegFilterDate] = useState(formatDisplayDate(new Date()));
+  const [segFilterMonth, setSegFilterMonth] = useState(formatDisplayDate(new Date()).slice(0, 7));
   const [segRangeStart, setSegRangeStart] = useState("");
   const [segRangeEnd, setSegRangeEnd] = useState("");
   const [segFilterShift, setSegFilterShift] = useState("All");

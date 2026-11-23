@@ -11,8 +11,8 @@ import { planConfigFor } from "../../utils/planConfig";
 
 const SegmentDashboardView = ({ segmentRecords, machine = "TBM1", onMutate, syncMeta, planConfig: planConfigProp }) => {
   const [filterMode, setFilterMode] = useState("all");
-  const [filterDate, setFilterDate] = useState(new Date().toISOString().split("T")[0]);
-  const [filterMonth, setFilterMonth] = useState(new Date().toISOString().slice(0, 7));
+  const [filterDate, setFilterDate] = useState(formatDisplayDate(new Date()));
+  const [filterMonth, setFilterMonth] = useState(formatDisplayDate(new Date()).slice(0, 7));
   const [rangeStart, setRangeStart] = useState("");
   const [rangeEnd, setRangeEnd] = useState("");
   const [filterShift, setFilterShift] = useState("All");

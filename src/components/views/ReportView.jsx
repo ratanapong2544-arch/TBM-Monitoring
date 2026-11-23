@@ -12,8 +12,8 @@ const ReportView = ({ segmentRecords, groutRecords, projectInfo, shiftReports, o
   // % complete is over the route of the machine these rings belong to — TBM2 is not TBM1's 8,874.683 m
   const routeTotal = ROUTE_TOTAL[machine] || 0;
   const [reportType, setReportType] = useState("daily");
-  const [reportDate, setReportDate] = useState(new Date().toISOString().split("T")[0]);
-  const [reportMonth, setReportMonth] = useState(new Date().toISOString().slice(0, 7));
+  const [reportDate, setReportDate] = useState(formatDisplayDate(new Date()));
+  const [reportMonth, setReportMonth] = useState(formatDisplayDate(new Date()).slice(0, 7));
   const [reportShift, setReportShift] = useState("All");
 
   const [isGeneratingAI, setIsGeneratingAI] = useState(false);

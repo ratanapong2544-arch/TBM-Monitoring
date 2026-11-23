@@ -2,6 +2,7 @@
 // the snapshot (Task 9 Step 5); they remain for legacy staging and for pre-change devices.
 // Daily-report domain logic + localStorage (localStorage-first; PDF gen = SP2/SP3)
 import { EQUIPMENT, LABOR, WEATHER_SLOTS } from "./dailyReportSchema";
+import { formatDisplayDate } from "./formatters";
 
 export const STORAGE_KEY = "tbmDailyReports";
 export const MACHINES = ["TBM1", "TBM2"];
@@ -28,7 +29,7 @@ function emptyWeather() {
 export function newDailyReport(machine = "TBM1", kind = "itemized") {
   return {
     id: "",
-    date: new Date().toISOString().split("T")[0],
+    date: formatDisplayDate(new Date()),
     area: "",
     machine,
     kind,

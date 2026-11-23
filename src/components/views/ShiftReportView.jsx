@@ -59,7 +59,7 @@ const ShiftReportView = ({ projectInfo, segmentRecords, shiftReports, machine = 
   const defaultManpower = { Engineer: '', Operator: '', Surveyor: '', Machanic: '', Electrician: '', Foreman: '', Worker: '', CraneOp: '' };
   const defaultResult = { startSta: '', finishSta: '', numberRing: '', totalDistance: '', progressRate: '' };
 
-  const [meta, setMeta] = useState({ date: projectInfo.date || new Date().toISOString().split('T')[0], tbmNo: projectInfo.tbmNo || 'TBM1', location: projectInfo.location || 'อุโมงค์จากบ่อ IS4 ถึง บ่อ IS2', shift: projectInfo.shift || 'Day' });
+  const [meta, setMeta] = useState({ date: projectInfo.date || formatDisplayDate(new Date()), tbmNo: projectInfo.tbmNo || 'TBM1', location: projectInfo.location || 'อุโมงค์จากบ่อ IS4 ถึง บ่อ IS2', shift: projectInfo.shift || 'Day' });
   const [events, setEvents] = useState({});
   const [activeModal, setActiveModal] = useState(null);
   const [manpower, setManpower] = useState(defaultManpower);

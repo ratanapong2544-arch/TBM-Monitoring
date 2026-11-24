@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect } from "react";
 import { FileText, Droplet, Activity, ChevronLeft, ChevronRight, Edit, Trash2, X, Camera, Calendar, Save, Info } from "lucide-react";
 import { formatDisplayDate, formatCH } from "../../utils/formatters";
-import { getRingNumeric } from "../../utils/helpers";
+import { getRingNumeric, groutPerRing, avgGroutRatio } from "../../utils/helpers";
 import { THEORETICAL_VOL, VOL_120, VOL_150 } from "../../utils/constants";
 import { buildMutationEnvelope, refuseAmbiguousRecord } from "../../offline/mutationEnvelope";
 import { secondaryLitre, secondaryTotalM3 } from "../../utils/secondaryGrout";
@@ -157,8 +157,8 @@ const GroutDashboardView = ({ groutRecords, segmentRecords, secondaryGroutRecord
     <div className="max-w-full mx-auto space-y-6 sm:space-y-8 animate-fade-in pb-24">
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard label="Unique Rings" value={new Set(groutRecords.map((r) => r.ringNo)).size} subtext="Records found" color="text-navy" icon={FileText} />
-        <StatCard label="Avg. Volume" value={Number((groutRecords.reduce((acc, r) => acc + Number(r.total || 0), 0) / (groutRecords.length || 1))).toFixed(2)} subtext="Cubic Meters" color="text-sgreen-dark" icon={Droplet} />
-        <StatCard label="Avg. Ratio" value={`${Number((groutRecords.reduce((acc, r) => acc + Number(r.ratio || 0), 0) / (groutRecords.length || 1))).toFixed(1)}%`} subtext="Efficiency" color="text-code-c" icon={Activity} />
+        <StatCard label="Avg. Volume" value={Number(groutPerRing(groutRecords).reduce((acc, r) => acc + Number(r.total || 0), 0) / (groutPerRing(groutRecords).length || 1)).toFixed(2)} subtext="Cubic Meters" color="text-sgreen-dark" icon={Droplet} />
+        <StatCard label="Avg. Ratio" value={`${avgGroutRatio(groutRecords).toFixed(1)}%`} subtext="Efficiency" color="text-code-c" icon={Activity} />
         {/* Status card — CMI navy */}
         <div className="bg-navy p-5 rounded-card shadow-card text-white relative overflow-hidden flex flex-col justify-between">
           <div className="relative z-10 flex flex-col h-full justify-center">

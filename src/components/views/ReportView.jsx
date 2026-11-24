@@ -124,11 +124,9 @@ const ReportView = ({ segmentRecords, groutRecords, projectInfo, shiftReports, o
 
     const totalLength = permSegments.reduce((sum, s) => sum + parseFloat(s.length || 0), 0);
     const totalSoilVol = excavatedInShift.reduce((sum, s) => sum + parseFloat(s.soilVolume || calculateSoilVolume(s.length)), 0);
-    const totalGroutVol = filteredGrouts.reduce((sum, g) => sum + parseFloat(g.total || 0), 0);
-
-    const avgGroutRatio = filteredGrouts.length > 0
-      ? (filteredGrouts.reduce((sum, g) => sum + parseFloat(g.ratio || 0), 0) / filteredGrouts.length)
-      : 0;
+    // per ring: a Re-Grout row's total already includes the primary, so summing both rows counts it twice
+    const totalGroutVol = groutPerRing(filteredGrouts).reduce((sum, g) => sum + parseFloat(g.total || 0), 0);
+    const avgRatio = avgGroutRatio(filteredGrouts);
     const uniqueGroutedRings = new Set(filteredGrouts.map((g) => g.ringNo)).size;
 
     const allRemarks = [
@@ -145,7 +143,7 @@ const ReportView = ({ segmentRecords, groutRecords, projectInfo, shiftReports, o
       totalLength: Number(totalLength || 0).toFixed(2),
       totalSoilVol: Number(totalSoilVol || 0).toFixed(2),
       totalGroutVol: Number(totalGroutVol || 0).toFixed(2),
-      avgGroutRatio: Number(avgGroutRatio || 0).toFixed(1),
+      avgGroutRatio: Number(avgRatio || 0).toFixed(1),
       uniqueGroutedRings,
       allRemarks,
     };

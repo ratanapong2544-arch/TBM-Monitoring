@@ -3,7 +3,7 @@ import { TrendingUp, Layers, Activity, MapPin, Calendar, Clock, Edit, Trash2, X,
 import StatCard from "../common/StatCard";
 import RingVisualizer from "../common/RingVisualizer";
 import { formatDisplayDate, formatDisplayTime, parseCH, formatCH } from "../../utils/formatters";
-import { getRingNumeric, getLogicalShiftDate, calculateSoilVolume } from "../../utils/helpers";
+import { getRingNumeric, getLogicalShiftDate, calculateSoilVolume, dedupeRings, isDayRing } from "../../utils/helpers";
 import { buildMutationEnvelope, refuseAmbiguousRecord } from "../../offline/mutationEnvelope";
 import { ResponsiveContainer, ComposedChart, CartesianGrid, XAxis, YAxis, Tooltip, Bar, Line } from "recharts";
 import { Badge } from "../../ui-ux-pro-max";
@@ -41,31 +41,11 @@ const SegmentDashboardView = ({ segmentRecords, machine = "TBM1", onMutate, sync
     return 0;
   };
 
-  // ══════════════════════════════════════════════
-  // HELPER: Smart deduplicate — เลือก Completed ก่อน, ถ้าไม่มีใช้แถวสุดท้าย
-  // ══════════════════════════════════════════════
-  const deduplicateRecords = (records) => {
-    const map = new Map();
-    records.forEach(r => {
-      const key = r.ringNo;
-      const existing = map.get(key);
-      if (!existing) {
-        map.set(key, r);
-      } else {
-        if (existing.status === "In Progress" && r.status !== "In Progress") {
-          map.set(key, r);
-        } else if (existing.status === r.status) {
-          map.set(key, r);
-        }
-      }
-    });
-    return Array.from(map.values());
-  };
 
   const baseSegmentRecords = useMemo(() => {
-    let recordsToFilter = segmentRecords;
+    let recordsToFilter = dedupeRings(segmentRecords);
     if (filterShift !== "All") {
-      recordsToFilter = segmentRecords.filter((rec) => rec.shift === filterShift || rec.installShift === filterShift || rec.excavShift === filterShift);
+      recordsToFilter = recordsToFilter.filter((rec) => rec.shift === filterShift || rec.installShift === filterShift || rec.excavShift === filterShift);
     }
     const filtered = recordsToFilter.filter((rec) => {
       const dDate = formatDisplayDate(rec.date);
@@ -81,7 +61,7 @@ const SegmentDashboardView = ({ segmentRecords, machine = "TBM1", onMutate, sync
     });
 
     // Deduplicate แล้วเรียงตาม: P ก่อน T, แล้ว ringNo มากไปน้อย
-    const deduped = deduplicateRecords(filtered);
+    const deduped = dedupeRings(filtered);
     return deduped.sort((a, b) => {
       const prefA = String(a.ringNo).replace(/\d/g, '');
       const prefB = String(b.ringNo).replace(/\d/g, '');
@@ -125,7 +105,7 @@ const SegmentDashboardView = ({ segmentRecords, machine = "TBM1", onMutate, sync
       const dDate = formatDisplayDate(rec.date);
       if (!datesMap.has(dDate)) datesMap.set(dDate, { date: dDate, dayRings: 0, nightRings: 0, tempRings: 0, totalRings: 0 });
       const dayData = datesMap.get(dDate);
-      if (rec.shift === "Day" || rec.installShift === "Day") dayData.dayRings++;
+      if (isDayRing(rec)) dayData.dayRings++;
       else dayData.nightRings++;
       dayData.totalRings++;
     });

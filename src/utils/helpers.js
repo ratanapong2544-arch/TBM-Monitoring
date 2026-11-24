@@ -125,3 +125,24 @@ export const shiftEventMinutes = (start, end, shift) => {
   const [s, e] = shiftEventWindow(start, end, shift);
   return e - s;
 };
+
+// One row per ring: a Completed row beats an In Progress one, otherwise the later row wins.
+// Dedupe BEFORE filtering by date — a ring recorded twice on two dates is otherwise counted on both.
+export const dedupeRings = (records) => {
+  const map = new Map();
+  records.forEach((r) => {
+    const existing = map.get(r.ringNo);
+    if (!existing || (existing.status === "In Progress" && r.status !== "In Progress") || existing.status === r.status) map.set(r.ringNo, r);
+  });
+  return Array.from(map.values());
+};
+
+// The shift a ring counts for in Day/Night splits: its install shift, else the record's Working Shift.
+export const isDayRing = (r) => (r.installShift || r.shift) === "Day";
+
+// Grout per ring: the latest record of each ring; a ratio never recorded is absent, not 0%.
+export const groutPerRing = (records) => Array.from(new Map(records.map((r) => [r.ringNo, r])).values());
+export const avgGroutRatio = (records) => {
+  const ratios = groutPerRing(records).map((r) => Number(r.ratio || 0)).filter((v) => v > 0);
+  return ratios.length > 0 ? ratios.reduce((s, v) => s + v, 0) / ratios.length : 0;
+};

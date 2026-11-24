@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from "react";
 import { Sparkles, X, Check, Copy, Download, Printer, Loader2, FileSpreadsheet } from "lucide-react";
 import { formatDisplayDate, formatDisplayTime, formatThaiBuddhistDate, formatThaiBuddhistDateForFile } from "../../utils/formatters";
-import { getLogicalShiftDate, getRingNumeric, calculateSoilVolume, loadHtml2Canvas } from "../../utils/helpers";
+import { getLogicalShiftDate, getRingNumeric, calculateSoilVolume, loadHtml2Canvas, isDayRing, avgGroutRatio, groutPerRing } from "../../utils/helpers";
 import { generateGeminiSummary } from "../../utils/api";
 import { ROUTE_TOTAL } from "../../utils/routeConfig";
 import { composeExcavationWorkLog, mapManpowerToLabor } from "../../utils/worklogCompose";
@@ -119,8 +119,8 @@ const ReportView = ({ segmentRecords, groutRecords, projectInfo, shiftReports, o
     const permSegments = installedInShift.filter(s => s.installType !== "Temporary");
     const tempSegments = installedInShift.filter(s => s.installType === "Temporary");
 
-    const segDay = permSegments.filter((s) => (s.installShift || s.shift) === "Day").length;
-    const segNight = permSegments.filter((s) => (s.installShift || s.shift) === "Night").length;
+    const segDay = permSegments.filter(isDayRing).length;
+    const segNight = permSegments.filter((s) => !isDayRing(s)).length;
 
     const totalLength = permSegments.reduce((sum, s) => sum + parseFloat(s.length || 0), 0);
     const totalSoilVol = excavatedInShift.reduce((sum, s) => sum + parseFloat(s.soilVolume || calculateSoilVolume(s.length)), 0);

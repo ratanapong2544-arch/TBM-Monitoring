@@ -5,7 +5,7 @@ import SectionHeader from "../common/SectionHeader";
 import ImageSlideshow from "../dashboard/ImageSlideshow";
 import { filterByState } from "../../hooks/useGlobalFilter";
 import { formatDisplayDate } from "../../utils/formatters";
-import { getRingNumeric, calculateSoilVolume } from "../../utils/helpers";
+import { getRingNumeric, calculateSoilVolume, dedupeRings, isDayRing } from "../../utils/helpers";
 import { drivePhotosFolder } from "../../utils/constants";
 import { distancePlanFor, plannedDistanceToNow, currentMonthBKK } from "../../utils/planConfig";
 import { ROUTE_TOTAL } from "../../utils/routeConfig";
@@ -16,7 +16,7 @@ import AlignmentMapView from "./AlignmentMapView";
 import { fitAndPrint } from "../../utils/printFit";
 
 const ExecutiveDashboardView = ({ segmentRecords, groutRecords, dailyReports = [], machine = "TBM1", onNavigate, filterState = {}, readOnly = false, distPlanConfig = null, prepTasks = [], onMutate, syncMeta }) => {
-  const filteredSegments = useMemo(() => filterByState(segmentRecords, filterState), [segmentRecords, filterState]);
+  const filteredSegments = useMemo(() => filterByState(dedupeRings(segmentRecords), filterState), [segmentRecords, filterState]);
   const filteredGrout = useMemo(() => filterByState(groutRecords, filterState), [groutRecords, filterState]);
 
   const [printingChartId, setPrintingChartId] = useState("all");
@@ -34,26 +34,6 @@ const ExecutiveDashboardView = ({ segmentRecords, groutRecords, dailyReports = [
     return printingChartId === "all" ? "" : (printingChartId === id ? "print-target" : "print:hidden");
   };
 
-  // ══════════════════════════════════════════════
-  // HELPER: Smart deduplicate — เลือก Completed ก่อน, ถ้าไม่มีใช้แถวสุดท้าย
-  // ══════════════════════════════════════════════
-  const deduplicateRecords = (records) => {
-    const map = new Map();
-    records.forEach(r => {
-      const key = r.ringNo;
-      const existing = map.get(key);
-      if (!existing) {
-        map.set(key, r);
-      } else {
-        if (existing.status === "In Progress" && r.status !== "In Progress") {
-          map.set(key, r);
-        } else if (existing.status === r.status) {
-          map.set(key, r);
-        }
-      }
-    });
-    return Array.from(map.values());
-  };
 
   // ══════════════════════════════════════════════
   // SECTION: Overall KPI Stats (all data)
@@ -61,7 +41,7 @@ const ExecutiveDashboardView = ({ segmentRecords, groutRecords, dailyReports = [
 
   const overallStats = useMemo(() => {
     // Deduplicate ทุก records ก่อน (เลือก Completed ก่อน In Progress)
-    const allDeduped = deduplicateRecords(filteredSegments);
+    const allDeduped = dedupeRings(filteredSegments);
 
     const permRings = allDeduped.filter(r => r.installType !== "Temporary");
     const tempRings = allDeduped.filter(r => r.installType === "Temporary");
@@ -155,9 +135,9 @@ const ExecutiveDashboardView = ({ segmentRecords, groutRecords, dailyReports = [
 
   const shiftComparison = useMemo(() => {
     // Deduplicate ก่อนนับ เพื่อไม่ให้ ring ซ้ำนับ 2 รอบ
-    const allDeduped = deduplicateRecords(filteredSegments);
+    const allDeduped = dedupeRings(filteredSegments);
     const permDeduped = allDeduped.filter(r => r.installType !== "Temporary");
-    const dayCount = permDeduped.filter(r => (r.installShift || r.shift) === "Day").length;
+    const dayCount = permDeduped.filter(r => isDayRing(r)).length;
     const nightCount = permDeduped.filter(r => (r.installShift || r.shift) === "Night").length;
     return [
       { name: "Day Shift", value: dayCount, color: chartColors.dayShift },

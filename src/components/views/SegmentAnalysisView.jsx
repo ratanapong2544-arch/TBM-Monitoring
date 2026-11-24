@@ -4,7 +4,7 @@ import {
 } from "lucide-react";
 import { filterByState } from "../../hooks/useGlobalFilter";
 import { formatDisplayDate, formatDisplayTime } from "../../utils/formatters";
-import { getRingNumeric } from "../../utils/helpers";
+import { getRingNumeric, dedupeRings, isDayRing } from "../../utils/helpers";
 import { PROJECT_DEADLINE } from "../../utils/constants";
 import { computePaceStats } from "../../utils/paceStats";
 import { ROUTE_TOTAL } from "../../utils/routeConfig";
@@ -17,7 +17,7 @@ import { buildMutationEnvelope } from "../../offline/mutationEnvelope";
 import { planConfigFor } from "../../utils/planConfig";
 
 export default function SegmentAnalysisView({ segmentRecords = [], projectInfo, machine = "TBM1", filterState = {}, readOnly = false, onMutate, syncMeta, planConfig: planConfigProp }) {
-  const filteredSegments = useMemo(() => filterByState(segmentRecords, filterState), [segmentRecords, filterState]);
+  const filteredSegments = useMemo(() => filterByState(dedupeRings(segmentRecords), filterState), [segmentRecords, filterState]);
 
   // ── ตัวช่วยแสดงผล (display only) ──
   const beShort = (ymd) => {
@@ -143,23 +143,6 @@ export default function SegmentAnalysisView({ segmentRecords = [], projectInfo, 
   const removePlanRange = (index) => { const r = [...(planConfig.ranges || [])]; r.splice(index, 1); setPlanConfig({ ...planConfig, ranges: r }); };
 
   // ── Deduplicate Helper ──
-  const deduplicateRecords = (records) => {
-    const map = new Map();
-    records.forEach(r => {
-      const key = r.ringNo;
-      const existing = map.get(key);
-      if (!existing) {
-        map.set(key, r);
-      } else {
-        if (existing.status === "In Progress" && r.status !== "In Progress") {
-          map.set(key, r);
-        } else if (existing.status === r.status) {
-          map.set(key, r);
-        }
-      }
-    });
-    return Array.from(map.values());
-  };
 
   // ── Base Segment Records Memo ──
   const baseSegmentRecords = useMemo(() => {
@@ -187,7 +170,7 @@ export default function SegmentAnalysisView({ segmentRecords = [], projectInfo, 
   }, [filteredSegments, segFilterMode, segFilterDate, segFilterMonth, segRangeStart, segRangeEnd, segFilterShift]);
 
   const segChartData = useMemo(() => {
-    const dedupedBase = deduplicateRecords(baseSegmentRecords);
+    const dedupedBase = dedupeRings(baseSegmentRecords);
     const datesMap = new Map();
     const completedPerms = dedupedBase.filter(r => r.installType !== "Temporary");
     const tempRecords = dedupedBase.filter(r => r.installType === "Temporary");
@@ -196,7 +179,7 @@ export default function SegmentAnalysisView({ segmentRecords = [], projectInfo, 
       const dDate = formatDisplayDate(rec.date);
       if (!datesMap.has(dDate)) datesMap.set(dDate, { date: dDate, dayRings: 0, nightRings: 0, tempRings: 0, totalRings: 0 });
       const d = datesMap.get(dDate);
-      if (rec.shift === "Day" || rec.installShift === "Day") d.dayRings++; else d.nightRings++;
+      if (isDayRing(rec)) d.dayRings++; else d.nightRings++;
       d.totalRings++;
     });
     tempRecords.forEach(rec => {
@@ -212,14 +195,14 @@ export default function SegmentAnalysisView({ segmentRecords = [], projectInfo, 
 
     if (segFilterMode === "daily") {
       let baselineAcc = parseFloat(planConfig.baseActualAcc) || 0;
-      const dedupedAll = deduplicateRecords(baseSegmentRecords);
+      const dedupedAll = dedupeRings(baseSegmentRecords);
       const sortedDates = [...new Set(dedupedAll.map(r => formatDisplayDate(r.date)))].sort();
       for (const d of sortedDates) {
         if (d < segFilterDate) {
           baselineAcc += dedupedAll.filter(r => formatDisplayDate(r.date) === d && r.installType !== "Temporary").length;
         }
       }
-      const dayDeduped = deduplicateRecords(baseSegmentRecords.filter(r => formatDisplayDate(r.date) === segFilterDate));
+      const dayDeduped = dedupeRings(baseSegmentRecords.filter(r => formatDisplayDate(r.date) === segFilterDate));
       const currentDayPlan = getPlanForDate(segFilterDate, planConfig);
       const hourlyData = Array.from({ length: 24 }, (_, i) => ({ displayDate: `${String(i).padStart(2, "0")}:00`, dayRings: 0, nightRings: 0, tempRings: 0, totalRings: 0, plan: currentDayPlan / 24 }));
       dayDeduped.forEach(rec => {

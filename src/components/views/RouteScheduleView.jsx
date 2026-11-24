@@ -4,7 +4,7 @@ import {
 } from "lucide-react";
 import { filterByState } from "../../hooks/useGlobalFilter";
 import { formatDisplayDate } from "../../utils/formatters";
-import { getRingNumeric } from "../../utils/helpers";
+import { getRingNumeric, dedupeRings } from "../../utils/helpers";
 import { ROUTE_SEGMENTS, PROJECT_DEADLINE } from "../../utils/constants";
 import { distancePlanFor } from "../../utils/planConfig";
 import { routeConfigFor, routeRowsFromBored, machineActualMeters, ROUTE_TOTAL, PROJECT_TOTAL_M, ROUTE_NAME, ROUTE_STATUS, pct, validateRouteConfig } from "../../utils/routeConfig";
@@ -16,7 +16,7 @@ import { fitAndPrint } from "../../utils/printFit";
 import { buildMutationEnvelope } from "../../offline/mutationEnvelope";
 
 const RouteScheduleView = ({ segmentRecords = [], projectInfo, machine = "TBM1", machineProgress = null, routeProjectTotal = null, filterState = {}, readOnly = false, onMutate, syncMeta, routeConfigs = null, distPlanConfig: distPlanConfigProp = null }) => {
-  const filteredSegments = useMemo(() => filterByState(segmentRecords, filterState), [segmentRecords, filterState]);
+  const filteredSegments = useMemo(() => filterByState(dedupeRings(segmentRecords), filterState), [segmentRecords, filterState]);
 
   // this machine's route, stations and deadline — TBM2: IS4 → PS1, 4,726 m, no deadline yet
   const routeTotal = ROUTE_TOTAL[machine] || 0;
@@ -146,33 +146,13 @@ const RouteScheduleView = ({ segmentRecords = [], projectInfo, machine = "TBM1",
   const addDistPlanRange = () => setDistPlanConfig({ ...distPlanConfig, ranges: [...(distPlanConfig.ranges || []), { startMonth: "", endMonth: "", mode: "rings", ringsPerDay: 0, avgLength: 1.2, distancePerMonth: 0 }] });
   const removeDistPlanRange = (index) => { const r = [...(distPlanConfig.ranges || [])]; r.splice(index, 1); setDistPlanConfig({ ...distPlanConfig, ranges: r }); };
 
-  // ══════════════════════════════════════════════
-  // HELPER: Smart deduplicate — เลือก Completed ก่อน, ถ้าไม่มีใช้แถวสุดท้าย
-  // ══════════════════════════════════════════════
-  const deduplicateRecords = (records) => {
-    const map = new Map();
-    records.forEach(r => {
-      const key = r.ringNo;
-      const existing = map.get(key);
-      if (!existing) {
-        map.set(key, r);
-      } else {
-        if (existing.status === "In Progress" && r.status !== "In Progress") {
-          map.set(key, r);
-        } else if (existing.status === r.status) {
-          map.set(key, r);
-        }
-      }
-    });
-    return Array.from(map.values());
-  };
 
   // ══════════════════════════════════════════════
   // SECTION: Distance Chart Data (รายเดือน)
   // ══════════════════════════════════════════════
 
   const distanceChartData = useMemo(() => {
-    const allDeduped = deduplicateRecords(filteredSegments);
+    const allDeduped = dedupeRings(filteredSegments);
 
     // ใช้เฉพาะ Ring ถาวร (ให้สอดคล้องกับ Total Distance) ไม่ตัด In Progress ออกแล้ว
     const completedPermRings = allDeduped.filter(r => r.installType !== "Temporary");

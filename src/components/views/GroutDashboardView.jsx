@@ -85,6 +85,10 @@ const GroutDashboardView = ({ groutRecords, segmentRecords, secondaryGroutRecord
   // this one set showed the red confirm bar already up over the NEXT record the crew opened
   const closeRecord = () => { setSelectedRecord(null); setIsEditing(false); setShowDeleteConfirm(false); };
 
+  // Rows P1–P651 hold their volumes in primaryPartA/B with partA/partB blank; newer rows use partA/B.
+  // Edit and save the field the row actually holds, or a save of such a row writes total 0.
+  const partKey = (rec, ab) => (rec?.[`part${ab}`] === "" || rec?.[`part${ab}`] == null) && rec?.[`primaryPart${ab}`] != null && rec?.[`primaryPart${ab}`] !== "" ? `primaryPart${ab}` : `part${ab}`;
+
   const handleEditChange = (e) => {
     const { name, value } = e.target;
     // the ring is not editable, so nothing here has to re-derive anything from it
@@ -114,7 +118,7 @@ const GroutDashboardView = ({ groutRecords, segmentRecords, secondaryGroutRecord
     const isReGrout = editFormData.groutPass === "Re-Grout";
     const total = isReGrout
       ? Number(editFormData.primaryPartA || editFormData.partA || 0) + Number(editFormData.primaryPartB || editFormData.partB || 0) + Number(editFormData.secondaryPartA || 0) + Number(editFormData.secondaryPartB || 0)
-      : Number(editFormData.partA || 0) + Number(editFormData.partB || 0);
+      : Number(editFormData[partKey(editFormData, "A")] || 0) + Number(editFormData[partKey(editFormData, "B")] || 0);
     const ratio = (total / THEORETICAL_VOL) * 100;
     // the ring is not editable here, so it travels exactly as the record carries it
     const updatedRecord = { ...editFormData, total: Number(total), ratio: Number(ratio) };
@@ -448,11 +452,11 @@ const GroutDashboardView = ({ groutRecords, segmentRecords, secondaryGroutRecord
                       <div className="grid grid-cols-2 gap-4 mb-4">
                         <div>
                           <div className="text-xs text-ink-2 mb-1">Part A</div>
-                          <div className="font-mono text-lg font-semibold text-ink">{isEditing ? <input type="number" step="0.01" name="partA" value={editFormData?.partA || ''} onChange={handleEditChange} className="w-20 bg-surface border border-line rounded-input px-2 outline-none focus:border-navy" /> : Number(selectedRecord.partA || 0).toFixed(2)} <span className="text-xs font-sans text-ink-3">m³</span></div>
+                          <div className="font-mono text-lg font-semibold text-ink">{isEditing ? <input type="number" step="0.01" name={partKey(editFormData, "A")} value={editFormData?.[partKey(editFormData, "A")] ?? ''} onChange={handleEditChange} className="w-20 bg-surface border border-line rounded-input px-2 outline-none focus:border-navy" /> : Number(selectedRecord.partA || 0).toFixed(2)} <span className="text-xs font-sans text-ink-3">m³</span></div>
                         </div>
                         <div>
                           <div className="text-xs text-ink-2 mb-1">Part B</div>
-                          <div className="font-mono text-lg font-semibold text-ink">{isEditing ? <input type="number" step="0.01" name="partB" value={editFormData?.partB || ''} onChange={handleEditChange} className="w-20 bg-surface border border-line rounded-input px-2 outline-none focus:border-navy" /> : Number(selectedRecord.partB || 0).toFixed(2)} <span className="text-xs font-sans text-ink-3">m³</span></div>
+                          <div className="font-mono text-lg font-semibold text-ink">{isEditing ? <input type="number" step="0.01" name={partKey(editFormData, "B")} value={editFormData?.[partKey(editFormData, "B")] ?? ''} onChange={handleEditChange} className="w-20 bg-surface border border-line rounded-input px-2 outline-none focus:border-navy" /> : Number(selectedRecord.partB || 0).toFixed(2)} <span className="text-xs font-sans text-ink-3">m³</span></div>
                         </div>
                       </div>
                       <div className="border-t border-line pt-3 flex justify-between items-end">
